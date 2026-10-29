@@ -1,3 +1,4 @@
+#include <deque>
 #include <iostream>
 #include <vector>
 
@@ -9,7 +10,9 @@
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/runtime_node.h"
+#include "apptraverse/node.h"
 #include "apptraverse/ui/ui_edit_box.h"
+#include "apptraverse/ui/ui_list_container.h"
 #include "apptraverse/ui/ui_localization_string.h"
 #include "apptraverse/ui/ui_push_button_presenter.h"
 #include "apptraverse/ui/ui_presenters.h"
@@ -346,6 +349,99 @@ void TestLocalizationLazyInitialPublication() {
   CHECK(!ru_layers_after.empty());
 }
 
+std::size_t CountJournalEventsWithClass(Node const& node,
+                                        std::uint32_t class_id) {
+  std::size_t count = 0;
+  for (auto const& entry : node.journal) {
+    if (entry.event && entry.event->GetClassId() == class_id) {
+      ++count;
+    }
+  }
+  return count;
+}
+
+void PumpModelWork(std::deque<ModelObjectProxy::ModelWork>& deferred,
+                   ae::Domain& model_domain) {
+  while (!deferred.empty()) {
+    auto work = std::move(deferred.front());
+    deferred.pop_front();
+    work(model_domain);
+  }
+}
+
+void TestListSelectionViaPresenterProxy() {
+  ae::RamDomainStorage model_storage;
+  ae::RamDomainStorage ui_storage;
+  ae::Domain model_domain{model_storage};
+  ae::Domain ui_domain{ui_storage};
+
+  auto doc = UiWindow::ptr::Create(ae::CreateWith{model_domain});
+  InitializeRuntimeNode(*doc);
+  auto list = UiListContainer::ptr::Create(ae::CreateWith{model_domain});
+  list->selection_index = -1;
+  InitializeRuntimeNode(*list, *doc);
+  auto row0 = UiListRow::ptr::Create(ae::CreateWith{model_domain});
+  auto row1 = UiListRow::ptr::Create(ae::CreateWith{model_domain});
+  InitializeRuntimeNode(*row0, *list);
+  InitializeRuntimeNode(*row1, *list);
+  list->rows = {row0, row1};
+
+  auto window_presenter = UiWindowPresenter::ptr::Create(
+      ae::CreateWith{model_domain});
+  window_presenter->presentation_loaded = true;
+
+  std::deque<ModelObjectProxy::ModelWork> deferred;
+  ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork work) {
+    deferred.push_back(std::move(work));
+  }};
+
+  auto list_presenter = UiListContainerPresenter::ptr::Create(
+      ae::CreateWith{model_domain});
+  list_presenter->container = list;
+  list_presenter->window_presenter = window_presenter;
+  list_presenter->model_proxy = &proxy;
+
+  ByteSink initial;
+  SerializeInitialPublication(*list, initial);
+  ByteSource initial_in;
+  initial_in.data = initial.bytes.data();
+  initial_in.size = initial.bytes.size();
+  auto ui_obj = LoadInitialPublication(initial_in, ui_domain, ui_storage);
+  CHECK(ui_obj);
+  auto ui_list = UiListContainer::ptr::MakeFromThis(
+      static_cast<UiListContainer*>(ui_obj.get()));
+  CHECK(ui_list->selection_index == -1);
+
+  int materialize_notify = 0;
+  list->BindMaterializedChangeNotifier(&materialize_notify, &PendingNotify);
+
+  list_presenter->SubmitListRowSelectionChangedFromUi(1);
+  CHECK(!deferred.empty());
+  PumpModelWork(deferred, model_domain);
+
+  CHECK(list->selection_index == 1);
+  CHECK(materialize_notify == 1);
+  CHECK(CountJournalEventsWithClass(*list,
+                                    SetUiListSelectionEvent::kClassId) == 1);
+  CHECK(ui_list->selection_index == -1);
+
+  list_presenter->SubmitListRowSelectionChangedFromUi(1);
+  PumpModelWork(deferred, model_domain);
+  CHECK(CountJournalEventsWithClass(*list,
+                                    SetUiListSelectionEvent::kClassId) == 1);
+  CHECK(materialize_notify == 1);
+
+  ByteSink structural;
+  SerializeStructuralNodePublication(*list, structural);
+  ByteSource structural_in;
+  structural_in.data = structural.bytes.data();
+  structural_in.size = structural.bytes.size();
+  ApplyStructuralPublication(structural_in, ui_domain, ui_storage);
+
+  CHECK(ui_list->selection_index == 1);
+  list->ClearMaterializedChangeNotifier();
+}
+
 void TestPushButtonClickViaPresenter() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
@@ -387,5 +483,6 @@ int main() {
   TestLocalizationLazyLoadRoundtrip();
   TestLocalizationLazyInitialPublication();
   TestPushButtonClickViaPresenter();
+  TestListSelectionViaPresenterProxy();
   return 0;
 }

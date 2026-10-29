@@ -40,6 +40,7 @@ class UiDesktopWindowPresenter : public UiWindowPresenter {
                   : UiDesktopWindow::ptr{};
   }
 
+  // Native frame report: presenter → ModelObjectProxy → UiDesktopWindow Event.
   void SubmitFrameFromNative(std::int32_t x, std::int32_t y,
                              std::int32_t client_width,
                              std::int32_t client_height);
@@ -127,6 +128,8 @@ class UiListContainerPresenter : public Presenter {
   bool ReadyForPresentation() const override;
   void OnModelChanged() override;
 
+  // List UI input → ModelObjectProxy → UiListContainer model handlers (override
+  // Submit* in app adapters such as WindowCatalog; do not mutate mirror here).
   virtual void SubmitListRowActivatedFromUi(std::size_t row_index);
   virtual void SubmitListRowSelectionChangedFromUi(std::size_t row_index);
 

@@ -30,7 +30,9 @@ void UiListContainerPresenter::SubmitListRowActivatedFromUi(
 
 void UiListContainerPresenter::SubmitListRowSelectionChangedFromUi(
     std::size_t row_index) {
-  OnListRowSelectionChanged(row_index);
+  model_proxy->Invoke(container->obj_id,
+                      &UiListContainer::SubmitListRowSelectionChangedFromUi,
+                      row_index);
 }
 
 void UiListContainerPresenter::OnListRowActivated(std::size_t row_index) {

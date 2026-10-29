@@ -44,6 +44,7 @@ class UiListRow : public NodeFor<UiListRow> {
 };
 
 class RemoveUiListRowEvent;
+class SetUiListSelectionEvent;
 
 class UiListContainer : public NodeFor<UiListContainer> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::UiListContainer", UiListContainer,
@@ -71,9 +72,30 @@ class UiListContainer : public NodeFor<UiListContainer> {
   std::int32_t selection_index;
 
   void Apply(RemoveUiListRowEvent const& event);
+  void Apply(SetUiListSelectionEvent const& event);
 
+  // UI/native entry: routed through presenter ModelObjectProxy on the model thread.
   void SubmitListRowActivatedFromUi(std::size_t row_index);
+  void SubmitListRowSelectionChangedFromUi(std::size_t row_index);
+
   virtual void HandleListRowActivated(std::size_t row_index);
+  virtual void HandleListRowSelectionChanged(std::size_t row_index);
+};
+
+class SetUiListSelectionEvent
+    : public EventFor<UiListContainer, SetUiListSelectionEvent> {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::SetUiListSelectionEvent",
+                           SetUiListSelectionEvent, Event, 0)
+
+ protected:
+  SetUiListSelectionEvent() = default;
+
+ public:
+  explicit SetUiListSelectionEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(selection_index))
+
+  std::int32_t selection_index;
 };
 
 class RemoveUiListRowEvent

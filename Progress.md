@@ -1,4 +1,4 @@
-**Active (2026-10-29):** **P3.T2a PASS** — MinimalApp common graph builder + Headless session E2E (`apptraverse_minimal_app_headless_test`); Win demos build. **NEXT: P3.T2b** (нейтральные component contracts). [PLAN](docs/versioning/PLAN.md), [PROGRESS](docs/versioning/PROGRESS.md).
+**Active (2026-10-29):** **P3.T2 PASS** (T2a+T2b) — MinimalApp sessions + neutral Window/List/Button input contracts (`SetUiListSelectionEvent`). **NEXT: P3.T3.H** (Headless MinimalApp save/cold-load). [PLAN](docs/versioning/PLAN.md), [PROGRESS](docs/versioning/PROGRESS.md).
 
 **Release versioning (R0–R5):** детальный журнал — [docs/versioning/PROGRESS.md](docs/versioning/PROGRESS.md); **P0–P6** — единственная активная очередь на unified. Rules: `.cursor/rules/apptraverse-coding-agent.mdc`.
 

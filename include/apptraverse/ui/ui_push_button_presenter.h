@@ -45,6 +45,7 @@ class UiPushButtonPresenter : public Presenter {
 
   bool ReadyForPresentation() const override;
 
+  // Native click → ModelObjectProxy → UiPushButton::HandlePushButtonClicked.
   void NotifyClickedFromUi() override;
 
   void SimulateClickForTest();
