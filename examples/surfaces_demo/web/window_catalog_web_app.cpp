@@ -15,6 +15,7 @@
 #include "apptraverse/distill.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/object_macros.h"
+#include "apptraverse/runtime_node.h"
 
 namespace apptraverse {
 namespace {
@@ -27,6 +28,32 @@ ae::ObjId CatalogRootId() {
   return ae::ObjId{
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
 }
+
+#if defined(APPTRAVERSE_ENABLE_DISTILLATION)
+void BootstrapDistilledProfileIfAbsent(std::filesystem::path const& state_dir) {
+  std::error_code profile_error;
+  bool const profile_exists = std::filesystem::exists(state_dir, profile_error);
+  if (profile_error) {
+    WriteFatalStderr("fatal: cannot inspect catalog profile\n");
+    std::abort();
+  }
+  bool const profile_absent =
+      !profile_exists || std::filesystem::is_empty(state_dir, profile_error);
+  if (profile_error) {
+    WriteFatalStderr("fatal: cannot inspect catalog profile contents\n");
+    std::abort();
+  }
+  if (!profile_absent) {
+    return;
+  }
+  DirectoryDomainStorage bootstrap_storage{state_dir};
+  ae::Domain bootstrap_domain{bootstrap_storage};
+  auto bootstrap_catalog = BuildWebWindowCatalogGraph(bootstrap_domain);
+  FinalizeDistilledGraph(*bootstrap_catalog);
+  StabilizeDistilledPersistentSnapshot(*bootstrap_catalog);
+  SaveDistilledRoot(*bootstrap_catalog);
+}
+#endif
 
 }  // namespace
 
@@ -69,29 +96,10 @@ void WebWindowCatalogApp::Start(std::filesystem::path state_dir) {
   });
 
   model_thread_ = std::thread([this] {
-    DirectoryDomainStorage storage{state_dir_};
 #if defined(APPTRAVERSE_ENABLE_DISTILLATION)
-    std::error_code profile_error;
-    bool const profile_exists =
-        std::filesystem::exists(state_dir_, profile_error);
-    if (profile_error) {
-      WriteFatalStderr("fatal: cannot inspect catalog profile\n");
-      std::abort();
-    }
-    bool const profile_absent = !profile_exists ||
-                               std::filesystem::is_empty(state_dir_, profile_error);
-    if (profile_error) {
-      WriteFatalStderr("fatal: cannot inspect catalog profile contents\n");
-      std::abort();
-    }
-    if (profile_absent) {
-      DirectoryDomainStorage bootstrap_storage{state_dir_};
-      ae::Domain bootstrap_domain{bootstrap_storage};
-      auto bootstrap_catalog = BuildWebWindowCatalogGraph(bootstrap_domain);
-      FinalizeDistilledGraph(*bootstrap_catalog);
-      SaveDistilledRoot(*bootstrap_catalog);
-    }
+    BootstrapDistilledProfileIfAbsent(state_dir_);
 #endif
+    DirectoryDomainStorage storage{state_dir_};
 
     ApplicationModelSessionHooks<WindowCatalog> hooks;
     hooks.prepare = PrepareWindowCatalogForRun;

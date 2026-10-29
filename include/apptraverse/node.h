@@ -91,6 +91,9 @@ class Node : public ae::Obj {
       return;
     }
     detail::NoteNodeHistorySerialized(journal.size(), base.is_valid());
+    if (base.is_valid() && !base.is_loaded()) {
+      const_cast<Node*>(this)->base.Load();
+    }
     ae::DomainGraph* const graph =
         detail::DnvSerializationScope<std::decay_t<Dnv>>::GetGraph(dnv);
     bool const force_historical_base =
@@ -296,7 +299,8 @@ class Node : public ae::Obj {
     ae::RamDomainStorage scratch;
     ae::Domain scratch_domain{scratch};
     ae::DomainGraph save_graph{
-        &scratch_domain, ae::GraphSerializationScope::MaterializedPublication};
+        &scratch_domain, ae::GraphSerializationScope::LocalPersistent};
+    save_graph.force_materialize = true;
     bool const owner_marked =
         save_graph.cycle_detector.Add(ConcreteNode::kClassId, owner_id);
     assert(owner_marked);

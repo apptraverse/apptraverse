@@ -1,0 +1,25 @@
+diff --git a/src/aether-objects/obj/obj_ptr_base.cpp b/src/aether-objects/obj/obj_ptr_base.cpp
+index 2dfa684..c4d8e91 100644
+--- a/src/aether-objects/obj/obj_ptr_base.cpp
++++ b/src/aether-objects/obj/obj_ptr_base.cpp
+@@ -131,6 +131,20 @@ SeriResult ObjPtrBaseSerializer::Seri(Archive& archive,
+   if (meta.value.id_.is_valid()) {
+     archive.buffer().domain_graph->NotifyCloneReference(meta.value.id_);
+   }
++  ObjectPtrBase& mutable_ptr = const_cast<ObjectPtrBase&>(meta.value);
++  DomainGraph* const graph = archive.buffer().domain_graph;
++  if (mutable_ptr.is_valid() && !mutable_ptr.cached_ && graph != nullptr &&
++      graph->serialization_scope == GraphSerializationScope::LocalPersistent) {
++    if (graph->force_materialize) {
++      if (Ptr<Obj> live = graph->domain->Find(mutable_ptr.id_)) {
++        mutable_ptr.cached_ = std::move(live);
++        mutable_ptr.flags_ = mutable_ptr.flags_ & ~ObjFlags::kUnloaded;
++      }
++    }
++    if (!mutable_ptr.cached_) {
++      (void)mutable_ptr.LoadCached();
++    }
++  }
+   ObjId const serialized_id =
+       archive.buffer().domain_graph->CloneSaveRemapId(meta.value.id_);
+   TRY_RESULT((archive.buffer().Write(DataTag{serialized_id})));

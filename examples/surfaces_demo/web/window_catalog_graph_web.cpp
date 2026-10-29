@@ -39,6 +39,16 @@ class WebCatalogWindowPresenter : public ui::UiDesktopWindowPresenter {
   explicit WebCatalogWindowPresenter(ae::ObjProp prop)
       : UiDesktopWindowPresenter{prop} {}
 
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_);
+  }
+
   void OnLoad() override {
     title.Load();
     int const language = LanguageIndex(*this);
@@ -122,6 +132,18 @@ class WebCatalogPushButtonPresenter : public ui::UiPushButtonPresenter {
  public:
   explicit WebCatalogPushButtonPresenter(ae::ObjProp prop)
       : UiPushButtonPresenter{prop} {}
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, button, window_presenter, layout_x, layout_y, layout_width,
+        layout_height, control_id);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, button, window_presenter, layout_x, layout_y, layout_width,
+        layout_height, control_id);
+  }
 
   void OnLoad() override {
     button.Load();

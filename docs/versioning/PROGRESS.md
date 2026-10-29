@@ -80,7 +80,7 @@
 | **P2.f** — библиотечный lifecycle | §P2.f | **IN_PROGRESS** |
 | **P3.1a** — WindowCatalog common core/actions (без Win32 graph) | §P3.1a | **PASS** — `surfaces_demo_window_catalog_common`; model + overlay tests |
 | **P3.1b** — общая композиция graph builder; Windows/Headless adapters; Headless E2E | §P3.1b | **PASS** (win64-ninja-msvc-debug, локально) — `apptraverse_window_catalog_headless_test`; model + overlay tests; demos build. |
-| **P3.2a** — Web initial WindowCatalog chrome (mirror + DOM) | §P3.2a | **PASS** — Emscripten **3.1.64** (`emsdk` session), `build/wasm-ninja-debug`, target `web_window_catalog_demo`; browser smoke `tools/wasm_window_catalog_browser_smoke.py` + `tools/serve_wasm.py` (COOP/COEP, SAB, `WINDOW_CATALOG_INITIAL_RENDER_OK`, screenshot `docs/smoke_artifacts/window_catalog_web_initial.png`). Æther-objects: include-order hotfix в shared CPM tree (Clang/Emscripten); follow-up patch pending. |
+| **P3.2a** — Web initial WindowCatalog chrome (mirror + DOM) | §P3.2a | **PASS (исторически `2c73b99`)** — smoke с ручным CPM cache `7295` (origin-facet append снят). **Актуально на `9d4edb2` + полная patch chain: smoke FAIL** (`LoadApplication id=1`) — см. **P3.T1**. |
 | **P3.2 (оставшееся)** — Web actions + persist | PLAN §P4 | **Перенесено в P4.C2/Web**; не DONE, не текущий NEXT |
 | **P3** — библиотечный template + controls, семь backend | PLAN §P3.T | **IN_PROGRESS**; прежние PASS не подтверждают новую цель |
 | **P3.T0** — границы и порядок template → catalog → admin | уточнение пользователя, 2026-10-28 | **DONE (doc-only)**; новых code PASS нет |
@@ -103,7 +103,7 @@
 
 В PLAN зафиксированы границы common/backend/application, независимый MinimalApp, переиспользование существующих runtime/session/proxy, platform lifecycle/storage hooks, критерии library controls и запрет копирования старого Surfaces runtime. Старые PASS сохранены как evidence отдельных сценариев; новый P3.T0 — только изменение плана.
 
-**WASM reproducibility (P3.T1):** на **`2c73b99`** smoke проходил с ручным hotfix в shared CPM (`7295`), где origin-facet append в `DomainGraph::Save` был снят. **P3.T1** закрепляет полную цепочку patches (pin `79283b6` без смены pin) + `TryAppendOriginFacetLayer` в `domain.cpp` (LocalPersistent **и** CanonicalClone). Проверка apply: `.aether-patch-verify` @ pin → patches 1–13 **`git apply` OK**. Сборка использует CPM `…/aether-objects/bc1a` (не ручной `7295`). **Win64 Debug:** `apptraverse_object_origin_facet_test`, `apptraverse_object_clone_test`, `apptraverse_window_catalog_headless_test`, CTest `apptraverse_object_origin_disk_roundtrip_test` — **PASS**. **WASM Debug:** `web_window_catalog_demo` **build PASS**; `tools/wasm_window_catalog_browser_smoke.py` — **FAIL** (catalog stuck at «Loading…», worker `fatal: LoadApplication failed id=1`). Smoke blocker открыт; **NEXT P3.T2** только после smoke **PASS**.
+**WASM reproducibility (P3.T1):** на **`2c73b99`** smoke проходил с ручным hotfix в shared CPM (`7295`), где origin-facet append в `DomainGraph::Save` был снят. **P3.T1** закрепляет полную patch chain (pin `79283b6` без смены pin), включая **`aether-objects-local-persistent-objptr-seri.patch`** (#14) и восстановленный **`emscripten-domain-include`**. **Win64 Debug (2026-10-28):** `apptraverse_object_origin_facet_test`, CTest `apptraverse_object_origin_disk_roundtrip_test` — **PASS**; `apptraverse_window_catalog_headless_test` — **FAIL** (`window_prefab.is_loaded()` на initial publication, отдельно от WASM load). **WASM Debug:** `web_window_catalog_demo` **build PASS** (CPM `…/aether-objects/8021`); browser smoke **FAIL** — model thread `fatal: LoadApplication failed id=1` после bootstrap `SaveDistilledRoot`. **Первый отказ:** `LoadApplication` → `LoadCached` → `LoadRoot(1)` / `LoadStoredLayers` при stored layers id=1 `[Node/S0 9 B, WindowCatalog/S0–S2]`; на Win64 bootstrap для id=1 дополнительно пишется **`ae::Obj/S0` (2178182515, size 0)**, на WASM этот слой **не** появляется в OBJ_SYS — гипотеза для следующей итерации, не доказанная первопричина. **NEXT P3.T2** только после smoke **PASS**.
 
 ---
 
@@ -111,15 +111,13 @@
 
 **Pin (без изменений):** `79283b667cabf689da1059d618fe2a22abf51db4`.
 
-**Новые/обновлённые patches (порядок CMake `PATCHES`):** `local-persistent-load` → … → `clone-reference-visitor` → **`aether-objects-emscripten-domain-include.patch`** (новый) + regen **`aether-objects-origin-facet.patch`**, **`aether-objects-clone-canonical-state.patch`**.
+**Patches (CMake `PATCHES`):** … → `clone-reference-visitor` → **`emscripten-domain-include`** → **`local-persistent-objptr-seri`** (#14).
 
-**Состав `emscripten-domain-include`:** `domain_buffer.h`; `domain.h`/`domain.cpp` include-order + `DomainBuffer` вынесен; `TryAppendOriginFacetLayer` в `domain.cpp` (LocalPersistent + CanonicalClone, `ShouldSaveOriginFacet`); `Save` template вызывает helper вместо header-inline append; `obj.h` / `obj_ptr*` — `domain.h` после полного `Obj`, Create/Clone/Declare после `domain.h`.
+**App bootstrap:** model-thread `BootstrapDistilledProfileIfAbsent`; `StabilizeDistilledPersistentSnapshot`; `SaveDistilledRoot` fail-fast; profile `window_catalog_runtime_state_v5`.
 
-**Воспроизводимость:** pin → 13 patches в `.aether-patch-verify` (**`git apply` OK**). Сборки: CPM tree **`…/aether-objects/bc1a`** содержит `domain_buffer.h` + `TryAppendOriginFacetLayer` (не manual `7295`).
+**Проверки (2026-10-28):** Win64 — origin facet + disk roundtrip **PASS**; headless catalog **FAIL** (`window_prefab.is_loaded`). WASM build **PASS** (CPM `8021`); smoke **FAIL** — `LoadApplication failed id=1` after bootstrap; stored id=1 `[Node/S0 9 B, WindowCatalog/S0–S2]`; Win64 bootstrap also logs **`ae::Obj/S0` size 0** for id=1, WASM — нет (диагностическое направление).
 
-**Проверки (incremental):** Win64 Debug — origin facet, clone, window catalog headless, origin disk roundtrip CTest **PASS**. WASM Debug — `web_window_catalog_demo` **build PASS**; browser smoke **FAIL** (`LoadApplication failed id=1`).
-
-**Blocker / NEXT:** устранить WASM `LoadApplication` после bootstrap save с полной origin-semantics chain; затем **P3.T2** (общий application template).
+**Blocker / NEXT:** первый сбой `LoadStoredLayers` на WASM; smoke **PASS**; затем **P3.T2**.
 
 ---
 

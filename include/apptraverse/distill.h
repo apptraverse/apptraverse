@@ -45,7 +45,19 @@ inline void StabilizeDistilledPersistentSnapshot(ae::Obj& application_root) {
 
 template <typename T>
 void SaveDistilledRoot(T& root) {
-  T::ptr::MakeFromThis(&root).Save();  // runtime-save-ok: distill
+  ae::DomainGraph graph{root.domain, ae::GraphSerializationScope::LocalPersistent};
+  graph.force_materialize = true;
+  typename T::ptr const holder = T::ptr::MakeFromThis(&root);
+  ae::Ptr<ae::Obj> const obj = holder.cached();
+  if (!obj) {
+    WriteFatalStderr("fatal: SaveDistilledRoot root not cached\n");
+    std::abort();
+  }
+  ae::seri::SeriResult const result = graph.SaveRoot(obj, root.obj_id);
+  if (result.IsErr()) {
+    WriteFatalStderr("fatal: SaveDistilledRoot failed\n");
+    std::abort();
+  }
 }
 
 template <typename T>

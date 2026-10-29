@@ -124,7 +124,7 @@
 | ID | Узкий результат | Критерий завершения |
 | --- | --- | --- |
 | **P3.T0** | Зафиксировать границы и новую очередь | **DONE (doc-only)** в этой редакции; ни один новый code/backend PASS не заявлен |
-| **P3.T1 — IN_PROGRESS** | Воспроизводимый Æther include-order fix вместо cache-only WASM hotfix | Patch chain + CMake **PASS**; Win origin/Clone/catalog/disk roundtrip **PASS**; WASM build **PASS**; browser smoke **FAIL** (`LoadApplication id=1`) — blocker перед **P3.T2** |
+| **P3.T1 — IN_PROGRESS** | Patch chain #14 + WASM cold load после bootstrap | Patch chain + WASM build **PASS**; Win origin facet + disk roundtrip **PASS**; headless catalog **FAIL** (`window_prefab.is_loaded`); smoke **FAIL** — `LoadApplication id=1` / `LoadStoredLayers` (id=1: Node 9 B + WindowCatalog; Win64 также `ae::Obj/S0` 0 B — направление диагностики) |
 | **P3.T2** | Минимальный общий application template и нейтральные component contracts | Используются существующие ApplicationModelRuntime, ApplicationUiSession, ModelObjectProxy, RunApplicationModelSession/RunEmbeddedApplicationModelSession; lifecycle/сохранение не копируются в потребителей; независимый MinimalApp проходит минимальный Headless-срез command → Event → mirror; полный roundtrip — P3.T3.H |
 | **P3.T3.H** | Headless backend шаблона | Полный невизуальный lifecycle + commands/Events + publication/mirror + save/cold load |
 | **P3.T3.W** | Windows backend и общие Window/List/Button | MinimalApp через публичные library targets; native host/controls без зависимости от WindowCatalog |
