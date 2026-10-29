@@ -13,15 +13,15 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок:** **P0 DONE** → **P1.1 DONE** → **P2–P6** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)). Канон: [AppTraverse_Architecture_RU.md](../architecture/AppTraverse_Architecture_RU.md). **U5.2–U6 / 9D–9H** как очередь **сняты** (архив U1–U5.1 ниже).
+**Активный порядок (2026-10-28):** библиотечный template/controls на семи backend (**P3.T**) → WindowCatalog на нём (**P4.C**) → администрирование (**A1**). **P3.T0 DONE (doc-only); NEXT P3.T1 — воспроизводимый Æther/WASM patch**. **P0/P1 DONE**, выполненные P2 и P3.1a/P3.1b/P3.2a сохраняют свой scope ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)). Канон: [AppTraverse_Architecture_RU.md](../architecture/AppTraverse_Architecture_RU.md). **U5.2–U6 / 9D–9H** как очередь **сняты** (архив U1–U5.1 ниже).
 
-**Текущий этап Object Core:** **13 IN_PROGRESS**; **NEXT: 13.3**. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Object Core regressions на unified **не** PASS до **U6**.
+**Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
 **OPEN:** динамический источник Clone **без** устойчивого const **P** — явное решение, не silent fallback ([PLAN §13](./PLAN.md#13--универсальный-clone)).
 
 **Нормативные правила Object Core:** [PLAN §нормативные правила](./PLAN.md#нормативные-правила-object-core-v03--01-plan) (здесь не дублируются).
 
-**Fixture vs библиотека:** **`CloneCanonicalRoot`** — **13.2 PASS** (один объект); **P2.e.1 PASS** — remap штатного Save + двухобъектный graph (**13.3** частично); **P2.e.1R** — общий BACKING + cold **`Load(C)`**; **P2.e.2 PASS** — loaded Node R→D, **`CanonicalClone`**, собственные base/journal; **P2.e.2R PASS** — fresh history по remap-набору (Obj-корень + вложенный Node); **P2.e.3 PASS** — unloaded **`ObjPtr`** child через **`NotifyCloneReference`**, lazy сохранён; **P2.e.4 PASS** — **`UiDesktopWindow`** ↔ **`UiDesktopWindowPresenter`**, **`stable_prefab_ids`**, двойной Clone W→A→B; **P2.e.5 PASS** — **`WindowCatalog::AddWindow`** через **`CloneCanonicalRoot`**, **`WindowCatalog/S1`**; MinSizeRel manual (prefab Add/Open/Close/geom/locale/restart) **user confirmed**; дефект Z-order → **P2.e.5R PASS** — **`WindowCatalog/S2`** (`desktop_z_order`), **`SetWindowCatalogDesktopZOrderEvent`**, shutdown HWND→ObjId capture, **`WinApplicationHostCallbacks::after_initial`**. **P2.f.1 PASS** — MinSizeRel **`WindowCatalogModelSession`**: **`InstallEmbeddedDistilledBacking`** + USER + **`OverlayDomainStorage`**. **P2.f.1R PASS** — **`kSupplyConstantIds` {15,16}** (WindowPrefab / WindowPrefabPresenter); MinSizeRel **`win32_window_catalog_demo_load_only`**; W/V не материализуются в USER. Полный lazy closure / **13** — **TODO**; holder/title builder — **TODO**; **NEXT P2.f.2** — общий lifecycle API.
+**Fixture vs библиотека:** **`CloneCanonicalRoot`** — **13.2 PASS** (один объект); **P2.e.1 PASS** — remap штатного Save + двухобъектный graph (**13.3** частично); **P2.e.1R** — общий BACKING + cold **`Load(C)`**; **P2.e.2 PASS** — loaded Node R→D, **`CanonicalClone`**, собственные base/journal; **P2.e.2R PASS** — fresh history по remap-набору (Obj-корень + вложенный Node); **P2.e.3 PASS** — unloaded **`ObjPtr`** child через **`NotifyCloneReference`**, lazy сохранён; **P2.e.4 PASS** — **`UiDesktopWindow`** ↔ **`UiDesktopWindowPresenter`**, **`stable_prefab_ids`**, двойной Clone W→A→B; **P2.e.5 PASS** — **`WindowCatalog::AddWindow`** через **`CloneCanonicalRoot`**, **`WindowCatalog/S1`**; MinSizeRel manual (prefab Add/Open/Close/geom/locale/restart) **user confirmed**; дефект Z-order → **P2.e.5R PASS** — **`WindowCatalog/S2`** (`desktop_z_order`), **`SetWindowCatalogDesktopZOrderEvent`**, shutdown HWND→ObjId capture, **`WinApplicationHostCallbacks::after_initial`**. **P2.f.1 PASS** — MinSizeRel **`WindowCatalogModelSession`**: **`InstallEmbeddedDistilledBacking`** + USER + **`OverlayDomainStorage`**. **P2.f.1R PASS** — **`kSupplyConstantIds` {15,16}** (WindowPrefab / WindowPrefabPresenter); MinSizeRel **`win32_window_catalog_demo_load_only`**; W/V не материализуются в USER. Полный lazy closure / **13** — **TODO**; holder/title builder — **TODO**; **P2.f.2/P2.f.3 PASS** — общий lifecycle API; активный NEXT указан выше.
 
 Общие правила разработки: [.cursor/rules/apptraverse-coding-agent.mdc](../../.cursor/rules/apptraverse-coding-agent.mdc). Корневой журнал других подсистем: [Progress.md](../../Progress.md).
 
@@ -81,14 +81,31 @@
 | **P3.1a** — WindowCatalog common core/actions (без Win32 graph) | §P3.1a | **PASS** — `surfaces_demo_window_catalog_common`; model + overlay tests |
 | **P3.1b** — общая композиция graph builder; Windows/Headless adapters; Headless E2E | §P3.1b | **PASS** (win64-ninja-msvc-debug, локально) — `apptraverse_window_catalog_headless_test`; model + overlay tests; demos build. |
 | **P3.2a** — Web initial WindowCatalog chrome (mirror + DOM) | §P3.2a | **PASS** — Emscripten **3.1.64** (`emsdk` session), `build/wasm-ninja-debug`, target `web_window_catalog_demo`; browser smoke `tools/wasm_window_catalog_browser_smoke.py` + `tools/serve_wasm.py` (COOP/COEP, SAB, `WINDOW_CATALOG_INITIAL_RENDER_OK`, screenshot `docs/smoke_artifacts/window_catalog_web_initial.png`). Æther-objects: include-order hotfix в shared CPM tree (Clang/Emscripten); follow-up patch pending. |
-| **P3.2** — Web actions + persist | §P3.2 | **IN_PROGRESS** — **NEXT:** подключение действий WindowCatalog в Web |
-| **P3** — мультиплатформенный catalog | §P3 | **IN_PROGRESS** |
+| **P3.2 (оставшееся)** — Web actions + persist | PLAN §P4 | **Перенесено в P4.C2/Web**; не DONE, не текущий NEXT |
+| **P3** — библиотечный template + controls, семь backend | PLAN §P3.T | **IN_PROGRESS**; прежние PASS не подтверждают новую цель |
+| **P3.T0** — границы и порядок template → catalog → admin | уточнение пользователя, 2026-10-28 | **DONE (doc-only)**; новых code PASS нет |
+| **P3.T1** — воспроизводимый Æther/WASM patch | локальный hotfix из отчёта `2c73b99` | **TODO / NEXT** |
+| **P3.T2 / P3.T3** — общий template / библиотечные backend | PLAN §P3.T | **TODO**; готовность семи backend не заявлена |
+| **P4.C1 / P4.C2** — WindowCatalog как тонкий потребитель / семь E2E | PLAN §P4 | **TODO** |
+| **A1** — администрирование | PLAN §A1 | **TODO**, после P3 и P4 на всех семи backend |
 | **P2.e** — graph Clone prefab | §P2.e | **IN_PROGRESS** (полный lazy closure **TODO**; holder/title builder) |
 | **P2 (остальное)** | — | **IN_PROGRESS** |
 
-**Application scope:** Windows WindowCatalog **manual PASS** (U2, **`8835d26`** era); **новые платформы / P3+ PASS не заявляются**. Embedded **9D/9E** — перенесено в **P2** (template), не отдельная очередь.
+**Application scope:** Windows WindowCatalog **manual PASS** (U2, **`8835d26`** era); Headless и Web initial render — только в scope P3.1b/P3.2a. **Полный Web E2E, общий template на семи backend и cross-backend profile compatibility не заявляются**. Embedded **9D/9E** — перенесено в **P2** (template), не отдельная очередь.
 
 **Открыто:** атомарность профиля и corrupt-checkpoint hardening **не** в scope прототипа; **U5.1** exit code — факт **`8c863bc`**, failure branch в CTest не инжектировался.
+
+---
+
+## Перепланирование: сначала библиотечный template (2026-10-28)
+
+Основание — прямое уточнение пользователя после отчёта **`2c73b99`**. Новый порядок: **P3.T1 → P3.T2 → P3.T3.H/W/Web/A/L/M/I → P4.C1/C2 → A1**. Семь backend: Windows, Linux, macOS, Android, iOS/iPadOS (один), Web, Headless. Администрирование после первого non-Windows UI больше не является активным приоритетом: оно ждёт template и WindowCatalog на всех семи.
+
+В PLAN зафиксированы границы common/backend/application, независимый MinimalApp, переиспользование существующих runtime/session/proxy, platform lifecycle/storage hooks, критерии library controls и запрет копирования старого Surfaces runtime. Старые PASS сохранены как evidence отдельных сценариев; новый P3.T0 — только изменение плана.
+
+**WASM reproducibility debt:** браузерный smoke на **`2c73b99`** действительно прошёл локально. Однако часть Æther include-order исправлений осталась в shared CPM source tree; отчёт упоминает удаление header-inline origin-facet append. Такой hotfix не доказывает сохранение origin/Save semantics и не входит целиком в репозиторий. **P3.T1** должен закрепить полный patch и целевые регрессии, не отключая origin facet. Чистая воспроизводимость пока не подтверждена.
+
+**Эта итерация:** изменены только документы/правила; код, dependency cache и профили не менялись, сборки/тесты не запускались. Проверка — согласованность активной очереди и сохранение исторических PASS. Canon не переписан в план. Commit/push — документный commit этой итерации в `integration/unified-application`.
 
 ---
 

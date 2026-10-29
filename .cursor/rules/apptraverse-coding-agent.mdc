@@ -8,9 +8,10 @@ alwaysApply: true
 ## Active plan and canon (2026-10-27)
 
 - **Execution order:** [docs/versioning/PLAN.md §P0–P6](../../docs/versioning/PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6) only. **U5.2–U6**, **9D–9H** are **not** active queues.
-- **Priority:** cross-platform WindowCatalog E2E and admin application on the shared template after first non-Windows UI — not Object Core deep matrices unless explicitly assigned (see PLAN §P3 DEFERRED).
+- **Priority:** reusable library application template and controls on seven backends first, then WindowCatalog as a thin consumer on all seven, then admin application (P3.T → P4.C → A1). A first non-Windows screen does not unlock admin work. Object Core deep matrices remain deferred unless separately assigned.
+- **Boundary:** common/backend libraries must not depend on examples or WindowCatalog. Reuse ApplicationModelRuntime, ApplicationUiSession, ModelObjectProxy and model-session entrypoints; native hosts/controls belong to reusable backend libraries. Independent MinimalApp is the second consumer. Do not copy SurfacesModelSession/mirror orchestration into each new port.
 - **Architecture knowledge:** [docs/architecture/AppTraverse_Architecture_RU.md](../../docs/architecture/AppTraverse_Architecture_RU.md) (snapshot **`8c863bc`**). Do not duplicate canon in PLAN/PROGRESS.
-- **Goal:** one **WindowCatalog** on Windows, macOS, Linux, Android, iOS/iPadOS, Web via public AppTraverse headers/CMake.
+- **Goal:** one public application template and library controls on Windows, Linux, macOS, Android, iOS/iPadOS (one backend), Web and Headless; WindowCatalog and later admin consume that template.
 - **SharedNode / SharedSyncRuntime / replication / Æther network client:** **full removal** in **P1** (not OFF, not stubs). Keep Æther Objects, Node, Events, journal, local model/UI queue.
 - **U5.1** (`8c863bc`) shutdown-save exit code is **done**; do not revert.
 - **Default build:** **Debug**, incremental touched targets only. **No** Release runs by default, no ALL_BUILD, clean, cache wipe, or fresh dependency populate unless the user asks. MinSizeRel only on request.

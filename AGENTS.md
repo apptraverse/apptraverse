@@ -6,7 +6,7 @@
 - UI mirror and presenters must not mutate persistent model directly.
 - Keep presenters thin; one logical control → one presenter responsibility where practical.
 - Persistent vs runtime separation is mandatory (HWND, transport handles are runtime-only).
-- Demo catalog uses checkpoint + `DirectoryDomainStorage`; see [window_catalog_demo.md](docs/window_catalog_demo.md).
+- Catalog persistence uses standard object storage (P2.d.1R), with directory/embedded BACKING+USER composition as selected by the application; no separate checkpoint sidecar. See PLAN/PROGRESS for current evidence.
 - Prefer incremental **Debug** builds; do not clean/rebuild without cause. **No** Release by default, no fresh populate without user request.
 - Update [docs/versioning/PROGRESS.md](docs/versioning/PROGRESS.md) only after verified steps. Do not mark PASS without execution.
 - Do not merge to `main` or force-push without explicit user instruction (task may specify `--force-with-lease` on `integration/unified-application`).
@@ -18,7 +18,8 @@
 ## Active plan (P0–P6)
 
 - **Order:** [docs/versioning/PLAN.md §P0–P6](docs/versioning/PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6) — **only** active queue. **U5.2–U6**, **9D–9H** are **not** next steps.
-- **Priority:** кроссплатформенный WindowCatalog E2E (Windows → Web → далее P4) и приложение администрирования на том же template после первого non-Windows UI.
+- **Priority:** сначала библиотечный application template и controls на семи backend (Windows, Linux, macOS, Android, iOS/iPadOS, Web, Headless), затем WindowCatalog как тонкий потребитель на всех семи; администрирование только после P3/P4. Активные P3.T/P4.C — в PLAN.
+- **Boundary:** common/backend libraries не зависят от examples/WindowCatalog; native host/controls принадлежат backend, модель/Events/prefab/composition — приложению. Независимый MinimalApp проверяет переиспользование. Не копировать SurfacesModelSession и mirror-код в новые порты.
 - **Deferred (не возвращать в активную очередь без отдельного задания):** Object Core T16/T17, полная матрица Clone/upgrade, `kSupplyConstantIds` replacement, production hardening, resource download matrices — см. PLAN §P3 DEFERRED.
 - **Canon:** [docs/architecture/AppTraverse_Architecture_RU.md](docs/architecture/AppTraverse_Architecture_RU.md) (`8c863bc` observations).
 - **SharedNode / replication / Æther network client:** **full removal** (**P1.1**), not OFF or stubs.

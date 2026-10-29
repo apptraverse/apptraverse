@@ -4,7 +4,7 @@
 
 **Активный план (единственный):** [docs/versioning/PLAN.md §P0–P6](../versioning/PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6). **Архитектурный канон:** [AppTraverse_Architecture_RU.md](../architecture/AppTraverse_Architecture_RU.md) (срез **`8c863bc`**). **Прогресс:** [PROGRESS.md](../versioning/PROGRESS.md).
 
-**Цель:** один **WindowCatalog** на шести платформах через публичные headers/CMake AppTraverse; прикладная модель остаётся в примере.
+**Цель (2026-10-28):** сначала библиотечный application template и controls на **семи backend** (Windows, Linux, macOS, Android, iOS/iPadOS, Web, Headless), затем WindowCatalog как тонкий потребитель на всех семи, затем администрирование. Независимый MinimalApp проверяет отсутствие зависимости библиотеки от каталога. **NEXT P3.T1** — воспроизводимый Æther/WASM patch; далее P3.T2/T3 → P4.C → A1. Прежний Web initial-render PASS не равен готовности template.
 
 ---
 

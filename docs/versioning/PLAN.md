@@ -16,7 +16,9 @@
 
 ---
 
-## Активный план: мультиплатформенный WindowCatalog (P0–P6)
+<a id="активный-план-мультиплатформенный-windowcatalog-p0p6"></a>
+
+## Активный план: application template → WindowCatalog → администрирование (P0–P6, A1)
 
 **Единственная активная последовательность** на `integration/unified-application`. Очереди **U5.2–U6**, **9D–9H** как «следующий шаг» **сняты**; полезные пункты перенесены по смыслу в **P1–P6** (см. [U4 audit](../integration/unified-architecture-audit.md) — исторический срез).
 
@@ -26,7 +28,11 @@
 | **PLAN.md** (этот файл) | Порядок реализации **P0–P6** |
 | [PROGRESS.md](./PROGRESS.md) | Фактически выполненные шаги и SHA |
 
-**Цель:** один **WindowCatalog** на **Windows, macOS, Linux, Android, iOS/iPadOS, Web**. Потребитель подключает публичные заголовки и CMake AppTraverse; в примере остаются прикладная модель, Events, дистилляция, prefab и композиция библиотечных компонентов. Lifecycle, storage, UI mirror, маршрутизация действий, общие контролы и платформенная обвязка **переиспользуются**. Не шесть разных прикладных моделей.
+**Цель (уточнение пользователя, 2026-10-28):** сначала библиотечный **application template и общие UI-компоненты на семи backend**, затем **WindowCatalog как тонкий потребитель** этого шаблона на всех семи, и только затем приложение администрирования. Семь backend: **Windows, Linux, macOS, Android, iOS/iPadOS (один backend), Web, Headless**. Headless проходит тот же lifecycle/model/mirror/proxy без native UI.
+
+**Активная последовательность:** **P3.T1 → P3.T2 → P3.T3 (по одному backend) → P4.C1/P4.C2 → A1**. **P3.T0 DONE (этот план, doc-only)**. Прежний NEXT «Web WindowCatalog actions сразу после P3.2a» заменён этой последовательностью; законченные P3.1a/P3.1b/P3.2a не переигрываются. Полная объектная система, P5 и hardening не являются входным условием.
+
+Шаблон предоставляет lifecycle, storage-композицию, model runtime, publication/mirror, proxy и библиотечные controls/backend. Потребитель предоставляет только прикладную модель, Events, ресурсы/локализацию, prefab, композицию и точки интеграции. **MinimalApp** — независимый потребитель для проверки границы; копия WindowCatalog с другим именем такой проверкой не является.
 
 **Политика (приоритет над старыми U4/U5/I0):**
 
@@ -40,10 +46,11 @@
 | **P0** | Импорт канона; синхронизация PLAN/PROGRESS/rules | **DONE** |
 | **P1** | Удалить сеть/replication и ненужные deps; локальный WindowCatalog (Windows) остаётся рабочим | **DONE** |
 | **P2** | Общий application template + минимум persistence/Clone | **IN_PROGRESS** |
-| **P3** | Windows + первый non-Windows UI (Web WindowCatalog) | **IN_PROGRESS** |
-| **P4** | Остальные платформы небольшими E2E-шагами (macOS, Linux, mobile) | TODO |
-| **P5** | Расширенные обновления, resource-set delivery, replay | TODO |
-| **P6** | E2E по платформам (не certification / не total regression) | TODO |
+| **P3** | Библиотечный application template + компоненты, E2E на семи backend | **IN_PROGRESS**; P3.T0 doc-only DONE; NEXT P3.T1 |
+| **P4** | WindowCatalog — тонкий потребитель готового template и controls, E2E на семи backend | TODO; существующие результаты сохраняются |
+| **A1** | Первый сценарий администрирования на проверенном шаблоне | TODO; только после P3 и P4 на всех семи backend |
+| **P5** | Расширенные обновления, resource-set delivery, replay | DEFERRED; не блокирует P3/P4/A1 |
+| **P6** | Evidence E2E по backend накапливается внутри P3/P4 | IN_PROGRESS в проверенных scope; не отдельная полная regression matrix |
 
 ### P1 — удаление сетевого (по зависимостям, не по совпадению слова Shared)
 
@@ -103,31 +110,88 @@
 
 ### P3–P6
 
-| ID | Содержание | Статус |
+#### Сохранённые результаты предыдущей очереди
+
+| ID | Фактический результат | Статус и ограничение |
 | --- | --- | --- |
-| **P3.1a** | WindowCatalog common core + `Catalog*Button` без Win32 graph | **PASS** |
-| **P3.1b** | Общий graph builder; Windows/Headless adapters; Headless E2E | **PASS** (win64 Debug, эта машина) |
-| **P3.2a** | Web: initial publication — главное окно, список, кнопки, локализованные подписи (без действий) | **PASS** — WASM Debug build + browser smoke (Emscripten 3.1.64) |
-| **P3.2** | Web WindowCatalog: действия (Add/Delete/select/language), persist/reload | **IN_PROGRESS** — **NEXT:** onclick / Add / Delete / Open / select / language в Web |
-| **P3** | Мультиплатформенный WindowCatalog | **IN_PROGRESS** |
-| **P4** | Остальные платформы небольшими E2E-шагами | TODO |
-| **P5** | Resource-set delivery, upgrade/downgrade, S via origin, headless replay | TODO |
-| **P6** | Только реально прогнанные E2E | TODO |
+| **P3.1a** | WindowCatalog common model/actions | **PASS**; не подтверждает готовность нового template |
+| **P3.1b** | Общий builder, Windows/Headless adapters, Headless E2E | **PASS** (win64 Debug); не семь backend |
+| **P3.2a** | Web initial WindowCatalog DOM | **PASS локально**, commit **`2c73b99`**, Emscripten 3.1.64 + browser smoke; сборка использовала незакоммиченный Æther hotfix в CPM tree |
+| **P3.2 (оставшееся)** | Web actions и persist/reload | **Перенесено в P4.C2/Web** после библиотечного template; не DONE, не текущий NEXT |
 
-После первого рабочего non-Windows UI — первый сценарий **приложения администрирования** на том же библиотечном шаблоне (не ждать полного P4/P5).
+#### P3.T — библиотечный шаблон прежде приложения
 
-**DEFERRED / не блокирует P3** (не DONE, не отказ от контракта): замена `kSupplyConstantIds` (механизм **рабочий**; будущее место const-признака — **OPEN**); получение нового слоя **S** через origin; historical base и полный **T16/T17**; полная матрица Clone/upgrade/downgrade; дополнительные lazy-closure сценарии; докачка и активация resource-set; постоянный кеш из канонического состояния; универсальный экспорт журналов; общий аудит репозитория; production hardening и corner-case matrices.
+| ID | Узкий результат | Критерий завершения |
+| --- | --- | --- |
+| **P3.T0** | Зафиксировать границы и новую очередь | **DONE (doc-only)** в этой редакции; ни один новый code/backend PASS не заявлен |
+| **P3.T1 — NEXT** | Воспроизводимый Æther include-order fix вместо cache-only WASM hotfix | Полный patch в репозитории и CMake PATCHES; применим к закреплённому исходнику с существующими patches; сохранены origin-facet/Clone/Save; целевая WASM-сборка и выбранные origin/Clone регрессии |
+| **P3.T2** | Минимальный общий application template и нейтральные component contracts | Используются существующие ApplicationModelRuntime, ApplicationUiSession, ModelObjectProxy, RunApplicationModelSession/RunEmbeddedApplicationModelSession; lifecycle/сохранение не копируются в потребителей; независимый MinimalApp проходит минимальный Headless-срез command → Event → mirror; полный roundtrip — P3.T3.H |
+| **P3.T3.H** | Headless backend шаблона | Полный невизуальный lifecycle + commands/Events + publication/mirror + save/cold load |
+| **P3.T3.W** | Windows backend и общие Window/List/Button | MinimalApp через публичные library targets; native host/controls без зависимости от WindowCatalog |
+| **P3.T3.Web** | Web backend и общие Window/List/Button | Та же сессия и компоненты; UI delivery, DOM lifecycle, несколько представлений, сохранение и подтверждение записи browser storage |
+| **P3.T3.A** | Android backend | Тот же template; JNI/View lifecycle, отображение логического окна страницей, background/save/reattach в обычном сценарии |
+| **P3.T3.L** | Linux backend | GTK host/controls на общей сессии; не SurfacesModelSession |
+| **P3.T3.M** | macOS backend | AppKit/ObjC++ host/controls на общей сессии |
+| **P3.T3.I** | iOS/iPadOS backend | UIKit/SwiftUI integration на общей сессии; mobile lifecycle и страничное отображение |
+
+P3.T3 выполнять **по одному backend** в порядке H → W → Web → Android → Linux → macOS → iOS/iPadOS; каждый backend разбивать на небольшие законченные задачи. Сначала initial UI, затем команды/изменения, затем обычный save/cold-load/lifecycle. Отсутствие toolchain/устройства — **BLOCKED / не проверено**, не PASS. Не писать сразу семь host и не создавать универсальный framework до первого проверенного среза.
+
+#### Границы ответственности и зависимости
+
+| Слой | Обязанности | Не принадлежит слою |
+| --- | --- | --- |
+| **Общая библиотека** | Objects/Node/Events, сериализация, Clone, storage-композиция, model queue, publication, UI mirror, proxy, общие модели контролов/привязки и lifecycle | WindowCatalog/WindowHolder, прикладная нумерация, DOM/JNI/HWND, platform event loop |
+| **Библиотечный backend** | Native presenters, UI-thread dispatch, event loop, native resources, layout/DPI conversion, native input → семантический callback, путь/доступ к storage и завершение записи | Прикладные Add/Delete/Open, собственная копия model session или wire format |
+| **Потребитель** | Root/Events, регистрация своих классов, ресурсы, prefab, граф-композиция, выбор backend/supply, прикладные prepare/persist policies через template | Копии generic host/controls, ручная реализация mirror/очереди, собственные native handlers общих контролов |
+
+Зависимости направлены **потребитель → публичный template/controls + выбранный backend → общая библиотека → Æther Objects**. Общая библиотека и backend не включают headers из `examples/`. Platform headers доступны через platform API; common API не требует native типов. Bootstrap/embedded supply выбирается в точке композиции; Windows `window_catalog_graph.h` и generated Windows supply не входят в общий lifecycle.
+
+Применять границы к конкретным найденным местам, не начинать общий аудит:
+
+- `common/window_catalog_lifecycle.cpp` сейчас выбирает Windows graph/supply; общий путь выделить без второй модели и без удаления рабочих механизмов.
+- `web/window_catalog_web_app.cpp` сейчас имеет отдельный bootstrap, initial-only consumer и пустой persist hook; переносить механизмы в reusable template/backend, оставляя приложению только hooks.
+- `web/window_catalog_graph_web.cpp` сейчас использует фиксированные `catalog-*` DOM IDs и `WindowHolder`; библиотечные controls работают с общими UI-типами и собственными runtime native references для каждого экземпляра.
+- Windows/Headless list adapters дублируют прикладное selection/activation wiring; его смысл остаётся общим прикладным, native list не знает WindowCatalog.
+- Старые Linux/macOS/mobile `SurfacesModelSession` и ручное построение mirror не переносить в новый template; использовать только подходящие native реализации.
+- Compile policy без RTTI/exceptions едина; target-runtime и host-exporter различать. Генерация/упаковка не предполагает, что AppTraverse — корневой CMake-проект.
+
+Контракты, проверяемые при каждом E2E:
+
+1. Model Domain принадлежит model thread; UI работает с mirror. Команды идут через proxy → Events → Commit/Apply → publication.
+2. Object Load/Save не создаёт native resources. Presenter activation/update/unload выполняются на UI-потоке; parent/child ordering сохраняется.
+3. Backend доставляет уведомления, не меняя общего владения публикацией. Не заменять канал одиночным перезаписываемым pending slot; каждая принятая публикация и её sidecar согласованы.
+4. Save-семантика общая; triggers desktop close/mobile background/Web flush — платформенные. Сохранение не зависит исключительно от desktop exit; View/Activity detach не тождественен удалению model session.
+5. Логическое окно может отображаться desktop-окном, DOM-панелью или mobile-страницей. Desktop geometry/Z-order и mobile viewport/навигация различаются явно; размеры телефона не перезаписывают desktop intent.
+6. Native handles, host pointers и callbacks runtime-only. Перенос профиля между backend/ClassId **не подтверждён**; обеспечить один template не означает реализовать cross-backend migration. Не подменять разные схемы одинаковыми ClassId и не отключать unknown-ClassId rejection. Целевой переносимый канонический контракт сохраняется.
+7. Новые абстракции добавлять только по реальной общей обязанности; переиспользовать существующие классы и callbacks. Не вводить managers/wrappers/новые протоколы ради тестов или будущих сценариев.
+
+#### P4 — WindowCatalog как потребитель
+
+| ID | Результат | Проверка |
+| --- | --- | --- |
+| **P4.C1** | WindowCatalog подключается к template и библиотечным controls; остаются только model/actions/localization/prefab/composition | Один common builder; platform factory выбирает presenters, runtime Add использует Clone; нет копии host/session/native controls |
+| **P4.C2** | Один WindowCatalog E2E на каждом из семи backend | Add×2 → язык → выбор → Open/Close → Delete → save → новый Domain/cold load; mirror, origins W/V, нумерация и lazy prefab сохранены; Headless без native UI |
+
+Текущий Windows/Headless WindowCatalog служит регрессией во время P3; точечная миграция вместе с библиотечным изменением допустима. Но **P4 PASS** требует завершённого template и проверенного потребителя на всех семи backend. Независимый MinimalApp остаётся вторым потребителем: сборка без WindowCatalog headers/sources доказывает отсутствие обратных зависимостей.
+
+#### A1 / P5 / P6
+
+**A1 — приложение администрирования:** начинать **только после P3 и P4 на семи backend**. Использовать тот же template и controls; transport администрирования — отдельная прикладная задача. SharedNode, replication и network client в ядро не возвращать.
+
+**P5 — DEFERRED / не блокирует P3/P4/A1:** расширенные обновления/ресурсы/replay. **P6:** фиксировать реально выполненные E2E по backend внутри P3/P4; это не сертификация и не требование полного CTest.
+
+**DEFERRED** (не DONE, не отказ от контракта): замена `kSupplyConstantIds` (текущий механизм рабочий; место const-признака **OPEN**); новый слой S через origin; historical base и полный T16/T17; полная матрица Clone/upgrade/downgrade; дополнительные lazy closure; докачка/активация ресурсов; постоянный кеш; универсальный экспорт журналов; общий аудит репозитория; production hardening и corner-case matrices.
 
 ### Соответствие кода правилам (таблица контроля)
 
 | Область | Нарушение / долг | Задача |
 | --- | --- | --- |
-| Core CMake | SharedNode в core, `APPTRAVERSE_ENABLE_SHARED_NODE=1` | P1.1 |
-| `node.h` | SharedNode-члены за `#if` | P1.1 |
+| Core CMake | Историческая зависимость от SharedNode/replication | **P1.1 DONE**; не возвращать |
+| `node.h` | Исторические SharedNode-члены за `#if` | **P1.1 DONE** |
 | Lifecycles | Inline checkpoint ×4 | **P2.a PASS** |
 | Serialization | UI publication wire | **PASS** — `BinaryArchive` envelopes + `ClassData`/`ObjClassData` (P2.d.2); persistent storage без checkpoint sidecar (P2.d.1R) |
 | MinimalApp | Runtime Stabilize at shutdown | **P2.b PASS** |
-| Catalog graph | Win32 presenter types в portable graph | P2–P4 |
+| Catalog graph | Общая композиция выделена; reusable backend и lifecycle ещё не завершены | **P3.1b PASS**; дальнейшее разделение **P3.T/P4.C** |
 | Web CMake | `-fexceptions` в Surfaces web | P4 |
 | Style | In-class initializers, лишняя diagnostics (где есть) | P2–P4 по файлу |
 

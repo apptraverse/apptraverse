@@ -1,4 +1,4 @@
-**Active (2026-10-28):** **P3.1a/P3.1b PASS**; **P3.2a PASS** (Web WindowCatalog initial UI + browser smoke); **P3.2/P3 IN_PROGRESS** — [docs/versioning/PROGRESS.md](docs/versioning/PROGRESS.md), [docs/versioning/PLAN.md](docs/versioning/PLAN.md).
+**Active (2026-10-28):** **P3.T — библиотечный template/controls на семи backend → P4.C — WindowCatalog как потребитель → A1 — администрирование**. **P3.T0 DONE (doc-only); NEXT P3.T1 — воспроизводимый Æther/WASM patch**. Прежние P3.1a/P3.1b/P3.2a PASS сохраняются в проверенном scope; новые backend PASS не заявлены. [PLAN](docs/versioning/PLAN.md), [PROGRESS](docs/versioning/PROGRESS.md).
 
 **Release versioning (R0–R5):** детальный журнал — [docs/versioning/PROGRESS.md](docs/versioning/PROGRESS.md); **P0–P6** — единственная активная очередь на unified. Rules: `.cursor/rules/apptraverse-coding-agent.mdc`.
 

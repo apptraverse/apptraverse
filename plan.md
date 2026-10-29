@@ -1,9 +1,11 @@
 Status: active
 Progress: Progress.md
 
-**Active work (2026-10-28):** multi-platform **WindowCatalog** — [docs/versioning/PLAN.md §P0–P6](docs/versioning/PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6). **P3.2a PASS** (WASM + browser smoke); **P3.2/P3 IN_PROGRESS** — **NEXT:** Web WindowCatalog actions (P3.2). Do not treat **U5.2–U6** or **9D–9H** as active queues.
+**Active (2026-10-28):** **P3.T — библиотечный template/controls на семи backend → P4.C — WindowCatalog как потребитель → A1 — администрирование**. **P3.T0 DONE (doc-only); NEXT P3.T1 — воспроизводимый Æther/WASM patch**. Прежние P3.1a/P3.1b/P3.2a PASS сохраняются в проверенном scope; новые backend PASS не заявлены. [PLAN](docs/versioning/PLAN.md), [PROGRESS](docs/versioning/PROGRESS.md).
 
 **Release versioning (R0–R5):** fixture roadmap in [docs/versioning/PLAN.md](docs/versioning/PLAN.md) / [PROGRESS.md](docs/versioning/PROGRESS.md) — reference; **P0–P6** is the execution order on `integration/unified-application`. Coding-agent rules remain mandatory.
+
+**История/справка:** очереди и NEXT в разделах ниже относятся к прежним этапам; активное исполнение задаёт только шапка и docs/versioning/PLAN.md. Они не разрешают возвращать SharedNode/I0 или менять текущую ветку.
 
 # App Traverse — next application
 
