@@ -124,7 +124,7 @@
 | ID | Узкий результат | Критерий завершения |
 | --- | --- | --- |
 | **P3.T0** | Зафиксировать границы и новую очередь | **DONE (doc-only)** в этой редакции; ни один новый code/backend PASS не заявлен |
-| **P3.T1 — IN_PROGRESS** | 13-patch chain + lazy-safe save; WASM cold load | #14 **removed**; headless lazy regression **fixed**; Win regressions **PASS**; WASM build без `-fexceptions`; smoke **FAIL** (`LoadApplication id=1`) |
+| **P3.T1 — IN_PROGRESS** | 13-patch chain + lazy-safe save; WASM cold load | #14 **removed**; headless lazy regression **fixed**; Win regressions **PASS**; WASM build без `-fexceptions`; smoke **FAIL**. **NEXT:** fix WASM cold load — catalog **`id=1`** fails in **`LoadStoredLayers`** on **Node S0** (`3486612257`/v0): nested **`missing_version (1000)`** during deserialize (origin **`ae::Obj` v1** missing — benign); WindowCatalog layers not reached — [PROGRESS §P3.T1](./PROGRESS.md#p3t1--воспроизводимый-ætherwasm-patch-2026-10-28-in_progress) |
 | **P3.T2** | Минимальный общий application template и нейтральные component contracts | Используются существующие ApplicationModelRuntime, ApplicationUiSession, ModelObjectProxy, RunApplicationModelSession/RunEmbeddedApplicationModelSession; lifecycle/сохранение не копируются в потребителей; независимый MinimalApp проходит минимальный Headless-срез command → Event → mirror; полный roundtrip — P3.T3.H |
 | **P3.T3.H** | Headless backend шаблона | Полный невизуальный lifecycle + commands/Events + publication/mirror + save/cold load |
 | **P3.T3.W** | Windows backend и общие Window/List/Button | MinimalApp через публичные library targets; native host/controls без зависимости от WindowCatalog |

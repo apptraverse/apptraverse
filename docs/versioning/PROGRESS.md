@@ -117,7 +117,17 @@
 
 **Проверки (2026-10-29):** Win64 headless/clone/origin/model persistence + disk roundtrip — **PASS**. WASM build без exceptions; smoke **FAIL** (`LoadApplication id=1`).
 
-**Blocker / NEXT:** WASM cold load — первый ошибочный layer в `LoadStoredLayers` (id=1); smoke **PASS** → **P3.T2**.
+**WASM internal load (2026-10-29, `build/wasm-ninja-debug`, CPM `bc1a`, temp probe in cache only — снят):** для catalog root **`ObjId=1`** (`RunApplicationModelSession` cold load после `BootstrapDistilledProfileIfAbsent` + `SaveDistilledRoot`):
+
+| Шаг | Факт |
+| --- | --- |
+| Первый **missing_layer** в цепочке | **`obj_id=1`**, **`class_id=2178182515`** (`ae::Obj`, origin facet), **`version=1`** — `LoadVersion` → `GetReader` → `kEmpty`; на том же проходе `LoadStoredLayers` для слоя **`3486612257`** (Node **S0/v0**). **Не фатален:** `LoadObjOriginFacet` трактует `IsMissingVersion` как Ok. |
+| Первый **фатальный** отказ | **`obj_id=1`**, **`class_id=3486612257`**, **`version=0`**: `Registrar<Node>::Load` → `LoadVersion` → `domain_visitor`/`LoadVisitor` возвращает **`SeriError` code `1000`** (`missing_version`) → `LoadStoredLayers` сбрасывает объект → `LoadRoot(1)` → `LoadApplication`. Это **не** `no_reader` / `read_error` на reader слоя Node S0 (9 B присутствуют в storage). |
+| Путь от catalog root | **`WindowCatalog id=1`** → `LoadRoot` → `LoadStoredLayers` → **Node S0** (`3486612257`/v0); слои **`3951442439`** (WindowCatalog v0–v2) **не достигаются**. Имена полей ObjPtr в wire **не залогированы** (нет field-level probe). |
+| Bootstrap save (`OBJ_SYS`) для `id=1` | **`3486612257`/v0** size **9**; **`3951442439`/v0** 94, **/v1** 5, **/v2** 9; **`2178182515`/v1** **не** пишется (ожидаемо для origin facet). |
+| Причина | **Доказано:** cold load падает на десериализации **Node S0** catalog root с **пропагацией `missing_version (1000)`** из вложенного load внутри того же `LoadVersion`, до WindowCatalog. **Точная неизвестная:** какой вложенный **`ObjId`/ClassId/version** (вероятно eager **`ObjPtr`** в Node S0 bytes) даёт `1000`; отдельно в той же сессии до `id=1` фиксируются отказы load для **нес table ObjId** (≫16) с тем же паттерном — связь с catalog root **не доказана**. |
+
+**Blocker / NEXT:** исправить доказанный WASM cold-load дефект (Node S0 / вложенный missing layer для **`id=1`**) → smoke **PASS** → **P3.T2** (см. [PLAN §P3.T1](./PLAN.md#p3t--библиотечный-шаблон-преже-приложения)).
 
 ---
 
