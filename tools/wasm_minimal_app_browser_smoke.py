@@ -34,12 +34,15 @@ def main() -> int:
     saw_idbfs_saved = False
     saw_shutdown_stopped = False
     reload_profile_loads: list[bool] = []
+    emval_baseline: int | None = None
+    emval_startup_baseline: int | None = None
+    emval_after_stop: int | None = None
 
     def on_pageerror(err: Exception) -> None:
         page_errors.append(str(err))
 
     def on_console(msg) -> None:
-        nonlocal saw_render_ok, saw_idbfs_saved
+        nonlocal saw_render_ok, saw_idbfs_saved, saw_shutdown_stopped
         text = msg.text
         if "MINIMAL_APP_INITIAL_RENDER_OK" in text:
             saw_render_ok = True
@@ -48,7 +51,6 @@ def main() -> int:
             page.evaluate("() => { window.__minimalIdbfsSaved = true; }")
         if "MINIMAL_APP_SHUTDOWN_STOPPED" in text:
             saw_shutdown_stopped = True
-            page.evaluate("() => { window.__minimalShutdownStopped = true; }")
         if "MINIMAL_APP_LOADED_FROM_PROFILE" in text:
             page.evaluate("() => { window.__minimalLoadedFromProfile = true; }")
         if "MINIMAL_APP_DEV_BOOTSTRAP" in text:
@@ -125,21 +127,23 @@ def main() -> int:
             raise AssertionError("DEV_BOOTSTRAP after reload")
 
     def wait_shutdown_stopped(page) -> None:
-        nonlocal saw_shutdown_stopped
         expect(page.locator("#shutdown-status")).to_have_text(
             "Stopped", timeout=60000
         )
         page.wait_for_function(
-            """() => {
-              if (document.getElementById('shutdown-status').textContent !== 'Stopped') {
-                return false;
-              }
-              window.__minimalShutdownStopped = true;
-              return true;
-            }""",
+            "() => window.__minimalShutdownStoppedObserved === true",
             timeout=60000,
         )
-        saw_shutdown_stopped = True
+
+    def read_emval_count(page) -> int:
+        return page.evaluate(
+            """() => {
+              if (typeof Module.count_emval_handles !== 'function') {
+                throw new Error('count_emval_handles unavailable');
+              }
+              return Module.count_emval_handles();
+            }"""
+        )
 
     def ensure_two_desktop_windows(page) -> None:
         if count_desktop_windows(page) == 1:
@@ -304,7 +308,7 @@ def main() -> int:
                   window.__minimalLoadedFromProfile = false;
                   window.__minimalDevBootstrap = false;
                   window.__minimalIdbfsSaved = false;
-                  window.__minimalShutdownStopped = false;
+                  window.__minimalShutdownStoppedObserved = false;
                 }"""
             )
 
@@ -339,6 +343,14 @@ def main() -> int:
                     file=sys.stderr,
                 )
                 return 1
+
+            emval_startup_baseline = read_emval_count(page)
+            page.evaluate(
+                """(baseline) => {
+                  window.__minimalEmvalStartupBaseline = baseline;
+                }""",
+                emval_startup_baseline,
+            )
 
             run_ui_sequence_to_row_a(page)
             run_dual_window_lifecycle(page)
@@ -445,24 +457,41 @@ def main() -> int:
 
             page.evaluate(
                 """() => {
+                  const list = document.querySelector(
+                    '#app-mount [data-apptraverse-control-id="7102"]');
+                  const rows = list
+                    ? list.querySelectorAll('.apptraverse-list-row')
+                    : [];
                   window.__staleBtn = document.querySelector(
                     '#app-mount [data-apptraverse-control-id="7101"]');
-                  window.__staleList = document.querySelector(
-                    '#app-mount [data-apptraverse-control-id="7102"]');
-                  if (!window.__staleBtn || !window.__staleList) {
-                    throw new Error('expected live controls before Stop');
+                  window.__staleListRow =
+                    rows.length > 0 ? rows[rows.length - 1] : null;
+                  if (!window.__staleBtn || !window.__staleListRow) {
+                    throw new Error('expected live button and list row before Stop');
                   }
                 }"""
             )
 
+            emval_baseline = read_emval_count(page)
+
             page.evaluate(
                 """() => {
-                  window.__minimalShutdownStopped = false;
+                  window.__minimalShutdownStoppedObserved = false;
                   window.__minimalIdbfsSaved = false;
                 }"""
             )
+
+            def on_console_shutdown_observed(msg) -> None:
+                if "MINIMAL_APP_SHUTDOWN_STOPPED" in msg.text:
+                    page.evaluate(
+                        "() => { window.__minimalShutdownStoppedObserved = true; }"
+                    )
+
+            page.on("console", on_console_shutdown_observed)
+
             page.locator("#stop-button").click()
             wait_shutdown_stopped(page)
+            page.remove_listener("console", on_console_shutdown_observed)
             if not saw_shutdown_stopped:
                 print(
                     "FAIL: missing MINIMAL_APP_SHUTDOWN_STOPPED",
@@ -483,10 +512,20 @@ def main() -> int:
             page.evaluate(
                 """() => {
                   window.__staleClickErr = '';
-                  for (const el of [window.__staleBtn, window.__staleList]) {
-                    if (!el) continue;
+                  const row = window.__staleListRow;
+                  const btn = window.__staleBtn;
+                  if (row) {
                     try {
-                      el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                      row.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                      row.dispatchEvent(
+                        new MouseEvent('dblclick', { bubbles: true }));
+                    } catch (e) {
+                      window.__staleClickErr = String(e);
+                    }
+                  }
+                  if (btn) {
+                    try {
+                      btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
                     } catch (e) {
                       window.__staleClickErr = String(e);
                     }
@@ -499,12 +538,30 @@ def main() -> int:
                     + page.evaluate("() => window.__staleClickErr")
                 )
 
+            if emval_startup_baseline is None:
+                raise AssertionError("missing startup emval baseline")
+            page.wait_for_function(
+                "() => Module.count_emval_handles() === 0",
+                timeout=60000,
+            )
+            emval_after_stop = read_emval_count(page)
+            if emval_after_stop != 0:
+                raise AssertionError(
+                    f"emval handles after stop {emval_after_stop} != 0 "
+                    f"(startup {emval_startup_baseline}, pre-stop {emval_baseline})"
+                )
+            if emval_baseline is not None and emval_after_stop >= emval_baseline:
+                raise AssertionError(
+                    "emval count did not drop after stop "
+                    f"(pre-stop {emval_baseline}, after {emval_after_stop})"
+                )
+
             saw_shutdown_stopped = False
             page.evaluate(
                 """() => {
                   window.__minimalLoadedFromProfile = false;
                   window.__minimalDevBootstrap = false;
-                  window.__minimalShutdownStopped = false;
+                  window.__minimalShutdownStoppedObserved = false;
                 }"""
             )
             page.reload(wait_until="domcontentloaded", timeout=60000)
@@ -529,7 +586,13 @@ def main() -> int:
             shot = Path(args.screenshot)
             shot.parent.mkdir(parents=True, exist_ok=True)
             page.screenshot(path=str(shot), full_page=True)
-            print("PASS screenshot=" + str(shot))
+            print(
+                "PASS screenshot="
+                + str(shot)
+                + f" emval_pre_stop={emval_baseline} emval_startup="
+                + str(emval_startup_baseline)
+                + f" emval_after_stop={emval_after_stop}"
+            )
         except (PlaywrightError, TimeoutError, AssertionError) as exc:
             print(f"FAIL: {exc}", file=sys.stderr)
             return 1

@@ -363,13 +363,13 @@ void WebApplicationHost::TryJoinModelThreadOnce() {
     std::abort();
   }
   if (!model_thread_live_) {
+    lifecycle_.store(WebApplicationHostLifecycle::kStopped,
+                     std::memory_order_release);
     if (shutdown_persist_ok_ && shutdown_flush_ok_) {
       FinishShutdownSuccess();
     } else {
       FinishShutdownFailure();
     }
-    lifecycle_.store(WebApplicationHostLifecycle::kStopped,
-                     std::memory_order_release);
     return;
   }
   void* join_result = nullptr;
@@ -384,13 +384,13 @@ void WebApplicationHost::TryJoinModelThreadOnce() {
   }
   model_thread_live_ = false;
   model_thread_ = pthread_t{};
+  lifecycle_.store(WebApplicationHostLifecycle::kStopped,
+                   std::memory_order_release);
   if (shutdown_persist_ok_ && shutdown_flush_ok_) {
     FinishShutdownSuccess();
   } else {
     FinishShutdownFailure();
   }
-  lifecycle_.store(WebApplicationHostLifecycle::kStopped,
-                   std::memory_order_release);
 }
 
 void WebApplicationHost::FinishShutdownSuccess() {

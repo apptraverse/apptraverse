@@ -40,7 +40,7 @@ target_link_options(web_minimal_app PRIVATE
   --bind
   -sEXPORTED_FUNCTIONS=_main,_ApptraverseWebUiPushButtonClicked,_ApptraverseWebUiListSelectionChanged,_ApptraverseWebUiListRowActivated,_ApptraverseMinimalAppRequestSave,_ApptraverseWebIdbfsLoadDone,_ApptraverseWebIdbfsLoadFailed,_ApptraverseWebIdbfsStoreDone,_ApptraverseWebIdbfsStoreFailed
   -sALLOW_TABLE_GROWTH=1
-  -sEXPORTED_RUNTIME_METHODS=FS,addRunDependency,removeRunDependency,UTF8ToString
+  -sEXPORTED_RUNTIME_METHODS=FS,addRunDependency,removeRunDependency,UTF8ToString,count_emval_handles
   --shell-file=${CMAKE_CURRENT_SOURCE_DIR}/minimal_app_shell.html
 )
 

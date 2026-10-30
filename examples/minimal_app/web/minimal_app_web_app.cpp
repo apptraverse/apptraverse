@@ -12,6 +12,7 @@
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/platform/web/web_application_host.h"
 #include "apptraverse/platform/web/web_presentation_host.h"
+#include "apptraverse/platform/web/web_ui_dom_em.h"
 #include "apptraverse/platform/web/web_ui_window_presenter.h"
 
 #include "minimal_app_persistence.h"
@@ -83,6 +84,31 @@ void EnsureBrowserEnvironment() {
   }
 }
 
+void ReleasePresentationMountHandle() {
+  if (g_presentation_host.mount == nullptr) {
+    return;
+  }
+  ui::web::ReleaseOwnedEmvalHandle(g_presentation_host.mount);
+  g_presentation_host.mount = nullptr;
+}
+
+void FinishHostTeardownOnNextMainTurn(bool shutdown_succeeded) {
+  ReleasePresentationMountHandle();
+  g_host.reset();
+  if (shutdown_succeeded) {
+    SetShutdownStatus("Stopped");
+    SetSaveStatus("");
+    EM_ASM({ console.log('MINIMAL_APP_SHUTDOWN_STOPPED'); });
+  } else {
+    SetShutdownStatus("Stop failed");
+    EM_ASM({ console.error('MINIMAL_APP_SHUTDOWN_FAILED'); });
+  }
+}
+
+void FinishHostTeardownTrampoline(void* arg) {
+  FinishHostTeardownOnNextMainTurn(arg != nullptr);
+}
+
 int PersistMinimalApplicationFromDomain(ae::Domain& domain) {
   auto held = domain.Find(MinimalApplicationRootId());
   if (!held) {
@@ -144,8 +170,11 @@ void StartWebMinimalApplication() {
       return PersistMinimalApplication(application, *g_durable_storage);
     };
 
-    return RunApplicationModelSession(*g_durable_storage, MinimalApplicationRootId(),
-                                      g_runtime, std::move(on_published), hooks);
+    int const session_result = RunApplicationModelSession(
+        *g_durable_storage, MinimalApplicationRootId(), g_runtime,
+        std::move(on_published), hooks);
+    g_durable_storage.reset();
+    return session_result;
   };
   callbacks.request_stop = [] { g_runtime.RequestStop(); };
   callbacks.after_initial = [](ae::Obj&) { HideLoadingAndSignalRenderOk(); };
@@ -167,13 +196,11 @@ void StartWebMinimalApplication() {
     EM_ASM({ console.log('MINIMAL_APP_SHUTDOWN_STOPPING'); });
   };
   callbacks.on_shutdown_succeeded = [] {
-    SetShutdownStatus("Stopped");
-    SetSaveStatus("");
-    EM_ASM({ console.log('MINIMAL_APP_SHUTDOWN_STOPPED'); });
+    emscripten_async_call(FinishHostTeardownTrampoline,
+                          reinterpret_cast<void*>(1), 0);
   };
   callbacks.on_shutdown_failed = [] {
-    SetShutdownStatus("Stop failed");
-    EM_ASM({ console.error('MINIMAL_APP_SHUTDOWN_FAILED'); });
+    emscripten_async_call(FinishHostTeardownTrampoline, nullptr, 0);
   };
 
   g_host = std::make_unique<web::WebApplicationHost>(

@@ -1,4 +1,4 @@
-**Active (2026-10-30):** **P3.T3.Web5 PASS** — async shutdown `WebApplicationHost` (model session persist, IDBFS flush, UI teardown E2E). **Web1–Web4 PASS** retained. Five-backend catalog experiments saved on separate branches; main line back to small iterations. **NEXT:** **P3.T3.A** only. **P3** IN_PROGRESS. [PLAN](docs/versioning/PLAN.md), [PROGRESS](docs/versioning/PROGRESS.md).
+**Active (2026-10-30):** **P3.T3.Web5R1 PASS** — shutdown host-state ordering, deferred MinimalApp cleanup (mount EM_VAL), emval/stale-DOM smoke. **Web5** historical PASS retained. **NEXT:** **P3.T3.A** only. **P3** IN_PROGRESS. [PLAN](docs/versioning/PLAN.md), [PROGRESS](docs/versioning/PROGRESS.md).
 
 **Release versioning (R0–R5):** детальный журнал — [docs/versioning/PROGRESS.md](docs/versioning/PROGRESS.md); **P0–P6** — единственная активная очередь на unified. Rules: `.cursor/rules/apptraverse-coding-agent.mdc`.
 

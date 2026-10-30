@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-10-30):** **P3.T3.Web5 PASS** — async shutdown `WebApplicationHost` (§P3.T3.Web5). **Web1–Web4 PASS** сохранены. Широкие эксперименты WindowCatalog (`experiment/window-catalog-*-982b473`) сохранены отдельно; основной процесс снова идёт небольшими итерациями на **`integration/unified-application`**. **NEXT:** **P3.T3.A** (первый срез по [PLAN](./PLAN.md)). **P3** — **IN_PROGRESS**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
+**Активный порядок (2026-10-30):** **P3.T3.Web5R1 PASS** — shutdown cleanup + emval/stale-DOM smoke (§P3.T3.Web5R1). **P3.T3.Web5 PASS** (§P3.T3.Web5) сохранён. **Web1–Web4 PASS** сохранены. **NEXT:** **P3.T3.A** (первый срез по [PLAN](./PLAN.md)). **P3** — **IN_PROGRESS**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -154,6 +154,22 @@
 **Limits:** auxiliary presentation после reload может быть lazy (Web4); cross-backend profile portability **не** заявлена.
 
 **NEXT:** **P3.T3.A** — первый срез по действующему плану (не начат в этой итерации).
+
+---
+
+<a id="p3t3web5r1--web-shutdown-cleanup-emval-smoke-2026-10-30-pass"></a>
+
+## P3.T3.Web5R1 — shutdown cleanup + emval/stale DOM smoke (2026-10-30) — PASS
+
+**Base:** `e92f9939ed10b47e05c8fc29b999a3bf985aa443` (Web5).
+
+**Host:** `TryJoinModelThreadOnce` — `kStopped` до completion callback; после callback host не используется.
+
+**MinimalApp Web:** `g_durable_storage` освобождается на model worker после `RunApplicationModelSession`; на следующем turn main — `g_host` teardown, release owned mount EM_VAL, `Stopped` + `MINIMAL_APP_SHUTDOWN_STOPPED` только после cleanup.
+
+**Smoke:** capture `.apptraverse-list-row` + Apply button; после Stop — row click/dblclick + button click; `count_emval_handles` startup (post-initial-render) vs 0 после cleanup (pre-stop > 0); признак успеха только из console `MINIMAL_APP_SHUTDOWN_STOPPED`, не из DOM status.
+
+**Regressions:** те же §Web5 (extended minimal smoke, presenter lifecycle browser, catalog initial, §Web2R1 Win/Headless, minimal Win builds).
 
 ---
 
