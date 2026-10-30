@@ -22,6 +22,7 @@
 #include "apptraverse/ui/ui_presented_window_lifecycle.h"
 #include "apptraverse/ui/ui_presenters.h"
 
+#include "minimal_app_controls.h"
 #include "minimal_application.h"
 
 namespace apptraverse::test {
@@ -311,16 +312,93 @@ PROCESS_INFORMATION StartDemo(std::filesystem::path const& exe,
   return pi;
 }
 
-int CountChildWindows(HWND parent) {
-  int count = 0;
+std::uint32_t HwndControlId(HWND hwnd) {
+  return static_cast<std::uint32_t>(
+      reinterpret_cast<INT_PTR>(GetMenu(hwnd)));
+}
+
+struct MainWindowControlCounts {
+  int apply = 0;
+  int row_list = 0;
+  int auxiliary_opener = 0;
+};
+
+void LogChildWindowDiagnostics(HWND parent, char const* label) {
+  std::cerr << "Win32 control diagnostics (" << label << ") parent=" << parent
+            << '\n';
   EnumChildWindows(
       parent,
-      [](HWND, LPARAM lparam) -> BOOL {
-        ++*reinterpret_cast<int*>(lparam);
+      [](HWND hwnd, LPARAM lparam) -> BOOL {
+        HWND const expected_parent = reinterpret_cast<HWND>(lparam);
+        wchar_t cls[128]{};
+        GetClassNameW(hwnd, cls, 128);
+        std::cerr << "  hwnd=" << hwnd << " parent=" << GetParent(hwnd)
+                  << " control_id=" << HwndControlId(hwnd) << " class=\"";
+        std::wcerr << cls;
+        std::cerr << '"';
+        if (GetParent(hwnd) != expected_parent) {
+          std::cerr << " (unexpected parent)";
+        }
+        std::cerr << '\n';
         return TRUE;
       },
-      reinterpret_cast<LPARAM>(&count));
-  return count;
+      reinterpret_cast<LPARAM>(parent));
+}
+
+MainWindowControlCounts CountMainWindowNamedControls(HWND main) {
+  MainWindowControlCounts counts{};
+  struct Ctx {
+    HWND main;
+    MainWindowControlCounts* counts;
+  } ctx{main, &counts};
+  EnumChildWindows(
+      main,
+      [](HWND hwnd, LPARAM lparam) -> BOOL {
+        auto* ctx = reinterpret_cast<Ctx*>(lparam);
+        if (GetParent(hwnd) != ctx->main) {
+          return TRUE;
+        }
+        switch (HwndControlId(hwnd)) {
+          case example::minimal::kMinimalApplyButtonControlId:
+            ++ctx->counts->apply;
+            break;
+          case example::minimal::kMinimalRowListControlId:
+            ++ctx->counts->row_list;
+            break;
+          case example::minimal::kMinimalAuxiliaryOpenerControlId:
+            ++ctx->counts->auxiliary_opener;
+            break;
+          default:
+            break;
+        }
+        return TRUE;
+      },
+      reinterpret_cast<LPARAM>(&ctx));
+  return counts;
+}
+
+bool MainWindowNamedControlsReady(HWND main) {
+  auto const counts = CountMainWindowNamedControls(main);
+  return counts.apply == 1 && counts.row_list == 1 &&
+         counts.auxiliary_opener == 1;
+}
+
+void CheckMainWindowNamedControls(HWND main) {
+  auto const counts = CountMainWindowNamedControls(main);
+  if (counts.apply != 1 || counts.row_list != 1 ||
+      counts.auxiliary_opener != 1) {
+    LogChildWindowDiagnostics(main, "main window named controls");
+    CHECK(false);
+  }
+}
+
+bool WaitForMainWindowNamedControls(HWND main,
+                                    std::chrono::milliseconds timeout) {
+  if (WaitUntil(timeout, [&] { return MainWindowNamedControlsReady(main); })) {
+    return true;
+  }
+  LogChildWindowDiagnostics(main, "WaitForMainWindowNamedControls timeout");
+  return false;
 }
 
 std::vector<HWND> DesktopWindowsForPid(DWORD pid) {
@@ -444,9 +522,8 @@ std::filesystem::path RunAcceptance() {
 
   HWND main = WaitMainWindow(pid, std::chrono::seconds{30});
   CHECK(main != nullptr);
-  CHECK(WaitUntil(std::chrono::seconds{15}, [&] {
-    return CountChildWindows(main) == 2;
-  }));
+  CHECK(WaitForMainWindowNamedControls(main, std::chrono::seconds{15}));
+  CheckMainWindowNamedControls(main);
   CHECK(DesktopWindowsForPid(pid).size() == 1);
 
   ApplyFrame(main, 220, 140, 720, 460);
@@ -463,9 +540,8 @@ std::filesystem::path RunAcceptance() {
   DWORD const load_pid = pi.dwProcessId;
   main = WaitMainWindow(load_pid, std::chrono::seconds{30});
   CHECK(main != nullptr);
-  CHECK(WaitUntil(std::chrono::seconds{15}, [&] {
-    return CountChildWindows(main) == 2;
-  }));
+  CHECK(WaitForMainWindowNamedControls(main, std::chrono::seconds{15}));
+  CheckMainWindowNamedControls(main);
   CHECK(DesktopWindowsForPid(load_pid).size() == 1);
   CHECK(FramesNear(ReadFrame(main), saved));
 

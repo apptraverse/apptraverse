@@ -458,6 +458,29 @@ ui::UiListContainerPresenter& UiAuxiliaryRowListPresenter(
   return *app.auxiliary.presenters.row_list;
 }
 
+ui::UiPushButtonPresenter& UiAuxiliaryApplyButtonPresenter(
+    MinimalApplication& app) {
+  app.auxiliary.presenters.apply_button.Load();
+  CHECK(app.auxiliary.presenters.apply_button.is_valid());
+  CHECK(app.auxiliary.presenters.apply_button->button.id() ==
+        example::minimal::MinimalAuxiliaryApplyButtonId());
+  return *app.auxiliary.presenters.apply_button;
+}
+
+ui::UiPushButtonPresenter& UiAuxiliaryCloserPresenter(
+    MinimalApplication& app) {
+  app.auxiliary.presenters.closer.Load();
+  CHECK(app.auxiliary.presenters.closer.is_valid());
+  return *app.auxiliary.presenters.closer;
+}
+
+ui::UiPushButtonPresenter& UiAuxiliaryOpenerPresenter(
+    MinimalApplication& app) {
+  app.presenters.auxiliary_opener.Load();
+  CHECK(app.presenters.auxiliary_opener.is_valid());
+  return *app.presenters.auxiliary_opener;
+}
+
 void TestMinimalAppAuxiliaryPersistColdLoad() {
   EnsureObjectRegistration();
   EnsureHeadlessMinimalApplicationGraphRegistration();
@@ -534,29 +557,36 @@ void TestMinimalAppAuxiliaryCloseOpenHeadless() {
   PumpModelWorkAndApplyStructural(deferred, model_domain, model_app,
                                   ui_session);
   CHECK(WindowTitleMirror(ui_app).Resolve(0) == "Applied");
+  CHECK(UiAuxiliaryRowList(ui_app).selection_index == 1);
+  CHECK(AuxiliaryWindowTitleMirror(ui_app).Resolve(0) == "Detail Panel");
 
-  auto close = example::minimal::MinimalCloseAuxiliaryWindowEvent::ptr::Create(
-      ae::CreateWith{model_domain});
-  model_app.Commit(std::move(close));
+  UiAuxiliaryApplyButtonPresenter(ui_app).NotifyClickedFromUi();
+  PumpModelWorkAndApplyStructural(deferred, model_domain, model_app,
+                                  ui_session);
+  CHECK(ModelAuxiliaryRowList(model_app).selection_index == -1);
+  CHECK(UiAuxiliaryRowList(ui_app).selection_index == -1);
+  CHECK(AuxiliaryWindowTitleMirror(ui_app).Resolve(0) == "Applied");
+  ui_app.auxiliary.apply_button.Load();
+  CHECK(ui_app.auxiliary.apply_button.is_valid());
+  CHECK(!ui_app.auxiliary.apply_button->enabled());
+  model_app.auxiliary.apply_button.Load();
+  CHECK(model_app.auxiliary.apply_button.is_valid());
+  CHECK(!model_app.auxiliary.apply_button->enabled());
+
+  UiAuxiliaryCloserPresenter(ui_app).NotifyClickedFromUi();
   PumpModelWorkAndApplyStructural(deferred, model_domain, model_app,
                                   ui_session);
   CHECK(!model_app.auxiliary_presented_open);
   CHECK(!ui_app.auxiliary_presented_open);
-  CHECK(ModelAuxiliaryRowList(model_app).selection_index == 1);
 
-  UiApplyButtonPresenter(ui_app).SimulateClickForTest();
+  UiAuxiliaryOpenerPresenter(ui_app).NotifyClickedFromUi();
   PumpModelWorkAndApplyStructural(deferred, model_domain, model_app,
                                   ui_session);
-  CHECK(WindowTitleMirror(ui_app).Resolve(0) == "Applied");
-
-  open = example::minimal::MinimalOpenAuxiliaryWindowEvent::ptr::Create(
-      ae::CreateWith{model_domain});
-  model_app.Commit(std::move(open));
-  PumpModelWorkAndApplyStructural(deferred, model_domain, model_app,
-                                  ui_session);
+  CHECK(model_app.auxiliary_presented_open);
   CHECK(ui_app.auxiliary_presented_open);
   CHECK(UiAuxiliaryRowList(ui_app).selection_index == -1);
   CHECK(AuxiliaryWindowTitleMirror(ui_app).Resolve(0) == "Applied");
+  ui_app.auxiliary.apply_button.Load();
   CHECK(!ui_app.auxiliary.apply_button->enabled());
 }
 

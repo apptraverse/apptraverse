@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-10-30):** **P3.T3.Web5R1 PASS** — shutdown cleanup + emval/stale-DOM smoke (§P3.T3.Web5R1). **P3.T3.Web5 PASS** (§P3.T3.Web5) сохранён. **Web1–Web4 PASS** сохранены. **NEXT:** **P3.T3.A** (первый срез по [PLAN](./PLAN.md)). **P3** — **IN_PROGRESS**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
+**Активный порядок (2026-10-30):** **P3.T3.Web5R1 PASS** — shutdown cleanup + emval/stale-DOM smoke (§P3.T3.Web5R1). **P3.T3.MinimalApp Win/Headless R1 PASS** — восстановление двух проверок на baseline **`82d2b25`** (§P3.T3.MinimalAppR1). **P3.T3.Web5 PASS** (§P3.T3.Web5) сохранён. **Web1–Web4 PASS** сохранены. **NEXT:** **P3.T3.A** — первый Android-срез ([PLAN §P3.T3.A](./PLAN.md); **не начат**). **P3** — **IN_PROGRESS**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -170,6 +170,27 @@
 **Smoke:** capture `.apptraverse-list-row` + Apply button; после Stop — row click/dblclick + button click; `count_emval_handles` startup (post-initial-render) vs 0 после cleanup (pre-stop > 0); признак успеха только из console `MINIMAL_APP_SHUTDOWN_STOPPED`, не из DOM status.
 
 **Regressions:** те же §Web5 (extended minimal smoke, presenter lifecycle browser, catalog initial, §Web2R1 Win/Headless, minimal Win builds).
+
+---
+
+<a id="p3t3minimalappr1--minimalapp-winheadless-on-82d2b25-2026-10-30-pass"></a>
+
+## P3.T3.MinimalAppR1 — Win/Headless checks on Web5R1 baseline (2026-10-30) — PASS
+
+**Base (lease):** `82d2b2568a6a41d85e1eea2ad792754f277d3efd` (**P3.T3.Web5R1**; Web scope **PASS** без изменений).
+
+**Фактические FAIL на `82d2b25` (до правок тестов):**
+
+| Тест | Симптом | Причина |
+|------|---------|---------|
+| `apptraverse_minimal_app_headless_test` (`TestMinimalAppAuxiliaryCloseOpenHeadless`, ~558) | `UiAuxiliaryRowList.selection_index == -1` после reopen | Сценарий не соответствовал продукту: после выбора строки 1 во **Detail** нажимался только **главный** Apply (`UiApplyButtonPresenter` → `MinimalApplyButtonPresenterId()`), затем close/reopen; ожидался результат **Detail Apply** (selection `-1`, title `Applied`) без клика `auxiliary.presenters.apply_button`. |
+| `apptraverse_minimal_app_win32_acceptance_test` (`RunAcceptance`, ~448 / ~467) | `WaitUntil` timeout: `CountChildWindows(main) == 2` | На main уже три named controls (`7101` Apply, `7102` List, `7103` Open Detail из `minimal_app_controls.h`); условие «ровно 2 дочерних HWND» никогда не выполнялось. |
+
+**Win32 (на repro до fix):** дочерние HWND main с `control_id` **7101**, **7102**, **7103** (классы native button/list/opener presenters), parent = main desktop window; отдельно одно видимое `AppTraverseUiDesktopWindow` на PID.
+
+**Исправление (только tests):** headless — трёхшаговый сценарий (main Apply → aux Apply через `NotifyClickedFromUi` → closer/opener presenters + `PumpModelWorkAndApplyStructural`); win32 — ожидание ровно по одному HWND на каждый named ID + диагностический dump при timeout.
+
+**Проверки (win64-ninja-msvc-debug, `apptraverse-wt-web5`):** `apptraverse_minimal_app_headless_test` **PASS**; `apptraverse_minimal_app_win32_acceptance_test` **PASS** (save + `load_only` + graph negatives). Библиотечный код не менялся → дополнительный Web/Win regression объём не требовался.
 
 ---
 
