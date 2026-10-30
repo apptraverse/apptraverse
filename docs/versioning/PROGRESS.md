@@ -139,6 +139,23 @@
 
 ---
 
+<a id="five-backend-window-catalog-experiment-2026-10-30"></a>
+
+## Five-backend WindowCatalog experiment (2026-10-30) — IN_PROGRESS
+
+**Checkpoint tag:** `checkpoint/web4-before-five-backends-982b473` @ `982b47366bca343f78dc6275fdac7b6eaceb84fb`.
+
+**Branch:** `experiment/window-catalog-five-backends-982b473` (не merge в `integration/unified-application`).
+
+**Сделано (первая итерация):**
+- Common: `CatalogListContainer::HandleListRowSelectionChanged` → `SubmitSelectionFromUi`; platform list presenters без catalog-specific overrides (Win/Headless/Web library presenters).
+- Lifecycle: общий `window_catalog_lifecycle.cpp` в `surfaces_demo_window_catalog_common`; Windows distill/embedded → `window_catalog_lifecycle_win.*`; bootstrap distill только Win.
+- Web: `WebApplicationHost` + `apptraverse_ui_web`; IDBFS profile `/persistent/window_catalog_web_five_backend_state`; DOM close → `UserCloseWindow`; initial smoke **PASS** (`wasm_window_catalog_browser_smoke.py`, serve positional `build/wasm-ninja-debug`).
+
+**Не завершено:** полный 10-step E2E на всех backend; `apptraverse_ui_linux` / `linux_window_catalog_demo`; Android JNI app; расширенный headless E2E + Win32 regression matrix (локальный Win64 build без VS INCLUDE — не пересобран).
+
+---
+
 <a id="p3t3web2r2--web-dom-teardown-2026-10-30-pass"></a>
 
 ## P3.T3.Web2R2 — Web DOM teardown (2026-10-30) — PASS

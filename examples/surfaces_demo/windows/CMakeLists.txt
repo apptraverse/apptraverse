@@ -67,7 +67,7 @@ endif()
 # WindowCatalog application executables.
 set(_window_catalog_win_sources
   window_catalog_main.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/../common/window_catalog_lifecycle.cpp
+  window_catalog_lifecycle_win.cpp
 )
 add_executable(win32_window_catalog_demo ${_window_catalog_win_sources})
 target_compile_definitions(win32_window_catalog_demo PRIVATE

@@ -214,6 +214,13 @@ void CatalogListContainer::HandleListRowActivated(std::size_t row_index) {
   }
   catalog->OpenRow(row_index);
 }
+
+void CatalogListContainer::HandleListRowSelectionChanged(std::size_t row_index) {
+  if (!catalog) {
+    return;
+  }
+  catalog->SubmitSelectionFromUi(row_index);
+}
 namespace {
 WindowHolder* AsHolder(ui::UiListRow& row) {
   return static_cast<WindowHolder*>(&row);

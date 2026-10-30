@@ -39,6 +39,8 @@ class WebDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
   emscripten::EM_VAL ClientMountHandle() const;
 
+  void NotifyUserCloseFromUi();
+
  private:
   void SyncGeometryFromMirror();
   void SyncTitleFromMirror();

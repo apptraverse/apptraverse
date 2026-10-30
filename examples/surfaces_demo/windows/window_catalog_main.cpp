@@ -20,7 +20,9 @@
 #include "apptraverse/ui/ui_presented_window.h"
 #include "apptraverse/ui/ui_window_presenter.h"
 
+#include "window_catalog_graph.h"
 #include "window_catalog_lifecycle.h"
+#include "window_catalog_lifecycle_win.h"
 #include "window_catalog_model.h"
 
 namespace {
@@ -183,8 +185,13 @@ apptraverse::ui::windows::WinDesktopWindowPresenter& FindChildWindowPresenter(
 int main(int argc, char** argv) {
   FreeConsole();
   apptraverse::EnableNoninteractiveCrt();
+  apptraverse::EnsureWindowCatalogGraphRegistration();
 
   std::filesystem::path state_dir = DefaultStateDir();
+#if defined(APPTRAVERSE_ENABLE_DISTILLATION) && \
+    !defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
+  apptraverse::BootstrapWindowCatalogProfileIfAbsent(state_dir);
+#endif
   for (int i = 1; i < argc; ++i) {
     std::string_view arg{argv[i]};
     if (arg == "--state-dir" && i + 1 < argc) {
@@ -202,7 +209,12 @@ int main(int argc, char** argv) {
   callbacks.run_model =
       [&session, &model_exit_status](
           apptraverse::ApplicationPublishedCallback on_published) {
+#if defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
+        model_exit_status = apptraverse::RunWindowCatalogEmbeddedModelSession(
+            session, std::move(on_published));
+#else
         model_exit_status = session.Run(std::move(on_published));
+#endif
       };
   callbacks.request_stop = [&] { session.runtime.RequestStop(); };
   callbacks.on_desktop_window_close =

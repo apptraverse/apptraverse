@@ -51,6 +51,8 @@ class WebApplicationHost {
     return ui_session_ ? &*ui_session_ : nullptr;
   }
 
+  ModelObjectProxy& model_proxy() { return model_proxy_; }
+
  private:
   enum class SaveState : std::uint8_t {
     kIdle,

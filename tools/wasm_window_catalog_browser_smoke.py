@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Browser smoke for web_window_catalog_demo initial chrome render."""
+"""Browser smoke for web_window_catalog_demo (WebApplicationHost + library presenters)."""
 
 from __future__ import annotations
 
@@ -21,7 +21,8 @@ EXPECTED_BUTTONS = {
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--url", default="http://127.0.0.1:8765/web_window_catalog_demo.html"
+        "--url",
+        default="http://127.0.0.1:8765/examples/surfaces_demo/web/web_window_catalog_demo.html",
     )
     parser.add_argument(
         "--screenshot",
@@ -62,17 +63,23 @@ def main() -> int:
 
         try:
             page.goto(args.url, wait_until="domcontentloaded", timeout=60000)
-            expect(page.locator("#catalog-title")).to_have_text(
-                "Window Catalog", timeout=60000
+            expect(page.locator("#loading")).to_have_text("", timeout=60000)
+            mount = page.locator("#app-mount")
+            expect(mount.locator(".apptraverse-desktop-window")).to_have_count(
+                1, timeout=60000
             )
-            expect(page.locator("#catalog-list li")).to_have_count(0, timeout=5000)
-            expect(page.locator("#catalog-buttons button.catalog-button")).to_have_count(
+            main_win = mount.locator(".apptraverse-desktop-window").first
+            expect(main_win).to_have_attribute(
+                "data-apptraverse-window-title", "Window Catalog", timeout=5000
+            )
+            expect(mount.locator(".apptraverse-list-row")).to_have_count(0, timeout=5000)
+            expect(mount.locator("button.apptraverse-push-button")).to_have_count(
                 4, timeout=60000
             )
 
             for control_id, spec in EXPECTED_BUTTONS.items():
-                btn = page.locator(
-                    f'#catalog-buttons button[data-control-id="{control_id}"]'
+                btn = mount.locator(
+                    f'button.apptraverse-push-button[data-apptraverse-control-id="{control_id}"]'
                 )
                 expect(btn).to_have_count(1, timeout=5000)
                 expect(btn).to_have_text(spec["label"], timeout=5000)

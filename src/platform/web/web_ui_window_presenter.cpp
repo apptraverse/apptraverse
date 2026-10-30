@@ -10,6 +10,14 @@
 
 namespace apptraverse::ui::web {
 
+extern "C" {
+
+EMSCRIPTEN_KEEPALIVE void ApptraverseWebUiDesktopWindowClose(void* ctx) {
+  static_cast<WebDesktopWindowPresenter*>(ctx)->NotifyUserCloseFromUi();
+}
+
+}  // extern "C"
+
 EM_JS(emscripten::EM_VAL, ApptraverseCreateDesktopWindowElement, (), {
   var windowEl = document.createElement('div');
   windowEl.className = 'apptraverse-desktop-window';
@@ -33,6 +41,25 @@ EM_JS(void, ApptraverseSetDesktopWindowTitleDataset,
       (emscripten::EM_VAL window_el, const char* title_utf8), {
   Emval.toValue(window_el).dataset.apptraverseWindowTitle =
       UTF8ToString(title_utf8);
+});
+
+EM_JS(void, ApptraverseAddDesktopWindowClose, (emscripten::EM_VAL window_el,
+                                                void* self), {
+  var win = Emval.toValue(window_el);
+  var btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'apptraverse-desktop-close';
+  btn.textContent = '\u00d7';
+  btn.style.position = 'absolute';
+  btn.style.top = '2px';
+  btn.style.right = '4px';
+  btn.style.zIndex = '2';
+  win.style.position = 'absolute';
+  win.appendChild(btn);
+  btn.addEventListener('click', function(ev) {
+    ev.stopPropagation();
+    Module['_ApptraverseWebUiDesktopWindowClose'](self);
+  });
 });
 
 EM_JS(void, ApptraverseSetDesktopWindowGeometry, (emscripten::EM_VAL window_el,
@@ -87,8 +114,19 @@ void WebDesktopWindowPresenter::OnLoad() {
   dom_refs_->client_element =
       ApptraverseDesktopClientElement(dom_refs_->window_element);
   ApptraverseMountDesktopWindow(host->mount, dom_refs_->window_element);
+  if (host->on_desktop_window_user_close != nullptr) {
+    ApptraverseAddDesktopWindowClose(dom_refs_->window_element, this);
+  }
   SyncGeometryFromMirror();
   SyncTitleFromMirror();
+}
+
+void WebDesktopWindowPresenter::NotifyUserCloseFromUi() {
+  auto* host = static_cast<WebPresentationHost*>(presentation_host);
+  if (host == nullptr || host->on_desktop_window_user_close == nullptr) {
+    return;
+  }
+  host->on_desktop_window_user_close(host->opaque, window.operator->());
 }
 
 void WebDesktopWindowPresenter::SyncTitleFromMirror() {

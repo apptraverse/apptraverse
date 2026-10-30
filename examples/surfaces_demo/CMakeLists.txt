@@ -118,6 +118,7 @@ add_library(surfaces_demo_window_catalog_common STATIC
   common/window_catalog_actions.cpp
   common/window_catalog_graph_builder.cpp
   common/window_catalog_prepare.cpp
+  common/window_catalog_lifecycle.cpp
 )
 target_include_directories(surfaces_demo_window_catalog_common PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/common

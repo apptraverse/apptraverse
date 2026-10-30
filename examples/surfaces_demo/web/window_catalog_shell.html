@@ -11,48 +11,64 @@
       color: #111;
       background: #f7f7f7;
     }
-    #catalog-panel {
-      max-width: 720px;
+    #app-panel {
+      max-width: 960px;
       padding: 16px;
       background: #fff;
       border: 1px solid #ccc;
     }
-    #catalog-title {
-      margin: 0 0 12px;
-      font-size: 22px;
-    }
-    #catalog-list {
-      min-height: 120px;
-      margin: 0 0 16px;
-      padding: 8px 24px;
-      border: 1px solid #ddd;
+    #app-mount {
+      position: relative;
+      width: 860px;
+      height: 640px;
+      margin: 0 auto;
       background: #fafafa;
     }
-    #catalog-buttons {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
+    .apptraverse-desktop-window {
+      position: absolute;
+      box-sizing: border-box;
+      outline: 1px solid #888;
+      background: #fff;
     }
-    button.catalog-button {
-      padding: 8px 14px;
-      border: 1px solid #888;
-      background: #e8e8e8;
+    .apptraverse-desktop-client {
+      position: relative;
+      box-sizing: border-box;
+      background: #f0f4f8;
+    }
+    .apptraverse-push-button {
+      box-sizing: border-box;
+    }
+    .apptraverse-list {
+      box-sizing: border-box;
+      border: 1px solid #ccc;
+      background: #fff;
+    }
+    .apptraverse-list-row {
+      padding: 4px 8px;
       cursor: default;
+      user-select: none;
     }
-    button.catalog-button:disabled {
-      opacity: 0.55;
+    .apptraverse-list-row-selected {
+      background: #dbeafe;
     }
-    #status { margin-top: 16px; color: #444; min-height: 1.2em; }
+    .apptraverse-desktop-close {
+      cursor: pointer;
+    }
+    #loading { margin-top: 16px; color: #444; min-height: 1.2em; }
+    #save-row { margin-top: 12px; display: flex; gap: 12px; align-items: center; }
+    #save-status { min-width: 6em; color: #444; }
   </style>
 </head>
 <body>
   <h1>WindowCatalog (Web)</h1>
-  <div id="catalog-panel">
-    <h2 id="catalog-title">Loading…</h2>
-    <ul id="catalog-list"></ul>
-    <div id="catalog-buttons"></div>
+  <div id="app-panel">
+    <div id="app-mount"></div>
+    <div id="save-row">
+      <button id="save-button" type="button">Save</button>
+      <span id="save-status"></span>
+    </div>
   </div>
-  <div id="status"></div>
+  <div id="loading">Loading…</div>
 
   <script>
     var Module = {
@@ -65,22 +81,11 @@
         if (typeof SharedArrayBuffer === 'undefined') {
           throw new Error('SharedArrayBuffer unavailable');
         }
-        FS.mkdir('/persistent');
-        FS.mount(IDBFS, {}, '/persistent');
-        Module['addRunDependency']('idbfs-sync');
-        FS.syncfs(true, function(err) {
-          if (err) {
-            console.error('IDBFS syncfs(true) failed', err);
-            document.getElementById('status').textContent =
-                'IndexedDB load failed: ' + err;
-          } else {
-            console.log('WINDOW_CATALOG_IDBFS_LOADED');
-          }
-          Module['removeRunDependency']('idbfs-sync');
-        });
       }],
       onRuntimeInitialized: function() {
-        console.log('WINDOW_CATALOG_WASM_READY crossOriginIsolated=' + crossOriginIsolated);
+        document.getElementById('save-button').addEventListener('click', function() {
+          Module._ApptraverseWindowCatalogRequestSave();
+        });
       }
     };
   </script>
