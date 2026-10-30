@@ -109,6 +109,9 @@ ae::ObjId CommandRoutingListRootId();
 
 CommandRoutingButtonRoot::ptr BuildCommandRoutingButtonGraph(ae::Domain& domain);
 CommandRoutingListRoot::ptr BuildCommandRoutingListGraph(ae::Domain& domain);
+void ExtendCommandRoutingListGraphForScroll(CommandRoutingListRoot::ptr const& root,
+                                            ae::Domain& domain,
+                                            std::size_t additional_row_count);
 
 void EnsureCommandRoutingTestNodeRegistration();
 

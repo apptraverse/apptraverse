@@ -1,6 +1,7 @@
 #include <cstdlib>
 #include <deque>
 #include <iostream>
+#include <string>
 #include <vector>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
@@ -383,6 +384,100 @@ void TestListNativeSelectionViaProxyAndPublication() {
         selection_events_before + 2);
 }
 
+std::wstring DesktopWindowCaption(HWND hwnd) {
+  wchar_t buffer[256]{};
+  int const len = GetWindowTextW(hwnd, buffer, 256);
+  if (len <= 0) {
+    return {};
+  }
+  return std::wstring{buffer, static_cast<std::size_t>(len)};
+}
+
+void TestListTopIndexPreservedWhenTitlePublicationUnchangedSelection() {
+  using namespace apptraverse;
+  using namespace apptraverse::ui;
+  using namespace apptraverse::ui::windows;
+
+  ae::RamDomainStorage model_storage;
+  ae::Domain model_domain{model_storage};
+
+  auto model_root = BuildCommandRoutingListGraph(model_domain);
+  ExtendCommandRoutingListGraphForScroll(model_root, model_domain, 24);
+  auto* model_list = model_root->list.operator->();
+  std::size_t const row_count = model_list->rows.size();
+  CHECK(row_count >= 20);
+
+  std::deque<ModelObjectProxy::ModelWork> deferred;
+  ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork work) {
+    deferred.push_back(std::move(work));
+  }};
+
+  ApplicationUiSession ui_session(
+      [&] {
+        ByteSink initial;
+        SerializeInitialPublication(*model_root, initial);
+        return initial.bytes;
+      }(),
+      nullptr, proxy);
+
+  auto& ui_root = AsListRoot(ui_session.root());
+  auto* desktop = ui_root.window_presenter.operator->();
+  auto* list_presenter = ui_root.list_presenter.operator->();
+  auto* ui_list = ui_root.list.operator->();
+  HWND const list_hwnd = list_presenter->hwnd();
+  HWND const desktop_hwnd = desktop->hwnd();
+  CHECK(list_hwnd != nullptr);
+  CHECK(desktop_hwnd != nullptr);
+
+  PumpModelWorkAndApplyStructural(deferred, model_domain, *model_root,
+                                  ui_session);
+  CHECK(SendMessageW(list_hwnd, LB_GETCOUNT, 0, 0) ==
+        static_cast<LRESULT>(row_count));
+
+  SendMessageW(list_hwnd, LB_SETCURSEL, 0, 0);
+  PostDesktopChildCommand(desktop_hwnd, list_hwnd, 9002, LBN_SELCHANGE);
+  CHECK(deferred.size() == 1);
+  PumpModelWork(deferred, model_domain);
+  ui_session.ApplyStructural(SerializeStructuralRoot(*model_root));
+  CHECK(model_list->selection_index == 0);
+  CHECK(ui_list->selection_index == 0);
+  CHECK(ListBoxCurSel(list_hwnd) == 0);
+
+  CHECK(SendMessageW(list_hwnd, LB_SETTOPINDEX, 10, 0) != LB_ERR);
+  LRESULT const top_after_scroll = SendMessageW(list_hwnd, LB_GETTOPINDEX, 0, 0);
+  CHECK(top_after_scroll > 0);
+  CHECK(ListBoxCurSel(list_hwnd) == 0);
+
+  auto* title = model_root->window_presenter->title.operator->();
+  CHECK(title != nullptr);
+  auto title_event = SetUiLocalizationSlotUtf8Event::ptr::Create(
+      ae::CreateWith{*title->domain});
+  title_event->slot_index = 0;
+  title_event->utf8 = "Routing list revised";
+  title->Commit(std::move(title_event));
+
+  CHECK(model_list->selection_index == 0);
+  CHECK(ui_list->selection_index == 0);
+  CHECK(ui_list->rows.size() == row_count);
+  CHECK(DesktopWindowCaption(desktop_hwnd) ==
+        ui::windows::Utf8ToWide("Routing list"));
+  CHECK(ListBoxCurSel(list_hwnd) == 0);
+  CHECK(SendMessageW(list_hwnd, LB_GETTOPINDEX, 0, 0) == top_after_scroll);
+
+  std::size_t const deferred_before = deferred.size();
+  ui_session.ApplyStructural(SerializeStructuralRoot(*model_root));
+  CHECK(deferred.size() == deferred_before);
+
+  CHECK(DesktopWindowCaption(desktop_hwnd) ==
+        ui::windows::Utf8ToWide("Routing list revised"));
+  CHECK(ui_list->selection_index == 0);
+  CHECK(ui_list->rows.size() == row_count);
+  CHECK(ListBoxCurSel(list_hwnd) == 0);
+  CHECK(SendMessageW(list_hwnd, LB_GETTOPINDEX, 0, 0) == top_after_scroll);
+  CHECK(ListBoxItemText(list_hwnd, 0) ==
+        ui::windows::Utf8ToWide("Row A"));
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -396,6 +491,7 @@ int main() {
   apptraverse::test::TestEditRouting();
   apptraverse::test::TestPushButtonNativeClickViaProxyAndPublication();
   apptraverse::test::TestListNativeSelectionViaProxyAndPublication();
+  apptraverse::test::TestListTopIndexPreservedWhenTitlePublicationUnchangedSelection();
   apptraverse::test::TestActivationListStructuralMirrorHeadless();
   std::cout << "win_ui_command_routing_test OK\n";
   return 0;

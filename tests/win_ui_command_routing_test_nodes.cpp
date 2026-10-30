@@ -1,5 +1,6 @@
 #include "win_ui_command_routing_test_nodes.h"
 
+#include <cstdio>
 #include <deque>
 #include <iostream>
 
@@ -200,6 +201,23 @@ CommandRoutingListRoot::ptr BuildCommandRoutingListGraph(ae::Domain& domain) {
   root->presented_window->Commit(std::move(frame));
 
   return root;
+}
+
+void ExtendCommandRoutingListGraphForScroll(
+    CommandRoutingListRoot::ptr const& root, ae::Domain& domain,
+    std::size_t additional_row_count) {
+  if (!root || !root->list) {
+    return;
+  }
+  for (std::size_t i = 0; i < additional_row_count; ++i) {
+    auto row = ui::UiListRow::ptr::Create(ae::CreateWith{domain});
+    InitializeRuntimeNode(*row, *root->list);
+    char label[32];
+    std::snprintf(label, sizeof(label), "Row %02zu", i + 2);
+    row->primary_text = MakeSingleLabel(domain, label);
+    InitializeRuntimeNode(*row->primary_text, *row);
+    root->list->rows.push_back(row);
+  }
 }
 
 void EnsureCommandRoutingTestNodeRegistration() {

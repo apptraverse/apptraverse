@@ -380,13 +380,15 @@ void ApplyPublishedListSelection(HWND hwnd, bool notify_list_selection_change,
     return;
   }
   std::int32_t const desired = container->selection_index;
+  LRESULT const current_sel = SendMessageW(hwnd, LB_GETCURSEL, 0, 0);
   if (desired >= 0 && desired < static_cast<std::int32_t>(row_count)) {
-    SendMessageW(hwnd, LB_SETCURSEL, static_cast<WPARAM>(desired), 0);
+    if (current_sel != desired) {
+      SendMessageW(hwnd, LB_SETCURSEL, static_cast<WPARAM>(desired), 0);
+    }
     return;
   }
-  if (desired == -1) {
+  if (desired == -1 && current_sel != LB_ERR) {
     SendMessageW(hwnd, LB_SETCURSEL, static_cast<WPARAM>(-1), 0);
-    (void)SendMessageW(hwnd, LB_GETCURSEL, 0, 0);
   }
 }
 
