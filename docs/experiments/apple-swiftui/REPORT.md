@@ -9,7 +9,8 @@ Two Apple backends of Window Catalog, from the same checkpoint as the parallel W
 | Checkpoint | `982b47366bca343f78dc6275fdac7b6eaceb84fb` |
 | Tag | `checkpoint/web4-before-five-backends-982b473` |
 | Branch | `experiment/window-catalog-apple-swiftui-982b473` |
-| Final commit | tip of `experiment/window-catalog-apple-swiftui-982b473` (the commit that adds this report) |
+| Implementation | `f68d5a9797943c511f26596fc8e6b91250bb08f0` |
+| This report | the following commit on the same branch, which only records that hash |
 
 Worktree: `/Users/nick/Projects/apptraverse-window-catalog-apple-swiftui`. The original clone and `experiment/window-catalog-five-backends-982b473` were not switched or rewritten.
 
