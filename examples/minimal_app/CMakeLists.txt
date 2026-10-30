@@ -27,3 +27,7 @@ endif()
 if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
   add_subdirectory(windows)
 endif()
+
+if(EMSCRIPTEN AND APPTRAVERSE_BUILD_EXAMPLES)
+  add_subdirectory(web)
+endif()

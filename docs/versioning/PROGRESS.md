@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-10-29):** **P3.T3.W2 PASS** — native list selection из UI mirror (`WinListContainerPresenter::SyncFromMirror`, §P3.T3.W2). **P3.T3.W1 PASS** сохранён. **NEXT:** **P3.T3.Web** — Web backend общего шаблона и независимый MinimalApp (не начинать без отдельной задачи). **P3.T3.W** и **P3** — **IN_PROGRESS**. **P3.T1–T2**, **P3.T3.H PASS** сохранены. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
+**Активный порядок (2026-10-29):** **P3.T3.Web1 PASS** — библиотечный Web host/presenter + `web_minimal_app` initial publication (§P3.T3.Web1). **P3.T3.W1–W2 PASS** сохранены. **NEXT:** **P3.T3.Web2** — библиотечные Button/List и UI-команды через proxy/publication. **P3.T3.Web** и **P3** — **IN_PROGRESS**. **P3.T1–T2**, **P3.T3.H PASS** сохранены. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -58,6 +58,22 @@
 **Regressions (win64-ninja-msvc-debug, scroll follow-up):** **PASS** — тот же набор §W2 + `apptraverse_win_ui_command_routing_test`. **История:** `apptraverse_window_catalog_win32_acceptance_test` — отдельный прогон W2: 1-й run timeout `IsIconic`, повтор **PASS** (причина не установлена). **WASM:** build + browser smoke (`serve_wasm.py`, `examples/surfaces_demo/web`, port **8785**) **PASS**.
 
 **Windows scope (точно):** библиотечные **Window / List / Button** presenters + **MinimalApp** lifecycle/acceptance/headless; семь backend и переносимость профиля **не** заявлены.
+
+---
+
+<a id="p3t3web1--web-minimalapp-initial-publication-2026-10-29-pass"></a>
+
+## P3.T3.Web1 — Web MinimalApp initial publication (2026-10-29) — PASS
+
+**Library:** `apptraverse_ui_web` — `WebApplicationHost` (model worker → `ProxyingQueue::proxyAsync` → main: `TakePublishedCopy` / `NotifyPublicationConsumed` / `ApplicationUiSession` / `ApplyStructural`), `WebDesktopWindowPresenter` (DOM via `EM_JS` + `EM_VAL`, geometry from mirror 120/80/640×480, empty title/locale OK), `WebPresentationHost::mount`.
+
+**Example:** `examples/minimal_app/web/` — `web_minimal_app` (`BuildWebMinimalApplicationGraph`, RAM bootstrap + `RunApplicationModelSession`, `emscripten_exit_with_live_runtime`).
+
+**WASM (wasm-ninja-debug):** build `web_minimal_app` + `web_window_catalog_demo`; browser smoke **`tools/wasm_minimal_app_browser_smoke.py`** (COOP/COEP, one presenter window, `MINIMAL_APP_INITIAL_RENDER_OK`) **PASS**; catalog initial smoke **PASS**. **WindowCatalog Web** on new backend **not** migrated.
+
+**Regressions (win64-ninja-msvc-debug):** **PASS** — §W2 набор (`apptraverse_win_ui_command_routing_test`, `apptraverse_win_ui_native_push_button_test`, `apptraverse_win_application_host_test`, `apptraverse_minimal_app_win32_acceptance_test`, `apptraverse_window_catalog_win32_acceptance_test`, `apptraverse_minimal_app_headless_test`, `apptraverse_window_catalog_headless_test`, `apptraverse_ui_control_materialization_test`).
+
+**Web1 limits:** no IndexedDB/IDBFS page reload persistence; no shutdown/join on main; incremental handler wired, incremental/UI-input smoke **not** PASS; Web2 not started.
 
 ---
 

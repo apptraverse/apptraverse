@@ -174,6 +174,21 @@ if(WIN32)
     apptraverse_ui_windows apptraverse_ui_extended)
 endif()
 
+if(EMSCRIPTEN)
+  add_library(apptraverse_ui_web STATIC
+    src/platform/web/web_ui_window_presenter.cpp
+    src/platform/web/web_application_host.cpp
+    src/platform/web/web_ui_registration.cpp
+  )
+  target_include_directories(apptraverse_ui_web PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_link_libraries(apptraverse_ui_web PUBLIC apptraverse)
+  target_compile_definitions(apptraverse_ui_web PUBLIC
+    EMSCRIPTEN_HAS_UNBOUND_TYPE_NAMES=0)
+  target_compile_options(apptraverse_ui_web PRIVATE
+    -pthread -fno-rtti -fno-exceptions)
+endif()
+
 set(_apptraverse_surfaces_common_sources
   src/surfaces/surfaces_model.cpp
   src/surfaces/surfaces_localization.cpp

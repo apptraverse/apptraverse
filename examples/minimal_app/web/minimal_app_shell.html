@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AppTraverse MinimalApp (Web)</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      margin: 24px;
+      color: #111;
+      background: #f7f7f7;
+    }
+    #app-panel {
+      max-width: 900px;
+      padding: 16px;
+      background: #fff;
+      border: 1px solid #ccc;
+    }
+    #app-mount {
+      position: relative;
+      width: 800px;
+      height: 600px;
+      margin: 0 auto;
+      background: #fafafa;
+    }
+    .apptraverse-desktop-window {
+      position: absolute;
+      box-sizing: border-box;
+      outline: 1px solid #888;
+      background: #fff;
+    }
+    .apptraverse-desktop-client {
+      box-sizing: border-box;
+      background: #f0f4f8;
+    }
+    #loading { margin-top: 16px; color: #444; min-height: 1.2em; }
+  </style>
+</head>
+<body>
+  <h1>MinimalApp (Web)</h1>
+  <div id="app-panel">
+    <div id="app-mount"></div>
+  </div>
+  <div id="loading">Loading…</div>
+
+  <script>
+    var Module = {
+      print: function(text) { console.log(text); },
+      printErr: function(text) { console.error(text); },
+      preRun: [function() {
+        if (!crossOriginIsolated) {
+          throw new Error('crossOriginIsolated is false; serve with COOP/COEP');
+        }
+        if (typeof SharedArrayBuffer === 'undefined') {
+          throw new Error('SharedArrayBuffer unavailable');
+        }
+      }]
+    };
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>
