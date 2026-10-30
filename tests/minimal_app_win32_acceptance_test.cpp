@@ -403,8 +403,9 @@ void ProbePersistedGraph(std::filesystem::path const& state_dir,
   if (!window.presenter.is_loaded()) {
     window.presenter.Load();
   }
-  CHECK(!window.presenter->title.is_valid());
-  CHECK(!window.presenter->locale.is_valid());
+  CHECK(window.presenter->title.is_valid());
+  CHECK(window.presenter->locale.is_valid());
+  CHECK(window.presenter->title->Resolve(0) == "Minimal App");
   CHECK(window.presenter->window.id() == example::minimal::MinimalMainWindowId());
 
   CHECK(application->base.is_valid());
@@ -443,7 +444,9 @@ std::filesystem::path RunAcceptance() {
 
   HWND main = WaitMainWindow(pid, std::chrono::seconds{30});
   CHECK(main != nullptr);
-  CHECK(CountChildWindows(main) == 0);
+  CHECK(WaitUntil(std::chrono::seconds{15}, [&] {
+    return CountChildWindows(main) == 2;
+  }));
   CHECK(DesktopWindowsForPid(pid).size() == 1);
 
   ApplyFrame(main, 220, 140, 720, 460);
@@ -460,7 +463,9 @@ std::filesystem::path RunAcceptance() {
   DWORD const load_pid = pi.dwProcessId;
   main = WaitMainWindow(load_pid, std::chrono::seconds{30});
   CHECK(main != nullptr);
-  CHECK(CountChildWindows(main) == 0);
+  CHECK(WaitUntil(std::chrono::seconds{15}, [&] {
+    return CountChildWindows(main) == 2;
+  }));
   CHECK(DesktopWindowsForPid(load_pid).size() == 1);
   CHECK(FramesNear(ReadFrame(main), saved));
 

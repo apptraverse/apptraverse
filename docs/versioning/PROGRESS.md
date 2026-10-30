@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-10-29):** **P3.T3.Web1 PASS** — библиотечный Web host/presenter + `web_minimal_app` initial publication (§P3.T3.Web1). **P3.T3.W1–W2 PASS** сохранены. **NEXT:** **P3.T3.Web2** — библиотечные Button/List и UI-команды через proxy/publication. **P3.T3.Web** и **P3** — **IN_PROGRESS**. **P3.T1–T2**, **P3.T3.H PASS** сохранены. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
+**Активный порядок (2026-10-30):** **P3.T3.Web2 PASS** — библиотечные Web Button/List, общий MinimalApp (Apply + Row A/B), DOM ownership/lifecycle, headless + browser UI-command E2E (§P3.T3.Web2). **P3.T3.Web1**, **P3.T3.W1–W2 PASS** сохранены. **NEXT:** **P3.T3.Web3** — сохранение в browser storage с подтверждением записи и cold reload MinimalApp. **P3.T3.Web** и **P3** — **IN_PROGRESS**. **P3.T1–T2**, **P3.T3.H PASS** сохранены. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -74,6 +74,24 @@
 **Regressions (win64-ninja-msvc-debug):** **PASS** — §W2 набор (`apptraverse_win_ui_command_routing_test`, `apptraverse_win_ui_native_push_button_test`, `apptraverse_win_application_host_test`, `apptraverse_minimal_app_win32_acceptance_test`, `apptraverse_window_catalog_win32_acceptance_test`, `apptraverse_minimal_app_headless_test`, `apptraverse_window_catalog_headless_test`, `apptraverse_ui_control_materialization_test`).
 
 **Web1 limits:** no IndexedDB/IDBFS page reload persistence; no shutdown/join on main; incremental handler wired, incremental/UI-input smoke **not** PASS; Web2 not started.
+
+<a id="p3t3web2--web-minimalapp-button-list-ui-commands-2026-10-30-pass"></a>
+
+## P3.T3.Web2 — Web Button/List + MinimalApp UI commands (2026-10-30) — PASS
+
+**Library (`apptraverse_ui_web`):** `WebPushButtonPresenter`, `WebListContainerPresenter` (DOM via `EM_JS`/`EM_VAL`, `EMSCRIPTEN_KEEPALIVE` UI callbacks, owned-handle release on unload; shared `AppendDomChild` in `web_ui_dom_em`); `WebDesktopWindowPresenter` — no destructor teardown, `ReadyForPresentation` gate, `ClientMountHandle` for child layout parent.
+
+**Framework:** `InitializeNewPresenters` assigns `presentation_host` / `model_proxy` before `ReadyForPresentation` (Web mount/host gating); child presenter Ready waits on loaded parent + client mount.
+
+**Common MinimalApp:** `MinimalApplicationPresenters` on graph root (distill/cold-load reachability), `PrepareMinimalApplicationForRun`, Apply/Row A/B + Events; profile namespace `minimal_app_s1_controls_state`.
+
+**E2E:** `apptraverse_minimal_app_headless_test` (UI-command sequence + existing cold-load); `tools/wasm_minimal_app_browser_smoke.py` (click/select/dblclick → incremental publication, DOM stability). **WASM:** `web_minimal_app` + catalog initial smoke **PASS** (`8785` serve when `8765` busy).
+
+**Regressions (win64-ninja-msvc-debug):** **PASS** — §W2 набор + `win32_minimal_app` / `win32_minimal_app_load_only` build.
+
+**Web2 limits:** no browser storage save/cold reload (**Web3**); WindowCatalog Web migration not started; shutdown/join on main not implemented.
+
+**NEXT:** **P3.T3.Web3** — browser storage save with write confirmation + cold reload MinimalApp.
 
 ---
 

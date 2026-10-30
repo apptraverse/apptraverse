@@ -1,10 +1,12 @@
 #include "apptraverse/platform/web/web_ui_window_presenter.h"
 
+#include "apptraverse/noninteractive_crt.h"
+#include "apptraverse/platform/web/web_presentation_host.h"
+#include "apptraverse/platform/web/web_ui_dom_em.h"
+#include "apptraverse/ui/ui_desktop_window.h"
+
 #include <emscripten/em_js.h>
 #include <emscripten/threading.h>
-
-#include "apptraverse/platform/web/web_presentation_host.h"
-#include "apptraverse/ui/ui_desktop_window.h"
 
 namespace apptraverse::ui::web {
 
@@ -18,9 +20,19 @@ EM_JS(emscripten::EM_VAL, ApptraverseCreateDesktopWindowElement, (), {
   return Emval.toHandle(windowEl);
 });
 
+EM_JS(emscripten::EM_VAL, ApptraverseDesktopClientElement, (emscripten::EM_VAL window_el), {
+  return Emval.toHandle(Emval.toValue(window_el).firstChild);
+});
+
 EM_JS(void, ApptraverseMountDesktopWindow, (emscripten::EM_VAL mount,
                                             emscripten::EM_VAL window_el), {
   Emval.toValue(mount).appendChild(Emval.toValue(window_el));
+});
+
+EM_JS(void, ApptraverseSetDesktopWindowTitleDataset,
+      (emscripten::EM_VAL window_el, const char* title_utf8), {
+  Emval.toValue(window_el).dataset.apptraverseWindowTitle =
+      UTF8ToString(title_utf8);
 });
 
 EM_JS(void, ApptraverseSetDesktopWindowGeometry, (emscripten::EM_VAL window_el,
@@ -47,36 +59,59 @@ EM_JS(void, ApptraverseRemoveDomNode, (emscripten::EM_VAL node), {
 
 struct WebDesktopWindowDomRefs {
   emscripten::EM_VAL window_element{nullptr};
+  emscripten::EM_VAL client_element{nullptr};
 };
 
-WebDesktopWindowPresenter::~WebDesktopWindowPresenter() {
-  if (dom_refs_ != nullptr && emscripten_is_main_browser_thread()) {
-    OnUnload();
-  }
-  delete dom_refs_;
-  dom_refs_ = nullptr;
+static void ReleaseDomRefs(WebDesktopWindowDomRefs& refs) {
+  ApptraverseRemoveDomNode(refs.window_element);
+  ReleaseOwnedEmvalHandle(refs.client_element);
+  refs.client_element = nullptr;
+  ReleaseOwnedEmvalHandle(refs.window_element);
+  refs.window_element = nullptr;
 }
 
-void WebDesktopWindowPresenter::OnLoad() {
+bool WebDesktopWindowPresenter::ReadyForPresentation() const {
   if (!emscripten_is_main_browser_thread()) {
-    return;
+    return false;
   }
   auto* host = static_cast<WebPresentationHost*>(presentation_host);
   if (host == nullptr || host->mount == nullptr) {
-    return;
+    return false;
   }
-  auto const desktop = desktop_window();
-  if (!desktop) {
-    return;
-  }
+  return desktop_window().is_valid();
+}
 
-  if (dom_refs_ == nullptr) {
-    dom_refs_ = new WebDesktopWindowDomRefs();
+void WebDesktopWindowPresenter::OnLoad() {
+  if (!ReadyForPresentation()) {
+    WriteFatalStderr(
+        "fatal: WebDesktopWindowPresenter::OnLoad preconditions failed\n");
+    std::abort();
   }
+  auto* host = static_cast<WebPresentationHost*>(presentation_host);
 
+  dom_refs_ = new WebDesktopWindowDomRefs();
   dom_refs_->window_element = ApptraverseCreateDesktopWindowElement();
+  dom_refs_->client_element =
+      ApptraverseDesktopClientElement(dom_refs_->window_element);
   ApptraverseMountDesktopWindow(host->mount, dom_refs_->window_element);
   SyncGeometryFromMirror();
+  SyncTitleFromMirror();
+}
+
+void WebDesktopWindowPresenter::SyncTitleFromMirror() {
+  if (dom_refs_ == nullptr || dom_refs_->window_element == nullptr) {
+    return;
+  }
+  std::string title_text;
+  if (title && title->strings.size() > 0) {
+    int language_index = 0;
+    if (locale) {
+      language_index = locale->language_index();
+    }
+    title_text = title->Resolve(language_index);
+  }
+  ApptraverseSetDesktopWindowTitleDataset(dom_refs_->window_element,
+                                          title_text.c_str());
 }
 
 void WebDesktopWindowPresenter::SyncGeometryFromMirror() {
@@ -92,14 +127,32 @@ void WebDesktopWindowPresenter::SyncGeometryFromMirror() {
                                       desktop->client_height());
 }
 
-void WebDesktopWindowPresenter::OnModelChanged() { SyncGeometryFromMirror(); }
+void WebDesktopWindowPresenter::OnModelChanged() {
+  SyncGeometryFromMirror();
+  SyncTitleFromMirror();
+}
 
 void WebDesktopWindowPresenter::OnUnload() {
-  if (dom_refs_ == nullptr || dom_refs_->window_element == nullptr) {
+  if (dom_refs_ == nullptr) {
     return;
   }
-  ApptraverseRemoveDomNode(dom_refs_->window_element);
-  dom_refs_->window_element = nullptr;
+  ReleaseDomRefs(*dom_refs_);
+  delete dom_refs_;
+  dom_refs_ = nullptr;
+}
+
+void* WebDesktopWindowPresenter::NativeChildParentHandle() const {
+  if (dom_refs_ == nullptr || dom_refs_->client_element == nullptr) {
+    return nullptr;
+  }
+  return reinterpret_cast<void*>(dom_refs_->client_element);
+}
+
+emscripten::EM_VAL WebDesktopWindowPresenter::ClientMountHandle() const {
+  if (dom_refs_ == nullptr) {
+    return nullptr;
+  }
+  return dom_refs_->client_element;
 }
 
 }  // namespace apptraverse::ui::web

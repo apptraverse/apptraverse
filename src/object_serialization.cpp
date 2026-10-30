@@ -1081,11 +1081,11 @@ void InitializeNewPresenters(ae::Obj& gui_root, void* host,
       if (presenter == nullptr || presenter->presentation_loaded) {
         continue;
       }
+      presenter->presentation_host = host;
+      presenter->model_proxy = model_proxy;
       if (!presenter->ReadyForPresentation()) {
         continue;
       }
-      presenter->presentation_host = host;
-      presenter->model_proxy = model_proxy;
       presenter->OnLoad();
       presenter->presentation_loaded = true;
       presenter->presentation_load_order = NextPresentationLoadOrder();

@@ -15,6 +15,8 @@
 #include "apptraverse/object_macros.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/platform/windows/win_ui_presenters.h"
+#include "minimal_app_prepare.h"
+
 #include "apptraverse/ui/ui_presented_window_lifecycle.h"
 #include "apptraverse/ui/ui_presenters.h"
 
@@ -54,7 +56,7 @@ int RunMinimalApplicationModel(
   DirectoryDomainStorage durable_storage{state_dir};
   ApplicationModelSessionHooks<MinimalApplication> hooks;
   hooks.prepare = [](MinimalApplication& application) {
-    ui::LoadPresentedWindow(application.main_window);
+    PrepareMinimalApplicationForRun(application);
   };
   hooks.persist = [&durable_storage](MinimalApplication& application) -> int {
     durable_storage.BeginSaveSession();

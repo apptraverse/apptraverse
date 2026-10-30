@@ -1,6 +1,8 @@
 #ifndef APPTRAVERSE_PLATFORM_WEB_WEB_UI_WINDOW_PRESENTER_H_
 #define APPTRAVERSE_PLATFORM_WEB_WEB_UI_WINDOW_PRESENTER_H_
 
+#include <emscripten/val.h>
+
 #include "apptraverse/ui/ui_presenters.h"
 
 namespace apptraverse::ui::web {
@@ -19,8 +21,6 @@ class WebDesktopWindowPresenter : public UiDesktopWindowPresenter {
   explicit WebDesktopWindowPresenter(ae::ObjProp prop)
       : UiDesktopWindowPresenter{prop} {}
 
-  ~WebDesktopWindowPresenter() override;
-
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_);
@@ -35,10 +35,16 @@ class WebDesktopWindowPresenter : public UiDesktopWindowPresenter {
   void OnModelChanged() override;
   void OnUnload() override;
 
+  bool ReadyForPresentation() const override;
+
+  void* NativeChildParentHandle() const override;
+
+  emscripten::EM_VAL ClientMountHandle() const;
+
  private:
   void SyncGeometryFromMirror();
+  void SyncTitleFromMirror();
 
-  // Main-thread DOM handles only; never created during model-graph construction.
   WebDesktopWindowDomRefs* dom_refs_{nullptr};
 };
 

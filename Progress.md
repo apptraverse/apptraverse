@@ -1,4 +1,4 @@
-**Active (2026-10-29):** **P3.T3.Web1 PASS** — `apptraverse_ui_web` + `web_minimal_app` initial publication/DOM window; browser smoke `MINIMAL_APP_INITIAL_RENDER_OK`. **P3.T3.W1–W2 PASS** retained. **NEXT:** **P3.T3.Web2** — library Button/List + UI commands via proxy/publication. **P3.T3.Web** / **P3** IN_PROGRESS. [PLAN](docs/versioning/PLAN.md), [PROGRESS](docs/versioning/PROGRESS.md).
+**Active (2026-10-30):** **P3.T3.Web2 PASS** — Web Button/List presenters, shared MinimalApp controls (Apply + Row A/B), headless + browser UI-command E2E; DOM ownership/lifecycle fixes. **P3.T3.Web1**, **P3.T3.W1–W2 PASS** retained. **NEXT:** **P3.T3.Web3** — browser storage save + cold reload MinimalApp. **P3.T3.Web** / **P3** IN_PROGRESS. [PLAN](docs/versioning/PLAN.md), [PROGRESS](docs/versioning/PROGRESS.md).
 
 **Release versioning (R0–R5):** детальный журнал — [docs/versioning/PROGRESS.md](docs/versioning/PROGRESS.md); **P0–P6** — единственная активная очередь на unified. Rules: `.cursor/rules/apptraverse-coding-agent.mdc`.
 

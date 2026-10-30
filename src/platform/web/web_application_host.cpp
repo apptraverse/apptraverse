@@ -48,6 +48,9 @@ void WebApplicationHost::HandlePublicationOnMainThread(
     std::abort();
   }
   if (kind == ApplicationPublicationKind::Initial) {
+    if (callbacks_.refresh_presentation_host) {
+      callbacks_.refresh_presentation_host(presentation_host_);
+    }
     std::vector<std::uint8_t> bytes = runtime_.TakePublishedCopy();
     runtime_.NotifyPublicationConsumed();
     ui_session_.emplace(bytes, &presentation_host_, model_proxy_);

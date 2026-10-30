@@ -18,10 +18,10 @@ std::filesystem::path DefaultStateDir() {
   wchar_t module_path[MAX_PATH]{};
   DWORD const len = GetModuleFileNameW(nullptr, module_path, MAX_PATH);
   if (len == 0 || len >= MAX_PATH) {
-    return std::filesystem::path{"minimal_app_v0_state"};
+    return std::filesystem::path{"minimal_app_s1_controls_state"};
   }
   return std::filesystem::path{module_path}.parent_path() /
-         "minimal_app_v0_state";
+         "minimal_app_s1_controls_state";
 }
 
 }  // namespace

@@ -17,6 +17,7 @@
 #include "apptraverse/platform/web/web_ui_window_presenter.h"
 #include "apptraverse/ui/ui_presented_window_lifecycle.h"
 
+#include "minimal_app_prepare.h"
 #include "minimal_app_web_graph.h"
 #include "minimal_application.h"
 
@@ -61,9 +62,10 @@ void StartWebMinimalApplication() {
   ui::web::EnsureWebUiPresenterRegistration();
   EnsureBrowserEnvironment();
 
-  g_presentation_host.mount = ApptraverseGetAppMountElement();
-
   web::WebApplicationHostCallbacks callbacks;
+  callbacks.refresh_presentation_host = [](ui::web::WebPresentationHost& host) {
+    host.mount = ApptraverseGetAppMountElement();
+  };
   callbacks.run_model = [](ApplicationPublishedCallback on_published) {
     {
       ae::Domain bootstrap_domain{g_model_storage};
@@ -74,7 +76,7 @@ void StartWebMinimalApplication() {
 
     ApplicationModelSessionHooks<MinimalApplication> hooks;
     hooks.prepare = [](MinimalApplication& application) {
-      ui::LoadPresentedWindow(application.main_window);
+      PrepareMinimalApplicationForRun(application);
     };
     hooks.persist = [](MinimalApplication& application) -> int {
       ui::SavePresentedWindow(application.main_window);

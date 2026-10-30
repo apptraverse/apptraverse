@@ -1,5 +1,6 @@
 #include <condition_variable>
 #include <cstdlib>
+#include <deque>
 #include <filesystem>
 #include <iostream>
 #include <mutex>
@@ -17,11 +18,18 @@
 #include "apptraverse/node.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/object_macros.h"
+#include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
+#include "apptraverse/ui/ui_list_container.h"
+#include "apptraverse/ui/ui_localization_string.h"
+#include "apptraverse/ui/ui_push_button.h"
+#include "apptraverse/ui/ui_push_button_presenter.h"
 #include "apptraverse/ui/ui_desktop_window.h"
 #include "apptraverse/ui/ui_presented_window_lifecycle.h"
 #include "apptraverse/ui/ui_presenters.h"
 
+#include "minimal_app_controls.h"
+#include "minimal_app_prepare.h"
 #include "minimal_app_graph_headless.h"
 #include "minimal_application.h"
 
@@ -81,6 +89,65 @@ ui::UiDesktopWindowPresenter& UiMainPresenter(MinimalApplication& application) {
   return static_cast<ui::UiDesktopWindowPresenter&>(*window.presenter);
 }
 
+ui::UiPushButtonPresenter& UiApplyButtonPresenter(MinimalApplication& application) {
+  ui::UiDesktopWindow& window = UiMainWindow(application);
+  auto presenter = ui::UiPushButtonPresenter::ptr::Declare(
+      ae::CreateWith{*application.domain}.with_id(
+          example::minimal::MinimalApplyButtonPresenterId()));
+  presenter.Load();
+  CHECK(presenter.is_valid());
+  CHECK(presenter->button.id() == example::minimal::MinimalApplyButtonId());
+  return *presenter;
+}
+
+ui::UiListContainerPresenter& UiRowListPresenter(MinimalApplication& application) {
+  ui::UiDesktopWindow& window = UiMainWindow(application);
+  (void)window;
+  auto presenter = ui::UiListContainerPresenter::ptr::Declare(
+      ae::CreateWith{*application.domain}.with_id(
+          example::minimal::MinimalRowListPresenterId()));
+  presenter.Load();
+  CHECK(presenter.is_valid());
+  CHECK(presenter->container.id() == example::minimal::MinimalRowListId());
+  return *presenter;
+}
+
+example::minimal::MinimalAppList& ModelRowList(MinimalApplication& application) {
+  application.row_list.Load();
+  CHECK(application.row_list.is_valid());
+  return *application.row_list;
+}
+
+void PumpModelWork(std::deque<ModelObjectProxy::ModelWork>& deferred,
+                   ae::Domain& model_domain) {
+  while (!deferred.empty()) {
+    auto work = std::move(deferred.front());
+    deferred.pop_front();
+    work(model_domain);
+  }
+}
+
+std::vector<std::uint8_t> SerializeStructuralRoot(Node const& model_root) {
+  ByteSink structural;
+  SerializeStructuralNodePublication(model_root, structural);
+  return structural.bytes;
+}
+
+void PumpModelWorkAndApplyStructural(
+    std::deque<ModelObjectProxy::ModelWork>& deferred,
+    ae::Domain& model_domain, Node const& model_root,
+    ApplicationUiSession& session) {
+  PumpModelWork(deferred, model_domain);
+  session.ApplyStructural(SerializeStructuralRoot(model_root));
+}
+
+ui::UiLocalizationString& WindowTitleMirror(MinimalApplication& ui_app) {
+  ui::UiDesktopWindow& window = UiMainWindow(ui_app);
+  window.presenter.Load();
+  CHECK(window.presenter->title.is_valid());
+  return *window.presenter->title;
+}
+
 struct PublicationWaiter {
   std::mutex mu;
   std::condition_variable cv;
@@ -134,7 +201,7 @@ void TestMinimalAppHeadlessSessionE2e() {
 
     ApplicationModelSessionHooks<MinimalApplication> hooks;
     hooks.prepare = [](MinimalApplication& application) {
-      ui::LoadPresentedWindow(application.main_window);
+      PrepareMinimalApplicationForRun(application);
     };
     hooks.before_incremental = [&](MinimalApplication& application) {
       ui::UiDesktopWindow& window = UiMainWindow(application);
@@ -224,7 +291,7 @@ void TestMinimalAppHeadlessSessionE2e() {
 
   ApplicationModelSessionHooks<MinimalApplication> cold_hooks;
   cold_hooks.prepare = [&](MinimalApplication& application) {
-    ui::LoadPresentedWindow(application.main_window);
+    PrepareMinimalApplicationForRun(application);
     ui::UiDesktopWindow& window = UiMainWindow(application);
     CHECK(window.x() == kReportedX);
     CHECK(window.y() == kReportedY);
@@ -309,12 +376,63 @@ void TestMinimalAppHeadlessSessionE2e() {
   CHECK(cold_session_result == 0);
 }
 
+void TestMinimalAppHeadlessUiCommandE2e() {
+  EnsureObjectRegistration();
+  EnsureHeadlessMinimalApplicationGraphRegistration();
+
+  ae::RamDomainStorage model_storage;
+  ae::Domain model_domain{model_storage};
+  auto model_root = BuildHeadlessMinimalApplicationGraph(model_domain);
+
+  std::deque<ModelObjectProxy::ModelWork> deferred;
+  ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork work) {
+    deferred.push_back(std::move(work));
+  }};
+
+  ByteSink initial;
+  SerializeInitialPublication(*model_root, initial);
+  ApplicationUiSession ui_session(initial.bytes, nullptr, proxy);
+
+  MinimalApplication& ui_app =
+      static_cast<MinimalApplication&>(ui_session.root());
+  CHECK(WindowTitleMirror(ui_app).Resolve(0) == "Minimal App");
+  ui_app.apply_button.Load();
+  CHECK(ui_app.apply_button->enabled());
+  MinimalApplication& model_app = *model_root;
+  CHECK(ModelRowList(model_app).selection_index == -1);
+  CHECK(ModelRowList(ui_app).selection_index == -1);
+
+  UiRowListPresenter(ui_app).SubmitListRowSelectionChangedFromUi(1);
+  PumpModelWorkAndApplyStructural(deferred, model_domain, model_app,
+                                  ui_session);
+  CHECK(ModelRowList(model_app).selection_index == 1);
+  CHECK(ModelRowList(ui_app).selection_index == 1);
+
+  UiApplyButtonPresenter(ui_app).SimulateClickForTest();
+  PumpModelWorkAndApplyStructural(deferred, model_domain, model_app,
+                                  ui_session);
+  CHECK(WindowTitleMirror(ui_app).Resolve(0) == "Applied");
+  CHECK(ModelRowList(ui_app).selection_index == -1);
+  CHECK(!ui_app.apply_button->enabled());
+
+  UiRowListPresenter(ui_app).SubmitListRowSelectionChangedFromUi(0);
+  PumpModelWorkAndApplyStructural(deferred, model_domain, model_app,
+                                  ui_session);
+  CHECK(ModelRowList(ui_app).selection_index == 0);
+
+  UiRowListPresenter(ui_app).SubmitListRowActivatedFromUi(0);
+  PumpModelWorkAndApplyStructural(deferred, model_domain, model_app,
+                                  ui_session);
+  CHECK(WindowTitleMirror(ui_app).Resolve(0) == "Activated Row A");
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
 int main() {
   apptraverse::EnableNoninteractiveCrt();
   apptraverse::test::TestMinimalAppHeadlessSessionE2e();
+  apptraverse::test::TestMinimalAppHeadlessUiCommandE2e();
   std::cout << "minimal_app_headless_test OK\n";
   return 0;
 }

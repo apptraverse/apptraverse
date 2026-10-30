@@ -18,6 +18,7 @@ struct WebApplicationHostCallbacks {
   using RunModel = std::function<void(ApplicationPublishedCallback)>;
 
   RunModel run_model;
+  std::function<void(ui::web::WebPresentationHost&)> refresh_presentation_host;
   TakePublishedSidecarCallback take_incremental_sidecar;
   std::function<void(ae::Obj& application_root)> after_initial;
   std::function<void(ae::Obj& application_root)> after_incremental;

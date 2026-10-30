@@ -176,7 +176,10 @@ endif()
 
 if(EMSCRIPTEN)
   add_library(apptraverse_ui_web STATIC
+    src/platform/web/web_ui_dom_em.cpp
     src/platform/web/web_ui_window_presenter.cpp
+    src/platform/web/web_ui_push_button_presenter.cpp
+    src/platform/web/web_ui_list_presenter.cpp
     src/platform/web/web_application_host.cpp
     src/platform/web/web_ui_registration.cpp
   )

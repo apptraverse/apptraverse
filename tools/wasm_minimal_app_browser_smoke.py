@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Browser smoke for web_minimal_app initial presenter window."""
+"""Browser smoke for web_minimal_app initial render and UI command E2E."""
 
 from __future__ import annotations
 
@@ -9,6 +9,9 @@ from pathlib import Path
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import expect, sync_playwright
+
+APPLY_CONTROL_ID = "7101"
+LIST_CONTROL_ID = "7102"
 
 
 def main() -> int:
@@ -43,6 +46,18 @@ def main() -> int:
             page_errors.append(
                 f"requestfailed: {request.url} ({request.failure})"
             )
+
+    def wait_title(page, text: str, timeout_ms: int = 60000) -> None:
+        page.wait_for_function(
+            """(expected) => {
+              const win = document.querySelector(
+                '#app-mount [data-apptraverse-desktop-window="1"]');
+              if (!win) return false;
+              return win.dataset.apptraverseWindowTitle === expected;
+            }""",
+            arg=text,
+            timeout=timeout_ms,
+        )
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, channel="chrome")
@@ -80,6 +95,17 @@ def main() -> int:
                 )
                 return 1
 
+            button = page.locator(
+                f"#app-mount [data-apptraverse-control-id='{APPLY_CONTROL_ID}']"
+            )
+            list_box = page.locator(
+                f"#app-mount [data-apptraverse-control-id='{LIST_CONTROL_ID}']"
+            )
+            expect(button).to_have_count(1, timeout=60000)
+            expect(list_box).to_have_count(1, timeout=60000)
+            expect(button).to_have_text("Apply")
+            expect(button).to_be_enabled()
+
             isolated = page.evaluate("() => crossOriginIsolated === true")
             if not isolated:
                 print("FAIL: crossOriginIsolated is not true", file=sys.stderr)
@@ -97,10 +123,34 @@ def main() -> int:
                 )
                 return 1
 
+            wait_title(page, "Minimal App")
+
+            rows = list_box.locator(".apptraverse-list-row")
+            expect(rows).to_have_count(2)
+            rows.nth(1).click()
+            wait_title(page, "Minimal App")
+
+            button.click()
+            wait_title(page, "Applied")
+            expect(button).to_be_disabled()
+            expect(
+                list_box.locator(".apptraverse-list-row-selected")
+            ).to_have_count(0)
+
+            rows.nth(0).click()
+            rows.nth(0).dblclick()
+            wait_title(page, "Activated Row A")
+
+            expect(
+                page.locator("#app-mount [data-apptraverse-desktop-window='1']")
+            ).to_have_count(1)
+            expect(button).to_have_count(1)
+            expect(list_box).to_have_count(1)
+
             shot = Path(args.screenshot)
             shot.parent.mkdir(parents=True, exist_ok=True)
             page.screenshot(path=str(shot), full_page=True)
-            print(f"PASS screenshot={shot}")
+            print("PASS screenshot=" + str(shot))
         except (PlaywrightError, TimeoutError, AssertionError) as exc:
             print(f"FAIL: {exc}", file=sys.stderr)
             return 1

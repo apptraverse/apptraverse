@@ -36,8 +36,9 @@ target_link_options(web_minimal_app PRIVATE
   -sALLOW_MEMORY_GROWTH=0
   -sEXIT_RUNTIME=0
   --bind
-  -sEXPORTED_FUNCTIONS=_main
-  -sEXPORTED_RUNTIME_METHODS=addRunDependency,removeRunDependency
+  -sEXPORTED_FUNCTIONS=_main,_ApptraverseWebUiPushButtonClicked,_ApptraverseWebUiListSelectionChanged,_ApptraverseWebUiListRowActivated
+  -sALLOW_TABLE_GROWTH=1
+  -sEXPORTED_RUNTIME_METHODS=addRunDependency,removeRunDependency,UTF8ToString
   --shell-file=${CMAKE_CURRENT_SOURCE_DIR}/minimal_app_shell.html
 )
 
