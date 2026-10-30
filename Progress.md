@@ -1,4 +1,4 @@
-**Active (2026-10-30):** **P3.T3.Web2R1 PASS** — mandatory presenter graph contract (no silent skips); **P3.T3.Web2** остаётся **IN_PROGRESS** до **Web2R2** (DOM teardown). Исторический **Web2 @ d5ea698** сохранён. **NEXT:** **P3.T3.Web2R2** only; **Web3** отложен. **P3.T3.Web1**, **P3.T3.W1–W2 PASS** retained. [PLAN](docs/versioning/PLAN.md), [PROGRESS](docs/versioning/PROGRESS.md).
+**Active (2026-10-30):** **P3.T3.Web2R2 PASS** — Web DOM teardown (EM_VAL + listeners); **P3.T3.Web2 PASS** (R1+R2). **NEXT:** **P3.T3.Web3** — browser storage save + cold reload MinimalApp. **P3.T3.Web** / **P3** IN_PROGRESS. **P3.T3.Web1**, **P3.T3.W1–W2 PASS** retained. [PLAN](docs/versioning/PLAN.md), [PROGRESS](docs/versioning/PROGRESS.md).
 
 **Release versioning (R0–R5):** детальный журнал — [docs/versioning/PROGRESS.md](docs/versioning/PROGRESS.md); **P0–P6** — единственная активная очередь на unified. Rules: `.cursor/rules/apptraverse-coding-agent.mdc`.
 

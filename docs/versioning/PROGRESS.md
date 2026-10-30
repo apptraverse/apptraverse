@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-10-30):** **P3.T3.Web2R1 PASS** — восстановлен контракт обязательного графа (§P3.T3.Web2R1). **P3.T3.Web2** — **IN_PROGRESS** до **Web2R2** (DOM teardown). Исторический **Web2 @ d5ea698** — **PASS** в прежнем scope. **NEXT:** **P3.T3.Web2R2** only; **Web3** отложен. **P3.T3.Web1**, **P3.T3.W1–W2 PASS** сохранены. **P3.T3.Web** и **P3** — **IN_PROGRESS**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
+**Активный порядок (2026-10-30):** **P3.T3.Web2R2 PASS** — DOM teardown Web presenters (§P3.T3.Web2R2); **P3.T3.Web2 PASS** (R1+R2). **NEXT:** **P3.T3.Web3** — browser storage save с подтверждением записи и cold reload MinimalApp. **P3.T3.Web1**, **P3.T3.W1–W2 PASS** сохранены. **P3.T3.Web** и **P3** — **IN_PROGRESS**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -77,7 +77,7 @@
 
 <a id="p3t3web2--web-minimalapp-button-list-ui-commands-2026-10-30-pass"></a>
 
-## P3.T3.Web2 — Web Button/List + MinimalApp UI commands (2026-10-30) — PASS
+## P3.T3.Web2 — Web Button/List + MinimalApp UI commands (2026-10-30) — PASS (R1+R2)
 
 **Library (`apptraverse_ui_web`):** `WebPushButtonPresenter`, `WebListContainerPresenter` (DOM via `EM_JS`/`EM_VAL`, `EMSCRIPTEN_KEEPALIVE` UI callbacks, owned-handle release on unload; shared `AppendDomChild` in `web_ui_dom_em`); `WebDesktopWindowPresenter` — no destructor teardown, `ReadyForPresentation` gate, `ClientMountHandle` for child layout parent.
 
@@ -91,11 +91,31 @@
 
 **Web2 limits:** no browser storage save/cold reload (**Web3**); WindowCatalog Web migration not started; shutdown/join on main not implemented.
 
-**Web2 status (post-R1):** milestone **IN_PROGRESS** — контракт графа восстановлен в **Web2R1**; остаются дефекты DOM teardown (**Web2R2**, не исправлялись в R1):
-- `ReleaseOwnedEmvalHandle` вызывает `Emval.decref`, отсутствующий в Emscripten SDK **3.1.64**;
-- unbind через `replaceWith(cloneNode(false))` оставляет DOM-копию control.
+**Web2 status:** **PASS** после **Web2R1** (контракт графа) + **Web2R2** (DOM teardown). **Web3** — следующий шаг (**P3.T3.Web** / **P3** остаются **IN_PROGRESS**).
 
-**NEXT:** **P3.T3.Web2R2** — исправление и проверка DOM teardown. **Web3** — после закрытия Web2.
+---
+
+<a id="p3t3web2r2--web-dom-teardown-2026-10-30-pass"></a>
+
+## P3.T3.Web2R2 — Web DOM teardown (2026-10-30) — PASS
+
+**Base:** `de3c5a3a5f29eb22560952133cc82da9472d2cf2` (Web2R1).
+
+**Дефекты до исправления (воспроизводились lifecycle regression):**
+- `ReleaseOwnedEmvalHandle` → `Emval.decref` (нет в SDK **3.1.64**) — emval count не возвращался к baseline;
+- `replaceWith(cloneNode(false))` на unbind — пустая DOM-копия control + живые listeners на исходном элементе.
+
+**Fix:** `emscripten::val::take_ownership` в `web_ui_dom_em.cpp`; bind/unbind хранит функции на элементе (`__apptraversePushClick` / list click+dblclick), `OnUnload`: `removeEventListener` → `RemoveDomNode` → `ReleaseOwnedEmvalHandle`; window — shared `RemoveDomNode`.
+
+**Teardown order:** multipass unload — children (button/list) до parent window; session dtor → `UnloadPresenters` descending.
+
+**Regression:** `apptraverse_web_presenter_lifecycle_test` (WASM) + `tools/wasm_web_presenter_lifecycle_test.py` — capture client/button/list, destroy `ApplicationUiSession`, DOM absent, detached client без control-копий, stale events без proxy work, второй цикл без дубликатов, `Module.count_emval_handles()` → baseline (mount borrow неизменен).
+
+**Проверки (incremental Debug):** lifecycle browser **PASS** (`serve_wasm.py` `:8770`); `wasm_minimal_app_browser_smoke.py` **PASS**; catalog initial smoke **PASS** (`8785`); §Web2R1 Win/Headless восемь регрессий + load-order/ui_session — **PASS**.
+
+**Limits (unchanged):** full `WebApplicationHost` shutdown / browser persistence — не в scope R2.
+
+**NEXT:** **P3.T3.Web3** — browser storage save + cold reload MinimalApp.
 
 ---
 

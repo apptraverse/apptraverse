@@ -83,7 +83,7 @@ EM_JS(void, ApptraverseListApplySelection, (emscripten::EM_VAL list,
 EM_JS(void, ApptraverseBindListInteraction, (emscripten::EM_VAL list,
                                               void* self), {
   var el = Emval.toValue(list);
-  el.addEventListener('click', function(ev) {
+  var clickFn = function(ev) {
     if (ev.detail > 1) {
       return;
     }
@@ -93,20 +93,33 @@ EM_JS(void, ApptraverseBindListInteraction, (emscripten::EM_VAL list,
     }
     var idx = Number(row.dataset.rowIndex);
     Module['_ApptraverseWebUiListSelectionChanged'](self, idx);
-  });
-  el.addEventListener('dblclick', function(ev) {
+  };
+  var dblFn = function(ev) {
     var row = ev.target.closest('.apptraverse-list-row');
     if (!row || !el.contains(row)) {
       return;
     }
     var idx = Number(row.dataset.rowIndex);
     Module['_ApptraverseWebUiListRowActivated'](self, idx);
-  });
+  };
+  el.__apptraverseListClick = clickFn;
+  el.__apptraverseListDblClick = dblFn;
+  el.addEventListener('click', clickFn);
+  el.addEventListener('dblclick', dblFn);
 });
 
 EM_JS(void, ApptraverseUnbindListInteraction, (emscripten::EM_VAL list), {
   var el = Emval.toValue(list);
-  el.replaceWith(el.cloneNode(false));
+  var clickFn = el.__apptraverseListClick;
+  if (clickFn) {
+    el.removeEventListener('click', clickFn);
+    delete el.__apptraverseListClick;
+  }
+  var dblFn = el.__apptraverseListDblClick;
+  if (dblFn) {
+    el.removeEventListener('dblclick', dblFn);
+    delete el.__apptraverseListDblClick;
+  }
 });
 
 }  // namespace
@@ -209,6 +222,7 @@ void WebListContainerPresenter::OnUnload() {
   }
   if (dom_refs_->list_element != nullptr) {
     ApptraverseUnbindListInteraction(dom_refs_->list_element);
+    RemoveDomNode(dom_refs_->list_element);
     ReleaseOwnedEmvalHandle(dom_refs_->list_element);
     dom_refs_->list_element = nullptr;
   }

@@ -50,20 +50,13 @@ EM_JS(void, ApptraverseSetDesktopWindowGeometry, (emscripten::EM_VAL window_el,
   }
 });
 
-EM_JS(void, ApptraverseRemoveDomNode, (emscripten::EM_VAL node), {
-  var el = Emval.toValue(node);
-  if (el && el.remove) {
-    el.remove();
-  }
-});
-
 struct WebDesktopWindowDomRefs {
   emscripten::EM_VAL window_element{nullptr};
   emscripten::EM_VAL client_element{nullptr};
 };
 
 static void ReleaseDomRefs(WebDesktopWindowDomRefs& refs) {
-  ApptraverseRemoveDomNode(refs.window_element);
+  RemoveDomNode(refs.window_element);
   ReleaseOwnedEmvalHandle(refs.client_element);
   refs.client_element = nullptr;
   ReleaseOwnedEmvalHandle(refs.window_element);

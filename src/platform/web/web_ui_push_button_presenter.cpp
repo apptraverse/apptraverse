@@ -43,14 +43,20 @@ EM_JS(void, ApptraverseSetPushButtonLayout, (emscripten::EM_VAL button, int x,
 EM_JS(void, ApptraverseBindPushButtonClick, (emscripten::EM_VAL button,
                                              void* self), {
   var el = Emval.toValue(button);
-  el.addEventListener('click', function() {
+  var fn = function(ev) {
     Module['_ApptraverseWebUiPushButtonClicked'](self);
-  });
+  };
+  el.__apptraversePushClick = fn;
+  el.addEventListener('click', fn);
 });
 
 EM_JS(void, ApptraverseUnbindPushButtonClick, (emscripten::EM_VAL button), {
   var el = Emval.toValue(button);
-  el.replaceWith(el.cloneNode(false));
+  var fn = el.__apptraversePushClick;
+  if (fn) {
+    el.removeEventListener('click', fn);
+    delete el.__apptraversePushClick;
+  }
 });
 
 }  // namespace
@@ -110,6 +116,7 @@ void WebPushButtonPresenter::OnUnload() {
   }
   if (dom_refs_->button_element != nullptr) {
     ApptraverseUnbindPushButtonClick(dom_refs_->button_element);
+    RemoveDomNode(dom_refs_->button_element);
     ReleaseOwnedEmvalHandle(dom_refs_->button_element);
     dom_refs_->button_element = nullptr;
   }

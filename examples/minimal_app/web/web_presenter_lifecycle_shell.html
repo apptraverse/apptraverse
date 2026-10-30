@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Web presenter lifecycle test</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; }
+    #app-mount {
+      position: relative;
+      width: 800px;
+      height: 600px;
+      background: #fafafa;
+      border: 1px solid #ccc;
+    }
+    .apptraverse-desktop-window {
+      position: absolute;
+      box-sizing: border-box;
+      outline: 1px solid #888;
+      background: #fff;
+    }
+    .apptraverse-desktop-client {
+      position: relative;
+      box-sizing: border-box;
+    }
+    .apptraverse-push-button { box-sizing: border-box; }
+    .apptraverse-list { box-sizing: border-box; border: 1px solid #ccc; }
+    .apptraverse-list-row { padding: 4px 8px; }
+  </style>
+</head>
+<body>
+  <h1>Web presenter lifecycle test</h1>
+  <div id="app-mount"></div>
+  <script>
+    var Module = {
+      print: function(text) { console.log(text); },
+      printErr: function(text) { console.error(text); },
+      preRun: [function() {
+        if (!crossOriginIsolated) {
+          throw new Error('crossOriginIsolated is false; serve with COOP/COEP');
+        }
+      }]
+    };
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>
