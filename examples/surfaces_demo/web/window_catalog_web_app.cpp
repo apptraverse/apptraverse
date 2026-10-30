@@ -174,9 +174,30 @@ void StartWebWindowCatalogApplication() {
       g_durable_storage =
           std::make_unique<DirectoryDomainStorage>(kProfilePath);
     }
+    bool const bootstrapped = [&] {
 #if defined(APPTRAVERSE_ENABLE_DISTILLATION)
-    BootstrapDistilledProfileIfAbsent();
+      std::error_code profile_error;
+      bool const profile_exists =
+          std::filesystem::exists(g_durable_storage->root(), profile_error);
+      if (profile_error) {
+        WriteFatalStderr("fatal: cannot inspect catalog profile\n");
+        std::abort();
+      }
+      bool const profile_absent =
+          !profile_exists ||
+          std::filesystem::is_empty(g_durable_storage->root(), profile_error);
+      if (profile_absent) {
+        BootstrapDistilledProfileIfAbsent();
+        return true;
+      }
 #endif
+      return false;
+    }();
+    if (bootstrapped) {
+      EM_ASM({ console.log('WINDOW_CATALOG_DEV_BOOTSTRAP'); });
+    } else {
+      EM_ASM({ console.log('WINDOW_CATALOG_LOADED_FROM_PROFILE'); });
+    }
 
     ApplicationModelSessionHooks<WindowCatalog> hooks;
     hooks.prepare = PrepareWindowCatalogForRun;

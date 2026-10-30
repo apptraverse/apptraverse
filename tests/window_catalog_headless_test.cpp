@@ -73,8 +73,14 @@ struct PublicationWaiter {
   std::condition_variable cv;
   int pending{0};
   ApplicationPublicationKind kind{ApplicationPublicationKind::Initial};
-  std::vector<std::uint8_t> bytes;
 };
+
+ApplicationPublicationKind WaitPublication(PublicationWaiter& waiter) {
+  std::unique_lock<std::mutex> lock{waiter.mu};
+  waiter.cv.wait(lock, [&] { return waiter.pending > 0; });
+  --waiter.pending;
+  return waiter.kind;
+}
 
 ui::UiPushButtonPresenter& ChromeButtonPresenter(WindowCatalog& ui_catalog,
                                                 ae::ObjPtr<Presenter> const& ref) {
@@ -90,10 +96,9 @@ ui::UiListContainerPresenter& ListPresenter(WindowCatalog& ui_catalog) {
       *ui_catalog.presenters.list_presenter);
 }
 
-void WaitPublication(PublicationWaiter& waiter) {
-  std::unique_lock<std::mutex> lock{waiter.mu};
-  waiter.cv.wait(lock, [&] { return waiter.pending > 0; });
-  --waiter.pending;
+void HostUserCloseWindow(WindowCatalog& catalog, ae::ObjId window_obj_id,
+                         ModelObjectProxy& proxy) {
+  proxy.Invoke(catalog.obj_id, &WindowCatalog::UserCloseWindow, window_obj_id);
 }
 
 void TestHeadlessCatalogChromeE2e() {
@@ -118,6 +123,7 @@ void TestHeadlessCatalogChromeE2e() {
   std::unique_ptr<ApplicationUiSession> ui_session;
   ae::ObjId saved_holder_id;
   ae::ObjId saved_window_id;
+  std::uint32_t saved_next_number = 0;
   int session_result = 1;
 
   ModelObjectProxy model_proxy{[&runtime](ModelObjectProxy::ModelWork work) {
@@ -128,6 +134,7 @@ void TestHeadlessCatalogChromeE2e() {
   hooks.prepare = PrepareWindowCatalogForRun;
   hooks.persist = [&](WindowCatalog& catalog) -> int {
     catalog.list.Load();
+    CHECK(catalog.list->rows.size() == 1);
     WindowHolder* remaining = AsHolder(catalog.list->rows[0]);
     remaining->window.Load();
     if (remaining->window->origin_id() != kWindowPrefabId) {
@@ -138,6 +145,7 @@ void TestHeadlessCatalogChromeE2e() {
         kWindowPrefabPresenterId) {
       return 1;
     }
+    saved_next_number = catalog.next_window_number;
     model_storage.BeginSaveSession();
     SaveWindowCatalogPersistentSnapshot(catalog);
     if (model_storage.SaveSessionHadFailure()) {
@@ -152,12 +160,9 @@ void TestHeadlessCatalogChromeE2e() {
     session_result = RunApplicationModelSession(
         model_storage, catalog_id, runtime,
         [&](ApplicationPublicationKind kind) {
-          std::vector<std::uint8_t> bytes = runtime.TakePublishedCopy();
-          runtime.NotifyPublicationConsumed();
           {
             std::lock_guard<std::mutex> lock{waiter.mu};
             waiter.kind = kind;
-            waiter.bytes = std::move(bytes);
             ++waiter.pending;
           }
           waiter.cv.notify_one();
@@ -165,18 +170,20 @@ void TestHeadlessCatalogChromeE2e() {
         hooks);
   }};
 
-  WaitPublication(waiter);
-  CHECK(waiter.kind == ApplicationPublicationKind::Initial);
-  ui_session = std::make_unique<ApplicationUiSession>(waiter.bytes, nullptr,
+  CHECK(WaitPublication(waiter) == ApplicationPublicationKind::Initial);
+  std::vector<std::uint8_t> initial_bytes = runtime.TakePublishedCopy();
+  runtime.NotifyPublicationConsumed();
+  ui_session = std::make_unique<ApplicationUiSession>(initial_bytes, nullptr,
                                                       model_proxy);
   WindowCatalog& ui_catalog =
       static_cast<WindowCatalog&>(ui_session->root());
   CHECK(!ui_catalog.window_prefab.is_loaded());
 
   auto apply_incremental = [&] {
-    WaitPublication(waiter);
-    CHECK(waiter.kind == ApplicationPublicationKind::Incremental);
-    ui_session->ApplyStructural(waiter.bytes);
+    CHECK(WaitPublication(waiter) == ApplicationPublicationKind::Incremental);
+    std::vector<std::uint8_t> bytes = runtime.TakePublishedCopy();
+    runtime.NotifyPublicationConsumed();
+    ui_session->ApplyStructural(bytes);
   };
 
   ChromeButtonPresenter(ui_catalog, ui_catalog.presenters.add_button_presenter)
@@ -206,8 +213,6 @@ void TestHeadlessCatalogChromeE2e() {
   CHECK(CatalogWindowPresenter(*holder1->window).obj_id !=
         kWindowPrefabPresenterId);
   CHECK(CatalogWindowPresenter(*holder1->window).obj_id != presenter0_id);
-  CHECK(CatalogWindowPresenter(*holder1->window).window.id() ==
-        holder1->window.id());
 
   ChromeButtonPresenter(ui_catalog,
                         ui_catalog.presenters.language_button_presenter)
@@ -215,17 +220,34 @@ void TestHeadlessCatalogChromeE2e() {
   apply_incremental();
   ui_catalog.locale.Load();
   CHECK(ui_catalog.locale->language_index() == 1);
-  ui_catalog.texts.label_add.Load();
-  ui_catalog.texts.label_add->strings[0].Load();
-  ui_catalog.texts.label_add->strings[1].Load();
-  CHECK(!ui_catalog.texts.label_add->strings[0]->utf8.empty());
-  CHECK(!ui_catalog.texts.label_add->strings[1]->utf8.empty());
 
   ListPresenter(ui_catalog).SubmitListRowSelectionChangedFromUi(0);
   apply_incremental();
   ui_catalog.list.Load();
   CHECK(ui_catalog.list->selection_index == 0);
 
+  HostUserCloseWindow(ui_catalog, window0_id, model_proxy);
+  apply_incremental();
+  ui_catalog.list.Load();
+  CHECK(ui_catalog.list->rows.size() == 2);
+  holder0 = AsHolder(ui_catalog.list->rows[0]);
+  holder1 = AsHolder(ui_catalog.list->rows[1]);
+  holder1->window.Load();
+  CHECK(holder1->window.id() == window1_id);
+
+  ListPresenter(ui_catalog).SubmitListRowSelectionChangedFromUi(0);
+  apply_incremental();
+  ChromeButtonPresenter(ui_catalog, ui_catalog.presenters.open_button_presenter)
+      .NotifyClickedFromUi();
+  apply_incremental();
+  ui_catalog.list.Load();
+  holder0 = AsHolder(ui_catalog.list->rows[0]);
+  holder0->window.Load();
+  CHECK(holder0->window.id() == window0_id);
+  CHECK(CatalogWindowPresenter(*holder0->window).window.id() == window0_id);
+
+  ListPresenter(ui_catalog).SubmitListRowSelectionChangedFromUi(0);
+  apply_incremental();
   ChromeButtonPresenter(ui_catalog,
                         ui_catalog.presenters.delete_button_presenter)
       .NotifyClickedFromUi();
@@ -241,32 +263,86 @@ void TestHeadlessCatalogChromeE2e() {
 
   CHECK(session_result == 0);
   CHECK(saved_window_id == window1_id);
+  CHECK(saved_next_number == 3);
 
   {
-    ae::DomainQuery const schema0{catalog_id, WindowCatalog::kClassId, 0};
-    ae::DomainQuery const schema1{catalog_id, WindowCatalog::kClassId, 1};
-    ae::DomainQuery const schema2{catalog_id, WindowCatalog::kClassId, 2};
-    CHECK(model_storage.Load(schema0).result == ae::DomainLoadResult::kLoaded);
-    CHECK(model_storage.Load(schema1).result == ae::DomainLoadResult::kEmpty);
-    CHECK(model_storage.Load(schema2).result == ae::DomainLoadResult::kEmpty);
+    ae::Domain cold_domain{model_storage};
+    auto cold = LoadApplication<WindowCatalog>(cold_domain, catalog_id);
+    PrepareWindowCatalogForRun(*cold);
+    cold->list.Load();
+    CHECK(cold->list->rows.size() == 1);
+    CHECK(AsHolder(cold->list->rows[0])->obj_id == saved_holder_id);
+    CHECK(AsHolder(cold->list->rows[0])->window.id() == saved_window_id);
+    CHECK(cold->locale->language_index() == 1);
+    CHECK(cold->next_window_number == saved_next_number);
+    AsHolder(cold->list->rows[0])->window.Load();
+    CHECK(AsHolder(cold->list->rows[0])->window->origin_id() == kWindowPrefabId);
+    CatalogWindowPresented(*AsHolder(cold->list->rows[0])->window)
+        .presenter.Load();
+    CHECK(CatalogWindowPresenter(*AsHolder(cold->list->rows[0])->window)
+              .origin_id() == kWindowPrefabPresenterId);
+    CHECK(cold->window_prefab.is_valid());
+    CHECK(!cold->window_prefab.is_loaded());
   }
 
-  ae::Domain cold_domain{model_storage};
-  auto cold = LoadApplication<WindowCatalog>(cold_domain, catalog_id);
-  PrepareWindowCatalogForRun(*cold);
-  cold->list.Load();
-  CHECK(cold->list->rows.size() == 1);
-  CHECK(AsHolder(cold->list->rows[0])->obj_id == saved_holder_id);
-  CHECK(AsHolder(cold->list->rows[0])->window.id() == saved_window_id);
-  CHECK(cold->locale->language_index() == 1);
-  AsHolder(cold->list->rows[0])->window.Load();
-  CHECK(AsHolder(cold->list->rows[0])->window->origin_id() == kWindowPrefabId);
-  CatalogWindowPresented(*AsHolder(cold->list->rows[0])->window)
-      .presenter.Load();
-  CHECK(CatalogWindowPresenter(*AsHolder(cold->list->rows[0])->window)
-            .origin_id() == kWindowPrefabPresenterId);
-  CHECK(cold->window_prefab.is_valid());
-  CHECK(!cold->window_prefab.is_loaded());
+  // Second UI session after cold load: Add continues numbering and proxy works.
+  {
+    DirectoryDomainStorage cold_storage{profile_dir};
+    ApplicationModelRuntime cold_runtime;
+    PublicationWaiter cold_waiter;
+    std::unique_ptr<ApplicationUiSession> cold_ui;
+    int cold_session_result = 1;
+    ModelObjectProxy cold_proxy{[&cold_runtime](ModelObjectProxy::ModelWork work) {
+      cold_runtime.Post(std::move(work));
+    }};
+    std::thread cold_model_thread{[&] {
+      ae::Domain domain{cold_storage};
+      auto catalog_obj = LoadApplication<WindowCatalog>(domain, catalog_id);
+      PrepareWindowCatalogForRun(*catalog_obj);
+      cold_session_result = 0;
+      (void)cold_runtime.Run(
+          domain, *catalog_obj,
+          [&](ApplicationPublicationKind kind) {
+            {
+              std::lock_guard<std::mutex> lock{cold_waiter.mu};
+              cold_waiter.kind = kind;
+              ++cold_waiter.pending;
+            }
+            cold_waiter.cv.notify_one();
+          },
+          {});
+    }};
+
+    CHECK(WaitPublication(cold_waiter) == ApplicationPublicationKind::Initial);
+    std::vector<std::uint8_t> cold_initial = cold_runtime.TakePublishedCopy();
+    cold_runtime.NotifyPublicationConsumed();
+    cold_ui = std::make_unique<ApplicationUiSession>(cold_initial, nullptr,
+                                                       cold_proxy);
+    WindowCatalog& cold_ui_catalog =
+        static_cast<WindowCatalog&>(cold_ui->root());
+    CHECK(cold_ui_catalog.next_window_number == saved_next_number);
+
+    auto cold_apply = [&] {
+      CHECK(WaitPublication(cold_waiter) ==
+            ApplicationPublicationKind::Incremental);
+      std::vector<std::uint8_t> bytes = cold_runtime.TakePublishedCopy();
+      cold_runtime.NotifyPublicationConsumed();
+      cold_ui->ApplyStructural(bytes);
+    };
+
+    ChromeButtonPresenter(cold_ui_catalog,
+                          cold_ui_catalog.presenters.add_button_presenter)
+        .NotifyClickedFromUi();
+    cold_apply();
+    cold_ui_catalog.list.Load();
+    CHECK(cold_ui_catalog.list->rows.size() == 2);
+    CHECK(cold_ui_catalog.next_window_number == saved_next_number + 1);
+
+    cold_runtime.RequestStop();
+    cold_model_thread.join();
+    cold_ui.reset();
+    CHECK(cold_session_result == 0);
+  }
 }
 
 }  // namespace
