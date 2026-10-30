@@ -14,6 +14,7 @@
 - Distilled UI graph contract is mandatory (button, label, locale, window_presenter, links): do not re-validate with optional runtime checks, fallbacks, or silent skips in presenters.
 - Runtime lifecycle states (`ReadyForPresentation`, activated parent, disabled control, closed/lazy window) are real; do not conflate them with missing graph links.
 - Side effects (Save/Load/Inject, I/O, mutation) must not run only inside `assert`; execute once, store the result, assert on that result (must still run under `NDEBUG`).
+- **WindowCatalog prototype schema:** application classes stay **S0-only** for now. New fields go into existing S0 Load/Save; old experimental on-disk profiles are **not** migrated or auto-read. Application S1/S2 or migrations only by separate assignment — this does not remove library versioning or specialized versioning tests.
 
 ## Porting and regression (backend / template work)
 

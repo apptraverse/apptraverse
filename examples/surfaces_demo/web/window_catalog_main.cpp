@@ -4,7 +4,7 @@
 
 int main() {
   apptraverse::WebWindowCatalogApp::Instance().Start(
-      "/persistent/window_catalog_runtime_state_v5");
+      "/persistent/window_catalog_s0_proto_state");
   emscripten_exit_with_live_runtime();
   return 0;
 }

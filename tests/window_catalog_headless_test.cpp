@@ -242,6 +242,15 @@ void TestHeadlessCatalogChromeE2e() {
   CHECK(session_result == 0);
   CHECK(saved_window_id == window1_id);
 
+  {
+    ae::DomainQuery const schema0{catalog_id, WindowCatalog::kClassId, 0};
+    ae::DomainQuery const schema1{catalog_id, WindowCatalog::kClassId, 1};
+    ae::DomainQuery const schema2{catalog_id, WindowCatalog::kClassId, 2};
+    CHECK(model_storage.Load(schema0).result == ae::DomainLoadResult::kLoaded);
+    CHECK(model_storage.Load(schema1).result == ae::DomainLoadResult::kEmpty);
+    CHECK(model_storage.Load(schema2).result == ae::DomainLoadResult::kEmpty);
+  }
+
   ae::Domain cold_domain{model_storage};
   auto cold = LoadApplication<WindowCatalog>(cold_domain, catalog_id);
   PrepareWindowCatalogForRun(*cold);

@@ -37,7 +37,9 @@
 
 **Native control tests (ограничение):** публикуют только кнопку/список; `UiDesktopWindow` создаётся отдельно в UI Domain без model window — не проверяют полный оконный publication graph и frame route. Отсутствие `model_proxy` на desktop в этих тестах — следствие раскола graph, **не** библиотечный запрет proxy.
 
-**Catalog acceptance fixture (2026-10-29):** **первый отказ** — `unsupported_schema_window_catalog_root`: `RelocateStoredLayerVersion0To1` для `WindowCatalog` (schema **2**, слои S0/S1/S2): оставшиеся S1/S2 загружались; child exit **3**, captured stderr **пустой**, `CHECK(load_failed || presenter_missing)` без диагностики. **Исправление:** `RelocateStoredClassSchemaLayers` — S0/S1/S2 → S3/S4/S5 на root; presenter-case — по-прежнему S0→S1; `ExpectUnsupportedSchemaLoadOnly` печатает scenario/exit/stderr **до** CHECK. **После fix:** unsupported-schema (root + presenter) и unknown-ClassId negatives — **PASS** в составе `apptraverse_window_catalog_win32_acceptance_test`.
+**WindowCatalog prototype schema (2026-10-29):** единый прикладной **S0** — `window_prefab` + `desktop_z_order` в Load/Save S0; S1/S2 удалены. **Несовместимо** с прежними experimental профилями (`surfaces_catalog_v0_state`, `window_catalog_runtime_state_v5` и т.п.); миграции нет. Default paths: Win **`surfaces_catalog_s0_proto_state`**, Web **`/persistent/window_catalog_s0_proto_state`**; `--state-dir` сохранён. Supply: `apptraverse_generate_window_catalog_distilled_header` → `generated/window_catalog_distilled.h`. **Проверки:** model/headless/embedded_overlay/win32 acceptance, demos build, WASM smoke (initial scope) — **PASS**.
+
+**Catalog acceptance fixture:** root unsupported-schema снова **S0→S1** (`RelocateStoredLayerVersion0To1`); диагностика scenario/exit/stderr до CHECK; unknown-ClassId без изменений.
 
 **Regressions (win64-ninja-msvc-debug, 2026-10-29):** PASS — перечисленные Win targets + `apptraverse_window_catalog_win32_acceptance_test`; WASM smoke (`serve_wasm.py`, initial scope) **PASS**.
 

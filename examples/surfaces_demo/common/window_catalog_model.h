@@ -176,7 +176,7 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::WindowCatalog",
 
-                           WindowCatalog, Node, 2)
+                           WindowCatalog, Node, 0)
 
  protected:
 
@@ -211,7 +211,7 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
         presenters.open_button_presenter, presenters.delete_button_presenter,
 
-        presenters.language_button_presenter);
+        presenters.language_button_presenter, window_prefab, desktop_z_order);
 
   }
 
@@ -231,39 +231,7 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
         presenters.open_button_presenter, presenters.delete_button_presenter,
 
-        presenters.language_button_presenter);
-
-  }
-
-  template <typename Dnv>
-
-  void Load(ae::Version<1>, Dnv& dnv) {
-
-    dnv(base_, window_prefab);
-
-  }
-
-  template <typename Dnv>
-
-  void Save(ae::Version<1>, Dnv& dnv) const {
-
-    dnv(base_, window_prefab);
-
-  }
-
-  template <typename Dnv>
-
-  void Load(ae::Version<2>, Dnv& dnv) {
-
-    dnv(base_, desktop_z_order);
-
-  }
-
-  template <typename Dnv>
-
-  void Save(ae::Version<2>, Dnv& dnv) const {
-
-    dnv(base_, desktop_z_order);
+        presenters.language_button_presenter, window_prefab, desktop_z_order);
 
   }
 

@@ -16,6 +16,7 @@ alwaysApply: true
 - **U5.1** (`8c863bc`) shutdown-save exit code is **done**; do not revert.
 - **Default build:** **Debug**, incremental touched targets only. **No** Release runs by default, no ALL_BUILD, clean, cache wipe, or fresh dependency populate unless the user asks. MinSizeRel only on request.
 - **Out of scope** unless explicitly assigned: disk-full, corrupt checkpoint, recovery, security hardening, corner-case matrices.
+- **WindowCatalog prototype (application schema):** keep **S0-only** on current prototype classes; extend S0 Load/Save for new fields. Do not migrate or silently read old experimental profiles. Application S1/S2 layers and migrations require a separate task — library versioning architecture and its dedicated tests remain unchanged.
 
 ## Porting and regression
 
