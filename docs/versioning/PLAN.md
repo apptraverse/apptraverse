@@ -48,7 +48,7 @@
 | **P0** | Импорт канона; синхронизация PLAN/PROGRESS/rules | **DONE** |
 | **P1** | Удалить сеть/replication и ненужные deps; локальный WindowCatalog (Windows) остаётся рабочим | **DONE** |
 | **P2** | Общий application template + минимум persistence/Clone | **IN_PROGRESS** |
-| **P3** | Библиотечный application template + компоненты, E2E на семи backend | **IN_PROGRESS**; **P3.T1–T2 PASS**; **P3.T3.H PASS**; **P3.T3.W1 PASS**; **NEXT: P3.T3.W2** (list selection sync из mirror) |
+| **P3** | Библиотечный application template + компоненты, E2E на семи backend | **IN_PROGRESS**; **P3.T1–T2 PASS**; **P3.T3.H PASS**; **P3.T3.W1–W2 PASS**; **NEXT: P3.T3.Web** (Web backend + независимый MinimalApp) |
 | **P4** | WindowCatalog — тонкий потребитель готового template и controls, E2E на семи backend | TODO; существующие результаты сохраняются |
 | **A1** | Первый сценарий администрирования на проверенном шаблоне | TODO; только после P3 и P4 на всех семи backend |
 | **P5** | Расширенные обновления, resource-set delivery, replay | DEFERRED; не блокирует P3/P4/A1 |
@@ -132,7 +132,7 @@
 | **P3.T2 — PASS** | Minimal template scope (sessions + contracts) | T2a+T2b; **NEXT P3.T3.H** |
 | **P3.T3.H — PASS** | Headless MinimalApp lifecycle/save/cold-load | `apptraverse_minimal_app_headless_test` (DirectoryDomainStorage, две sessions); [PROGRESS §P3.T3.H](./PROGRESS.md#p3t3h--headless-minimalapp-lifecycle-2026-10-29-pass) |
 | **P3.T3.W1 — PASS** | Native WM_COMMAND → presenter `OnCommand` (BN/LBN) + publication graph E2E | Full model window + `ApplicationUiSession` + desktop proxy + frame/control routes; [PROGRESS §P3.T3.W1](./PROGRESS.md#p3t3w1--windows-presenter-command-routing-2026-10-29-pass) |
-| **P3.T3.W2** | Windows list selection sync из mirror | `WinListContainerPresenter::SyncFromMirror`: `selection_index = -1` не снимает native selection; при смене текстов при том же числе строк восстанавливается старый native selection — **не переделывать в W1** |
+| **P3.T3.W2 — PASS** | Windows list selection sync из mirror | `ApplyPublishedListSelection` в `SyncFromMirror` при `notify_list_selection_change`; E2E в `win_ui_command_routing_test`; [PROGRESS §P3.T3.W2](./PROGRESS.md#p3t3w2--windows-list-selection-sync-from-mirror-2026-10-29-pass) |
 | **P3.T3.W** | Windows backend и общие Window/List/Button | MinimalApp через публичные library targets; native host/controls без зависимости от WindowCatalog |
 | **P3.T3.Web** | Web backend и общие Window/List/Button | Та же сессия и компоненты; UI delivery, DOM lifecycle, несколько представлений, сохранение и подтверждение записи browser storage |
 | **P3.T3.A** | Android backend | Тот же template; JNI/View lifecycle, отображение логического окна страницей, background/save/reattach в обычном сценарии |

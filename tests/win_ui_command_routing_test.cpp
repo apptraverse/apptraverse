@@ -12,6 +12,7 @@
 #include "apptraverse/node.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/platform/windows/win_ui_frame.h"
+#include "apptraverse/platform/windows/win_ui_utf8.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_desktop_window.h"
 #include "apptraverse/ui/ui_list_container.h"
@@ -69,6 +70,30 @@ void PumpModelWorkAndApplyStructural(
     PumpModelWork(deferred, model_domain);
     session.ApplyStructural(SerializeStructuralRoot(model_root));
   }
+}
+
+LRESULT ListBoxCurSel(HWND list_hwnd) {
+  return SendMessageW(list_hwnd, LB_GETCURSEL, 0, 0);
+}
+
+std::wstring ListBoxItemText(HWND list_hwnd, int index) {
+  LRESULT const len =
+      SendMessageW(list_hwnd, LB_GETTEXTLEN, static_cast<WPARAM>(index), 0);
+  if (len == LB_ERR || len <= 0) {
+    return {};
+  }
+  std::wstring text(static_cast<std::size_t>(len), L'\0');
+  SendMessageW(list_hwnd, LB_GETTEXT, static_cast<WPARAM>(index),
+               reinterpret_cast<LPARAM>(text.data()));
+  text.resize(static_cast<std::size_t>(len));
+  return text;
+}
+
+void CommitModelListSelection(ui::UiListContainer& list, std::int32_t index) {
+  auto event = ui::SetUiListSelectionEvent::ptr::Create(
+      ae::CreateWith{*list.domain});
+  event->selection_index = index;
+  list.Commit(std::move(event));
 }
 
 void PostDesktopChildCommand(HWND desktop, HWND child, std::uint32_t control_id,
@@ -289,6 +314,73 @@ void TestListNativeSelectionViaProxyAndPublication() {
   PumpModelWork(deferred, model_domain);
   CHECK(deferred.empty());
   CHECK(model_list->last_activated == 1);
+
+  std::size_t const selection_events_before = CountJournalEventsWithClass(
+      *model_list, SetUiListSelectionEvent::kClassId);
+
+  CommitModelListSelection(*model_list, -1);
+  CHECK(model_list->selection_index == -1);
+  CHECK(ui_list->selection_index == 1);
+  CHECK(ListBoxCurSel(list_hwnd) == 1);
+  CHECK(deferred.empty());
+
+  ui_session.ApplyStructural(SerializeStructuralRoot(*model_root));
+  CHECK(deferred.empty());
+  CHECK(ui_list->selection_index == -1);
+  CHECK(ListBoxCurSel(list_hwnd) == LB_ERR);
+
+  SendMessageW(list_hwnd, LB_SETCURSEL, 1, 0);
+  PostDesktopChildCommand(desktop->hwnd(), list_hwnd, 9002, LBN_SELCHANGE);
+  CHECK(deferred.size() == 1);
+  PumpModelWork(deferred, model_domain);
+  ui_session.ApplyStructural(SerializeStructuralRoot(*model_root));
+  CHECK(ui_list->selection_index == 1);
+  CHECK(ListBoxCurSel(list_hwnd) == 1);
+
+  auto& row0_label = *model_list->rows[0]->primary_text;
+  auto text_event = SetUiLocalizationSlotUtf8Event::ptr::Create(
+      ae::CreateWith{*row0_label.domain});
+  text_event->slot_index = 0;
+  text_event->utf8 = "Row A revised";
+  row0_label.Commit(std::move(text_event));
+  CommitModelListSelection(*model_list, 0);
+
+  CHECK(model_list->selection_index == 0);
+  CHECK(ui_list->selection_index == 1);
+  CHECK(ListBoxCurSel(list_hwnd) == 1);
+  CHECK(ListBoxItemText(list_hwnd, 0) ==
+        ui::windows::Utf8ToWide("Row A"));
+
+  ui_session.ApplyStructural(SerializeStructuralRoot(*model_root));
+  CHECK(deferred.empty());
+  CHECK(ui_list->selection_index == 0);
+  CHECK(ListBoxCurSel(list_hwnd) == 0);
+  CHECK(ListBoxItemText(list_hwnd, 0) ==
+        ui::windows::Utf8ToWide("Row A revised"));
+
+  ae::ObjId const row1_id = model_list->rows[1]->obj_id;
+  auto remove = RemoveUiListRowEvent::ptr::Create(
+      ae::CreateWith{*model_list->domain});
+  remove->row_id = row1_id;
+  model_list->Commit(std::move(remove));
+  CommitModelListSelection(*model_list, -1);
+
+  CHECK(model_list->rows.size() == 1);
+  CHECK(model_list->selection_index == -1);
+  CHECK(ui_list->rows.size() == 2);
+  CHECK(ui_list->selection_index == 0);
+  CHECK(ListBoxCurSel(list_hwnd) == 0);
+  CHECK(SendMessageW(list_hwnd, LB_GETCOUNT, 0, 0) == 2);
+
+  ui_session.ApplyStructural(SerializeStructuralRoot(*model_root));
+  CHECK(deferred.empty());
+  CHECK(ui_list->rows.size() == 1);
+  CHECK(ui_list->selection_index == -1);
+  CHECK(SendMessageW(list_hwnd, LB_GETCOUNT, 0, 0) == 1);
+  CHECK(ListBoxCurSel(list_hwnd) == LB_ERR);
+  CHECK(CountJournalEventsWithClass(*model_list,
+                                    SetUiListSelectionEvent::kClassId) >=
+        selection_events_before + 2);
 }
 
 }  // namespace

@@ -373,6 +373,23 @@ std::vector<std::wstring> ReadListBoxStrings(HWND hwnd) {
   return out;
 }
 
+void ApplyPublishedListSelection(HWND hwnd, bool notify_list_selection_change,
+                                 ui::UiListContainer const* container,
+                                 std::size_t row_count) {
+  if (hwnd == nullptr || !notify_list_selection_change || container == nullptr) {
+    return;
+  }
+  std::int32_t const desired = container->selection_index;
+  if (desired >= 0 && desired < static_cast<std::int32_t>(row_count)) {
+    SendMessageW(hwnd, LB_SETCURSEL, static_cast<WPARAM>(desired), 0);
+    return;
+  }
+  if (desired == -1) {
+    SendMessageW(hwnd, LB_SETCURSEL, static_cast<WPARAM>(-1), 0);
+    (void)SendMessageW(hwnd, LB_GETCURSEL, 0, 0);
+  }
+}
+
 }  // namespace
 
 void WinListContainerPresenter::SyncFromMirror() {
@@ -395,15 +412,8 @@ void WinListContainerPresenter::SyncFromMirror() {
 
   std::vector<std::wstring> const current = ReadListBoxStrings(hwnd_);
   if (current == desired) {
-    if (notify_list_selection_change && container &&
-        container->selection_index >= 0 &&
-        container->selection_index < static_cast<std::int32_t>(desired.size())) {
-      LRESULT const cur_sel = SendMessageW(hwnd_, LB_GETCURSEL, 0, 0);
-      if (cur_sel != container->selection_index) {
-        SendMessageW(hwnd_, LB_SETCURSEL,
-                     static_cast<WPARAM>(container->selection_index), 0);
-      }
-    }
+    ApplyPublishedListSelection(hwnd_, notify_list_selection_change,
+                                container.operator->(), desired.size());
     return;
   }
 
@@ -419,8 +429,11 @@ void WinListContainerPresenter::SyncFromMirror() {
       SendMessageW(hwnd_, LB_INSERTSTRING, static_cast<WPARAM>(i),
                    reinterpret_cast<LPARAM>(desired[i].c_str()));
     }
-    if (previous_sel != LB_ERR && previous_sel >= 0 &&
-        previous_sel < static_cast<LRESULT>(desired.size())) {
+    if (notify_list_selection_change) {
+      ApplyPublishedListSelection(hwnd_, notify_list_selection_change,
+                                  container.operator->(), desired.size());
+    } else if (previous_sel != LB_ERR && previous_sel >= 0 &&
+               previous_sel < static_cast<LRESULT>(desired.size())) {
       SendMessageW(hwnd_, LB_SETCURSEL, static_cast<WPARAM>(previous_sel), 0);
     }
     if (previous_top != LB_ERR && previous_top >= 0) {
@@ -434,19 +447,15 @@ void WinListContainerPresenter::SyncFromMirror() {
     SendMessageW(hwnd_, LB_ADDSTRING, 0,
                  reinterpret_cast<LPARAM>(text.c_str()));
   }
-  if (previous_sel != LB_ERR && previous_sel >= 0 &&
-      previous_sel < static_cast<LRESULT>(desired.size())) {
+  if (notify_list_selection_change) {
+    ApplyPublishedListSelection(hwnd_, notify_list_selection_change,
+                                container.operator->(), desired.size());
+  } else if (previous_sel != LB_ERR && previous_sel >= 0 &&
+             previous_sel < static_cast<LRESULT>(desired.size())) {
     SendMessageW(hwnd_, LB_SETCURSEL, static_cast<WPARAM>(previous_sel), 0);
   }
   if (previous_top != LB_ERR && previous_top >= 0) {
     SendMessageW(hwnd_, LB_SETTOPINDEX, static_cast<WPARAM>(previous_top), 0);
-  }
-
-  if (notify_list_selection_change && container &&
-      container->selection_index >= 0 &&
-      container->selection_index < static_cast<std::int32_t>(desired.size())) {
-    SendMessageW(hwnd_, LB_SETCURSEL,
-                 static_cast<WPARAM>(container->selection_index), 0);
   }
 }
 

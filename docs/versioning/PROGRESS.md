@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-10-29):** **P3.T3.W1 PASS** — связный model window graph + `ApplicationUiSession` + desktop `model_proxy` + frame/control native E2E (§P3.T3.W1). **NEXT:** **P3.T3.W2** — синхронизация list selection из mirror (не начинать без отдельной задачи). **P3.T3.W** и **P3** — **IN_PROGRESS**. **P3.T1–T2**, **P3.T3.H PASS** сохранены. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
+**Активный порядок (2026-10-29):** **P3.T3.W2 PASS** — native list selection из UI mirror (`WinListContainerPresenter::SyncFromMirror`, §P3.T3.W2). **P3.T3.W1 PASS** сохранён. **NEXT:** **P3.T3.Web** — Web backend общего шаблона и независимый MinimalApp (не начинать без отдельной задачи). **P3.T3.W** и **P3** — **IN_PROGRESS**. **P3.T1–T2**, **P3.T3.H PASS** сохранены. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -43,7 +43,19 @@
 
 **Regressions (win64-ninja-msvc-debug, 2026-10-29):** **PASS** — `apptraverse_win_ui_command_routing_test`, `apptraverse_win_ui_native_push_button_test`, `apptraverse_win_application_host_test`, `apptraverse_minimal_app_win32_acceptance_test`, `apptraverse_window_catalog_win32_acceptance_test`, `apptraverse_minimal_app_headless_test`, `apptraverse_window_catalog_headless_test`, `apptraverse_ui_control_materialization_test`. **WASM (post-`ea6a599`, 2026-10-29):** `CMAKE_HOME_DIRECTORY` = `apptraverse-wt-unified`, `EMSCRIPTEN=1`; target `web_window_catalog_demo` (link via `em++`, `--shell-file=…/window_catalog_shell.html`, `OUTPUT_NAME` + `.html`) — артефакты **`build/wasm-ninja-debug/examples/surfaces_demo/web/`**: `web_window_catalog_demo.html`, `.js`, `.wasm`, `.worker.js`. **Причина ложного «нет HTML» после W1:** поиск артефактов не в каталоге link output (корень `build/wasm-ninja-debug` / пустой recursive glob) + «ninja: no work to do» при сборке только static-lib targets без проверки `examples/surfaces_demo/web/`. Incremental `--target web_window_catalog_demo` — **build PASS** (без перелинковки). **Browser smoke PASS:** `python tools/serve_wasm.py build/wasm-ninja-debug/examples/surfaces_demo/web --port 8781` + `python tools/wasm_window_catalog_browser_smoke.py --url http://127.0.0.1:8781/web_window_catalog_demo.html` → `WINDOW_CATALOG_INITIAL_RENDER_OK`, screenshot `docs/smoke_artifacts/window_catalog_web_initial.png`. Исторические WASM smoke PASS (другие SHA) сохранены.
 
-**NEXT (W2, not started):** `WinListContainerPresenter::SyncFromMirror` — `selection_index = -1` не снимает native selection; ветка смены текстов восстанавливает stale native selection.
+---
+
+<a id="p3t3w2--windows-list-selection-sync-from-mirror-2026-10-29-pass"></a>
+
+## P3.T3.W2 — Windows list selection sync from mirror (2026-10-29) — PASS
+
+**Library:** `WinListContainerPresenter::SyncFromMirror` (`win_ui_presenters.cpp`) — helper `ApplyPublishedListSelection` при `notify_list_selection_change == true`: после синхронизации строк (включая `current == desired`, смена текстов при том же count, смена count) применяет опубликованный `selection_index` (валидный индекс → `LB_SETCURSEL`; `-1` → снятие + проверка через `LB_GETCURSEL`); **`previous_sel` не восстанавливается** поверх mirror. `notify_list_selection_change == false` — прежняя семантика (`previous_sel` при rebuild). `previous_top` сохранён; без proxy/model из SyncFromMirror.
+
+**Native E2E:** `TestListNativeSelectionViaProxyAndPublication` — W1 маршруты сохранены; добавлено: publication `selection_index = -1` без смены текстов → HWND без выделения; одна publication — текст row0 (`SetUiLocalizationSlotUtf8Event`) + `selection_index = 0`; одна publication — `RemoveUiListRowEvent` + `selection_index = -1` без восстановления stale native selection. Границы mirror/HWND до/после `ApplyStructural`; без proxy/model Events от apply.
+
+**Regressions (win64-ninja-msvc-debug):** **PASS** — `apptraverse_win_ui_command_routing_test`, `apptraverse_win_ui_native_push_button_test`, `apptraverse_win_application_host_test`, `apptraverse_minimal_app_win32_acceptance_test`, `apptraverse_window_catalog_win32_acceptance_test` (1-й прогон — timeout `IsIconic`; повтор **PASS**), `apptraverse_minimal_app_headless_test`, `apptraverse_window_catalog_headless_test`, `apptraverse_ui_control_materialization_test`. **WASM:** `web_window_catalog_demo` build + browser smoke (`serve_wasm.py` + initial scope) **PASS**.
+
+**Windows scope (точно):** библиотечные **Window / List / Button** presenters + **MinimalApp** lifecycle/acceptance/headless; семь backend и переносимость профиля **не** заявлены.
 
 ---
 
