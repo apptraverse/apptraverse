@@ -30,14 +30,8 @@ ae::ObjId MinimalAuxiliaryRowListPresenterId() {
 }
 ae::ObjId MinimalAuxiliaryWindowTitleId() { return ae::ObjId{0x07A10010u}; }
 ae::ObjId MinimalAuxiliaryOpenerId() { return ae::ObjId{0x07A10011u}; }
-ae::ObjId MinimalAuxiliaryOpenerLabelId() {
-  return ae::ObjId{0x07A10015u};
-}
 ae::ObjId MinimalAuxiliaryOpenerPresenterId() {
   return ae::ObjId{0x07A10012u};
-}
-ae::ObjId MinimalAuxiliaryCloserLabelId() {
-  return ae::ObjId{0x07A10016u};
 }
 ae::ObjId MinimalAuxiliaryCloserId() { return ae::ObjId{0x07A10013u}; }
 ae::ObjId MinimalAuxiliaryCloserPresenterId() {
@@ -72,6 +66,18 @@ void WireMinimalAppControlContext(MinimalApplication& application,
   application.row_list->window_title = window_title;
 }
 
+void MinimalAuxiliaryOpenerButton::HandlePushButtonClicked() {
+  auto application = MinimalApplication::ptr::Declare(
+      ae::CreateWith{*domain}.with_id(MinimalApplicationRootId()));
+  application.Load();
+  if (!application) {
+    return;
+  }
+  auto event = MinimalOpenAuxiliaryWindowEvent::ptr::Create(
+      ae::CreateWith{*domain});
+  application->Commit(std::move(event));
+}
+
 void MinimalApplyButton::HandlePushButtonClicked() {
   {
     auto title_event = ui::SetUiLocalizationSlotUtf8Event::ptr::Create(
@@ -102,18 +108,6 @@ void MinimalAppList::HandleListRowActivated(std::size_t row_index) {
   title_event->slot_index = 0;
   title_event->utf8 = text;
   window_title->Commit(std::move(title_event));
-}
-
-void MinimalAuxiliaryOpenerButton::HandlePushButtonClicked() {
-  auto application = MinimalApplication::ptr::Declare(
-      ae::CreateWith{*domain}.with_id(MinimalApplicationRootId()));
-  application.Load();
-  if (!application) {
-    return;
-  }
-  auto event = MinimalOpenAuxiliaryWindowEvent::ptr::Create(
-      ae::CreateWith{*domain});
-  application->Commit(std::move(event));
 }
 
 void MinimalAuxiliaryCloserButton::HandlePushButtonClicked() {

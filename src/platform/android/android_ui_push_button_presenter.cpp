@@ -31,55 +31,23 @@ void AndroidPushButtonPresenter::OnLoad() {
   }
   JNIEnv* env = RequireUiThreadEnv(*host);
   view_refs_ = new AndroidPushButtonViewRefs();
-  button.Load();
-  window_presenter.Load();
-  window_presenter->locale.Load();
-  button->label.Load();
-  ui::UiLocalizationString const* label_mirror = nullptr;
-  if (button->label) {
-    label_mirror = button->label.operator->();
-  }
-  if (label_mirror == nullptr && button->label.is_valid()) {
-    auto label_ref = ui::UiLocalizationString::ptr::Declare(
-        ae::CreateWith{*button->domain}.with_id(button->label.id()));
-    label_ref.Load();
-    if (label_ref) {
-      label_mirror = label_ref.operator->();
-    }
-  }
-  int const language_index = window_presenter->locale->language_index();
-  std::string label;
-  if (label_mirror != nullptr) {
-    label = label_mirror->Resolve(language_index);
-  }
-  if (label.empty() && host->resolve_push_button_label_utf8 != nullptr) {
-    if (char const* utf8 =
-            host->resolve_push_button_label_utf8(control_id, *button->domain)) {
-      label = utf8;
-    }
-  }
-  if (label.empty()) {
-    WriteFatalStderr(
-        "fatal: AndroidPushButtonPresenter mirror label not found\n");
-    std::abort();
-  }
   jclass ui_class = env->FindClass("com/apptraverse/ui/android/AppTraverseAndroidUi");
   jmethodID create = env->GetStaticMethodID(
       ui_class, "createPushButton",
       "(Landroid/view/ViewGroup;ILjava/lang/String;ZIIIIJ)Landroid/widget/Button;");
-  jstring jlabel = Utf8ToJstring(env, label.c_str());
   ui::UiControlLayout const layout =
       window_presenter->ResolveChildLayout({layout_x, layout_y, layout_width,
                                             layout_height, control_id});
+  jstring jlabel = Utf8ToJstring(env, "");
   jobject button_view = env->CallStaticObjectMethod(
       ui_class, create, parent, static_cast<jint>(control_id), jlabel,
-      button->enabled() ? JNI_TRUE : JNI_FALSE, layout.x, layout.y,
-      layout.width, layout.height,
+      JNI_TRUE, layout.x, layout.y, layout.width, layout.height,
       reinterpret_cast<jlong>(this));
   view_refs_->button = env->NewGlobalRef(button_view);
   env->DeleteLocalRef(button_view);
   env->DeleteLocalRef(jlabel);
   env->DeleteLocalRef(ui_class);
+  SyncFromMirror();
 }
 
 void AndroidPushButtonPresenter::SyncFromMirror() {
@@ -92,32 +60,13 @@ void AndroidPushButtonPresenter::SyncFromMirror() {
   window_presenter.Load();
   window_presenter->locale.Load();
   button->label.Load();
-  ui::UiLocalizationString const* label_mirror = nullptr;
-  if (button->label) {
-    label_mirror = button->label.operator->();
-  }
-  if (label_mirror == nullptr && button->label.is_valid()) {
-    auto label_ref = ui::UiLocalizationString::ptr::Declare(
-        ae::CreateWith{*button->domain}.with_id(button->label.id()));
-    label_ref.Load();
-    if (label_ref) {
-      label_mirror = label_ref.operator->();
-    }
+  if (!button->label) {
+    WriteFatalStderr(
+        "fatal: AndroidPushButtonPresenter mirror label not found\n");
+    std::abort();
   }
   int const language_index = window_presenter->locale->language_index();
-  std::string label;
-  if (label_mirror != nullptr) {
-    label = label_mirror->Resolve(language_index);
-  }
-  if (label.empty() && host->resolve_push_button_label_utf8 != nullptr) {
-    if (char const* utf8 =
-            host->resolve_push_button_label_utf8(control_id, *button->domain)) {
-      label = utf8;
-    }
-  }
-  if (label.empty()) {
-    return;
-  }
+  std::string const label = button->label->Resolve(language_index);
   jclass ui_class = env->FindClass("com/apptraverse/ui/android/AppTraverseAndroidUi");
   jmethodID update = env->GetStaticMethodID(
       ui_class, "updatePushButton",

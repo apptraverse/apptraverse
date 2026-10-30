@@ -29,6 +29,7 @@
 #include "apptraverse/ui/ui_presenters.h"
 
 #include "minimal_app_controls.h"
+#include "minimal_app_persistence.h"
 #include "minimal_app_prepare.h"
 #include "minimal_app_graph_headless.h"
 #include "minimal_app_persistence.h"
@@ -47,12 +48,15 @@ namespace {
     }                                                                        \
   } while (false)
 
+using example::minimal::BootstrapMinimalApplicationProfileIfAbsent;
 using example::minimal::BuildHeadlessMinimalApplicationGraph;
 using example::minimal::EnsureHeadlessMinimalApplicationGraphRegistration;
+using example::minimal::MakeMinimalLabel;
 using example::minimal::MinimalApplication;
 using example::minimal::MinimalApplicationRootId;
 using example::minimal::MinimalMainWindowId;
 using example::minimal::MinimalPresenterId;
+using example::minimal::PrepareMinimalApplicationForRun;
 
 constexpr std::int32_t kInitialX = 120;
 constexpr std::int32_t kInitialY = 80;
@@ -590,6 +594,62 @@ void TestMinimalAppAuxiliaryCloseOpenHeadless() {
   CHECK(!ui_app.auxiliary.apply_button->enabled());
 }
 
+namespace {
+
+constexpr char kOpenerProbeLabel[] = "OpenerLabel-A1R1-probe";
+
+enum class OpenerLabelState {
+  kMissingOpener,
+  kInvalidLabelRef,
+  kValidLabelRefNotLoaded,
+  kLoadedEmptyText,
+  kLoadedText,
+};
+
+struct OpenerLabelProbe {
+  OpenerLabelState state;
+  std::string text;
+};
+
+OpenerLabelProbe ProbeOpenerLabel(MinimalApplication& app) {
+  OpenerLabelProbe out{OpenerLabelState::kMissingOpener, {}};
+  app.auxiliary_opener.Load();
+  if (!app.auxiliary_opener) {
+    return out;
+  }
+  if (!app.auxiliary_opener->label.is_valid()) {
+    out.state = OpenerLabelState::kInvalidLabelRef;
+    return out;
+  }
+  app.auxiliary_opener->label.Load();
+  if (!app.auxiliary_opener->label) {
+    out.state = OpenerLabelState::kValidLabelRefNotLoaded;
+    return out;
+  }
+  out.text = app.auxiliary_opener->label->Resolve(0);
+  out.state = out.text.empty() ? OpenerLabelState::kLoadedEmptyText
+                               : OpenerLabelState::kLoadedText;
+  return out;
+}
+
+void CheckOpenerLabelProbe(char const* stage, OpenerLabelProbe const& probe) {
+  CHECK(probe.state == OpenerLabelState::kLoadedText);
+  CHECK(probe.text == kOpenerProbeLabel);
+  (void)stage;
+}
+
+MinimalApplication::ptr BuildHeadlessGraphWithOpenerProbeLabel(
+    ae::Domain& domain) {
+  auto application = BuildHeadlessMinimalApplicationGraph(domain);
+  application->auxiliary_opener.Load();
+  auto label = MakeMinimalLabel(domain, kOpenerProbeLabel);
+  InitializeRuntimeNode(*label, *application->auxiliary_opener);
+  application->auxiliary_opener->label = label;
+  return application;
+}
+
+}  // namespace
+
 void TestMinimalAppOpenerLabelInInitialPublication() {
   EnsureObjectRegistration();
   EnsureHeadlessMinimalApplicationGraphRegistration();
@@ -600,16 +660,29 @@ void TestMinimalAppOpenerLabelInInitialPublication() {
   std::error_code ec;
   std::filesystem::remove_all(profile_dir, ec);
 
-  example::minimal::BootstrapMinimalApplicationProfileIfAbsent(
+  {
+    ae::RamDomainStorage build_storage;
+    ae::Domain build_domain{build_storage};
+    auto built = BuildHeadlessGraphWithOpenerProbeLabel(build_domain);
+    CheckOpenerLabelProbe("after_graph_build", ProbeOpenerLabel(*built));
+  }
+
+  BootstrapMinimalApplicationProfileIfAbsent(
       profile_dir, [](ae::Domain& domain) {
-        return BuildHeadlessMinimalApplicationGraph(domain);
+        return BuildHeadlessGraphWithOpenerProbeLabel(domain);
       });
 
   DirectoryDomainStorage model_storage{profile_dir};
   ae::Domain model_domain{model_storage};
   auto model_root =
       LoadApplication<MinimalApplication>(model_domain, MinimalApplicationRootId());
+
+  CheckOpenerLabelProbe("after_load_before_prepare",
+                        ProbeOpenerLabel(*model_root));
+
   PrepareMinimalApplicationForRun(*model_root);
+  CheckOpenerLabelProbe("after_prepare_before_publication",
+                        ProbeOpenerLabel(*model_root));
 
   ByteSink initial;
   SerializeInitialPublication(*model_root, initial);
@@ -620,23 +693,19 @@ void TestMinimalAppOpenerLabelInInitialPublication() {
   in.data = initial.bytes.data();
   in.size = initial.bytes.size();
   ae::Ptr<ae::Obj> root = LoadInitialPublication(in, ui_domain, ui_storage);
-  auto& app = static_cast<MinimalApplication&>(*root);
+  auto& ui_app = static_cast<MinimalApplication&>(*root);
 
-  app.apply_button.Load();
-  app.apply_button->label.Load();
-  CHECK(app.apply_button->label);
+  CheckOpenerLabelProbe("ui_domain_after_publication",
+                        ProbeOpenerLabel(ui_app));
 
-  app.auxiliary_opener.Load();
-  CHECK(app.auxiliary_opener->label.is_valid());
-  app.auxiliary_opener->label.Load();
-  CHECK(app.auxiliary_opener->label);
-
-  app.presenters.auxiliary_opener.Load();
-  app.presenters.auxiliary_opener->button.Load();
-  app.presenters.auxiliary_opener->button->label.Load();
-  CHECK(app.presenters.auxiliary_opener->button->label);
-  CHECK(app.presenters.auxiliary_opener->button->label->Resolve(0) ==
-        "Open Detail");
+  ui_app.presenters.auxiliary_opener.Load();
+  CHECK(ui_app.presenters.auxiliary_opener.is_valid());
+  ui_app.presenters.auxiliary_opener->button.Load();
+  CHECK(ui_app.presenters.auxiliary_opener->button.is_valid());
+  ui_app.presenters.auxiliary_opener->button->label.Load();
+  CHECK(ui_app.presenters.auxiliary_opener->button->label);
+  CHECK(ui_app.presenters.auxiliary_opener->button->label->Resolve(0) ==
+        kOpenerProbeLabel);
 }
 
 }  // namespace

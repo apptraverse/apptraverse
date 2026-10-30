@@ -54,7 +54,7 @@ void AndroidDesktopWindowPresenter::SyncTitleFromMirror() {
     return;
   }
   JNIEnv* env = RequireUiThreadEnv(*host);
-  std::string title_text = "Minimal App";
+  std::string title_text;
   if (title.is_valid()) {
     title.Load();
     if (locale.is_valid()) {

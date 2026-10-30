@@ -52,15 +52,20 @@ void PrepareMinimalApplicationForRun(MinimalApplication& application) {
         "fatal: MinimalApplication required control or presenter missing\n");
     std::abort();
   }
+  if (!application.apply_button->label.is_valid()) {
+    WriteFatalStderr(
+        "fatal: MinimalApplication apply_button label ref invalid\n");
+    std::abort();
+  }
+  application.apply_button->label.Load();
   if (!application.apply_button->label) {
     WriteFatalStderr("fatal: MinimalApplication apply_button missing label\n");
     std::abort();
   }
   if (!application.auxiliary_opener->label.is_valid()) {
-    application.auxiliary_opener->label =
-        ui::UiLocalizationString::ptr::Declare(
-            ae::CreateWith{*application.auxiliary_opener->domain}.with_id(
-                MinimalAuxiliaryOpenerLabelId()));
+    WriteFatalStderr(
+        "fatal: MinimalApplication auxiliary_opener label ref invalid\n");
+    std::abort();
   }
   application.auxiliary_opener->label.Load();
   if (!application.auxiliary_opener->label) {

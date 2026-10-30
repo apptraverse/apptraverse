@@ -154,13 +154,7 @@ MinimalApplication::ptr BuildMinimalApplicationGraph(
 
   application->auxiliary_opener = MinimalAuxiliaryOpenerButton::ptr::Create(
       ae::CreateWith{domain}.with_id(MinimalAuxiliaryOpenerId()));
-  auto opener_label = ui::UiLocalizationString::ptr::Create(
-      ae::CreateWith{domain}.with_id(MinimalAuxiliaryOpenerLabelId()));
-  {
-    auto opener_str = ui::UiString::ptr::Create(ae::CreateWith{domain});
-    opener_str->utf8 = "Open Detail";
-    opener_label->strings = {opener_str};
-  }
+  auto opener_label = MakeMinimalLabel(domain, "Open Detail");
   InitializeRuntimeNode(*opener_label, *application->auxiliary_opener);
   application->auxiliary_opener->label = opener_label;
   application->auxiliary_opener->window_title = title;
@@ -207,13 +201,7 @@ MinimalApplication::ptr BuildMinimalApplicationGraph(
 
   application->auxiliary.closer = MinimalAuxiliaryCloserButton::ptr::Create(
       ae::CreateWith{domain}.with_id(MinimalAuxiliaryCloserId()));
-  auto closer_label = ui::UiLocalizationString::ptr::Create(
-      ae::CreateWith{domain}.with_id(MinimalAuxiliaryCloserLabelId()));
-  {
-    auto closer_str = ui::UiString::ptr::Create(ae::CreateWith{domain});
-    closer_str->utf8 = "Close Detail";
-    closer_label->strings = {closer_str};
-  }
+  auto closer_label = MakeMinimalLabel(domain, "Close Detail");
   InitializeRuntimeNode(*closer_label, *application->auxiliary.closer);
   application->auxiliary.closer->label = closer_label;
   application->auxiliary.closer->window_title = aux_title;

@@ -16,9 +16,6 @@ constexpr std::uint32_t kMinimalAuxiliaryApplyButtonControlId = 7201u;
 constexpr std::uint32_t kMinimalAuxiliaryRowListControlId = 7202u;
 constexpr std::uint32_t kMinimalAuxiliaryCloserControlId = 7203u;
 
-ae::ObjId MinimalAuxiliaryOpenerLabelId();
-ae::ObjId MinimalAuxiliaryCloserLabelId();
-
 ae::ObjId MinimalLocaleId();
 ae::ObjId MinimalWindowTitleId();
 ae::ObjId MinimalApplyButtonId();
@@ -138,7 +135,7 @@ class MinimalAuxiliaryCloserButton
  public:
   explicit MinimalAuxiliaryCloserButton(ae::ObjProp prop) : NodeFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(label), AE_MMBR(window_title))
+  AE_OBJECT_REFLECT(AE_MMBR(window_title))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {

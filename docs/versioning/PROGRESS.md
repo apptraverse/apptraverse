@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-10-30):** **P3.T3.A1 PASS** — первый экран MinimalApp на Android Emulator (initial UI only; §P3.T3.A1). **P3.T3.A** / **P3** — **IN_PROGRESS**. **P3.T3.Web5R1 PASS**, **P3.T3.MinimalAppR1 PASS**, **P3.T3.Web5**, **Web1–Web4** — без изменений статуса. **NEXT:** **P3.T3.A2** — Android-ввод через presenter → proxy → Event → publication ([PLAN §P3.T3.A](./PLAN.md); **не начинать**). **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
+**Активный порядок (2026-10-30):** **P3.T3.A1R1** — подпись opener из графа без обходов (**IN_PROGRESS**; Android initial UI **не PASS**, §P3.T3.A1R1). **P3.T3.A1** — исторический **PASS** визуального smoke с A1 workarounds (§P3.T3.A1). **P3.T3.A** / **P3** — **IN_PROGRESS**. **P3.T3.Web5R1 PASS**, **P3.T3.MinimalAppR1 PASS**. **NEXT после A1R1 PASS:** **P3.T3.A2** (Android input; **не начинать**). **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -196,9 +196,11 @@
 
 <a id="p3t3a1--android-minimalapp-initial-ui-2026-10-30-pass"></a>
 
-## P3.T3.A1 — Android MinimalApp initial UI (2026-10-30) — PASS
+## P3.T3.A1 — Android MinimalApp initial UI (2026-10-30) — PASS (historical visual smoke)
 
 **Base (lease):** `ad95a149a99053e77ad65c4a4270149bebf905df` (**P3.T3.MinimalAppR1**).
+
+**Примечание (A1R1):** PASS получен с app-level обходами (`Declare` opener label id, `resolve_push_button_label_utf8` для **7103**). Это **не** канонический путь `presenter → button → label` из distilled графа; см. §P3.T3.A1R1.
 
 **Scope (PASS):** Debug APK на эмуляторе; после initial publication — одна страница «Minimal App», кнопки **Apply** / **Open Detail**, список **Row A** / **Row B** без выбора; Detail закрыт. Команды, Close/Open Detail, recreate Activity, save/cold reload — **вне** PASS.
 
@@ -214,9 +216,29 @@
 
 **Regressions:** `apptraverse_minimal_app_headless_test` **PASS**; `apptraverse_minimal_app_win32_acceptance_test` **PASS** (`GetDlgCtrlID` в `HwndControlId`); Win32 headless auxiliary сценарий сохранён. Web5R1 полный набор **не перезапускался** (без clean/full CTest).
 
-**Known gap (A2):** UI mirror для `MinimalAuxiliaryOpenerButton.label` после distilled load — app-level UTF-8 fallback `resolve_push_button_label_utf8` для control **7103**; убрать при починке сериализации opener label.
+**Known gap (снят в A1R1 WIP):** A1 workarounds для **7103** — удалены в ветке A1R1; см. §P3.T3.A1R1.
 
-**NEXT:** **P3.T3.A2** — Android input через presenter → proxy → Event (не начинать).
+**NEXT (после A1R1 PASS):** **P3.T3.A2** — Android input через presenter → proxy → Event (не начинать).
+
+---
+
+<a id="p3t3a1r1--android-opener-label-from-graph-2026-10-30"></a>
+
+## P3.T3.A1R1 — Android opener label from published graph (2026-10-30) — IN_PROGRESS
+
+**Base (lease):** `5e3f6123ca743792294f5945c8c804fc7f30ec55` (**P3.T3.A1**).
+
+**Сделано:** удалены A1 workarounds (`minimal_app_android_ui_labels.*`, `resolve_push_button_label_utf8`, `Declare(MinimalAuxiliaryOpenerLabelId)` в Prepare, default title «Minimal App»); Android presenters читают `button->label` из mirror; расширен `TestMinimalAppOpenerLabelInInitialPublication` (probe `OpenerLabel-A1R1-probe`, стадии graph → cold load до Prepare → publication → UI `presenter->button->label`).
+
+**Первая доказанная граница (Android NDK, без обходов):** после `LoadApplication` + `auxiliary_opener.Load()` на model thread **`auxiliary_opener->label.is_valid()` == false** (`PrepareMinimalApplicationForRun` → `fatal: … auxiliary_opener label ref invalid`), при том что **apply_button.label** на том же профиле валиден. В `DirectoryDomainStorage` у объекта **127991825** (`MinimalAuxiliaryOpenerId`) слой **1491514641** (UiPushButton) содержит ref на localization с UTF-8 «Open Detail» — данные сохранены, поле C++ после load не гидратировано. **Win64 headless** тот же pipeline **PASS** (отдельный дефект сериализатора на Win **не воспроизведён**).
+
+**Проверки (Win, incremental Debug):** `apptraverse_minimal_app_headless_test` **PASS** (включая opener-label probe); `apptraverse_minimal_app_win32_acceptance_test` **PASS**.
+
+**Android (API 34 / x86_64, без hook):** `InitialUiInstrumentedTest` **FAIL** (process crash на model thread до UI); `MINIMAL_APP_INITIAL_RENDER_OK` **не** получен.
+
+**Object Core / Æther:** не менялись (Win без repro).
+
+**NEXT:** устранить NDK cold-load гидратацию `UiPushButton.label` для `MinimalAuxiliaryOpenerButton` **или** зафиксировать upstream fix; затем повторить Android instrumented + Web5R1 smoke. **A2** — только после A1R1 **PASS**.
 
 ---
 

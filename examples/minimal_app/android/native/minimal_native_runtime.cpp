@@ -3,7 +3,6 @@
 #include "android_log.h"
 
 #include "minimal_app_android_lifecycle.h"
-#include "minimal_app_android_ui_labels.h"
 
 namespace apptraverse::example::minimal {
 
@@ -15,8 +14,6 @@ MinimalNativeRuntime::~MinimalNativeRuntime() = default;
 
 void MinimalNativeRuntime::SetPresentationRoot(JNIEnv* env, jobject activity,
                                                  jobject content_root) {
-  presentation_host_.resolve_push_button_label_utf8 =
-      &ResolveMinimalAndroidPushButtonLabelUtf8;
   if (!host_) {
     android::AndroidApplicationHostCallbacks callbacks;
     callbacks.run_model = [this](ApplicationPublishedCallback on_published) {
