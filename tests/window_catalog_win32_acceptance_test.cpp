@@ -6,10 +6,12 @@
 #undef RegisterClass
 #endif
 
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
+#include <iomanip>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -1475,7 +1477,46 @@ void RelocateStoredLayerVersion0To1(std::filesystem::path const& state_dir,
   CHECK(storage.Load(query_v1).result == ae::DomainLoadResult::kLoaded);
 }
 
-void ExpectUnsupportedSchemaLoadOnly(ChildRunResult const& result,
+void RelocateStoredClassSchemaLayers(
+    std::filesystem::path const& state_dir, ae::ObjId obj_id,
+    std::uint32_t class_id,
+    std::array<std::uint8_t, 3> const& from_schema,
+    std::array<std::uint8_t, 3> const& to_schema) {
+  std::size_t relocated = 0;
+  for (std::size_t i = 0; i < from_schema.size(); ++i) {
+    ae::DomainQuery const from_q{obj_id, class_id, from_schema[i]};
+    auto const from_path = DirectoryDomainStorageLayerPath(state_dir, from_q);
+    if (!std::filesystem::exists(from_path)) {
+      continue;
+    }
+    ae::DomainQuery const to_q{obj_id, class_id, to_schema[i]};
+    auto const to_path = DirectoryDomainStorageLayerPath(state_dir, to_q);
+    CHECK(!std::filesystem::exists(to_path));
+    std::error_code ec;
+    std::filesystem::create_directories(to_path.parent_path(), ec);
+    CHECK(!ec);
+    std::filesystem::rename(from_path, to_path, ec);
+    CHECK(!ec);
+    ++relocated;
+  }
+  CHECK(relocated > 0);
+  DirectoryDomainStorage storage{state_dir};
+  for (std::uint8_t schema : from_schema) {
+    ae::DomainQuery const q{obj_id, class_id, schema};
+    CHECK(storage.Load(q).result == ae::DomainLoadResult::kEmpty);
+  }
+  for (std::size_t i = 0; i < to_schema.size(); ++i) {
+    ae::DomainQuery const to_q{obj_id, class_id, to_schema[i]};
+    if (!std::filesystem::exists(
+            DirectoryDomainStorageLayerPath(state_dir, to_q))) {
+      continue;
+    }
+    CHECK(storage.Load(to_q).result == ae::DomainLoadResult::kLoaded);
+  }
+}
+
+void ExpectUnsupportedSchemaLoadOnly(char const* scenario,
+                                     ChildRunResult const& result,
                                      bool allow_presenter_boundary) {
   bool const load_failed =
       result.stderr_text.find("fatal: LoadApplication failed") !=
@@ -1485,13 +1526,18 @@ void ExpectUnsupportedSchemaLoadOnly(ChildRunResult const& result,
       result.stderr_text.find(
           "fatal: LoadPresentedWindow required presenter missing") !=
           std::string::npos;
+  bool const ok = result.exit_code != 0 && (load_failed || presenter_missing);
+  if (!ok) {
+    std::cerr << "unsupported-schema scenario: " << scenario << '\n'
+              << "child exit: dec=" << result.exit_code << " hex=0x"
+              << std::hex << result.exit_code << std::dec << '\n'
+              << "load_failed=" << load_failed
+              << " presenter_missing=" << presenter_missing << '\n'
+              << "captured stderr:\n"
+              << result.stderr_text << '\n';
+  }
   CHECK(result.exit_code != 0);
   CHECK(load_failed || presenter_missing);
-  if (!load_failed && !presenter_missing) {
-    std::cerr << "unsupported schema load-only stderr was:\n"
-              << result.stderr_text << '\n';
-    std::exit(1);
-  }
 }
 
 std::uint32_t UnknownStoredClassIdForTests() {
@@ -1508,6 +1554,15 @@ bool EnumerateContainsClass(DirectoryDomainStorage& storage, ae::ObjId obj_id,
     }
   }
   return false;
+}
+
+void RelocateWindowCatalogRootSupportedSchemaAway(
+    std::filesystem::path const& state_dir) {
+  ae::ObjId const root = CatalogRootObjId();
+  RelocateStoredClassSchemaLayers(
+      state_dir, root, WindowCatalog::kClassId, {0, 1, 2}, {3, 4, 5});
+  DirectoryDomainStorage storage{state_dir};
+  CHECK(EnumerateContainsClass(storage, root, WindowCatalog::kClassId));
 }
 
 void CopyStoredLayer(std::filesystem::path const& state_dir,
@@ -1560,7 +1615,8 @@ void RunRequiredUnknownClassIdNegativeTests(
     CopyStateDir(good_state, dir);
     AddUnknownStoredClassLayerAlongsideRoot(dir);
     auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
-    ExpectUnsupportedSchemaLoadOnly(result, false);
+    ExpectUnsupportedSchemaLoadOnly("unknown_class_id_alongside_root", result,
+                                    false);
   }
 
   {
@@ -1571,7 +1627,8 @@ void RunRequiredUnknownClassIdNegativeTests(
         ui::windows::WinDesktopWindowPresenter::kClassId,
         UnknownStoredClassIdForTests());
     auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
-    ExpectUnsupportedSchemaLoadOnly(result, true);
+    ExpectUnsupportedSchemaLoadOnly(
+        "unknown_class_id_main_window_presenter", result, true);
   }
 }
 
@@ -1581,10 +1638,10 @@ void RunRequiredUnsupportedSchemaNegativeTests(
   {
     auto const dir = NegativeStateDir("unsupported_schema_window_catalog_root");
     CopyStateDir(good_state, dir);
-    RelocateStoredLayerVersion0To1(dir, CatalogRootObjId(),
-                                   WindowCatalog::kClassId);
+    RelocateWindowCatalogRootSupportedSchemaAway(dir);
     auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
-    ExpectUnsupportedSchemaLoadOnly(result, false);
+    ExpectUnsupportedSchemaLoadOnly(
+        "unsupported_schema_window_catalog_root", result, false);
   }
 
   {
@@ -1595,7 +1652,8 @@ void RunRequiredUnsupportedSchemaNegativeTests(
         dir, CatalogMainWindowPresenterObjId(),
         ui::windows::WinDesktopWindowPresenter::kClassId);
     auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
-    ExpectUnsupportedSchemaLoadOnly(result, true);
+    ExpectUnsupportedSchemaLoadOnly(
+        "unsupported_schema_main_window_presenter", result, true);
   }
 }
 

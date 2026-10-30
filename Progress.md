@@ -1,4 +1,4 @@
-**Active (2026-10-29):** **P3.T3.W1 IN_PROGRESS** — routing + native E2E in `main`; blocker `apptraverse_window_catalog_win32_acceptance_test` (unsupported-schema negative stderr). **NEXT: P3.T3.W2** only after W1 PASS. **P3.T3.H PASS** retained. [PLAN](docs/versioning/PLAN.md), [PROGRESS](docs/versioning/PROGRESS.md).
+**Active (2026-10-29):** **P3.T3.W1 IN_PROGRESS** — routing, control native E2E, catalog acceptance fixture fixed; **NEXT:** finish W1 (model window + publication + desktop proxy in native tests). **P3.T3.W2** after W1 PASS. **P3.T3.H PASS** retained. [PLAN](docs/versioning/PLAN.md), [PROGRESS](docs/versioning/PROGRESS.md).
 
 **Release versioning (R0–R5):** детальный журнал — [docs/versioning/PROGRESS.md](docs/versioning/PROGRESS.md); **P0–P6** — единственная активная очередь на unified. Rules: `.cursor/rules/apptraverse-coding-agent.mdc`.
 

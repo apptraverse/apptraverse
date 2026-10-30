@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-10-29):** **P3.T3.W1 IN_PROGRESS** — routing + native E2E в `main`; **блокер:** `apptraverse_window_catalog_win32_acceptance_test` (`ExpectUnsupportedSchemaLoadOnly`, stderr без `LoadApplication failed` / presenter missing). **NEXT P3.T3.W2** после **W1 PASS**. **P3.T1–T2**, **P3.T3.H PASS** сохранены. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
+**Активный порядок (2026-10-29):** **P3.T3.W1 IN_PROGRESS** — routing + native control E2E + catalog acceptance fixture исправлен; **осталось для W1 PASS:** связный model window/presenters через publication в native-тестах (см. §P3.T3.W1). **NEXT:** завершить W1 (model/UI graph + штатный desktop proxy). **P3.T3.W2** — после **W1 PASS**. **P3.T1–T2**, **P3.T3.H PASS** сохранены. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -35,9 +35,11 @@
 
 **Native E2E (`apptraverse_win_ui_command_routing_test`, Debug, `main`):** `TestEditRouting`; `TestPushButtonNativeClickViaProxyAndPublication` (BM_CLICK → deferred proxy → `SetUiPushButtonEnabledEvent` → structural mirror → native disabled); `TestListNativeSelectionViaProxyAndPublication` (row text via publication, LBN_SELCHANGE/LBN_DBLCLK → proxy → selection/activation); `TestActivationListStructuralMirrorHeadless`. **Fixture fix:** `TestWinPushButtonResolveChildLayoutFromHost` — locale/label (прежний `OnLoad` null deref, exit **3**).
 
-**Dual-domain test note:** не вызывать `UiDesktopWindow::SubmitFrameFromNative` на UI mirror до HWND и не вешать `model_proxy` на desktop presenter (иначе Debug `InsertEvent invariant broken` при frame submit).
+**Native control tests (ограничение):** публикуют только кнопку/список; `UiDesktopWindow` создаётся отдельно в UI Domain без model window — не проверяют полный оконный publication graph и frame route. Отсутствие `model_proxy` на desktop в этих тестах — следствие раскола graph, **не** библиотечный запрет proxy.
 
-**Regressions (win64-ninja-msvc-debug, 2026-10-29):** PASS — `apptraverse_win_ui_native_push_button_test`, `apptraverse_win_ui_command_routing_test`, `apptraverse_win_application_host_test`, `apptraverse_minimal_app_win32_acceptance_test`, `apptraverse_minimal_app_headless_test`, `apptraverse_window_catalog_headless_test`, `apptraverse_ui_control_materialization_test`; WASM — `web_window_catalog_demo` + `wasm_window_catalog_browser_smoke.py` (`serve_wasm.py`, initial scope) **PASS**. **FAIL:** `apptraverse_window_catalog_win32_acceptance_test` — `ExpectUnsupportedSchemaLoadOnly` (exit ≠ 0, stderr без ожидаемых `fatal:` needles).
+**Catalog acceptance fixture (2026-10-29):** **первый отказ** — `unsupported_schema_window_catalog_root`: `RelocateStoredLayerVersion0To1` для `WindowCatalog` (schema **2**, слои S0/S1/S2): оставшиеся S1/S2 загружались; child exit **3**, captured stderr **пустой**, `CHECK(load_failed || presenter_missing)` без диагностики. **Исправление:** `RelocateStoredClassSchemaLayers` — S0/S1/S2 → S3/S4/S5 на root; presenter-case — по-прежнему S0→S1; `ExpectUnsupportedSchemaLoadOnly` печатает scenario/exit/stderr **до** CHECK. **После fix:** unsupported-schema (root + presenter) и unknown-ClassId negatives — **PASS** в составе `apptraverse_window_catalog_win32_acceptance_test`.
+
+**Regressions (win64-ninja-msvc-debug, 2026-10-29):** PASS — перечисленные Win targets + `apptraverse_window_catalog_win32_acceptance_test`; WASM smoke (`serve_wasm.py`, initial scope) **PASS**.
 
 **Follow-up (W2, not W1):** `WinListContainerPresenter::SyncFromMirror` — `selection_index = -1` не снимает native selection; ветка смены текстов восстанавливает stale native selection.
 
