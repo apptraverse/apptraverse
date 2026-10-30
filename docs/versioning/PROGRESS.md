@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-10-30):** **P3.T3.Web5R1 PASS** — shutdown cleanup + emval/stale-DOM smoke (§P3.T3.Web5R1). **P3.T3.MinimalApp Win/Headless R1 PASS** — восстановление двух проверок на baseline **`82d2b25`** (§P3.T3.MinimalAppR1). **P3.T3.Web5 PASS** (§P3.T3.Web5) сохранён. **Web1–Web4 PASS** сохранены. **NEXT:** **P3.T3.A** — первый Android-срез ([PLAN §P3.T3.A](./PLAN.md); **не начат**). **P3** — **IN_PROGRESS**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
+**Активный порядок (2026-10-30):** **P3.T3.A1 PASS** — первый экран MinimalApp на Android Emulator (initial UI only; §P3.T3.A1). **P3.T3.A** / **P3** — **IN_PROGRESS**. **P3.T3.Web5R1 PASS**, **P3.T3.MinimalAppR1 PASS**, **P3.T3.Web5**, **Web1–Web4** — без изменений статуса. **NEXT:** **P3.T3.A2** — Android-ввод через presenter → proxy → Event → publication ([PLAN §P3.T3.A](./PLAN.md); **не начинать**). **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -191,6 +191,32 @@
 **Исправление (только tests):** headless — трёхшаговый сценарий (main Apply → aux Apply через `NotifyClickedFromUi` → closer/opener presenters + `PumpModelWorkAndApplyStructural`); win32 — ожидание ровно по одному HWND на каждый named ID + диагностический dump при timeout.
 
 **Проверки (win64-ninja-msvc-debug, `apptraverse-wt-web5`):** `apptraverse_minimal_app_headless_test` **PASS**; `apptraverse_minimal_app_win32_acceptance_test` **PASS** (save + `load_only` + graph negatives). Библиотечный код не менялся → дополнительный Web/Win regression объём не требовался.
+
+---
+
+<a id="p3t3a1--android-minimalapp-initial-ui-2026-10-30-pass"></a>
+
+## P3.T3.A1 — Android MinimalApp initial UI (2026-10-30) — PASS
+
+**Base (lease):** `ad95a149a99053e77ad65c4a4270149bebf905df` (**P3.T3.MinimalAppR1**).
+
+**Scope (PASS):** Debug APK на эмуляторе; после initial publication — одна страница «Minimal App», кнопки **Apply** / **Open Detail**, список **Row A** / **Row B** без выбора; Detail закрыт. Команды, Close/Open Detail, recreate Activity, save/cold reload — **вне** PASS.
+
+**Targets:** `apptraverse_ui_android` (library); APK `examples/minimal_app/android` → `apptraverse_minimal_app` + `minimal_app_android` + `minimal_app_common`.
+
+**Publication path:** model worker `RunApplicationModelSession` → `AndroidUiBridge` → main `TakePublishedCopy` → `ApplicationUiSession` / `InitializePresenters`; контейнер `content_root` до `StartModelThread`.
+
+**Runtime:** AVD **`Aether_NDK_Smoke_x86_64`**, API **34**, **x86_64**; logcat `MINIMAL_APP_INITIAL_RENDER_OK`; UiAutomator dump + `InitialUiInstrumentedTest` **PASS**.
+
+**Controls (UiAutomator):** Apply (7101), Open Detail (7103), Row A / Row B (7102 list); selection `-1`; нет «Detail Panel».
+
+**Артефакты:** `docs/smoke_artifacts/minimal_app_android_ui_dump.xml`, `minimal_app_android_a1.png`.
+
+**Regressions:** `apptraverse_minimal_app_headless_test` **PASS**; `apptraverse_minimal_app_win32_acceptance_test` **PASS** (`GetDlgCtrlID` в `HwndControlId`); Win32 headless auxiliary сценарий сохранён. Web5R1 полный набор **не перезапускался** (без clean/full CTest).
+
+**Known gap (A2):** UI mirror для `MinimalAuxiliaryOpenerButton.label` после distilled load — app-level UTF-8 fallback `resolve_push_button_label_utf8` для control **7103**; убрать при починке сериализации opener label.
+
+**NEXT:** **P3.T3.A2** — Android input через presenter → proxy → Event (не начинать).
 
 ---
 

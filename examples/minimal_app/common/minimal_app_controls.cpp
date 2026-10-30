@@ -30,8 +30,14 @@ ae::ObjId MinimalAuxiliaryRowListPresenterId() {
 }
 ae::ObjId MinimalAuxiliaryWindowTitleId() { return ae::ObjId{0x07A10010u}; }
 ae::ObjId MinimalAuxiliaryOpenerId() { return ae::ObjId{0x07A10011u}; }
+ae::ObjId MinimalAuxiliaryOpenerLabelId() {
+  return ae::ObjId{0x07A10015u};
+}
 ae::ObjId MinimalAuxiliaryOpenerPresenterId() {
   return ae::ObjId{0x07A10012u};
+}
+ae::ObjId MinimalAuxiliaryCloserLabelId() {
+  return ae::ObjId{0x07A10016u};
 }
 ae::ObjId MinimalAuxiliaryCloserId() { return ae::ObjId{0x07A10013u}; }
 ae::ObjId MinimalAuxiliaryCloserPresenterId() {

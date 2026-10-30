@@ -174,6 +174,23 @@ if(WIN32)
     apptraverse_ui_windows apptraverse_ui_extended)
 endif()
 
+if(ANDROID)
+  add_library(apptraverse_ui_android STATIC
+    src/platform/android/android_jni_util.cpp
+    src/platform/android/android_ui_bridge.cpp
+    src/platform/android/android_application_host.cpp
+    src/platform/android/android_ui_window_presenter.cpp
+    src/platform/android/android_ui_push_button_presenter.cpp
+    src/platform/android/android_ui_list_presenter.cpp
+    src/platform/android/android_ui_registration.cpp
+  )
+  target_include_directories(apptraverse_ui_android PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/platform/android)
+  target_link_libraries(apptraverse_ui_android PUBLIC apptraverse log)
+  target_compile_features(apptraverse_ui_android PUBLIC cxx_std_20)
+endif()
+
 if(EMSCRIPTEN)
   add_library(apptraverse_ui_web STATIC
     src/platform/web/web_ui_dom_em.cpp

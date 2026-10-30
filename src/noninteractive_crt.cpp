@@ -2,6 +2,10 @@
 
 #include <cstdio>
 
+#if defined(__ANDROID__)
+#  include <android/log.h>
+#endif
+
 #ifdef _WIN32
 #  ifndef WIN32_LEAN_AND_MEAN
 #    define WIN32_LEAN_AND_MEAN
@@ -45,6 +49,9 @@ void WriteFatalStderr(char const* text) {
   if (text == nullptr) {
     return;
   }
+#if defined(__ANDROID__)
+  __android_log_write(ANDROID_LOG_FATAL, "AppTraverse", text);
+#endif
 #ifdef _WIN32
   // One write. CRT stderr and STD_ERROR_HANDLE are often the same pipe;
   // writing both duplicates the diagnostic. Prefer CRT when it is attached;

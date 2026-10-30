@@ -313,8 +313,7 @@ PROCESS_INFORMATION StartDemo(std::filesystem::path const& exe,
 }
 
 std::uint32_t HwndControlId(HWND hwnd) {
-  return static_cast<std::uint32_t>(
-      reinterpret_cast<INT_PTR>(GetMenu(hwnd)));
+  return static_cast<std::uint32_t>(GetDlgCtrlID(hwnd));
 }
 
 struct MainWindowControlCounts {

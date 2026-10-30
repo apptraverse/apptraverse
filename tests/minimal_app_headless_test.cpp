@@ -590,11 +590,61 @@ void TestMinimalAppAuxiliaryCloseOpenHeadless() {
   CHECK(!ui_app.auxiliary.apply_button->enabled());
 }
 
+void TestMinimalAppOpenerLabelInInitialPublication() {
+  EnsureObjectRegistration();
+  EnsureHeadlessMinimalApplicationGraphRegistration();
+
+  std::filesystem::path const profile_dir =
+      std::filesystem::temp_directory_path() /
+      "minimal_app_opener_label_publication_test";
+  std::error_code ec;
+  std::filesystem::remove_all(profile_dir, ec);
+
+  example::minimal::BootstrapMinimalApplicationProfileIfAbsent(
+      profile_dir, [](ae::Domain& domain) {
+        return BuildHeadlessMinimalApplicationGraph(domain);
+      });
+
+  DirectoryDomainStorage model_storage{profile_dir};
+  ae::Domain model_domain{model_storage};
+  auto model_root =
+      LoadApplication<MinimalApplication>(model_domain, MinimalApplicationRootId());
+  PrepareMinimalApplicationForRun(*model_root);
+
+  ByteSink initial;
+  SerializeInitialPublication(*model_root, initial);
+
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  ByteSource in;
+  in.data = initial.bytes.data();
+  in.size = initial.bytes.size();
+  ae::Ptr<ae::Obj> root = LoadInitialPublication(in, ui_domain, ui_storage);
+  auto& app = static_cast<MinimalApplication&>(*root);
+
+  app.apply_button.Load();
+  app.apply_button->label.Load();
+  CHECK(app.apply_button->label);
+
+  app.auxiliary_opener.Load();
+  CHECK(app.auxiliary_opener->label.is_valid());
+  app.auxiliary_opener->label.Load();
+  CHECK(app.auxiliary_opener->label);
+
+  app.presenters.auxiliary_opener.Load();
+  app.presenters.auxiliary_opener->button.Load();
+  app.presenters.auxiliary_opener->button->label.Load();
+  CHECK(app.presenters.auxiliary_opener->button->label);
+  CHECK(app.presenters.auxiliary_opener->button->label->Resolve(0) ==
+        "Open Detail");
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
 int main() {
   apptraverse::EnableNoninteractiveCrt();
+  apptraverse::test::TestMinimalAppOpenerLabelInInitialPublication();
   apptraverse::test::TestMinimalAppHeadlessSessionE2e();
   apptraverse::test::TestMinimalAppHeadlessUiCommandE2e();
   apptraverse::test::TestMinimalAppAuxiliaryPersistColdLoad();

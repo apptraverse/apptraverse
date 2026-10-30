@@ -2,6 +2,8 @@
 
 #include "minimal_application.h"
 
+#include "minimal_app_prepare.h"
+
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/noninteractive_crt.h"
@@ -31,6 +33,7 @@ bool BootstrapMinimalApplicationProfileIfAbsent(
   DirectoryDomainStorage bootstrap_storage{state_dir};
   ae::Domain bootstrap_domain{bootstrap_storage};
   auto bootstrap_app = build_graph(bootstrap_domain);
+  PrepareMinimalApplicationForRun(*bootstrap_app);
   FinalizeDistilledGraph(*bootstrap_app);
   SaveDistilledRoot(*bootstrap_app);
   return true;

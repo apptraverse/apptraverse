@@ -37,3 +37,5 @@ endif()
 if(EMSCRIPTEN AND APPTRAVERSE_BUILD_EXAMPLES)
   add_subdirectory(web)
 endif()
+
+# Android APK is built only via Gradle (examples/minimal_app/android).

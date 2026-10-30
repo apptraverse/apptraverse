@@ -1,0 +1,81 @@
+plugins {
+  id "com.android.application"
+}
+
+def compileSdkVersion = (project.findProperty("apptraverse.compileSdk") ?: "34") as Integer
+def cmakeVersion = project.findProperty("apptraverse.cmakeVersion") ?: "4.1.2"
+def abiFilterList = ((project.findProperty("apptraverse.abiFilters") ?: "x86_64") as String)
+    .split(",")
+    .collect { it.trim() }
+    .findAll { !it.isEmpty() }
+
+android {
+  namespace "com.apptraverse.minimal"
+  compileSdk compileSdkVersion
+  buildToolsVersion = "36.0.0"
+  ndkVersion "29.0.14206865"
+
+  defaultConfig {
+    applicationId "com.apptraverse.minimal"
+    minSdk 24
+    targetSdk compileSdkVersion
+    versionCode 1
+    versionName "0.1.0-a1"
+
+    testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+
+    ndk {
+      abiFilters.addAll(abiFilterList)
+    }
+
+    externalNativeBuild {
+      cmake {
+        arguments "-DANDROID_STL=c++_static",
+                  "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
+                  "-DCPM_aether-miscpp_SOURCE=C:/cpm-cache/aether-miscpp/108b"
+        targets "apptraverse_minimal_app"
+      }
+    }
+  }
+
+  sourceSets {
+    main {
+      java.srcDirs += ["../../../../src/platform/android/java"]
+    }
+  }
+
+  externalNativeBuild {
+    cmake {
+      path file("../native/CMakeLists.txt")
+      version cmakeVersion
+    }
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+
+  buildTypes {
+    debug {
+      debuggable true
+      jniDebuggable true
+    }
+    release {
+      minifyEnabled false
+      proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"),
+                    "proguard-rules.pro"
+    }
+  }
+
+  lint {
+    abortOnError false
+  }
+}
+
+dependencies {
+  androidTestImplementation "androidx.test:runner:1.6.1"
+  androidTestImplementation "androidx.test:rules:1.6.1"
+  androidTestImplementation "androidx.test.ext:junit:1.2.1"
+  androidTestImplementation "androidx.test.uiautomator:uiautomator:2.3.0"
+}
