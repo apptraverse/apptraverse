@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-10-29):** **P3.T3.W1 IN_PROGRESS** — routing + native control E2E + catalog acceptance fixture исправлен; **осталось для W1 PASS:** связный model window/presenters через publication в native-тестах (см. §P3.T3.W1). **NEXT:** завершить W1 (model/UI graph + штатный desktop proxy). **P3.T3.W2** — после **W1 PASS**. **P3.T1–T2**, **P3.T3.H PASS** сохранены. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
+**Активный порядок (2026-10-29):** **P3.T3.W1 PASS** — связный model window graph + `ApplicationUiSession` + desktop `model_proxy` + frame/control native E2E (§P3.T3.W1). **NEXT:** **P3.T3.W2** — синхронизация list selection из mirror (не начинать без отдельной задачи). **P3.T3.W** и **P3** — **IN_PROGRESS**. **P3.T1–T2**, **P3.T3.H PASS** сохранены. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -29,21 +29,21 @@
 
 <a id="p3t3w1--windows-presenter-command-routing-2026-10-29-pass"></a>
 
-## P3.T3.W1 — Windows presenter command routing (2026-10-29) — IN_PROGRESS
+## P3.T3.W1 — Windows presenter command routing (2026-10-29) — PASS
 
-**Scope (landed on `2629e86`, extended here):** `RouteChildCommand` → один вызов child `OnCommand`; `WinPushButtonPresenter::OnCommand` (`BN_CLICKED` → `NotifyClickedFromUi`); `WinListContainerPresenter::OnCommand` → `HandleListNotification`.
+**Scope (landed on `2629e86`, extended through W1 completion):** `RouteChildCommand` → один вызов child `OnCommand`; `WinPushButtonPresenter::OnCommand` (`BN_CLICKED` → `NotifyClickedFromUi`); `WinListContainerPresenter::OnCommand` → `HandleListNotification`.
 
-**Native E2E (`apptraverse_win_ui_command_routing_test`, Debug, `main`):** `TestEditRouting`; `TestPushButtonNativeClickViaProxyAndPublication` (BM_CLICK → deferred proxy → `SetUiPushButtonEnabledEvent` → structural mirror → native disabled); `TestListNativeSelectionViaProxyAndPublication` (row text via publication, LBN_SELCHANGE/LBN_DBLCLK → proxy → selection/activation); `TestActivationListStructuralMirrorHeadless`. **Fixture fix:** `TestWinPushButtonResolveChildLayoutFromHost` — locale/label (прежний `OnLoad` null deref, exit **3**).
+**Published graph (S0 test roots, `win_ui_command_routing_test_nodes.*`):** `CommandRoutingButtonRoot` / `CommandRoutingListRoot` — `UiDesktopWindow` + `WinDesktopWindowPresenter` (`ComposePresentedWindow`, locale, title), control (`TestDisableOnClickButton` / `TestActivationList` + rows), child presenter (`WinPushButtonPresenter` / `WinListContainerPresenter`), initial frame via `SetUiDesktopWindowFrameEvent`; `SerializeInitialPublication` → **`ApplicationUiSession`** (`InitializePresenters` / `ApplyStructural`, teardown в dtor). UI mirror: typed refs с корня; **без** ручного `OnLoad`/`OnUnload`/`presentation_loaded` в сценариях.
 
-**Native control tests (ограничение):** публикуют только кнопку/список; `UiDesktopWindow` создаётся отдельно в UI Domain без model window — не проверяют полный оконный publication graph и frame route. Отсутствие `model_proxy` на desktop в этих тестах — следствие раскола graph, **не** библиотечный запрет proxy.
+**Native E2E (`apptraverse_win_ui_command_routing_test`, Debug, `main`):** `TestEditRouting` (legacy isolated edit route); **`TestPushButtonNativeClickViaProxyAndPublication`** — drain post-HWND frame work; **`SetWindowPos`** + `win_ui_frame.h` → deferred proxy → `ReportUiDesktopWindowFrameFromNativeEvent` на model (mirror lag до `ApplyStructural`); **BM_CLICK** → один proxy → `SetUiPushButtonEnabledEvent` → structural → mirror/HWND disabled; desktop + child **`model_proxy`**. **`TestListNativeSelectionViaProxyAndPublication`** — LBN_SELCHANGE → selection event → structural mirror; LBN_DBLCLK → `last_activated`. **`TestActivationListStructuralMirrorHeadless`**. **Fixture fix (ранее):** `TestWinPushButtonResolveChildLayoutFromHost` — locale/label.
 
-**WindowCatalog prototype schema (2026-10-29):** единый прикладной **S0** — `window_prefab` + `desktop_z_order` в Load/Save S0; S1/S2 удалены. **Несовместимо** с прежними experimental профилями (`surfaces_catalog_v0_state`, `window_catalog_runtime_state_v5` и т.п.); миграции нет. Default paths: Win **`surfaces_catalog_s0_proto_state`**, Web **`/persistent/window_catalog_s0_proto_state`**; `--state-dir` сохранён. Supply: `apptraverse_generate_window_catalog_distilled_header` → `generated/window_catalog_distilled.h`. **Проверки:** model/headless/embedded_overlay/win32 acceptance, demos build, WASM smoke (initial scope) — **PASS**.
+**Устранённое ограничение тестов:** split publication (control-only + UI-side desktop без proxy) заменён полным model graph + session lifecycle; frame route и WM_COMMAND проверяются на одном связном зеркале.
 
-**Catalog acceptance fixture:** root unsupported-schema снова **S0→S1** (`RelocateStoredLayerVersion0To1`); диагностика scenario/exit/stderr до CHECK; unknown-ClassId без изменений.
+**WindowCatalog prototype schema (2026-10-29):** единый прикладной **S0** — `window_prefab` + `desktop_z_order` в Load/Save S0; S1/S2 удалены. Default paths: Win **`surfaces_catalog_s0_proto_state`**, Web **`/persistent/window_catalog_s0_proto_state`**. **Catalog acceptance:** root unsupported-schema **S0→S1**; диагностика до CHECK.
 
-**Regressions (win64-ninja-msvc-debug, 2026-10-29):** PASS — перечисленные Win targets + `apptraverse_window_catalog_win32_acceptance_test`; WASM smoke (`serve_wasm.py`, initial scope) **PASS**.
+**Regressions (win64-ninja-msvc-debug, 2026-10-29):** **PASS** — `apptraverse_win_ui_command_routing_test`, `apptraverse_win_ui_native_push_button_test`, `apptraverse_win_application_host_test`, `apptraverse_minimal_app_win32_acceptance_test`, `apptraverse_window_catalog_win32_acceptance_test`, `apptraverse_minimal_app_headless_test`, `apptraverse_window_catalog_headless_test`, `apptraverse_ui_control_materialization_test`. **WASM:** incremental `build/wasm-ninja-debug` — `web_window_catalog_demo`, headless static libs **build PASS**; browser smoke в этом прогоне **не выполнялся** (нет `web_window_catalog_demo.html` в артефактах worktree).
 
-**Follow-up (W2, not W1):** `WinListContainerPresenter::SyncFromMirror` — `selection_index = -1` не снимает native selection; ветка смены текстов восстанавливает stale native selection.
+**NEXT (W2, not started):** `WinListContainerPresenter::SyncFromMirror` — `selection_index = -1` не снимает native selection; ветка смены текстов восстанавливает stale native selection.
 
 ---
 

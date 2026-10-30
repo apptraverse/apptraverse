@@ -1,19 +1,22 @@
 #include <cstdlib>
 #include <deque>
 #include <iostream>
+#include <vector>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
+#include "apptraverse/application_ui_session.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "win_ui_command_routing_test_nodes.h"
 #include "apptraverse/node.h"
 #include "apptraverse/object_serialization.h"
+#include "apptraverse/platform/windows/win_ui_frame.h"
 #include "apptraverse/runtime_node.h"
+#include "apptraverse/ui/ui_desktop_window.h"
+#include "apptraverse/ui/ui_list_container.h"
 #include "apptraverse/ui/ui_locale_settings.h"
-#include "apptraverse/ui/ui_list_container.h"
 #include "apptraverse/ui/ui_localization_string.h"
-#include "apptraverse/ui/ui_list_container.h"
 #include "apptraverse/ui/ui_push_button.h"
 #include "apptraverse/ui/ui_string.h"
 #include "apptraverse/ui/ui_window.h"
@@ -52,41 +55,20 @@ void PumpModelWork(std::deque<ModelObjectProxy::ModelWork>& deferred,
   }
 }
 
-Node* FindNodeByObjId(ae::Obj& root, ae::ObjId obj_id) {
-  std::vector<Node*> nodes;
-  CollectReachableNodes(root, nodes);
-  for (Node* node : nodes) {
-    if (node->obj_id == obj_id) {
-      return node;
-    }
-  }
-  return nullptr;
-}
-
-ui::UiLocalizationString::ptr MakeSingleLabel(ae::Domain& domain,
-                                              char const* utf8) {
-  auto label = ui::UiLocalizationString::ptr::Create(ae::CreateWith{domain});
-  auto str = ui::UiString::ptr::Create(ae::CreateWith{domain});
-  str->utf8 = utf8;
-  label->strings = {str};
-  return label;
-}
-
-void AttachRowPrimaryText(ae::Domain& domain, ui::UiListRow& row,
-                          char const* utf8) {
-  row.primary_text = MakeSingleLabel(domain, utf8);
-  InitializeRuntimeNode(*row.primary_text, row);
-}
-
-void ApplyModelStructuralToUiMirror(Node const& model_node,
-                                    ae::Domain& ui_domain,
-                                    ae::RamDomainStorage& ui_storage) {
+std::vector<std::uint8_t> SerializeStructuralRoot(Node const& model_root) {
   ByteSink structural;
-  SerializeStructuralNodePublication(model_node, structural);
-  ByteSource structural_in;
-  structural_in.data = structural.bytes.data();
-  structural_in.size = structural.bytes.size();
-  ApplyStructuralPublication(structural_in, ui_domain, ui_storage);
+  SerializeStructuralNodePublication(model_root, structural);
+  return structural.bytes;
+}
+
+void PumpModelWorkAndApplyStructural(
+    std::deque<ModelObjectProxy::ModelWork>& deferred,
+    ae::Domain& model_domain, Node const& model_root,
+    ApplicationUiSession& session) {
+  while (!deferred.empty()) {
+    PumpModelWork(deferred, model_domain);
+    session.ApplyStructural(SerializeStructuralRoot(model_root));
+  }
 }
 
 void PostDesktopChildCommand(HWND desktop, HWND child, std::uint32_t control_id,
@@ -96,6 +78,24 @@ void PostDesktopChildCommand(HWND desktop, HWND child, std::uint32_t control_id,
                    MAKEWPARAM(static_cast<WPARAM>(control_id), notification_code),
                    reinterpret_cast<LPARAM>(child));
   CHECK(result == 0);
+}
+
+void MoveHwndClientFrame(HWND hwnd, std::int32_t x, std::int32_t y,
+                         std::int32_t client_width,
+                         std::int32_t client_height) {
+  int outer_w = 0;
+  int outer_h = 0;
+  ui::windows::ClientSizeToOuter(client_width, client_height, outer_w, outer_h);
+  CHECK(SetWindowPos(hwnd, nullptr, x, y, outer_w, outer_h,
+                     SWP_NOZORDER | SWP_NOACTIVATE) != 0);
+}
+
+CommandRoutingButtonRoot& AsButtonRoot(ae::Obj& root) {
+  return static_cast<CommandRoutingButtonRoot&>(root);
+}
+
+CommandRoutingListRoot& AsListRoot(ae::Obj& root) {
+  return static_cast<CommandRoutingListRoot&>(root);
 }
 
 void TestEditRouting() {
@@ -149,16 +149,11 @@ void TestPushButtonNativeClickViaProxyAndPublication() {
   using namespace apptraverse::ui::windows;
 
   ae::RamDomainStorage model_storage;
-  ae::RamDomainStorage ui_storage;
   ae::Domain model_domain{model_storage};
-  ae::Domain ui_domain{ui_storage};
 
-  auto button = TestDisableOnClickButton::ptr::Create(
-      ae::CreateWith{model_domain});
-  auto label = MakeSingleLabel(model_domain, "Click");
-  InitializeRuntimeNode(*label, *button);
-  button->label = label;
-  InitializeRuntimeNode(*button);
+  auto model_root = BuildCommandRoutingButtonGraph(model_domain);
+  auto* model_button = model_root->button.operator->();
+  auto* model_window = model_root->presented_window.operator->();
 
   std::deque<ModelObjectProxy::ModelWork> deferred;
   ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork work) {
@@ -166,61 +161,70 @@ void TestPushButtonNativeClickViaProxyAndPublication() {
   }};
 
   ByteSink initial;
-  SerializeInitialPublication(*button, initial);
-  ByteSource initial_in;
-  initial_in.data = initial.bytes.data();
-  initial_in.size = initial.bytes.size();
-  auto ui_button_obj = LoadInitialPublication(initial_in, ui_domain, ui_storage);
-  CHECK(ui_button_obj);
-  auto ui_button = TestDisableOnClickButton::ptr::MakeFromThis(
-      static_cast<TestDisableOnClickButton*>(ui_button_obj.get()));
+  SerializeInitialPublication(*model_root, initial);
+  ApplicationUiSession ui_session(initial.bytes, nullptr, proxy);
 
-  auto ui_locale = UiLocaleSettings::ptr::Create(ae::CreateWith{ui_domain});
-  InitializeRuntimeNode(*ui_locale);
-
-  auto ui_desktop_window = UiDesktopWindow::ptr::Create(ae::CreateWith{ui_domain});
-  InitializeRuntimeNode(*ui_desktop_window);
-  auto desktop = WinDesktopWindowPresenter::ptr::Create(ae::CreateWith{ui_domain});
-  desktop->window = ui_desktop_window;
-  desktop->locale = ui_locale;
-  desktop->OnLoad();
-  desktop->presentation_loaded = true;
-
-  constexpr std::uint32_t kButtonId = 9001;
-  auto btn_presenter = WinPushButtonPresenter::ptr::Create(ae::CreateWith{ui_domain});
-  btn_presenter->button = ui_button;
-  btn_presenter->window_presenter = desktop;
-  btn_presenter->layout_x = 8;
-  btn_presenter->layout_y = 8;
-  btn_presenter->layout_width = 100;
-  btn_presenter->layout_height = 26;
-  btn_presenter->control_id = kButtonId;
-  btn_presenter->model_proxy = &proxy;
-  btn_presenter->OnLoad();
+  auto& ui_root = AsButtonRoot(ui_session.root());
+  CHECK(ui_root.domain != model_root->domain);
+  auto* desktop = ui_root.window_presenter.operator->();
+  auto* btn_presenter = ui_root.button_presenter.operator->();
+  auto* ui_button = ui_root.button.operator->();
+  CHECK(desktop->hwnd() != nullptr);
+  CHECK(desktop->model_proxy == &proxy);
+  CHECK(btn_presenter->model_proxy == &proxy);
   HWND const btn_hwnd = btn_presenter->hwnd();
   CHECK(btn_hwnd != nullptr);
 
+  PumpModelWorkAndApplyStructural(deferred, model_domain, *model_root,
+                                  ui_session);
+
+  std::int32_t const frame_x_before = model_window->x();
+  std::int32_t const frame_y_before = model_window->y();
+  std::size_t const native_frame_events_before = CountJournalEventsWithClass(
+      *model_window, ReportUiDesktopWindowFrameFromNativeEvent::kClassId);
+
+  MoveHwndClientFrame(desktop->hwnd(), frame_x_before + 40, frame_y_before + 30,
+                      model_window->client_width(), model_window->client_height());
+
+  CHECK(model_window->x() == frame_x_before);
+  CHECK(model_window->y() == frame_y_before);
+  CHECK(ui_root.presented_window->x() == frame_x_before);
+  CHECK(ui_root.presented_window->y() == frame_y_before);
+  CHECK(!deferred.empty());
+
+  PumpModelWork(deferred, model_domain);
+  CHECK(model_window->x() == frame_x_before + 40);
+  CHECK(model_window->y() == frame_y_before + 30);
+  CHECK(CountJournalEventsWithClass(
+            *model_window, ReportUiDesktopWindowFrameFromNativeEvent::kClassId) >
+        native_frame_events_before);
+  CHECK(ui_root.presented_window->x() == frame_x_before);
+  CHECK(ui_root.presented_window->y() == frame_y_before);
+
+  ui_session.ApplyStructural(SerializeStructuralRoot(*model_root));
+  CHECK(ui_root.presented_window->x() == model_window->x());
+  CHECK(ui_root.presented_window->y() == model_window->y());
+
+  PumpModelWorkAndApplyStructural(deferred, model_domain, *model_root,
+                                  ui_session);
+
   CHECK(deferred.empty());
-  CHECK(button->enabled());
+  CHECK(model_button->enabled());
   CHECK(ui_button->enabled());
   SendMessageW(btn_hwnd, BM_CLICK, 0, 0);
   CHECK(deferred.size() == 1);
-  CHECK(button->enabled());
+  CHECK(model_button->enabled());
   CHECK(ui_button->enabled());
 
   PumpModelWork(deferred, model_domain);
-  CHECK(!button->enabled());
+  CHECK(!model_button->enabled());
   CHECK(ui_button->enabled());
-  CHECK(CountJournalEventsWithClass(*button,
+  CHECK(CountJournalEventsWithClass(*model_button,
                                     SetUiPushButtonEnabledEvent::kClassId) == 1);
 
-  ApplyModelStructuralToUiMirror(*button, ui_domain, ui_storage);
-  btn_presenter->OnModelChanged();
+  ui_session.ApplyStructural(SerializeStructuralRoot(*model_root));
   CHECK(!ui_button->enabled());
   CHECK(IsWindowEnabled(btn_hwnd) == FALSE);
-
-  btn_presenter->OnUnload();
-  desktop->OnUnload();
 }
 
 void TestListNativeSelectionViaProxyAndPublication() {
@@ -229,20 +233,10 @@ void TestListNativeSelectionViaProxyAndPublication() {
   using namespace apptraverse::ui::windows;
 
   ae::RamDomainStorage model_storage;
-  ae::RamDomainStorage ui_storage;
   ae::Domain model_domain{model_storage};
-  ae::Domain ui_domain{ui_storage};
 
-  auto list = TestActivationList::ptr::Create(ae::CreateWith{model_domain});
-  list->selection_index = -1;
-  InitializeRuntimeNode(*list);
-  auto row0 = UiListRow::ptr::Create(ae::CreateWith{model_domain});
-  auto row1 = UiListRow::ptr::Create(ae::CreateWith{model_domain});
-  InitializeRuntimeNode(*row0, *list);
-  InitializeRuntimeNode(*row1, *list);
-  AttachRowPrimaryText(model_domain, *row0, "Row A");
-  AttachRowPrimaryText(model_domain, *row1, "Row B");
-  list->rows = {row0, row1};
+  auto model_root = BuildCommandRoutingListGraph(model_domain);
+  auto* model_list = model_root->list.operator->();
 
   std::deque<ModelObjectProxy::ModelWork> deferred;
   ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork work) {
@@ -250,74 +244,51 @@ void TestListNativeSelectionViaProxyAndPublication() {
   }};
 
   ByteSink initial;
-  SerializeInitialPublication(*list, initial);
-  ByteSource initial_in;
-  initial_in.data = initial.bytes.data();
-  initial_in.size = initial.bytes.size();
-  auto ui_list_obj = LoadInitialPublication(initial_in, ui_domain, ui_storage);
-  CHECK(ui_list_obj);
-  auto ui_list = TestActivationList::ptr::MakeFromThis(
-      static_cast<TestActivationList*>(ui_list_obj.get()));
-  CHECK(ui_list->selection_index == -1);
+  SerializeInitialPublication(*model_root, initial);
+  ApplicationUiSession ui_session(initial.bytes, nullptr, proxy);
 
-  auto ui_locale = UiLocaleSettings::ptr::Create(ae::CreateWith{ui_domain});
-  InitializeRuntimeNode(*ui_locale);
-
-  auto ui_desktop_window = UiDesktopWindow::ptr::Create(ae::CreateWith{ui_domain});
-  InitializeRuntimeNode(*ui_desktop_window);
-  auto desktop = WinDesktopWindowPresenter::ptr::Create(ae::CreateWith{ui_domain});
-  desktop->window = ui_desktop_window;
-  desktop->locale = ui_locale;
-  desktop->OnLoad();
-  desktop->presentation_loaded = true;
-
-  constexpr std::uint32_t kListId = 9002;
-  auto list_presenter = WinListContainerPresenter::ptr::Create(
-      ae::CreateWith{ui_domain});
-  list_presenter->container = ui_list;
-  list_presenter->window_presenter = desktop;
-  list_presenter->layout_x = 8;
-  list_presenter->layout_y = 40;
-  list_presenter->layout_width = 200;
-  list_presenter->layout_height = 120;
-  list_presenter->control_id = kListId;
-  list_presenter->notify_list_selection_change = true;
-  list_presenter->model_proxy = &proxy;
-  list_presenter->OnLoad();
+  auto& ui_root = AsListRoot(ui_session.root());
+  auto* desktop = ui_root.window_presenter.operator->();
+  auto* list_presenter = ui_root.list_presenter.operator->();
+  auto* ui_list = ui_root.list.operator->();
+  CHECK(desktop->hwnd() != nullptr);
+  CHECK(desktop->model_proxy == &proxy);
+  CHECK(list_presenter->model_proxy == &proxy);
   HWND const list_hwnd = list_presenter->hwnd();
   CHECK(list_hwnd != nullptr);
   CHECK(SendMessageW(list_hwnd, LB_GETCOUNT, 0, 0) == 2);
+  CHECK(ui_list->selection_index == -1);
+
+  PumpModelWorkAndApplyStructural(deferred, model_domain, *model_root,
+                                  ui_session);
+  CHECK(deferred.empty());
 
   SendMessageW(list_hwnd, LB_SETCURSEL, 1, 0);
-  PostDesktopChildCommand(desktop->hwnd(), list_hwnd, kListId, LBN_SELCHANGE);
+  PostDesktopChildCommand(desktop->hwnd(), list_hwnd, 9002, LBN_SELCHANGE);
 
   CHECK(deferred.size() == 1);
-  CHECK(list->selection_index == -1);
+  CHECK(model_list->selection_index == -1);
   CHECK(ui_list->selection_index == -1);
-  CHECK(CountJournalEventsWithClass(*list, SetUiListSelectionEvent::kClassId) ==
+  CHECK(CountJournalEventsWithClass(*model_list, SetUiListSelectionEvent::kClassId) ==
         0);
 
   PumpModelWork(deferred, model_domain);
   CHECK(deferred.empty());
-  CHECK(list->selection_index == 1);
+  CHECK(model_list->selection_index == 1);
   CHECK(ui_list->selection_index == -1);
-  CHECK(CountJournalEventsWithClass(*list, SetUiListSelectionEvent::kClassId) ==
+  CHECK(CountJournalEventsWithClass(*model_list, SetUiListSelectionEvent::kClassId) ==
         1);
 
-  ApplyModelStructuralToUiMirror(*list, ui_domain, ui_storage);
-  list_presenter->OnModelChanged();
+  ui_session.ApplyStructural(SerializeStructuralRoot(*model_root));
   CHECK(ui_list->selection_index == 1);
   CHECK(SendMessageW(list_hwnd, LB_GETCURSEL, 0, 0) == 1);
 
-  PostDesktopChildCommand(desktop->hwnd(), list_hwnd, kListId, LBN_DBLCLK);
+  PostDesktopChildCommand(desktop->hwnd(), list_hwnd, 9002, LBN_DBLCLK);
   CHECK(deferred.size() == 1);
-  CHECK(list->last_activated == -1);
+  CHECK(model_list->last_activated == -1);
   PumpModelWork(deferred, model_domain);
   CHECK(deferred.empty());
-  CHECK(list->last_activated == 1);
-
-  list_presenter->OnUnload();
-  desktop->OnUnload();
+  CHECK(model_list->last_activated == 1);
 }
 
 }  // namespace
@@ -330,7 +301,6 @@ int main() {
   apptraverse::ui::windows::EnsureWinUiPresenterRegistration();
   apptraverse::ui::windows::EnsureExtendedWinUiPresenterRegistration();
   apptraverse::test::EnsureCommandRoutingTestNodeRegistration();
-  apptraverse::ui::EnsureUiPresenterRegistration();
   apptraverse::test::TestEditRouting();
   apptraverse::test::TestPushButtonNativeClickViaProxyAndPublication();
   apptraverse::test::TestListNativeSelectionViaProxyAndPublication();
