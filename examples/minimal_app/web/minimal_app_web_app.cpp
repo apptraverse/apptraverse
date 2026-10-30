@@ -5,18 +5,16 @@
 #include <emscripten.h>
 #include <emscripten/em_js.h>
 
-#include "aether-objects/domain_storage/ram_domain_storage.h"
-
-#include "apptraverse/application_model_session.h"
+#include "apptraverse/application_model_session.h"  // LoadApplication
+#include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/application_model_runtime.h"
-#include "apptraverse/distill.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/platform/web/web_application_host.h"
 #include "apptraverse/platform/web/web_presentation_host.h"
 #include "apptraverse/platform/web/web_ui_window_presenter.h"
-#include "apptraverse/ui/ui_presented_window_lifecycle.h"
 
+#include "minimal_app_persistence.h"
 #include "minimal_app_prepare.h"
 #include "minimal_app_web_graph.h"
 #include "minimal_application.h"
@@ -24,14 +22,36 @@
 namespace apptraverse::example::minimal {
 namespace {
 
+constexpr char kIdbfsMountPath[] = "/persistent";
+constexpr char kProfilePath[] = "/persistent/minimal_app_web_s0_controls_state";
+
 std::unique_ptr<web::WebApplicationHost> g_host;
-ae::RamDomainStorage g_model_storage;
+std::unique_ptr<DirectoryDomainStorage> g_durable_storage;
 ApplicationModelRuntime g_runtime;
 ui::web::WebPresentationHost g_presentation_host;
 
 EM_JS(emscripten::EM_VAL, ApptraverseGetAppMountElement, (), {
   return Emval.toHandle(document.getElementById('app-mount'));
 });
+
+void SetSaveStatus(char const* text) {
+  EM_ASM({ document.getElementById('save-status').textContent = UTF8ToString($0); },
+         text);
+}
+
+void SetUiInputBlocked(bool blocked) {
+  EM_ASM({
+    var mount = document.getElementById('app-mount');
+    var save = document.getElementById('save-button');
+    if ($0) {
+      mount.style.pointerEvents = 'none';
+      save.disabled = true;
+    } else {
+      mount.style.pointerEvents = 'auto';
+      save.disabled = false;
+    }
+  }, blocked ? 1 : 0);
+}
 
 void HideLoadingAndSignalRenderOk() {
   EM_ASM({
@@ -54,7 +74,23 @@ void EnsureBrowserEnvironment() {
   }
 }
 
+int PersistMinimalApplicationFromDomain(ae::Domain& domain) {
+  auto application = LoadApplication<MinimalApplication>(
+      domain, MinimalApplicationRootId());
+  return PersistMinimalApplication(*application, *g_durable_storage);
+}
+
 }  // namespace
+
+extern "C" {
+
+EMSCRIPTEN_KEEPALIVE void ApptraverseMinimalAppRequestSave() {
+  if (g_host) {
+    g_host->RequestSave();
+  }
+}
+
+}  // extern "C"
 
 void StartWebMinimalApplication() {
   EnsureObjectRegistration();
@@ -62,16 +98,22 @@ void StartWebMinimalApplication() {
   ui::web::EnsureWebUiPresenterRegistration();
   EnsureBrowserEnvironment();
 
+  g_durable_storage =
+      std::make_unique<DirectoryDomainStorage>(kProfilePath);
+
   web::WebApplicationHostCallbacks callbacks;
   callbacks.refresh_presentation_host = [](ui::web::WebPresentationHost& host) {
     host.mount = ApptraverseGetAppMountElement();
   };
   callbacks.run_model = [](ApplicationPublishedCallback on_published) {
-    {
-      ae::Domain bootstrap_domain{g_model_storage};
-      auto bootstrap = BuildWebMinimalApplicationGraph(bootstrap_domain);
-      FinalizeDistilledGraph(*bootstrap);
-      SaveDistilledRoot(*bootstrap);
+    bool const bootstrapped = BootstrapMinimalApplicationProfileIfAbsent(
+        g_durable_storage->root(), [](ae::Domain& domain) {
+          return BuildWebMinimalApplicationGraph(domain);
+        });
+    if (bootstrapped) {
+      EM_ASM({ console.log('MINIMAL_APP_DEV_BOOTSTRAP'); });
+    } else {
+      EM_ASM({ console.log('MINIMAL_APP_LOADED_FROM_PROFILE'); });
     }
 
     ApplicationModelSessionHooks<MinimalApplication> hooks;
@@ -79,20 +121,31 @@ void StartWebMinimalApplication() {
       PrepareMinimalApplicationForRun(application);
     };
     hooks.persist = [](MinimalApplication& application) -> int {
-      ui::SavePresentedWindow(application.main_window);
-      MinimalApplication::ptr::MakeFromThis(&application).Save();
-      return 0;
+      return PersistMinimalApplication(application, *g_durable_storage);
     };
 
-    (void)RunApplicationModelSession(g_model_storage, MinimalApplicationRootId(),
+    (void)RunApplicationModelSession(*g_durable_storage, MinimalApplicationRootId(),
                                      g_runtime, std::move(on_published), hooks);
   };
   callbacks.request_stop = [] { g_runtime.RequestStop(); };
   callbacks.after_initial = [](ae::Obj&) { HideLoadingAndSignalRenderOk(); };
+  callbacks.persist_model = [](ae::Domain& domain) -> int {
+    return PersistMinimalApplicationFromDomain(domain);
+  };
+  callbacks.on_save_started = [] { SetSaveStatus("Saving…"); };
+  callbacks.on_save_succeeded = [] {
+    SetSaveStatus("Saved");
+    EM_ASM({ console.log('MINIMAL_APP_IDBFS_SAVED'); });
+  };
+  callbacks.on_save_failed = [] {
+    SetSaveStatus("Save failed");
+    EM_ASM({ console.error('MINIMAL_APP_SAVE_FAILED'); });
+  };
+  callbacks.set_ui_input_blocked = SetUiInputBlocked;
 
   g_host = std::make_unique<web::WebApplicationHost>(
       g_runtime, g_presentation_host, std::move(callbacks));
-  g_host->Start();
+  g_host->StartWithPersistentStorage(kIdbfsMountPath);
 }
 
 }  // namespace apptraverse::example::minimal

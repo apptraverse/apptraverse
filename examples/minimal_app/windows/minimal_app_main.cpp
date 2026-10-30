@@ -43,8 +43,13 @@ int main(int argc, char** argv) {
 
   apptraverse::windows::WinApplicationHostCallbacks callbacks;
   callbacks.run_model = [&](apptraverse::ApplicationPublishedCallback on_published) {
+#if defined(APPTRAVERSE_MINIMAL_APP_LOAD_ONLY)
+    bool const allow_bootstrap = false;
+#else
+    bool const allow_bootstrap = true;
+#endif
     model_exit_status = apptraverse::example::minimal::RunMinimalApplicationModel(
-        state_dir, runtime, on_published);
+        state_dir, runtime, on_published, allow_bootstrap);
   };
   callbacks.request_stop = [&] { runtime.RequestStop(); };
   callbacks.on_desktop_window_close = [&](ae::Obj&, ae::Obj&,

@@ -52,12 +52,18 @@
       background: #dbeafe;
     }
     #loading { margin-top: 16px; color: #444; min-height: 1.2em; }
+    #save-row { margin-top: 12px; display: flex; gap: 12px; align-items: center; }
+    #save-status { min-width: 6em; color: #444; }
   </style>
 </head>
 <body>
   <h1>MinimalApp (Web)</h1>
   <div id="app-panel">
     <div id="app-mount"></div>
+    <div id="save-row">
+      <button id="save-button" type="button">Save</button>
+      <span id="save-status"></span>
+    </div>
   </div>
   <div id="loading">Loading…</div>
 
@@ -72,7 +78,12 @@
         if (typeof SharedArrayBuffer === 'undefined') {
           throw new Error('SharedArrayBuffer unavailable');
         }
-      }]
+      }],
+      onRuntimeInitialized: function() {
+        document.getElementById('save-button').addEventListener('click', function() {
+          Module._ApptraverseMinimalAppRequestSave();
+        });
+      }
     };
   </script>
   {{{ SCRIPT }}}

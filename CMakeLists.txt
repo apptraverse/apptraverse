@@ -181,6 +181,7 @@ if(EMSCRIPTEN)
     src/platform/web/web_ui_push_button_presenter.cpp
     src/platform/web/web_ui_list_presenter.cpp
     src/platform/web/web_application_host.cpp
+    src/platform/web/web_idbfs.cpp
     src/platform/web/web_ui_registration.cpp
   )
   target_include_directories(apptraverse_ui_web PUBLIC

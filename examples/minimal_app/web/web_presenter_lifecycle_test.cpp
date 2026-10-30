@@ -52,14 +52,18 @@ EM_JS(void, ApptraverseLifecycleCaptureDomRefs, (), {
   if (!win) {
     throw new Error('lifecycle capture: missing desktop window');
   }
+  var list = mount.querySelector('[data-apptraverse-control-id="7102"]');
+  var listRow = list ? list.querySelector('.apptraverse-list-row') : null;
   globalThis.__apptraverseLifecycleCapture = {
     client: win.firstChild,
     button: mount.querySelector('[data-apptraverse-control-id="7101"]'),
-    list: mount.querySelector('[data-apptraverse-control-id="7102"]')
+    list: list,
+    listRow: listRow
   };
   if (!globalThis.__apptraverseLifecycleCapture.button ||
-      !globalThis.__apptraverseLifecycleCapture.list) {
-    throw new Error('lifecycle capture: missing button or list');
+      !globalThis.__apptraverseLifecycleCapture.list ||
+      !globalThis.__apptraverseLifecycleCapture.listRow) {
+    throw new Error('lifecycle capture: missing button, list, or row');
   }
 });
 
@@ -96,8 +100,9 @@ EM_JS(void, ApptraverseLifecycleDispatchStaleControlEvents, (), {
   if (cap.button) {
     cap.button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   }
-  if (cap.list) {
-    cap.list.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  if (cap.listRow) {
+    cap.listRow.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    cap.listRow.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
   }
 });
 

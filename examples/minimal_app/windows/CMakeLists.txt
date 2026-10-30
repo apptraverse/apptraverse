@@ -29,6 +29,9 @@ target_compile_definitions(win32_minimal_app PRIVATE
 )
 
 add_executable(win32_minimal_app_load_only ${_minimal_app_win_sources})
+target_compile_definitions(win32_minimal_app_load_only PRIVATE
+  APPTRAVERSE_MINIMAL_APP_LOAD_ONLY
+)
 
 foreach(_minimal_demo win32_minimal_app win32_minimal_app_load_only)
   target_link_libraries(${_minimal_demo} PRIVATE

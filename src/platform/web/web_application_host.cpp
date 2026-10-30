@@ -1,10 +1,12 @@
 #include "apptraverse/platform/web/web_application_host.h"
 
+#include <utility>
 #include <vector>
 
 #include <emscripten/threading.h>
 
 #include "apptraverse/noninteractive_crt.h"
+#include "apptraverse/platform/web/web_idbfs.h"
 
 namespace apptraverse::web {
 
@@ -16,7 +18,7 @@ WebApplicationHost::WebApplicationHost(
       presentation_host_{presentation_host},
       callbacks_{std::move(callbacks)},
       model_proxy_{[this](ModelObjectProxy::ModelWork work) {
-        runtime_.Post(std::move(work));
+        EnqueueModelWork(std::move(work));
       }} {}
 
 WebApplicationHost::~WebApplicationHost() {
@@ -27,6 +29,15 @@ WebApplicationHost::~WebApplicationHost() {
     model_thread_.join();
   }
   ui_session_.reset();
+}
+
+void WebApplicationHost::EnqueueModelWork(ModelObjectProxy::ModelWork work) {
+  if (save_state_.load(std::memory_order_acquire) == SaveState::kSaving) {
+    WriteFatalStderr(
+        "fatal: model work posted while WebApplicationHost save in progress\n");
+    std::abort();
+  }
+  runtime_.Post(std::move(work));
 }
 
 ApplicationPublishedCallback WebApplicationHost::ModelThreadPublicationBridge() {
@@ -84,6 +95,81 @@ void WebApplicationHost::Start() {
   }
   model_thread_ = std::thread([this] {
     callbacks_.run_model(ModelThreadPublicationBridge());
+  });
+}
+
+void WebApplicationHost::StartWithPersistentStorage(
+    std::string idbfs_mount_path) {
+  if (!emscripten_is_main_browser_thread()) {
+    WriteFatalStderr(
+        "fatal: WebApplicationHost::StartWithPersistentStorage off main thread\n");
+    std::abort();
+  }
+  idbfs_mount_path_ = std::move(idbfs_mount_path);
+  MountIdbfsAndSyncLoad(
+      idbfs_mount_path_,
+      [this] { Start(); },
+      [] {
+        WriteFatalStderr("fatal: IDBFS syncfs(true) populate failed\n");
+        std::abort();
+      });
+}
+
+void WebApplicationHost::FinishSaveFailure() {
+  save_state_.store(SaveState::kIdle, std::memory_order_release);
+  if (callbacks_.set_ui_input_blocked) {
+    callbacks_.set_ui_input_blocked(false);
+  }
+  if (callbacks_.on_save_failed) {
+    callbacks_.on_save_failed();
+  }
+}
+
+void WebApplicationHost::FinishSaveSuccess() {
+  save_state_.store(SaveState::kIdle, std::memory_order_release);
+  if (callbacks_.set_ui_input_blocked) {
+    callbacks_.set_ui_input_blocked(false);
+  }
+  if (callbacks_.on_save_succeeded) {
+    callbacks_.on_save_succeeded();
+  }
+}
+
+void WebApplicationHost::RequestSave() {
+  if (!emscripten_is_main_browser_thread()) {
+    WriteFatalStderr("fatal: WebApplicationHost::RequestSave off main thread\n");
+    std::abort();
+  }
+  if (!callbacks_.persist_model) {
+    WriteFatalStderr("fatal: WebApplicationHost::RequestSave without persist_model\n");
+    std::abort();
+  }
+  SaveState expected = SaveState::kIdle;
+  if (!save_state_.compare_exchange_strong(expected, SaveState::kSaving,
+                                         std::memory_order_acq_rel)) {
+    return;
+  }
+  if (callbacks_.set_ui_input_blocked) {
+    callbacks_.set_ui_input_blocked(true);
+  }
+  if (callbacks_.on_save_started) {
+    callbacks_.on_save_started();
+  }
+  runtime_.Post([this](ae::Domain& domain) {
+    int const persist_result = callbacks_.persist_model(domain);
+    bool const queued = proxy_queue_.proxyAsync(
+        emscripten_main_runtime_thread_id(), [this, persist_result] {
+          if (persist_result != 0) {
+            FinishSaveFailure();
+            return;
+          }
+          SyncIdbfsStore([this] { FinishSaveSuccess(); },
+                         [this] { FinishSaveFailure(); });
+        });
+    if (!queued) {
+      WriteFatalStderr("fatal: WebApplicationHost save proxyAsync failed\n");
+      std::abort();
+    }
   });
 }
 

@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-10-30):** **P3.T3.Web2R2 PASS** — DOM teardown Web presenters (§P3.T3.Web2R2); **P3.T3.Web2 PASS** (R1+R2). **NEXT:** **P3.T3.Web3** — browser storage save с подтверждением записи и cold reload MinimalApp. **P3.T3.Web1**, **P3.T3.W1–W2 PASS** сохранены. **P3.T3.Web** и **P3** — **IN_PROGRESS**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
+**Активный порядок (2026-10-30):** **P3.T3.Web3 PASS** — IDBFS save + cold reload MinimalApp (§P3.T3.Web3). **NEXT:** **P3.T3.Web4** — несколько независимых представлений и lifecycle на общем Web host ([PLAN §P3.T3.Web](./PLAN.md#p3t3web)). **P3.T3.Web1–Web2 PASS** сохранены. **P3.T3.Web** и **P3** — **IN_PROGRESS**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -91,7 +91,31 @@
 
 **Web2 limits:** no browser storage save/cold reload (**Web3**); WindowCatalog Web migration not started; shutdown/join on main not implemented.
 
-**Web2 status:** **PASS** после **Web2R1** (контракт графа) + **Web2R2** (DOM teardown). **Web3** — следующий шаг (**P3.T3.Web** / **P3** остаются **IN_PROGRESS**).
+**Web2 status:** **PASS** (R1+R2). **Web3:** **PASS** (§P3.T3.Web3). **P3.T3.Web** / **P3** — **IN_PROGRESS**; **NEXT: Web4**.
+
+---
+
+<a id="p3t3web3--browser-storage-save-cold-reload-2026-10-30-pass"></a>
+
+## P3.T3.Web3 — browser storage save + cold reload MinimalApp (2026-10-30) — PASS
+
+**Base:** `ba31333160b1e88ea63fa06d3fd18b31264c3340` (Web2R2).
+
+**Library (`apptraverse_ui_web`):** `StartWithPersistentStorage(mount)` — IDBFS mount + `syncfs(true)` → `Start()`; `RequestSave` → model `persist_model` via `Post` (FIFO after UI work) → `syncfs(false)` on main; save blocks mount input + duplicate Save; `web_idbfs.*` (no app types).
+
+**Common:** `BootstrapMinimalApplicationProfileIfAbsent`, `PersistMinimalApplication` (BeginSaveSession / SavePresentedWindow / root Save / SaveSessionHadFailure); Windows lifecycle reuses persist helper.
+
+**MinimalApp Web:** profile `/persistent/minimal_app_web_s0_controls_state`; dev bootstrap only when profile empty after populate (`MINIMAL_APP_DEV_BOOTSTRAP` vs `MINIMAL_APP_LOADED_FROM_PROFILE`); Save UI + `MINIMAL_APP_IDBFS_SAVED` after confirmed flush.
+
+**CMake (`web_minimal_app`):** `-sFORCE_FILESYSTEM=1`, `-lidbfs.js`, IDBFS keepalive exports + `FS` runtime method.
+
+**E2E:** `wasm_minimal_app_browser_smoke.py` — UI sequence, Save, **two** `page.reload()` cycles with profile-load markers and state checks; `serve_wasm.py` (COOP/COEP).
+
+**Regressions (incremental Debug):** lifecycle browser **PASS**; catalog initial smoke **PASS**; §Web2R1 Win/Headless eight + load-order/ui_session **PASS**; `win32_minimal_app` / `win32_minimal_app_load_only` **build PASS** (`APPTRAVERSE_MINIMAL_APP_LOAD_ONLY` — no bootstrap).
+
+**Limits:** full `WebApplicationHost` shutdown/join **not** implemented; cross-backend profile portability **not** claimed.
+
+**NEXT:** **P3.T3.Web4** — несколько представлений + lifecycle на общем Web host.
 
 ---
 
