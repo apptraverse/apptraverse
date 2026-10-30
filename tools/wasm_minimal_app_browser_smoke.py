@@ -32,6 +32,7 @@ def main() -> int:
     page_errors: list[str] = []
     saw_render_ok = False
     saw_idbfs_saved = False
+    saw_shutdown_stopped = False
     reload_profile_loads: list[bool] = []
 
     def on_pageerror(err: Exception) -> None:
@@ -45,6 +46,9 @@ def main() -> int:
         if "MINIMAL_APP_IDBFS_SAVED" in text:
             saw_idbfs_saved = True
             page.evaluate("() => { window.__minimalIdbfsSaved = true; }")
+        if "MINIMAL_APP_SHUTDOWN_STOPPED" in text:
+            saw_shutdown_stopped = True
+            page.evaluate("() => { window.__minimalShutdownStopped = true; }")
         if "MINIMAL_APP_LOADED_FROM_PROFILE" in text:
             page.evaluate("() => { window.__minimalLoadedFromProfile = true; }")
         if "MINIMAL_APP_DEV_BOOTSTRAP" in text:
@@ -53,6 +57,9 @@ def main() -> int:
             if "Failed to load resource:" in text or "favicon.ico" in text:
                 return
             if "MINIMAL_APP_SAVE_FAILED" in text:
+                page_errors.append(f"console.error: {text}")
+                return
+            if "MINIMAL_APP_SHUTDOWN_FAILED" in text:
                 page_errors.append(f"console.error: {text}")
                 return
             page_errors.append(f"console.error: {text}")
@@ -116,6 +123,36 @@ def main() -> int:
         )
         if page.evaluate("() => window.__minimalDevBootstrap === true"):
             raise AssertionError("DEV_BOOTSTRAP after reload")
+
+    def wait_shutdown_stopped(page) -> None:
+        nonlocal saw_shutdown_stopped
+        expect(page.locator("#shutdown-status")).to_have_text(
+            "Stopped", timeout=60000
+        )
+        page.wait_for_function(
+            """() => {
+              if (document.getElementById('shutdown-status').textContent !== 'Stopped') {
+                return false;
+              }
+              window.__minimalShutdownStopped = true;
+              return true;
+            }""",
+            timeout=60000,
+        )
+        saw_shutdown_stopped = True
+
+    def ensure_two_desktop_windows(page) -> None:
+        if count_desktop_windows(page) == 1:
+            page.locator(
+                f"[data-apptraverse-control-id='{AUX_OPENER_CONTROL_ID}']"
+            ).click()
+            page.wait_for_function(
+                f"() => document.querySelectorAll("
+                f"'#app-mount [data-apptraverse-desktop-window=\"1\"]').length === 2",
+                timeout=60000,
+            )
+        elif count_desktop_windows(page) != 2:
+            raise AssertionError("expected one or two desktop windows")
 
     def assert_geometry(page) -> None:
         window = page.locator(
@@ -267,6 +304,7 @@ def main() -> int:
                   window.__minimalLoadedFromProfile = false;
                   window.__minimalDevBootstrap = false;
                   window.__minimalIdbfsSaved = false;
+                  window.__minimalShutdownStopped = false;
                 }"""
             )
 
@@ -399,16 +437,94 @@ def main() -> int:
             expect(button).to_be_disabled()
             assert_geometry(page)
 
-            page.locator(
-                f"[data-apptraverse-control-id='{AUX_CLOSER_CONTROL_ID}']"
-            ).click()
+            ensure_two_desktop_windows(page)
+            rows.nth(1).click()
+            expect(rows.nth(1)).to_have_attribute("aria-selected", "true")
+            rows.nth(1).dblclick()
+            wait_title(page, "Activated Row B")
+
+            page.evaluate(
+                """() => {
+                  window.__staleBtn = document.querySelector(
+                    '#app-mount [data-apptraverse-control-id="7101"]');
+                  window.__staleList = document.querySelector(
+                    '#app-mount [data-apptraverse-control-id="7102"]');
+                  if (!window.__staleBtn || !window.__staleList) {
+                    throw new Error('expected live controls before Stop');
+                  }
+                }"""
+            )
+
+            page.evaluate(
+                """() => {
+                  window.__minimalShutdownStopped = false;
+                  window.__minimalIdbfsSaved = false;
+                }"""
+            )
+            page.locator("#stop-button").click()
+            wait_shutdown_stopped(page)
+            if not saw_shutdown_stopped:
+                print(
+                    "FAIL: missing MINIMAL_APP_SHUTDOWN_STOPPED",
+                    file=sys.stderr,
+                )
+                return 1
+
             page.wait_for_function(
-                f"() => document.querySelectorAll("
-                f"'#app-mount [data-apptraverse-desktop-window=\"1\"]').length === 1",
+                """() => document.querySelectorAll(
+                  '#app-mount [data-apptraverse-control-id]').length === 0""",
                 timeout=60000,
             )
+            page.wait_for_function(
+                """() => document.querySelectorAll(
+                  '#app-mount [data-apptraverse-desktop-window="1"]').length === 0""",
+                timeout=60000,
+            )
+            page.evaluate(
+                """() => {
+                  window.__staleClickErr = '';
+                  for (const el of [window.__staleBtn, window.__staleList]) {
+                    if (!el) continue;
+                    try {
+                      el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                    } catch (e) {
+                      window.__staleClickErr = String(e);
+                    }
+                  }
+                }"""
+            )
+            if page.evaluate("() => window.__staleClickErr"):
+                raise AssertionError(
+                    "stale presenter DOM click threw: "
+                    + page.evaluate("() => window.__staleClickErr")
+                )
+
+            saw_shutdown_stopped = False
+            page.evaluate(
+                """() => {
+                  window.__minimalLoadedFromProfile = false;
+                  window.__minimalDevBootstrap = false;
+                  window.__minimalShutdownStopped = false;
+                }"""
+            )
+            page.reload(wait_until="domcontentloaded", timeout=60000)
+            wait_loaded_from_profile(page)
+            reload_profile_loads.append(True)
+            page.wait_for_function(
+                """() => document.querySelectorAll(
+                  '#app-mount [data-apptraverse-desktop-window="1"]').length >= 1""",
+                timeout=60000,
+            )
+            ensure_two_desktop_windows(page)
+            wait_title(page, "Activated Row B")
+            expect(button).to_be_disabled()
+            rows = list_box.locator(".apptraverse-list-row")
+            expect(rows.nth(1)).to_have_attribute("aria-selected", "true")
+
             rows.nth(0).click()
             expect(rows.nth(0)).to_have_attribute("aria-selected", "true")
+            rows.nth(0).dblclick()
+            wait_title(page, "Activated Row A")
 
             shot = Path(args.screenshot)
             shot.parent.mkdir(parents=True, exist_ok=True)
@@ -425,8 +541,8 @@ def main() -> int:
         for err in page_errors:
             print(f"PAGEERROR: {err}", file=sys.stderr)
         return 1
-    if len(reload_profile_loads) != 2:
-        print("FAIL: expected two profile reloads", file=sys.stderr)
+    if len(reload_profile_loads) != 3:
+        print("FAIL: expected three profile reloads", file=sys.stderr)
         return 1
     return 0
 

@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-10-30):** **P3.T3.Web3 PASS** — IDBFS save + cold reload MinimalApp (§P3.T3.Web3). **NEXT:** **P3.T3.Web4** — несколько независимых представлений и lifecycle на общем Web host ([PLAN §P3.T3.Web](./PLAN.md#p3t3web)). **P3.T3.Web1–Web2 PASS** сохранены. **P3.T3.Web** и **P3** — **IN_PROGRESS**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
+**Активный порядок (2026-10-30):** **P3.T3.Web5 PASS** — async shutdown `WebApplicationHost` (§P3.T3.Web5). **Web1–Web4 PASS** сохранены. Широкие эксперименты WindowCatalog (`experiment/window-catalog-*-982b473`) сохранены отдельно; основной процесс снова идёт небольшими итерациями на **`integration/unified-application`**. **NEXT:** **P3.T3.A** (первый срез по [PLAN](./PLAN.md)). **P3** — **IN_PROGRESS**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -133,9 +133,27 @@
 
 **Headless:** `TestMinimalAppAuxiliaryCloseOpenHeadless`, `TestMinimalAppAuxiliaryPersistColdLoad` (DirectoryDomainStorage round-trip).
 
-**Limits:** после cold reload auxiliary presentation может быть lazy (reopen через UI); полный shutdown/join WebApplicationHost **не** реализован; cross-backend profile portability **не** заявлена.
+**Limits:** после cold reload auxiliary presentation может быть lazy (reopen через UI); cross-backend profile portability **не** заявлена.
 
-**NEXT:** **P3.T3.Web5** — штатное async завершение WebApplicationHost с model session stop, подтверждённым flush и освобождением UI.
+---
+
+<a id="p3t3web5--web-application-host-async-shutdown-2026-10-30-pass"></a>
+
+## P3.T3.Web5 — WebApplicationHost async shutdown (2026-10-30) — PASS
+
+**Base:** `982b47366bca343f78dc6275fdac7b6eaceb84fb` (Web4).
+
+**Library (`WebApplicationHost`):** `RunModel` → `int` (результат `RunApplicationModelSession`); `RequestShutdown()` — блок Save/ввод, ожидание in-flight Save, `RequestStop`, drain model queue; на worker — final persist; на main — `proxySync` UI teardown после drain публикаций, `syncfs(false)` с подтверждением, `pthread_tryjoin_np` через `emscripten_async_call` (без blocking `join`/`std::thread` на browser main); `Stopped` только после persist+flush+join; destructor не запускает shutdown и не блокирует main.
+
+**MinimalApp Web:** `RunApplicationModelSession<MinimalApplication>` + prepare/persist/bootstrap hooks; shell **Stop** + статус; `ApptraverseMinimalAppRequestShutdown()`.
+
+**E2E:** `wasm_minimal_app_browser_smoke.py` — Web3/Web4 сценарии + Stop без предварительного Save, DOM teardown, cold reload с profile load и UI-команда после reload.
+
+**Regressions (incremental Debug, `apptraverse-wt-web5`):** `web_minimal_app` extended smoke **PASS**; `apptraverse_web_presenter_lifecycle_test` + browser runner **PASS**; `web_window_catalog_demo` initial smoke **PASS**; §Web2R1 восемь Win/Headless + `apptraverse_presenter_load_order_test`, `apptraverse_application_ui_session_test`, `apptraverse_application_model_runtime_test`, `apptraverse_application_contract_headless_test` **PASS**; `win32_minimal_app` / `win32_minimal_app_load_only` **build PASS**.
+
+**Limits:** auxiliary presentation после reload может быть lazy (Web4); cross-backend profile portability **не** заявлена.
+
+**NEXT:** **P3.T3.A** — первый срез по действующему плану (не начат в этой итерации).
 
 ---
 

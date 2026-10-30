@@ -5,7 +5,7 @@
 #include <emscripten.h>
 #include <emscripten/em_js.h>
 
-#include "apptraverse/application_model_session.h"  // LoadApplication
+#include "apptraverse/application_model_session.h"
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/application_model_runtime.h"
@@ -39,16 +39,25 @@ void SetSaveStatus(char const* text) {
          text);
 }
 
+void SetShutdownStatus(char const* text) {
+  EM_ASM({
+    document.getElementById('shutdown-status').textContent = UTF8ToString($0);
+  }, text);
+}
+
 void SetUiInputBlocked(bool blocked) {
   EM_ASM({
     var mount = document.getElementById('app-mount');
     var save = document.getElementById('save-button');
+    var stop = document.getElementById('stop-button');
     if ($0) {
       mount.inert = true;
       save.disabled = true;
+      stop.disabled = true;
     } else {
       mount.inert = false;
       save.disabled = false;
+      stop.disabled = false;
     }
   }, blocked ? 1 : 0);
 }
@@ -94,6 +103,12 @@ EMSCRIPTEN_KEEPALIVE void ApptraverseMinimalAppRequestSave() {
   }
 }
 
+EMSCRIPTEN_KEEPALIVE void ApptraverseMinimalAppRequestShutdown() {
+  if (g_host) {
+    g_host->RequestShutdown();
+  }
+}
+
 }  // extern "C"
 
 void StartWebMinimalApplication() {
@@ -106,7 +121,7 @@ void StartWebMinimalApplication() {
   callbacks.refresh_presentation_host = [](ui::web::WebPresentationHost& host) {
     host.mount = ApptraverseGetAppMountElement();
   };
-  callbacks.run_model = [](ApplicationPublishedCallback on_published) {
+  callbacks.run_model = [](ApplicationPublishedCallback on_published) -> int {
     if (!g_durable_storage) {
       g_durable_storage =
           std::make_unique<DirectoryDomainStorage>(kProfilePath);
@@ -129,17 +144,8 @@ void StartWebMinimalApplication() {
       return PersistMinimalApplication(application, *g_durable_storage);
     };
 
-    ae::Domain domain{*g_durable_storage};
-    ae::DomainGraph load_graph{&domain};
-    ae::Ptr<ae::Obj> root_obj;
-    if (!load_graph.LoadRoot(MinimalApplicationRootId(), root_obj).IsOk()) {
-      WriteFatalStderr("fatal: MinimalApplication LoadRoot failed\n");
-      std::abort();
-    }
-    ae::Ptr<MinimalApplication> application_obj{root_obj};
-    MinimalApplication& application = *application_obj;
-    hooks.prepare(application);
-    (void)g_runtime.Run(domain, application, std::move(on_published), {});
+    return RunApplicationModelSession(*g_durable_storage, MinimalApplicationRootId(),
+                                      g_runtime, std::move(on_published), hooks);
   };
   callbacks.request_stop = [] { g_runtime.RequestStop(); };
   callbacks.after_initial = [](ae::Obj&) { HideLoadingAndSignalRenderOk(); };
@@ -156,6 +162,19 @@ void StartWebMinimalApplication() {
     EM_ASM({ console.error('MINIMAL_APP_SAVE_FAILED'); });
   };
   callbacks.set_ui_input_blocked = SetUiInputBlocked;
+  callbacks.on_shutdown_stopping = [] {
+    SetShutdownStatus("Stopping…");
+    EM_ASM({ console.log('MINIMAL_APP_SHUTDOWN_STOPPING'); });
+  };
+  callbacks.on_shutdown_succeeded = [] {
+    SetShutdownStatus("Stopped");
+    SetSaveStatus("");
+    EM_ASM({ console.log('MINIMAL_APP_SHUTDOWN_STOPPED'); });
+  };
+  callbacks.on_shutdown_failed = [] {
+    SetShutdownStatus("Stop failed");
+    EM_ASM({ console.error('MINIMAL_APP_SHUTDOWN_FAILED'); });
+  };
 
   g_host = std::make_unique<web::WebApplicationHost>(
       g_runtime, g_presentation_host, std::move(callbacks));

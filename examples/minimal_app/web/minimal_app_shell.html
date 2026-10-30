@@ -52,8 +52,8 @@
       background: #dbeafe;
     }
     #loading { margin-top: 16px; color: #444; min-height: 1.2em; }
-    #save-row { margin-top: 12px; display: flex; gap: 12px; align-items: center; }
-    #save-status { min-width: 6em; color: #444; }
+    #save-row { margin-top: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    #save-status, #shutdown-status { min-width: 6em; color: #444; }
   </style>
 </head>
 <body>
@@ -62,7 +62,9 @@
     <div id="app-mount"></div>
     <div id="save-row">
       <button id="save-button" type="button">Save</button>
+      <button id="stop-button" type="button">Stop</button>
       <span id="save-status"></span>
+      <span id="shutdown-status"></span>
     </div>
   </div>
   <div id="loading">Loading…</div>
@@ -82,6 +84,9 @@
       onRuntimeInitialized: function() {
         document.getElementById('save-button').addEventListener('click', function() {
           Module._ApptraverseMinimalAppRequestSave();
+        });
+        document.getElementById('stop-button').addEventListener('click', function() {
+          Module._ApptraverseMinimalAppRequestShutdown();
         });
       }
     };
