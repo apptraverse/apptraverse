@@ -36,19 +36,12 @@ ui::UiLocalizationString::ptr MakeMinimalLabel(ae::Domain& domain,
 
 void WireMinimalAppControlContext(MinimalApplication& application,
                                   ui::UiLocalizationString::ptr window_title) {
-  if (application.apply_button) {
-    application.apply_button->window_title = window_title;
-    application.apply_button->row_list = application.row_list;
-  }
-  if (application.row_list) {
-    application.row_list->window_title = window_title;
-  }
+  application.apply_button->window_title = window_title;
+  application.apply_button->row_list = application.row_list;
+  application.row_list->window_title = window_title;
 }
 
 void MinimalApplyButton::HandlePushButtonClicked() {
-  if (!window_title || !row_list) {
-    return;
-  }
   {
     auto title_event = ui::SetUiLocalizationSlotUtf8Event::ptr::Create(
         ae::CreateWith{*domain});
@@ -71,9 +64,6 @@ void MinimalApplyButton::HandlePushButtonClicked() {
 }
 
 void MinimalAppList::HandleListRowActivated(std::size_t row_index) {
-  if (!window_title) {
-    return;
-  }
   char const* text =
       row_index == 0 ? "Activated Row A" : "Activated Row B";
   auto title_event = ui::SetUiLocalizationSlotUtf8Event::ptr::Create(

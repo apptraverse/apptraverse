@@ -35,8 +35,6 @@ class WebDesktopWindowPresenter : public UiDesktopWindowPresenter {
   void OnModelChanged() override;
   void OnUnload() override;
 
-  bool ReadyForPresentation() const override;
-
   void* NativeChildParentHandle() const override;
 
   emscripten::EM_VAL ClientMountHandle() const;

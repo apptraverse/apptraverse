@@ -1105,8 +1105,16 @@ void InitializeNewPresenters(ae::Obj& gui_root, void* host,
     if (presenter == nullptr) {
       continue;
     }
-    assert(presenter->presentation_loaded &&
-           "live Presenter failed ReadyForPresentation after multipass");
+    if (!presenter->presentation_loaded) {
+      char message[192];
+      std::snprintf(
+          message, sizeof(message),
+          "fatal: live presenter obj_id=%u class_id=%u not activated after "
+          "multipass\n",
+          presenter->obj_id.id(), presenter->GetClassId());
+      WriteFatalStderr(message);
+      std::abort();
+    }
   }
 }
 

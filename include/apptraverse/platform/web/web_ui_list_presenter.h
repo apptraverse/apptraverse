@@ -35,8 +35,6 @@ class WebListContainerPresenter : public UiListContainerPresenter {
   void OnModelChanged() override;
   void OnUnload() override;
 
-  bool ReadyForPresentation() const override;
-
   void HandleDomSelection(int row_index);
   void HandleDomActivation(int row_index);
 

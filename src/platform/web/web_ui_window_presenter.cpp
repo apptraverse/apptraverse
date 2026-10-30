@@ -70,24 +70,24 @@ static void ReleaseDomRefs(WebDesktopWindowDomRefs& refs) {
   refs.window_element = nullptr;
 }
 
-bool WebDesktopWindowPresenter::ReadyForPresentation() const {
-  if (!emscripten_is_main_browser_thread()) {
-    return false;
-  }
-  auto* host = static_cast<WebPresentationHost*>(presentation_host);
-  if (host == nullptr || host->mount == nullptr) {
-    return false;
-  }
-  return desktop_window().is_valid();
-}
-
 void WebDesktopWindowPresenter::OnLoad() {
-  if (!ReadyForPresentation()) {
+  if (!emscripten_is_main_browser_thread()) {
     WriteFatalStderr(
-        "fatal: WebDesktopWindowPresenter::OnLoad preconditions failed\n");
+        "fatal: WebDesktopWindowPresenter::OnLoad off main thread\n");
     std::abort();
   }
   auto* host = static_cast<WebPresentationHost*>(presentation_host);
+  if (host == nullptr || host->mount == nullptr) {
+    WriteFatalStderr(
+        "fatal: WebDesktopWindowPresenter::OnLoad missing presentation host "
+        "mount\n");
+    std::abort();
+  }
+  if (!desktop_window().is_valid()) {
+    WriteFatalStderr(
+        "fatal: WebDesktopWindowPresenter::OnLoad missing desktop window\n");
+    std::abort();
+  }
 
   dom_refs_ = new WebDesktopWindowDomRefs();
   dom_refs_->window_element = ApptraverseCreateDesktopWindowElement();
@@ -99,9 +99,6 @@ void WebDesktopWindowPresenter::OnLoad() {
 }
 
 void WebDesktopWindowPresenter::SyncTitleFromMirror() {
-  if (dom_refs_ == nullptr || dom_refs_->window_element == nullptr) {
-    return;
-  }
   std::string title_text;
   if (title && title->strings.size() > 0) {
     int language_index = 0;
@@ -115,13 +112,7 @@ void WebDesktopWindowPresenter::SyncTitleFromMirror() {
 }
 
 void WebDesktopWindowPresenter::SyncGeometryFromMirror() {
-  if (dom_refs_ == nullptr || dom_refs_->window_element == nullptr) {
-    return;
-  }
   auto const desktop = desktop_window();
-  if (!desktop) {
-    return;
-  }
   ApptraverseSetDesktopWindowGeometry(dom_refs_->window_element, desktop->x(),
                                       desktop->y(), desktop->client_width(),
                                       desktop->client_height());

@@ -129,20 +129,6 @@ struct WebListContainerDomRefs {
   emscripten::EM_VAL list_element{nullptr};
 };
 
-bool WebListContainerPresenter::ReadyForPresentation() const {
-  if (!container || !window_presenter || !window_presenter.is_loaded()) {
-    return false;
-  }
-  Presenter const* const window =
-      static_cast<Presenter const*>(window_presenter.operator->());
-  if (window == nullptr || !window->presentation_loaded) {
-    return false;
-  }
-  auto* desktop =
-      static_cast<WebDesktopWindowPresenter const*>(window_presenter.operator->());
-  return desktop->ClientMountHandle() != nullptr;
-}
-
 void WebListContainerPresenter::HandleDomSelection(int row_index) {
   if (applying_mirror_sync_) {
     return;
@@ -165,10 +151,10 @@ void WebListContainerPresenter::OnLoad() {
   }
   auto* desktop =
       static_cast<WebDesktopWindowPresenter*>(window_presenter.operator->());
-  if (desktop == nullptr || desktop->ClientMountHandle() == nullptr ||
-      !container) {
+  emscripten::EM_VAL const parent = desktop->ClientMountHandle();
+  if (parent == nullptr) {
     WriteFatalStderr(
-        "fatal: WebListContainerPresenter::OnLoad preconditions failed\n");
+        "fatal: WebListContainerPresenter::OnLoad missing client mount\n");
     std::abort();
   }
 
@@ -176,26 +162,15 @@ void WebListContainerPresenter::OnLoad() {
   dom_refs_->list_element =
       ApptraverseCreateListElement(static_cast<int>(control_id));
   ApptraverseBindListInteraction(dom_refs_->list_element, this);
-  AppendDomChild(desktop->ClientMountHandle(), dom_refs_->list_element);
+  AppendDomChild(parent, dom_refs_->list_element);
   SyncFromMirror();
 }
 
 void WebListContainerPresenter::SyncFromMirror() {
-  if (dom_refs_ == nullptr || dom_refs_->list_element == nullptr ||
-      !container) {
-    return;
-  }
-  int language_index = 0;
-  if (window_presenter && window_presenter->locale) {
-    language_index = window_presenter->locale->language_index();
-  }
+  int const language_index = window_presenter->locale->language_index();
   std::vector<std::string> desired;
   desired.reserve(container->rows.size());
   for (auto const& row : container->rows) {
-    if (!row || !row->primary_text) {
-      desired.emplace_back();
-      continue;
-    }
     desired.push_back(row->primary_text->Resolve(language_index));
   }
 

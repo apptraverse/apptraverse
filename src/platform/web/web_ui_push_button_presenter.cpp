@@ -67,20 +67,6 @@ struct WebPushButtonDomRefs {
   emscripten::EM_VAL button_element{nullptr};
 };
 
-bool WebPushButtonPresenter::ReadyForPresentation() const {
-  if (!button || !window_presenter || !window_presenter.is_loaded()) {
-    return false;
-  }
-  Presenter const* const window =
-      static_cast<Presenter const*>(window_presenter.operator->());
-  if (window == nullptr || !window->presentation_loaded) {
-    return false;
-  }
-  auto* desktop =
-      static_cast<WebDesktopWindowPresenter const*>(window_presenter.operator->());
-  return desktop->ClientMountHandle() != nullptr;
-}
-
 void WebPushButtonPresenter::OnLoad() {
   if (!emscripten_is_main_browser_thread()) {
     WriteFatalStderr(
@@ -89,9 +75,10 @@ void WebPushButtonPresenter::OnLoad() {
   }
   auto* desktop =
       static_cast<WebDesktopWindowPresenter*>(window_presenter.operator->());
-  if (desktop == nullptr || desktop->ClientMountHandle() == nullptr || !button) {
+  emscripten::EM_VAL const parent = desktop->ClientMountHandle();
+  if (parent == nullptr) {
     WriteFatalStderr(
-        "fatal: WebPushButtonPresenter::OnLoad preconditions failed\n");
+        "fatal: WebPushButtonPresenter::OnLoad missing client mount\n");
     std::abort();
   }
 
@@ -99,19 +86,12 @@ void WebPushButtonPresenter::OnLoad() {
   dom_refs_->button_element =
       ApptraverseCreatePushButtonElement(static_cast<int>(control_id));
   ApptraverseBindPushButtonClick(dom_refs_->button_element, this);
-  AppendDomChild(desktop->ClientMountHandle(), dom_refs_->button_element);
+  AppendDomChild(parent, dom_refs_->button_element);
   SyncFromMirror();
 }
 
 void WebPushButtonPresenter::SyncFromMirror() {
-  if (dom_refs_ == nullptr || dom_refs_->button_element == nullptr || !button ||
-      !button->label) {
-    return;
-  }
-  int language_index = 0;
-  if (window_presenter && window_presenter->locale) {
-    language_index = window_presenter->locale->language_index();
-  }
+  int const language_index = window_presenter->locale->language_index();
   std::string const label = button->label->Resolve(language_index);
   ApptraverseSetPushButtonMirror(dom_refs_->button_element, label.c_str(),
                                  button->enabled() ? 1 : 0);

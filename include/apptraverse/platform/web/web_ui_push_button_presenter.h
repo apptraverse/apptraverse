@@ -34,8 +34,6 @@ class WebPushButtonPresenter : public UiPushButtonPresenter {
   void OnModelChanged() override;
   void OnUnload() override;
 
-  bool ReadyForPresentation() const override;
-
  private:
   void SyncFromMirror();
 

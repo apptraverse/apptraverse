@@ -51,6 +51,11 @@ void WebApplicationHost::HandlePublicationOnMainThread(
     if (callbacks_.refresh_presentation_host) {
       callbacks_.refresh_presentation_host(presentation_host_);
     }
+    if (presentation_host_.mount == nullptr) {
+      WriteFatalStderr(
+          "fatal: WebPresentationHost mount missing before UI session\n");
+      std::abort();
+    }
     std::vector<std::uint8_t> bytes = runtime_.TakePublishedCopy();
     runtime_.NotifyPublicationConsumed();
     ui_session_.emplace(bytes, &presentation_host_, model_proxy_);

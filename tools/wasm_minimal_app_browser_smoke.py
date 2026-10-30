@@ -128,7 +128,7 @@ def main() -> int:
             rows = list_box.locator(".apptraverse-list-row")
             expect(rows).to_have_count(2)
             rows.nth(1).click()
-            wait_title(page, "Minimal App")
+            expect(rows.nth(1)).to_have_attribute("aria-selected", "true")
 
             button.click()
             wait_title(page, "Applied")
@@ -138,6 +138,7 @@ def main() -> int:
             ).to_have_count(0)
 
             rows.nth(0).click()
+            expect(rows.nth(0)).to_have_attribute("aria-selected", "true")
             rows.nth(0).dblclick()
             wait_title(page, "Activated Row A")
 

@@ -6,12 +6,7 @@
 namespace apptraverse::ui {
 
 bool UiPushButtonPresenter::ReadyForPresentation() const {
-  if (!window_presenter || !window_presenter.is_loaded()) {
-    return false;
-  }
-  Presenter const* const window =
-      static_cast<Presenter const*>(window_presenter.operator->());
-  return window != nullptr && window->presentation_loaded;
+  return window_presenter->presentation_loaded;
 }
 
 void UiPushButtonPresenter::NotifyClickedFromUi() {

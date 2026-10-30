@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-10-30):** **P3.T3.Web2 PASS** — библиотечные Web Button/List, общий MinimalApp (Apply + Row A/B), DOM ownership/lifecycle, headless + browser UI-command E2E (§P3.T3.Web2). **P3.T3.Web1**, **P3.T3.W1–W2 PASS** сохранены. **NEXT:** **P3.T3.Web3** — сохранение в browser storage с подтверждением записи и cold reload MinimalApp. **P3.T3.Web** и **P3** — **IN_PROGRESS**. **P3.T1–T2**, **P3.T3.H PASS** сохранены. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
+**Активный порядок (2026-10-30):** **P3.T3.Web2R1 PASS** — восстановлен контракт обязательного графа (§P3.T3.Web2R1). **P3.T3.Web2** — **IN_PROGRESS** до **Web2R2** (DOM teardown). Исторический **Web2 @ d5ea698** — **PASS** в прежнем scope. **NEXT:** **P3.T3.Web2R2** only; **Web3** отложен. **P3.T3.Web1**, **P3.T3.W1–W2 PASS** сохранены. **P3.T3.Web** и **P3** — **IN_PROGRESS**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -91,7 +91,29 @@
 
 **Web2 limits:** no browser storage save/cold reload (**Web3**); WindowCatalog Web migration not started; shutdown/join on main not implemented.
 
-**NEXT:** **P3.T3.Web3** — browser storage save with write confirmation + cold reload MinimalApp.
+**Web2 status (post-R1):** milestone **IN_PROGRESS** — контракт графа восстановлен в **Web2R1**; остаются дефекты DOM teardown (**Web2R2**, не исправлялись в R1):
+- `ReleaseOwnedEmvalHandle` вызывает `Emval.decref`, отсутствующий в Emscripten SDK **3.1.64**;
+- unbind через `replaceWith(cloneNode(false))` оставляет DOM-копию control.
+
+**NEXT:** **P3.T3.Web2R2** — исправление и проверка DOM teardown. **Web3** — после закрытия Web2.
+
+---
+
+<a id="p3t3web2r1--mandatory-graph-contract-2026-10-30-pass"></a>
+
+## P3.T3.Web2R1 — mandatory graph contract (2026-10-30) — PASS
+
+**Base:** `d5ea6986ebaeed1714a9789ba1e1caeff50c557d` (исторический Web2 PASS сохранён).
+
+**ReadyForPresentation:** `UiPushButtonPresenter` / `UiListContainerPresenter` — только `window_presenter->presentation_loaded`; Web child presenters без override; `WebDesktopWindowPresenter` без отдельного readiness (инварианты на `OnLoad` + `WebApplicationHost::HandlePublicationOnMainThread` mount).
+
+**InitializeNewPresenters:** multipass сохранён; финальный `assert` заменён на `WriteFatalStderr` + `abort` для live presenter без `presentation_loaded`.
+
+**Silent skips removed:** Web `SyncFromMirror` / geometry / title (обязательные links после load); `WireMinimalAppControlContext`, `MinimalApplyButton::HandlePushButtonClicked`, `MinimalAppList::HandleListRowActivated`; инварианты в `PrepareMinimalApplicationForRun`.
+
+**E2E:** `wasm_minimal_app_browser_smoke.py` — после выбора строки `expect` `aria-selected` до Apply/activation.
+
+**Проверки (incremental Debug):** `apptraverse_presenter_load_order_test`, `apptraverse_application_ui_session_test`; §W2 Win/Headless восемь регрессий — **PASS** (`window_catalog_win32_acceptance_test` — **PASS** на повторе); `win32_minimal_app` / `win32_minimal_app_load_only` — **build PASS**; WASM `web_minimal_app` + `wasm_minimal_app_browser_smoke.py` — **PASS**; `web_window_catalog_demo` + catalog initial smoke — **PASS** (`8785` serve).
 
 ---
 
