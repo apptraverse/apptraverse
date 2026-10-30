@@ -7,7 +7,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "window_catalog_graph.h"
+#include "window_catalog_platform_graph.h"
 #include "window_catalog_ids.h"
 #include "window_catalog_localization.h"
 #include "window_catalog_model.h"
@@ -39,13 +39,29 @@ ae::ObjId CatalogRootId() {
 
 }  // namespace
 
+void WindowCatalogModelSession::ArmPersist(WindowCatalog& catalog,
+                                           DirectoryDomainStorage& storage) {
+  live_catalog_ = &catalog;
+  live_storage_ = &storage;
+  request_persist = [this](std::function<void(int)> done) {
+    runtime.Post([this, done = std::move(done)](ae::Domain&) {
+      if (live_catalog_ == nullptr || live_storage_ == nullptr) {
+        done(1);
+        return;
+      }
+      live_storage_->BeginSaveSession();
+      SaveWindowCatalogPersistentSnapshot(*live_catalog_);
+      done(live_storage_->SaveSessionHadFailure() ? 1 : 0);
+    });
+  };
+}
+
 int WindowCatalogModelSession::Run(
     ApplicationPublishedCallback on_published) {
   EnsureObjectRegistration();
   EnsureWindowCatalogGraphRegistration();
 
   ApplicationModelSessionHooks<WindowCatalog> hooks;
-  hooks.prepare = PrepareWindowCatalogForRun;
   hooks.before_incremental = [this](WindowCatalog& catalog) {
     pending_focus_for_ui = catalog.pending_focus_window.is_valid()
                                ? catalog.pending_focus_window.id()
@@ -55,7 +71,13 @@ int WindowCatalogModelSession::Run(
 
 #if defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
   DirectoryDomainStorage user_storage{state_dir};
-  hooks.persist = [&user_storage](WindowCatalog& catalog) -> int {
+  hooks.prepare = [this, &user_storage](WindowCatalog& catalog) {
+    PrepareWindowCatalogForRun(catalog);
+    ArmPersist(catalog, user_storage);
+  };
+  hooks.persist = [this, &user_storage](WindowCatalog& catalog) -> int {
+    live_catalog_ = nullptr;
+    live_storage_ = nullptr;
     user_storage.BeginSaveSession();
     SaveWindowCatalogPersistentSnapshot(catalog);
     if (user_storage.SaveSessionHadFailure()) {
@@ -91,7 +113,13 @@ int WindowCatalogModelSession::Run(
 #endif
 
   DirectoryDomainStorage user_storage{state_dir};
-  hooks.persist = [&user_storage](WindowCatalog& catalog) -> int {
+  hooks.prepare = [this, &user_storage](WindowCatalog& catalog) {
+    PrepareWindowCatalogForRun(catalog);
+    ArmPersist(catalog, user_storage);
+  };
+  hooks.persist = [this, &user_storage](WindowCatalog& catalog) -> int {
+    live_catalog_ = nullptr;
+    live_storage_ = nullptr;
     user_storage.BeginSaveSession();
     SaveWindowCatalogPersistentSnapshot(catalog);
     if (user_storage.SaveSessionHadFailure()) {

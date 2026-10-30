@@ -348,6 +348,7 @@ class CatalogListContainer : public ui::UiListContainer {
   ae::ObjPtr<WindowCatalog> catalog;
 
   void HandleListRowActivated(std::size_t row_index) override;
+  void HandleListRowSelectionChanged(std::size_t row_index) override;
 
 };
 

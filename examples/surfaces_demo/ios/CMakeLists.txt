@@ -100,3 +100,57 @@ set_target_properties(ios_surfaces_demo PROPERTIES
 set_target_properties(ios_surfaces_demo_load_only PROPERTIES
   MACOSX_BUNDLE_GUI_IDENTIFIER com.apptraverse.surfaces.loadonly
 )
+
+add_library(apptraverse_ui_apple_content STATIC
+  ${CMAKE_SOURCE_DIR}/src/platform/apple/CatalogContentView.swift
+)
+set_target_properties(apptraverse_ui_apple_content PROPERTIES
+  Swift_MODULE_NAME apptraverse_ui_apple_content
+)
+target_compile_options(apptraverse_ui_apple_content PRIVATE
+  "SHELL:-sdk ${CMAKE_OSX_SYSROOT}"
+  "SHELL:-target ${CMAKE_Swift_COMPILER_TARGET}"
+  "SHELL:-import-objc-header ${CMAKE_SOURCE_DIR}/include/apptraverse/platform/apple/AppleCatalogBridge.h"
+)
+
+set_source_files_properties(window_catalog_main.mm
+  PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+add_executable(ios_window_catalog_demo
+  window_catalog_main.mm
+  window_catalog_graph_ios.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common/window_catalog_lifecycle.cpp
+)
+target_compile_definitions(ios_window_catalog_demo PRIVATE
+  APPTRAVERSE_ENABLE_DISTILLATION
+)
+target_link_libraries(ios_window_catalog_demo PRIVATE
+  apptraverse_ui_ios
+  apptraverse_ui_apple_content
+  surfaces_demo_window_catalog_common
+  "-framework UIKit"
+  "-framework Foundation"
+  "-framework CoreGraphics"
+)
+target_include_directories(ios_window_catalog_demo PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common
+)
+target_compile_options(ios_window_catalog_demo PRIVATE
+  $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-rtti>
+  $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-objc-exceptions>
+)
+set_target_properties(ios_window_catalog_demo PROPERTIES
+  LINKER_LANGUAGE OBJCXX
+  MACOSX_BUNDLE TRUE
+  MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/WindowCatalogInfo.plist.in
+  MACOSX_BUNDLE_BUNDLE_NAME "WindowCatalog"
+  MACOSX_BUNDLE_GUI_IDENTIFIER com.apptraverse.experiment.windowcatalog.ios
+  MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
+  MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
+)
+target_link_options(ios_window_catalog_demo PRIVATE
+  -L${CMAKE_OSX_SYSROOT}/usr/lib/swift
+  -L${_swift_runtime_dir}
+  -Wl,-rpath,/usr/lib/swift
+  -ObjC
+)

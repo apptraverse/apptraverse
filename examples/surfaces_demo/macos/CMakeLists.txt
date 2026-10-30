@@ -74,3 +74,55 @@ foreach(_surfaces_demo macos_surfaces_demo macos_surfaces_demo_load_only)
     -Wl,-rpath,/usr/lib/swift
   )
 endforeach()
+
+add_library(apptraverse_ui_apple_content STATIC
+  ${CMAKE_SOURCE_DIR}/src/platform/apple/CatalogContentView.swift
+)
+set_target_properties(apptraverse_ui_apple_content PROPERTIES
+  Swift_MODULE_NAME apptraverse_ui_apple_content
+)
+target_compile_options(apptraverse_ui_apple_content PRIVATE
+  "SHELL:-sdk ${CMAKE_OSX_SYSROOT}"
+  "SHELL:-import-objc-header ${CMAKE_SOURCE_DIR}/include/apptraverse/platform/apple/AppleCatalogBridge.h"
+)
+
+set_source_files_properties(window_catalog_main.mm
+  PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+add_executable(macos_window_catalog_demo
+  window_catalog_main.mm
+  window_catalog_graph_macos.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common/window_catalog_lifecycle.cpp
+)
+target_compile_definitions(macos_window_catalog_demo PRIVATE
+  APPTRAVERSE_ENABLE_DISTILLATION
+)
+target_link_libraries(macos_window_catalog_demo PRIVATE
+  apptraverse_ui_macos
+  apptraverse_ui_apple_content
+  surfaces_demo_window_catalog_common
+  "-framework AppKit"
+  "-framework Foundation"
+)
+target_include_directories(macos_window_catalog_demo PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common
+)
+target_compile_options(macos_window_catalog_demo PRIVATE
+  $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-rtti>
+  $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-objc-exceptions>
+)
+set_target_properties(macos_window_catalog_demo PROPERTIES
+  LINKER_LANGUAGE OBJCXX
+  MACOSX_BUNDLE TRUE
+  MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/WindowCatalogInfo.plist.in
+  MACOSX_BUNDLE_BUNDLE_NAME "WindowCatalog"
+  MACOSX_BUNDLE_GUI_IDENTIFIER com.apptraverse.experiment.windowcatalog.macos
+  MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
+  MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
+)
+target_link_options(macos_window_catalog_demo PRIVATE
+  -L${CMAKE_OSX_SYSROOT}/usr/lib/swift
+  -L/usr/lib/swift
+  -Wl,-rpath,/usr/lib/swift
+  -ObjC
+)

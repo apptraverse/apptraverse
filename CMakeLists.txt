@@ -251,6 +251,62 @@ if(WIN32)
     apptraverse_surfaces_v1)
 endif()
 
+if(APPLE)
+  enable_language(OBJCXX)
+  set(CMAKE_OBJCXX_STANDARD 20)
+  set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
+endif()
+
+if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+  add_library(apptraverse_ui_macos STATIC
+    src/platform/apple/apple_catalog_projection.mm
+    src/platform/macos/mac_ui_presenters.mm
+    src/platform/macos/mac_ui_registration.cpp
+    src/platform/macos/mac_application_host.mm
+  )
+  target_link_libraries(apptraverse_ui_macos PUBLIC
+    apptraverse
+    "-framework AppKit"
+    "-framework Foundation"
+  )
+  target_include_directories(apptraverse_ui_macos PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_compile_features(apptraverse_ui_macos PUBLIC cxx_std_20)
+  set_source_files_properties(
+    src/platform/apple/apple_catalog_projection.mm
+    src/platform/macos/mac_ui_presenters.mm
+    src/platform/macos/mac_application_host.mm
+    PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+  target_compile_options(apptraverse_ui_macos PRIVATE
+    $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-rtti>
+    $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-objc-exceptions>)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+  add_library(apptraverse_ui_ios STATIC
+    src/platform/apple/apple_catalog_projection.mm
+    src/platform/ios/ios_ui_presenters.mm
+    src/platform/ios/ios_ui_registration.cpp
+    src/platform/ios/ios_application_host.mm
+  )
+  target_link_libraries(apptraverse_ui_ios PUBLIC
+    apptraverse
+    "-framework UIKit"
+    "-framework Foundation"
+  )
+  target_include_directories(apptraverse_ui_ios PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_compile_features(apptraverse_ui_ios PUBLIC cxx_std_20)
+  set_source_files_properties(
+    src/platform/apple/apple_catalog_projection.mm
+    src/platform/ios/ios_ui_presenters.mm
+    src/platform/ios/ios_application_host.mm
+    PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+  target_compile_options(apptraverse_ui_ios PRIVATE
+    $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-rtti>
+    $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-objc-exceptions>)
+endif()
+
 if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES)
   add_subdirectory(examples/main_window_runtime_demo)
   add_subdirectory(examples/dynamic_objects_demo)
