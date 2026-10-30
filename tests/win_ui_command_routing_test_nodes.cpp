@@ -77,6 +77,10 @@ void TestActivationListStructuralMirrorHeadless() {
   auto row1 = ui::UiListRow::ptr::Create(ae::CreateWith{model_domain});
   InitializeRuntimeNode(*row0, *list);
   InitializeRuntimeNode(*row1, *list);
+  row0->primary_text = MakeSingleLabel(model_domain, "Row A");
+  InitializeRuntimeNode(*row0->primary_text, *row0);
+  row1->primary_text = MakeSingleLabel(model_domain, "Row B");
+  InitializeRuntimeNode(*row1->primary_text, *row1);
   list->rows = {row0, row1};
 
   std::deque<ModelObjectProxy::ModelWork> deferred;

@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-10-29):** **P3.T3.W1 PASS** (Windows presenter `OnCommand` routing); **NEXT P3.T3.W2** (list mirror selection sync). **P3.T1–T2**, **P3.T3.H PASS** сохранены. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
+**Активный порядок (2026-10-29):** **P3.T3.W1 IN_PROGRESS** — routing + native E2E в `main`; **блокер:** `apptraverse_window_catalog_win32_acceptance_test` (`ExpectUnsupportedSchemaLoadOnly`, stderr без `LoadApplication failed` / presenter missing). **NEXT P3.T3.W2** после **W1 PASS**. **P3.T1–T2**, **P3.T3.H PASS** сохранены. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -24,6 +24,22 @@
 **Fixture vs библиотека:** **`CloneCanonicalRoot`** — **13.2 PASS** (один объект); **P2.e.1 PASS** — remap штатного Save + двухобъектный graph (**13.3** частично); **P2.e.1R** — общий BACKING + cold **`Load(C)`**; **P2.e.2 PASS** — loaded Node R→D, **`CanonicalClone`**, собственные base/journal; **P2.e.2R PASS** — fresh history по remap-набору (Obj-корень + вложенный Node); **P2.e.3 PASS** — unloaded **`ObjPtr`** child через **`NotifyCloneReference`**, lazy сохранён; **P2.e.4 PASS** — **`UiDesktopWindow`** ↔ **`UiDesktopWindowPresenter`**, **`stable_prefab_ids`**, двойной Clone W→A→B; **P2.e.5 PASS** — **`WindowCatalog::AddWindow`** через **`CloneCanonicalRoot`**, **`WindowCatalog/S1`**; MinSizeRel manual (prefab Add/Open/Close/geom/locale/restart) **user confirmed**; дефект Z-order → **P2.e.5R PASS** — **`WindowCatalog/S2`** (`desktop_z_order`), **`SetWindowCatalogDesktopZOrderEvent`**, shutdown HWND→ObjId capture, **`WinApplicationHostCallbacks::after_initial`**. **P2.f.1 PASS** — MinSizeRel **`WindowCatalogModelSession`**: **`InstallEmbeddedDistilledBacking`** + USER + **`OverlayDomainStorage`**. **P2.f.1R PASS** — **`kSupplyConstantIds` {15,16}** (WindowPrefab / WindowPrefabPresenter); MinSizeRel **`win32_window_catalog_demo_load_only`**; W/V не материализуются в USER. Полный lazy closure / **13** — **TODO**; holder/title builder — **TODO**; **P2.f.2/P2.f.3 PASS** — общий lifecycle API; активный NEXT указан выше.
 
 Общие правила разработки: [.cursor/rules/apptraverse-coding-agent.mdc](../../.cursor/rules/apptraverse-coding-agent.mdc). Корневой журнал других подсистем: [Progress.md](../../Progress.md).
+
+---
+
+<a id="p3t3w1--windows-presenter-command-routing-2026-10-29-pass"></a>
+
+## P3.T3.W1 — Windows presenter command routing (2026-10-29) — IN_PROGRESS
+
+**Scope (landed on `2629e86`, extended here):** `RouteChildCommand` → один вызов child `OnCommand`; `WinPushButtonPresenter::OnCommand` (`BN_CLICKED` → `NotifyClickedFromUi`); `WinListContainerPresenter::OnCommand` → `HandleListNotification`.
+
+**Native E2E (`apptraverse_win_ui_command_routing_test`, Debug, `main`):** `TestEditRouting`; `TestPushButtonNativeClickViaProxyAndPublication` (BM_CLICK → deferred proxy → `SetUiPushButtonEnabledEvent` → structural mirror → native disabled); `TestListNativeSelectionViaProxyAndPublication` (row text via publication, LBN_SELCHANGE/LBN_DBLCLK → proxy → selection/activation); `TestActivationListStructuralMirrorHeadless`. **Fixture fix:** `TestWinPushButtonResolveChildLayoutFromHost` — locale/label (прежний `OnLoad` null deref, exit **3**).
+
+**Dual-domain test note:** не вызывать `UiDesktopWindow::SubmitFrameFromNative` на UI mirror до HWND и не вешать `model_proxy` на desktop presenter (иначе Debug `InsertEvent invariant broken` при frame submit).
+
+**Regressions (win64-ninja-msvc-debug, 2026-10-29):** PASS — `apptraverse_win_ui_native_push_button_test`, `apptraverse_win_ui_command_routing_test`, `apptraverse_win_application_host_test`, `apptraverse_minimal_app_win32_acceptance_test`, `apptraverse_minimal_app_headless_test`, `apptraverse_window_catalog_headless_test`, `apptraverse_ui_control_materialization_test`; WASM — `web_window_catalog_demo` + `wasm_window_catalog_browser_smoke.py` (`serve_wasm.py`, initial scope) **PASS**. **FAIL:** `apptraverse_window_catalog_win32_acceptance_test` — `ExpectUnsupportedSchemaLoadOnly` (exit ≠ 0, stderr без ожидаемых `fatal:` needles).
+
+**Follow-up (W2, not W1):** `WinListContainerPresenter::SyncFromMirror` — `selection_index = -1` не снимает native selection; ветка смены текстов восстанавливает stale native selection.
 
 ---
 

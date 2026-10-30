@@ -1535,9 +1535,13 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
     APPTRAVERSE_ENABLE_DISTILLATION)
   add_dependencies(apptraverse_window_catalog_win32_acceptance_test
     win32_window_catalog_demo win32_window_catalog_demo_load_only)
+  target_link_libraries(apptraverse_window_catalog_win32_acceptance_test PRIVATE
+    apptraverse_ui_windows_extended)
 
   apptraverse_add_test(apptraverse_minimal_app_win32_acceptance_test
     minimal_app_win32_acceptance_test.cpp minimal_app_common)
+  target_link_libraries(apptraverse_minimal_app_win32_acceptance_test PRIVATE
+    apptraverse_ui_windows_extended)
   if(MSVC)
     target_compile_options(apptraverse_minimal_app_win32_acceptance_test PRIVATE
       /utf-8)

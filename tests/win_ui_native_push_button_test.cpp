@@ -540,11 +540,22 @@ void TestWinPushButtonResolveChildLayoutFromHost() {
   InitializeRuntimeNode(*root);
 
   HWND const host = CreateBorderlessHostAtOrigin();
+
+  auto locale = ui::UiLocaleSettings::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*locale);
+  auto label = ui::UiLocalizationString::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*label, *locale);
+  auto en = ui::UiString::ptr::Create(ae::CreateWith{domain});
+  en->utf8 = "Layout";
+  label->strings = {en};
+
   root->window_presenter =
       TestResolveLayoutHostPresenter::ptr::Create(ae::CreateWith{domain});
   root->window_presenter->host_hwnd_ = host;
+  root->window_presenter->locale = locale;
 
   auto button = ui::UiPushButton::ptr::Create(ae::CreateWith{domain});
+  button->label = label;
   InitializeRuntimeNode(*button, *root);
 
   root->button_presenter = ui::windows::WinPushButtonPresenter::ptr::Create(

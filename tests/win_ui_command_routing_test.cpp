@@ -72,6 +72,23 @@ ui::UiLocalizationString::ptr MakeSingleLabel(ae::Domain& domain,
   return label;
 }
 
+void AttachRowPrimaryText(ae::Domain& domain, ui::UiListRow& row,
+                          char const* utf8) {
+  row.primary_text = MakeSingleLabel(domain, utf8);
+  InitializeRuntimeNode(*row.primary_text, row);
+}
+
+void ApplyModelStructuralToUiMirror(Node const& model_node,
+                                    ae::Domain& ui_domain,
+                                    ae::RamDomainStorage& ui_storage) {
+  ByteSink structural;
+  SerializeStructuralNodePublication(model_node, structural);
+  ByteSource structural_in;
+  structural_in.data = structural.bytes.data();
+  structural_in.size = structural.bytes.size();
+  ApplyStructuralPublication(structural_in, ui_domain, ui_storage);
+}
+
 void PostDesktopChildCommand(HWND desktop, HWND child, std::uint32_t control_id,
                              std::uint16_t notification_code) {
   LRESULT const result =
@@ -162,11 +179,10 @@ void TestPushButtonNativeClickViaProxyAndPublication() {
   InitializeRuntimeNode(*ui_locale);
 
   auto ui_desktop_window = UiDesktopWindow::ptr::Create(ae::CreateWith{ui_domain});
-  ui_desktop_window->SubmitFrameFromNative(0, 0, 640, 480);
+  InitializeRuntimeNode(*ui_desktop_window);
   auto desktop = WinDesktopWindowPresenter::ptr::Create(ae::CreateWith{ui_domain});
   desktop->window = ui_desktop_window;
   desktop->locale = ui_locale;
-  desktop->model_proxy = &proxy;
   desktop->OnLoad();
   desktop->presentation_loaded = true;
 
@@ -187,7 +203,7 @@ void TestPushButtonNativeClickViaProxyAndPublication() {
   CHECK(deferred.empty());
   CHECK(button->enabled());
   CHECK(ui_button->enabled());
-  CHECK(SendMessageW(btn_hwnd, BM_CLICK, 0, 0) != 0);
+  SendMessageW(btn_hwnd, BM_CLICK, 0, 0);
   CHECK(deferred.size() == 1);
   CHECK(button->enabled());
   CHECK(ui_button->enabled());
@@ -198,6 +214,13 @@ void TestPushButtonNativeClickViaProxyAndPublication() {
   CHECK(CountJournalEventsWithClass(*button,
                                     SetUiPushButtonEnabledEvent::kClassId) == 1);
 
+  ApplyModelStructuralToUiMirror(*button, ui_domain, ui_storage);
+  btn_presenter->OnModelChanged();
+  CHECK(!ui_button->enabled());
+  CHECK(IsWindowEnabled(btn_hwnd) == FALSE);
+
+  btn_presenter->OnUnload();
+  desktop->OnUnload();
 }
 
 void TestListNativeSelectionViaProxyAndPublication() {
@@ -217,6 +240,8 @@ void TestListNativeSelectionViaProxyAndPublication() {
   auto row1 = UiListRow::ptr::Create(ae::CreateWith{model_domain});
   InitializeRuntimeNode(*row0, *list);
   InitializeRuntimeNode(*row1, *list);
+  AttachRowPrimaryText(model_domain, *row0, "Row A");
+  AttachRowPrimaryText(model_domain, *row1, "Row B");
   list->rows = {row0, row1};
 
   std::deque<ModelObjectProxy::ModelWork> deferred;
@@ -235,11 +260,14 @@ void TestListNativeSelectionViaProxyAndPublication() {
       static_cast<TestActivationList*>(ui_list_obj.get()));
   CHECK(ui_list->selection_index == -1);
 
+  auto ui_locale = UiLocaleSettings::ptr::Create(ae::CreateWith{ui_domain});
+  InitializeRuntimeNode(*ui_locale);
+
   auto ui_desktop_window = UiDesktopWindow::ptr::Create(ae::CreateWith{ui_domain});
-  ui_desktop_window->SubmitFrameFromNative(0, 0, 640, 480);
+  InitializeRuntimeNode(*ui_desktop_window);
   auto desktop = WinDesktopWindowPresenter::ptr::Create(ae::CreateWith{ui_domain});
   desktop->window = ui_desktop_window;
-  desktop->model_proxy = &proxy;
+  desktop->locale = ui_locale;
   desktop->OnLoad();
   desktop->presentation_loaded = true;
 
@@ -258,12 +286,9 @@ void TestListNativeSelectionViaProxyAndPublication() {
   list_presenter->OnLoad();
   HWND const list_hwnd = list_presenter->hwnd();
   CHECK(list_hwnd != nullptr);
-  CHECK(SendMessageW(list_hwnd, LB_ADDSTRING, 0,
-                     reinterpret_cast<LPARAM>(L"Row A")) != LB_ERR);
-  CHECK(SendMessageW(list_hwnd, LB_ADDSTRING, 0,
-                     reinterpret_cast<LPARAM>(L"Row B")) != LB_ERR);
+  CHECK(SendMessageW(list_hwnd, LB_GETCOUNT, 0, 0) == 2);
 
-  CHECK(SendMessageW(list_hwnd, LB_SETCURSEL, 1, 0) != LB_ERR);
+  SendMessageW(list_hwnd, LB_SETCURSEL, 1, 0);
   PostDesktopChildCommand(desktop->hwnd(), list_hwnd, kListId, LBN_SELCHANGE);
 
   CHECK(deferred.size() == 1);
@@ -273,11 +298,23 @@ void TestListNativeSelectionViaProxyAndPublication() {
         0);
 
   PumpModelWork(deferred, model_domain);
+  CHECK(deferred.empty());
   CHECK(list->selection_index == 1);
   CHECK(ui_list->selection_index == -1);
   CHECK(CountJournalEventsWithClass(*list, SetUiListSelectionEvent::kClassId) ==
         1);
-  CHECK(ui_list->journal.empty());
+
+  ApplyModelStructuralToUiMirror(*list, ui_domain, ui_storage);
+  list_presenter->OnModelChanged();
+  CHECK(ui_list->selection_index == 1);
+  CHECK(SendMessageW(list_hwnd, LB_GETCURSEL, 0, 0) == 1);
+
+  PostDesktopChildCommand(desktop->hwnd(), list_hwnd, kListId, LBN_DBLCLK);
+  CHECK(deferred.size() == 1);
+  CHECK(list->last_activated == -1);
+  PumpModelWork(deferred, model_domain);
+  CHECK(deferred.empty());
+  CHECK(list->last_activated == 1);
 
   list_presenter->OnUnload();
   desktop->OnUnload();
@@ -294,8 +331,10 @@ int main() {
   apptraverse::ui::windows::EnsureExtendedWinUiPresenterRegistration();
   apptraverse::test::EnsureCommandRoutingTestNodeRegistration();
   apptraverse::ui::EnsureUiPresenterRegistration();
-  apptraverse::test::TestActivationListStructuralMirrorHeadless();
   apptraverse::test::TestEditRouting();
+  apptraverse::test::TestPushButtonNativeClickViaProxyAndPublication();
+  apptraverse::test::TestListNativeSelectionViaProxyAndPublication();
+  apptraverse::test::TestActivationListStructuralMirrorHeadless();
   std::cout << "win_ui_command_routing_test OK\n";
   return 0;
 }
