@@ -119,6 +119,26 @@
 
 ---
 
+<a id="p3t3web4--dual-window-lifecycle-2026-10-30-pass"></a>
+
+## P3.T3.Web4 — dual window lifecycle on one Web host (2026-10-30) — PASS
+
+**Base:** `550575569333c3bd5bc2e25498e7b4bb0f9f2da7` (Web3).
+
+**Common (MinimalApp S0):** второе окно в `MinimalAuxiliaryWindowState` + `auxiliary_presented_open`; `ComposeMinimalWindowPanel`; Open/Close через `MinimalOpenAuxiliaryWindowEvent` / `MinimalCloseAuxiliaryWindowEvent` и `LoadAuxiliaryPresentation` / `SealAuxiliaryWindowClosed` (сброс presenter/control refs с корня при Close); dev bootstrap закрывает auxiliary через `SealAuxiliaryWindowClosed`.
+
+**Web host:** `DirectoryDomainStorage` создаётся в model-thread `run_model` после `syncfs(true)`; Save блокирует ввод через `#app-mount` **`inert`**; persist берёт live root через `domain.Find`; `DomainGraph::SaveRoot` + cold load через `LoadRoot`; profile `/persistent/minimal_app_web_s1_dual_window_state`.
+
+**E2E:** `wasm_minimal_app_browser_smoke.py` — Web3 два save/reload + dual window Close/Open, независимость controls, cold reload с reopen Detail при lazy presentation; `wasm_web_presenter_lifecycle_test` — dual-window teardown/stale click; catalog initial smoke **PASS**.
+
+**Headless:** `TestMinimalAppAuxiliaryCloseOpenHeadless`, `TestMinimalAppAuxiliaryPersistColdLoad` (DirectoryDomainStorage round-trip).
+
+**Limits:** после cold reload auxiliary presentation может быть lazy (reopen через UI); полный shutdown/join WebApplicationHost **не** реализован; cross-backend profile portability **не** заявлена.
+
+**NEXT:** **P3.T3.Web5** — штатное async завершение WebApplicationHost с model session stop, подтверждённым flush и освобождением UI.
+
+---
+
 <a id="p3t3web2r2--web-dom-teardown-2026-10-30-pass"></a>
 
 ## P3.T3.Web2R2 — Web DOM teardown (2026-10-30) — PASS

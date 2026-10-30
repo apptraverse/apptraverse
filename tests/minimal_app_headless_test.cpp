@@ -31,6 +31,8 @@
 #include "minimal_app_controls.h"
 #include "minimal_app_prepare.h"
 #include "minimal_app_graph_headless.h"
+#include "minimal_app_persistence.h"
+#include "minimal_app_window_events.h"
 #include "minimal_application.h"
 
 namespace apptraverse::test {
@@ -426,6 +428,138 @@ void TestMinimalAppHeadlessUiCommandE2e() {
   CHECK(WindowTitleMirror(ui_app).Resolve(0) == "Activated Row A");
 }
 
+ui::UiLocalizationString& AuxiliaryWindowTitleMirror(MinimalApplication& app) {
+  app.auxiliary.window.Load();
+  CHECK(app.auxiliary.window.is_valid());
+  app.auxiliary.window->presenter.Load();
+  CHECK(app.auxiliary.window->presenter.is_valid());
+  auto& presenter = static_cast<ui::UiDesktopWindowPresenter&>(
+      *app.auxiliary.window->presenter);
+  CHECK(presenter.title.is_valid());
+  return *presenter.title;
+}
+
+ui::UiListContainer& ModelAuxiliaryRowList(MinimalApplication& app) {
+  app.auxiliary.row_list.Load();
+  CHECK(app.auxiliary.row_list.is_valid());
+  return *app.auxiliary.row_list;
+}
+
+ui::UiListContainer& UiAuxiliaryRowList(MinimalApplication& app) {
+  app.auxiliary.row_list.Load();
+  CHECK(app.auxiliary.row_list.is_valid());
+  return *app.auxiliary.row_list;
+}
+
+ui::UiListContainerPresenter& UiAuxiliaryRowListPresenter(
+    MinimalApplication& app) {
+  app.auxiliary.presenters.row_list.Load();
+  CHECK(app.auxiliary.presenters.row_list.is_valid());
+  return *app.auxiliary.presenters.row_list;
+}
+
+void TestMinimalAppAuxiliaryPersistColdLoad() {
+  EnsureObjectRegistration();
+  EnsureHeadlessMinimalApplicationGraphRegistration();
+
+  std::filesystem::path const profile_dir =
+      std::filesystem::temp_directory_path() / "minimal_app_aux_persist_test";
+  std::error_code ec;
+  std::filesystem::remove_all(profile_dir, ec);
+
+  {
+    DirectoryDomainStorage storage{profile_dir};
+    ae::Domain domain{storage};
+    auto application = BuildHeadlessMinimalApplicationGraph(domain);
+    PrepareMinimalApplicationForRun(*application);
+    application->OpenAuxiliaryWindowImpl();
+    CHECK(application->auxiliary_presented_open);
+    CHECK(PersistMinimalApplication(*application, storage) == 0);
+  }
+
+  {
+    DirectoryDomainStorage storage{profile_dir};
+    ae::Domain domain{storage};
+    auto application =
+        LoadApplication<MinimalApplication>(domain, MinimalApplicationRootId());
+    CHECK(application->auxiliary_presented_open);
+    PrepareMinimalApplicationForRun(*application);
+    application->auxiliary.window.Load();
+    CHECK(application->auxiliary.window.is_valid());
+    CHECK(application->auxiliary.window.is_loaded());
+  }
+}
+
+void TestMinimalAppAuxiliaryCloseOpenHeadless() {
+  EnsureObjectRegistration();
+  EnsureHeadlessMinimalApplicationGraphRegistration();
+  example::minimal::EnsureMinimalAppWindowEventsRegistration();
+
+  ae::RamDomainStorage model_storage;
+  ae::Domain model_domain{model_storage};
+  auto model_root = BuildHeadlessMinimalApplicationGraph(model_domain);
+
+  std::deque<ModelObjectProxy::ModelWork> deferred;
+  ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork work) {
+    deferred.push_back(std::move(work));
+  }};
+
+  ByteSink initial;
+  SerializeInitialPublication(*model_root, initial);
+  ApplicationUiSession ui_session(initial.bytes, nullptr, proxy);
+
+  MinimalApplication& ui_app =
+      static_cast<MinimalApplication&>(ui_session.root());
+  MinimalApplication& model_app = *model_root;
+  CHECK(!model_app.auxiliary_presented_open);
+  CHECK(!ui_app.auxiliary_presented_open);
+
+  auto open = example::minimal::MinimalOpenAuxiliaryWindowEvent::ptr::Create(
+      ae::CreateWith{model_domain});
+  model_app.Commit(std::move(open));
+  PumpModelWorkAndApplyStructural(deferred, model_domain, model_app,
+                                  ui_session);
+  CHECK(model_app.auxiliary_presented_open);
+  CHECK(ui_app.auxiliary_presented_open);
+  CHECK(AuxiliaryWindowTitleMirror(ui_app).Resolve(0) == "Detail Panel");
+
+  UiAuxiliaryRowListPresenter(ui_app).SubmitListRowSelectionChangedFromUi(1);
+  PumpModelWorkAndApplyStructural(deferred, model_domain, model_app,
+                                  ui_session);
+  CHECK(ModelAuxiliaryRowList(model_app).selection_index == 1);
+  CHECK(UiAuxiliaryRowList(ui_app).selection_index == 1);
+  CHECK(ModelRowList(model_app).selection_index == -1);
+
+  UiApplyButtonPresenter(ui_app).SimulateClickForTest();
+  PumpModelWorkAndApplyStructural(deferred, model_domain, model_app,
+                                  ui_session);
+  CHECK(WindowTitleMirror(ui_app).Resolve(0) == "Applied");
+
+  auto close = example::minimal::MinimalCloseAuxiliaryWindowEvent::ptr::Create(
+      ae::CreateWith{model_domain});
+  model_app.Commit(std::move(close));
+  PumpModelWorkAndApplyStructural(deferred, model_domain, model_app,
+                                  ui_session);
+  CHECK(!model_app.auxiliary_presented_open);
+  CHECK(!ui_app.auxiliary_presented_open);
+  CHECK(ModelAuxiliaryRowList(model_app).selection_index == 1);
+
+  UiApplyButtonPresenter(ui_app).SimulateClickForTest();
+  PumpModelWorkAndApplyStructural(deferred, model_domain, model_app,
+                                  ui_session);
+  CHECK(WindowTitleMirror(ui_app).Resolve(0) == "Applied");
+
+  open = example::minimal::MinimalOpenAuxiliaryWindowEvent::ptr::Create(
+      ae::CreateWith{model_domain});
+  model_app.Commit(std::move(open));
+  PumpModelWorkAndApplyStructural(deferred, model_domain, model_app,
+                                  ui_session);
+  CHECK(ui_app.auxiliary_presented_open);
+  CHECK(UiAuxiliaryRowList(ui_app).selection_index == -1);
+  CHECK(AuxiliaryWindowTitleMirror(ui_app).Resolve(0) == "Applied");
+  CHECK(!ui_app.auxiliary.apply_button->enabled());
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -433,6 +567,8 @@ int main() {
   apptraverse::EnableNoninteractiveCrt();
   apptraverse::test::TestMinimalAppHeadlessSessionE2e();
   apptraverse::test::TestMinimalAppHeadlessUiCommandE2e();
+  apptraverse::test::TestMinimalAppAuxiliaryPersistColdLoad();
+  apptraverse::test::TestMinimalAppAuxiliaryCloseOpenHeadless();
   std::cout << "minimal_app_headless_test OK\n";
   return 0;
 }

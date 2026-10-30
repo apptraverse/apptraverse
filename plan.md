@@ -1,7 +1,7 @@
 Status: active
 Progress: Progress.md
 
-**Active (2026-10-28):** **P3.T — библиотечный template/controls на семи backend → P4.C — WindowCatalog как потребитель → A1 — администрирование**. **P3.T0 DONE (doc-only); P3.T1 IN_PROGRESS** — Æther patch chain в репозитории + Win regressions PASS; WASM browser smoke **FAIL** (см. [PROGRESS §P3.T1](docs/versioning/PROGRESS.md)). Прежние P3.1a/P3.1b/P3.2a PASS сохраняются в проверенном scope; новые backend PASS не заявлены. [PLAN](docs/versioning/PLAN.md), [PROGRESS](docs/versioning/PROGRESS.md).
+**Active (2026-10-30):** **P3.T — библиотечный template/controls на семи backend → P4.C — WindowCatalog → A1**. **P3.T3.Web4 PASS** (dual window MinimalApp на одном Web host); **NEXT: P3.T3.Web5** (async shutdown WebApplicationHost). [PLAN](docs/versioning/PLAN.md), [PROGRESS](docs/versioning/PROGRESS.md).
 
 **Release versioning (R0–R5):** fixture roadmap in [docs/versioning/PLAN.md](docs/versioning/PLAN.md) / [PROGRESS.md](docs/versioning/PROGRESS.md) — reference; **P0–P6** is the execution order on `integration/unified-application`. Coding-agent rules remain mandatory.
 

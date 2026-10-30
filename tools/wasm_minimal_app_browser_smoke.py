@@ -12,6 +12,10 @@ from playwright.sync_api import expect, sync_playwright
 
 APPLY_CONTROL_ID = "7101"
 LIST_CONTROL_ID = "7102"
+AUX_OPENER_CONTROL_ID = "7103"
+AUX_APPLY_CONTROL_ID = "7201"
+AUX_LIST_CONTROL_ID = "7202"
+AUX_CLOSER_CONTROL_ID = "7203"
 
 
 def main() -> int:
@@ -63,13 +67,39 @@ def main() -> int:
     def wait_title(page, text: str, timeout_ms: int = 60000) -> None:
         page.wait_for_function(
             """(expected) => {
-              const win = document.querySelector(
+              const wins = document.querySelectorAll(
                 '#app-mount [data-apptraverse-desktop-window="1"]');
-              if (!win) return false;
-              return win.dataset.apptraverseWindowTitle === expected;
+              for (const win of wins) {
+                if (win.dataset.apptraverseWindowTitle === expected) {
+                  return true;
+                }
+              }
+              return false;
             }""",
             arg=text,
             timeout=timeout_ms,
+        )
+
+    def wait_aux_title(page, text: str, timeout_ms: int = 60000) -> None:
+        page.wait_for_function(
+            """(expected) => {
+              const wins = document.querySelectorAll(
+                '#app-mount [data-apptraverse-desktop-window="1"]');
+              for (const win of wins) {
+                if (win.dataset.apptraverseWindowTitle === expected) {
+                  return true;
+                }
+              }
+              return false;
+            }""",
+            arg=text,
+            timeout=timeout_ms,
+        )
+
+    def count_desktop_windows(page) -> int:
+        return page.evaluate(
+            """() => document.querySelectorAll(
+              '#app-mount [data-apptraverse-desktop-window="1"]').length"""
         )
 
     def wait_saved(page) -> None:
@@ -90,7 +120,7 @@ def main() -> int:
     def assert_geometry(page) -> None:
         window = page.locator(
             "#app-mount [data-apptraverse-desktop-window='1']"
-        )
+        ).first
         box = window.bounding_box()
         mount = page.locator("#app-mount").bounding_box()
         if box is None or mount is None:
@@ -127,6 +157,100 @@ def main() -> int:
         expect(rows.nth(0)).to_have_attribute("aria-selected", "true")
         rows.nth(0).dblclick()
         wait_title(page, "Activated Row A")
+
+    def run_dual_window_lifecycle(page) -> None:
+        opener = page.locator(
+            f"#app-mount [data-apptraverse-control-id='{AUX_OPENER_CONTROL_ID}']"
+        )
+        expect(opener).to_have_count(1)
+        opener.click()
+        page.wait_for_function(
+            f"() => document.querySelectorAll("
+            f"'#app-mount [data-apptraverse-control-id=\"{AUX_LIST_CONTROL_ID}\"]"
+            f"').length === 1",
+            timeout=60000,
+        )
+        if count_desktop_windows(page) != 2:
+            raise AssertionError("expected two desktop windows after open")
+
+        main_list = page.locator(
+            f"#app-mount [data-apptraverse-control-id='{LIST_CONTROL_ID}']"
+        )
+        aux_list = page.locator(
+            f"#app-mount [data-apptraverse-control-id='{AUX_LIST_CONTROL_ID}']"
+        )
+        aux_apply = page.locator(
+            f"#app-mount [data-apptraverse-control-id='{AUX_APPLY_CONTROL_ID}']"
+        )
+        aux_rows = aux_list.locator(".apptraverse-list-row")
+        wait_aux_title(page, "Detail Panel")
+        aux_rows.nth(1).click()
+        expect(aux_rows.nth(1)).to_have_attribute("aria-selected", "true")
+        aux_apply.click()
+        wait_aux_title(page, "Applied")
+        expect(aux_apply).to_be_disabled()
+        expect(aux_list.locator(".apptraverse-list-row-selected")).to_have_count(
+            0
+        )
+        wait_title(page, "Activated Row A")
+
+        main_rows = main_list.locator(".apptraverse-list-row")
+        main_rows.nth(1).click()
+        expect(main_rows.nth(1)).to_have_attribute("aria-selected", "true")
+        main_rows.nth(1).dblclick()
+        wait_title(page, "Activated Row B")
+        wait_aux_title(page, "Applied")
+
+        closer = page.locator(
+            f"#app-mount [data-apptraverse-control-id='{AUX_CLOSER_CONTROL_ID}']"
+        )
+        closer.click()
+        page.wait_for_function(
+            f"() => document.querySelectorAll("
+            f"'#app-mount [data-apptraverse-control-id=\"{AUX_LIST_CONTROL_ID}\"]"
+            f"').length === 0",
+            timeout=60000,
+        )
+        if count_desktop_windows(page) != 1:
+            raise AssertionError("expected one desktop window after close")
+        main_rows.nth(1).click()
+        expect(main_rows.nth(1)).to_have_attribute("aria-selected", "true")
+
+        opener.click()
+        page.wait_for_function(
+            f"() => document.querySelectorAll("
+            f"'#app-mount [data-apptraverse-control-id=\"{AUX_LIST_CONTROL_ID}\"]"
+            f"').length === 1",
+            timeout=60000,
+        )
+        if count_desktop_windows(page) != 2:
+            raise AssertionError("expected two windows after reopen")
+        wait_aux_title(page, "Applied")
+        expect(aux_apply).to_be_disabled()
+        expect(aux_list.locator(".apptraverse-list-row-selected")).to_have_count(
+            0
+        )
+
+        closer.click()
+        page.wait_for_function(
+            f"() => document.querySelectorAll("
+            f"'#app-mount [data-apptraverse-control-id=\"{AUX_LIST_CONTROL_ID}\"]"
+            f"').length === 0",
+            timeout=60000,
+        )
+        opener.click()
+        page.wait_for_function(
+            f"() => document.querySelectorAll("
+            f"'#app-mount [data-apptraverse-control-id=\"{AUX_LIST_CONTROL_ID}\"]"
+            f"').length === 1",
+            timeout=60000,
+        )
+        if count_desktop_windows(page) != 2:
+            raise AssertionError("expected two windows after second open")
+        if page.locator(
+            f"[data-apptraverse-control-id='{AUX_LIST_CONTROL_ID}']"
+        ).count() != 1:
+            raise AssertionError("duplicate auxiliary list DOM")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, channel="chrome")
@@ -179,6 +303,7 @@ def main() -> int:
                 return 1
 
             run_ui_sequence_to_row_a(page)
+            run_dual_window_lifecycle(page)
 
             page.evaluate("() => { window.__minimalIdbfsSaved = false; }")
             page.locator("#save-button").click()
@@ -194,20 +319,44 @@ def main() -> int:
                 }"""
             )
             page.reload(wait_until="domcontentloaded", timeout=60000)
-            expect(window).to_have_count(1, timeout=60000)
             wait_loaded_from_profile(page)
             reload_profile_loads.append(True)
-            wait_title(page, "Activated Row A")
+            page.wait_for_function(
+                """() => document.querySelectorAll(
+                  '#app-mount [data-apptraverse-desktop-window="1"]').length >= 1""",
+                timeout=60000,
+            )
+            if count_desktop_windows(page) == 1:
+                page.locator(
+                    f"[data-apptraverse-control-id='{AUX_OPENER_CONTROL_ID}']"
+                ).click()
+                page.wait_for_function(
+                    f"() => document.querySelectorAll("
+                    f"'#app-mount [data-apptraverse-desktop-window=\"1\"]').length === 2",
+                    timeout=60000,
+                )
+            elif count_desktop_windows(page) != 2:
+                raise AssertionError(
+                    "expected one or two desktop windows after first cold reload"
+                )
+            wait_title(page, "Activated Row B")
             expect(button).to_be_disabled()
             rows = list_box.locator(".apptraverse-list-row")
             expect(rows).to_have_count(2)
-            expect(rows.nth(0)).to_have_attribute("aria-selected", "true")
-            assert_geometry(page)
-
-            rows.nth(1).click()
             expect(rows.nth(1)).to_have_attribute("aria-selected", "true")
-            rows.nth(1).dblclick()
-            wait_title(page, "Activated Row B")
+            assert_geometry(page)
+            aux_list = page.locator(
+                f"[data-apptraverse-control-id='{AUX_LIST_CONTROL_ID}']"
+            )
+            wait_aux_title(page, "Applied")
+            expect(
+                aux_list.locator(".apptraverse-list-row-selected")
+            ).to_have_count(0)
+
+            rows.nth(0).click()
+            expect(rows.nth(0)).to_have_attribute("aria-selected", "true")
+            rows.nth(0).dblclick()
+            wait_title(page, "Activated Row A")
 
             saw_idbfs_saved = False
             page.evaluate("() => { window.__minimalIdbfsSaved = false; }")
@@ -221,13 +370,45 @@ def main() -> int:
                 }"""
             )
             page.reload(wait_until="domcontentloaded", timeout=60000)
-            expect(window).to_have_count(1, timeout=60000)
             wait_loaded_from_profile(page)
             reload_profile_loads.append(True)
-            wait_title(page, "Activated Row B")
-            expect(rows.nth(1)).to_have_attribute("aria-selected", "true")
+            page.wait_for_function(
+                """() => document.querySelectorAll(
+                  '#app-mount [data-apptraverse-desktop-window="1"]').length >= 1""",
+                timeout=60000,
+            )
+            if count_desktop_windows(page) == 1:
+                page.locator(
+                    f"[data-apptraverse-control-id='{AUX_OPENER_CONTROL_ID}']"
+                ).click()
+                page.wait_for_function(
+                    f"() => document.querySelectorAll("
+                    f"'#app-mount [data-apptraverse-desktop-window=\"1\"]').length === 2",
+                    timeout=60000,
+                )
+            elif count_desktop_windows(page) != 2:
+                raise AssertionError(
+                    "expected one or two desktop windows after second cold reload"
+                )
+            wait_title(page, "Activated Row A")
+            wait_aux_title(page, "Applied")
+            expect(rows.nth(0)).to_have_attribute("aria-selected", "true")
+            expect(
+                aux_list.locator(".apptraverse-list-row-selected")
+            ).to_have_count(0)
             expect(button).to_be_disabled()
             assert_geometry(page)
+
+            page.locator(
+                f"[data-apptraverse-control-id='{AUX_CLOSER_CONTROL_ID}']"
+            ).click()
+            page.wait_for_function(
+                f"() => document.querySelectorAll("
+                f"'#app-mount [data-apptraverse-desktop-window=\"1\"]').length === 1",
+                timeout=60000,
+            )
+            rows.nth(0).click()
+            expect(rows.nth(0)).to_have_attribute("aria-selected", "true")
 
             shot = Path(args.screenshot)
             shot.parent.mkdir(parents=True, exist_ok=True)

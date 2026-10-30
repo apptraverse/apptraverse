@@ -46,7 +46,22 @@ int PersistMinimalApplication(MinimalApplication& application,
                               DirectoryDomainStorage& storage) {
   storage.BeginSaveSession();
   ui::SavePresentedWindow(application.main_window);
-  MinimalApplication::ptr::MakeFromThis(&application).Save();
+  if (application.auxiliary_presented_open) {
+    application.auxiliary.window.Load();
+    if (application.auxiliary.window.is_valid() &&
+        application.auxiliary.window.is_loaded()) {
+      ui::SavePresentedWindow(application.auxiliary.window);
+    }
+  }
+  ae::DomainGraph graph{application.domain};
+  MinimalApplication::ptr const root =
+      MinimalApplication::ptr::MakeFromThis(&application);
+  ae::seri::SeriResult const save_root =
+      graph.SaveRoot(root.cached(), MinimalApplicationRootId());
+  if (save_root.IsErr()) {
+    WriteFatalStderr("fatal: MinimalApplication SaveRoot failed\n");
+    return 1;
+  }
   if (storage.SaveSessionHadFailure()) {
     WriteFatalStderr("fatal: MinimalApplication save failed\n");
     return 1;

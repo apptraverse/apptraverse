@@ -1,6 +1,7 @@
 #include "minimal_application.h"
 
 #include "minimal_app_controls.h"
+#include "minimal_app_window_events.h"
 
 #include "apptraverse/object_macros.h"
 
@@ -16,6 +17,7 @@ APPTRAVERSE_REGISTER(MinimalApplication);
 
 void EnsureMinimalApplicationRegistration() {
   EnsureMinimalAppControlsRegistration();
+  EnsureMinimalAppWindowEventsRegistration();
   (void)&g_apptraverse_registrar_MinimalApplication;
 }
 

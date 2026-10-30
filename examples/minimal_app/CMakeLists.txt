@@ -4,6 +4,8 @@ add_library(minimal_app_common STATIC
   common/minimal_app_graph_builder.cpp
   common/minimal_app_prepare.cpp
   common/minimal_app_persistence.cpp
+  common/minimal_app_window_events.cpp
+  common/minimal_app_window_lifecycle.cpp
 )
 target_include_directories(minimal_app_common PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/common

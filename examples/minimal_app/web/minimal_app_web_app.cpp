@@ -23,7 +23,7 @@ namespace apptraverse::example::minimal {
 namespace {
 
 constexpr char kIdbfsMountPath[] = "/persistent";
-constexpr char kProfilePath[] = "/persistent/minimal_app_web_s0_controls_state";
+constexpr char kProfilePath[] = "/persistent/minimal_app_web_s1_dual_window_state";
 
 std::unique_ptr<web::WebApplicationHost> g_host;
 std::unique_ptr<DirectoryDomainStorage> g_durable_storage;
@@ -44,10 +44,10 @@ void SetUiInputBlocked(bool blocked) {
     var mount = document.getElementById('app-mount');
     var save = document.getElementById('save-button');
     if ($0) {
-      mount.style.pointerEvents = 'none';
+      mount.inert = true;
       save.disabled = true;
     } else {
-      mount.style.pointerEvents = 'auto';
+      mount.inert = false;
       save.disabled = false;
     }
   }, blocked ? 1 : 0);
@@ -75,9 +75,13 @@ void EnsureBrowserEnvironment() {
 }
 
 int PersistMinimalApplicationFromDomain(ae::Domain& domain) {
-  auto application = LoadApplication<MinimalApplication>(
-      domain, MinimalApplicationRootId());
-  return PersistMinimalApplication(*application, *g_durable_storage);
+  auto held = domain.Find(MinimalApplicationRootId());
+  if (!held) {
+    WriteFatalStderr("fatal: MinimalApplication missing from model domain\n");
+    std::abort();
+  }
+  auto& application = static_cast<MinimalApplication&>(*held);
+  return PersistMinimalApplication(application, *g_durable_storage);
 }
 
 }  // namespace
@@ -98,14 +102,15 @@ void StartWebMinimalApplication() {
   ui::web::EnsureWebUiPresenterRegistration();
   EnsureBrowserEnvironment();
 
-  g_durable_storage =
-      std::make_unique<DirectoryDomainStorage>(kProfilePath);
-
   web::WebApplicationHostCallbacks callbacks;
   callbacks.refresh_presentation_host = [](ui::web::WebPresentationHost& host) {
     host.mount = ApptraverseGetAppMountElement();
   };
   callbacks.run_model = [](ApplicationPublishedCallback on_published) {
+    if (!g_durable_storage) {
+      g_durable_storage =
+          std::make_unique<DirectoryDomainStorage>(kProfilePath);
+    }
     bool const bootstrapped = BootstrapMinimalApplicationProfileIfAbsent(
         g_durable_storage->root(), [](ae::Domain& domain) {
           return BuildWebMinimalApplicationGraph(domain);
@@ -124,8 +129,17 @@ void StartWebMinimalApplication() {
       return PersistMinimalApplication(application, *g_durable_storage);
     };
 
-    (void)RunApplicationModelSession(*g_durable_storage, MinimalApplicationRootId(),
-                                     g_runtime, std::move(on_published), hooks);
+    ae::Domain domain{*g_durable_storage};
+    ae::DomainGraph load_graph{&domain};
+    ae::Ptr<ae::Obj> root_obj;
+    if (!load_graph.LoadRoot(MinimalApplicationRootId(), root_obj).IsOk()) {
+      WriteFatalStderr("fatal: MinimalApplication LoadRoot failed\n");
+      std::abort();
+    }
+    ae::Ptr<MinimalApplication> application_obj{root_obj};
+    MinimalApplication& application = *application_obj;
+    hooks.prepare(application);
+    (void)g_runtime.Run(domain, application, std::move(on_published), {});
   };
   callbacks.request_stop = [] { g_runtime.RequestStop(); };
   callbacks.after_initial = [](ae::Obj&) { HideLoadingAndSignalRenderOk(); };

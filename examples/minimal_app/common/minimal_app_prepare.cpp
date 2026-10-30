@@ -13,9 +13,12 @@ void PrepareMinimalApplicationForRun(MinimalApplication& application) {
   application.row_list.Load();
   application.presenters.apply_button.Load();
   application.presenters.row_list.Load();
+  application.presenters.auxiliary_opener.Load();
+  application.auxiliary_opener.Load();
   if (!application.apply_button || !application.row_list ||
       !application.presenters.apply_button ||
-      !application.presenters.row_list) {
+      !application.presenters.row_list ||
+      !application.presenters.auxiliary_opener || !application.auxiliary_opener) {
     WriteFatalStderr(
         "fatal: MinimalApplication required control or presenter missing\n");
     std::abort();
@@ -44,6 +47,11 @@ void PrepareMinimalApplicationForRun(MinimalApplication& application) {
         "fatal: MinimalApplication window presenter missing locale\n");
     std::abort();
   }
+#if !defined(__EMSCRIPTEN__)
+  if (application.auxiliary_presented_open) {
+    application.LoadAuxiliaryPresentation();
+  }
+#endif
 }
 
 }  // namespace apptraverse::example::minimal

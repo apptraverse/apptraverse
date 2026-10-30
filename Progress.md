@@ -1,4 +1,4 @@
-**Active (2026-10-30):** **P3.T3.Web3 PASS** — IDBFS save + cold reload MinimalApp (2× reload E2E). **P3.T3.Web1–Web2 PASS** retained. **NEXT:** **P3.T3.Web4** — несколько независимых представлений на общем Web host. **P3.T3.Web** / **P3** IN_PROGRESS. [PLAN](docs/versioning/PLAN.md), [PROGRESS](docs/versioning/PROGRESS.md).
+**Active (2026-10-30):** **P3.T3.Web4 PASS** — dual window MinimalApp (one Web host, Close/Open lifecycle, IDBFS E2E). **Web1–Web3 PASS** retained in scope. **NEXT:** **P3.T3.Web5** — async shutdown WebApplicationHost. **P3** IN_PROGRESS. [PLAN](docs/versioning/PLAN.md), [PROGRESS](docs/versioning/PROGRESS.md).
 
 **Release versioning (R0–R5):** детальный журнал — [docs/versioning/PROGRESS.md](docs/versioning/PROGRESS.md); **P0–P6** — единственная активная очередь на unified. Rules: `.cursor/rules/apptraverse-coding-agent.mdc`.
 

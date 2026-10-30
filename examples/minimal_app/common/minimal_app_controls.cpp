@@ -2,6 +2,8 @@
 
 #include "minimal_application.h"
 
+#include "minimal_app_window_events.h"
+
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_list_container.h"
 #include "apptraverse/ui/ui_localization_string.h"
@@ -16,13 +18,36 @@ ae::ObjId MinimalApplyButtonId() { return ae::ObjId{0x07A10006u}; }
 ae::ObjId MinimalApplyButtonPresenterId() { return ae::ObjId{0x07A10007u}; }
 ae::ObjId MinimalRowListId() { return ae::ObjId{0x07A10008u}; }
 ae::ObjId MinimalRowListPresenterId() { return ae::ObjId{0x07A10009u}; }
+ae::ObjId MinimalAuxiliaryWindowId() { return ae::ObjId{0x07A1000Au}; }
+ae::ObjId MinimalAuxiliaryPresenterId() { return ae::ObjId{0x07A1000Bu}; }
+ae::ObjId MinimalAuxiliaryApplyButtonId() { return ae::ObjId{0x07A1000Cu}; }
+ae::ObjId MinimalAuxiliaryApplyButtonPresenterId() {
+  return ae::ObjId{0x07A1000Du};
+}
+ae::ObjId MinimalAuxiliaryRowListId() { return ae::ObjId{0x07A1000Eu}; }
+ae::ObjId MinimalAuxiliaryRowListPresenterId() {
+  return ae::ObjId{0x07A1000Fu};
+}
+ae::ObjId MinimalAuxiliaryWindowTitleId() { return ae::ObjId{0x07A10010u}; }
+ae::ObjId MinimalAuxiliaryOpenerId() { return ae::ObjId{0x07A10011u}; }
+ae::ObjId MinimalAuxiliaryOpenerPresenterId() {
+  return ae::ObjId{0x07A10012u};
+}
+ae::ObjId MinimalAuxiliaryCloserId() { return ae::ObjId{0x07A10013u}; }
+ae::ObjId MinimalAuxiliaryCloserPresenterId() {
+  return ae::ObjId{0x07A10014u};
+}
 
 APPTRAVERSE_REGISTER(MinimalApplyButton);
 APPTRAVERSE_REGISTER(MinimalAppList);
+APPTRAVERSE_REGISTER(MinimalAuxiliaryOpenerButton);
+APPTRAVERSE_REGISTER(MinimalAuxiliaryCloserButton);
 
 void EnsureMinimalAppControlsRegistration() {
   (void)&g_apptraverse_registrar_MinimalApplyButton;
   (void)&g_apptraverse_registrar_MinimalAppList;
+  (void)&g_apptraverse_registrar_MinimalAuxiliaryOpenerButton;
+  (void)&g_apptraverse_registrar_MinimalAuxiliaryCloserButton;
 }
 
 ui::UiLocalizationString::ptr MakeMinimalLabel(ae::Domain& domain,
@@ -71,6 +96,30 @@ void MinimalAppList::HandleListRowActivated(std::size_t row_index) {
   title_event->slot_index = 0;
   title_event->utf8 = text;
   window_title->Commit(std::move(title_event));
+}
+
+void MinimalAuxiliaryOpenerButton::HandlePushButtonClicked() {
+  auto application = MinimalApplication::ptr::Declare(
+      ae::CreateWith{*domain}.with_id(MinimalApplicationRootId()));
+  application.Load();
+  if (!application) {
+    return;
+  }
+  auto event = MinimalOpenAuxiliaryWindowEvent::ptr::Create(
+      ae::CreateWith{*domain});
+  application->Commit(std::move(event));
+}
+
+void MinimalAuxiliaryCloserButton::HandlePushButtonClicked() {
+  auto application = MinimalApplication::ptr::Declare(
+      ae::CreateWith{*domain}.with_id(MinimalApplicationRootId()));
+  application.Load();
+  if (!application) {
+    return;
+  }
+  auto event = MinimalCloseAuxiliaryWindowEvent::ptr::Create(
+      ae::CreateWith{*domain});
+  application->Commit(std::move(event));
 }
 
 }  // namespace apptraverse::example::minimal
