@@ -64,19 +64,12 @@ bool InitialPublicationPayloadReplaceLayerBytes(
     std::uint32_t class_id, std::uint8_t version,
     std::vector<std::uint8_t> const& new_layer_bytes);
 
-bool InitialPublicationPayloadRemoveLayer(
-    std::vector<std::uint8_t>& initial_publication_bytes, ae::ObjId object_id,
-    std::uint32_t class_id);
-
 bool InitialPublicationPayloadRemoveObjectLayers(
     std::vector<std::uint8_t>& initial_publication_bytes, ae::ObjId object_id);
 
 bool InitialPublicationPayloadContainsObject(
     std::vector<std::uint8_t> const& initial_publication_bytes,
     ae::ObjId object_id);
-
-void FormatDomainStorageClasses(ae::IDomainStorage& storage, ae::ObjId object_id,
-                                char* buffer, std::size_t buffer_size);
 
 enum class InitialPublicationLoadStage : std::uint8_t {
   Ok = 0,
@@ -88,11 +81,8 @@ enum class InitialPublicationLoadStage : std::uint8_t {
   ReadLayerPayload,
   InjectLayerBytes,
   LoadRoot,
-  LoadExistingObject,
   ReadGenerationCount,
   ReadGenerationEntry,
-  FinalFindRoot,
-  MandatoryLayersPending,
 };
 
 struct InitialPublicationLoadDiagnostics {
@@ -105,7 +95,7 @@ struct InitialPublicationLoadDiagnostics {
   std::uint32_t size{0};
   std::uint32_t layer_index{0};
   std::uint32_t layer_count{0};
-  // Populated for LoadExistingObject / inner load_root failures.
+  // Populated for root load failures.
   std::uint32_t object_class_id{0};
   std::uint32_t factory_class_id{0};
   int load_error_code{0};

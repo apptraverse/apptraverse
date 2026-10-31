@@ -25,12 +25,6 @@
 #include "apptraverse/ui/ui_presenters.h"
 
 namespace apptraverse {
-
-bool HydrateInjectedPublicationGraph(
-    ae::Domain& ui_domain, ae::IDomainStorage& ui_storage, std::uint32_t root_id,
-    std::vector<std::uint32_t> const& unique_obj_ids,
-    InitialPublicationLoadDiagnostics* diagnostics);
-
 namespace {
 
 LiveGraphEdgeAppender g_live_graph_edge_appender = nullptr;
@@ -253,10 +247,6 @@ bool LoadExistingObject(ae::Obj& object, ae::Domain& domain,
   return true;
 }
 
-void LoadExistingObjectUnchecked(ae::Obj& object, ae::Domain& domain) {
-  (void)LoadExistingObject(object, domain, nullptr, nullptr);
-}
-
 void LoadExistingObjectOrAbort(ae::Obj& object, ae::Domain& domain) {
   if (!LoadExistingObject(object, domain, nullptr, nullptr)) {
     WriteFatalStderr("fatal: single-object load failed\n");
@@ -389,14 +379,20 @@ bool ApplyGraphPublicationPayloadToUiDomain(
                                     nullptr)) {
     return false;
   }
-  if (!HydrateInjectedPublicationGraph(domain, domain_storage,
-                                       existing_root.obj_id.id(), object_ids,
-                                       nullptr)) {
+  // Re-read the injected layers into the live mirror instances. Refs to live
+  // objects resolve to the same instances; objects new to the mirror are
+  // built by those refs. Objects the mirror has not loaded stay lazy.
+  if (!LoadExistingObject(existing_root, domain, nullptr, nullptr)) {
     return false;
   }
+  for (std::uint32_t const id : object_ids) {
+    if (auto object = domain.Find(ae::ObjId{id}); object) {
+      if (!LoadExistingObject(*object, domain, nullptr, nullptr)) {
+        return false;
+      }
+    }
+  }
   ApplyGraphPublicationNodeGenerations(payload, domain);
-  ae::DomainGraph graph{&domain};
-  graph.FlushIncompleteStoredLayers();
   return true;
 }
 
@@ -946,53 +942,6 @@ bool InitialPublicationPayloadReplaceLayerBytes(
   return save_envelope.Save(envelope).IsOk();
 }
 
-bool InitialPublicationPayloadRemoveLayer(
-    std::vector<std::uint8_t>& initial_publication_bytes, ae::ObjId object_id,
-    std::uint32_t class_id) {
-  if (initial_publication_bytes.empty()) {
-    return false;
-  }
-  ae::seri::BinaryVectorBuffer buffer{initial_publication_bytes};
-  ae::seri::BinaryArchive load_archive{buffer};
-  InitialPublicationEnvelope envelope{};
-  if (load_archive.Load(envelope).IsErr()) {
-    return false;
-  }
-  ByteSource graph;
-  graph.data = envelope.graph_bytes.data();
-  graph.size = envelope.graph_bytes.size();
-  graph.pos = 0;
-  GraphPublicationPayload payload;
-  if (!LoadGraphPublicationPayload(graph, payload)) {
-    return false;
-  }
-  auto obj_it = payload.layers.find(object_id);
-  if (obj_it == payload.layers.end() || !obj_it->second) {
-    return false;
-  }
-  auto class_it = obj_it->second->find(class_id);
-  if (class_it == obj_it->second->end()) {
-    return false;
-  }
-  obj_it->second->erase(class_it);
-  if (obj_it->second->empty()) {
-    payload.layers.erase(obj_it);
-  }
-
-  std::vector<std::uint8_t> graph_bytes;
-  ae::seri::BinaryVectorBuffer graph_buffer{graph_bytes};
-  ae::seri::BinaryArchive save_graph{graph_buffer};
-  if (save_graph.Save(payload).IsErr()) {
-    return false;
-  }
-  envelope.graph_bytes = std::move(graph_bytes);
-
-  initial_publication_bytes.clear();
-  ae::seri::BinaryVectorBuffer out_buffer{initial_publication_bytes};
-  ae::seri::BinaryArchive save_envelope{out_buffer};
-  return save_envelope.Save(envelope).IsOk();
-}
-
 bool InitialPublicationPayloadRemoveObjectLayers(
     std::vector<std::uint8_t>& initial_publication_bytes, ae::ObjId object_id) {
   if (initial_publication_bytes.empty()) {
@@ -1052,19 +1001,6 @@ void SerializeInitialPublication(ae::Obj const& root, ByteSink& out) {
   }
 }
 
-void FormatDomainStorageClasses(ae::IDomainStorage& storage, ae::ObjId object_id,
-                                char* buffer, std::size_t buffer_size) {
-  if (buffer_size == 0) {
-    return;
-  }
-  buffer[0] = '\0';
-  InitialPublicationLoadDiagnostics diagnostics;
-  RecordStorageLayers(storage, object_id, &diagnostics);
-  std::snprintf(buffer, buffer_size, "%s",
-                diagnostics.storage_layers[0] != '\0' ? diagnostics.storage_layers
-                                                      : "(none)");
-}
-
 void FormatInitialPublicationLoadDiagnostics(InitialPublicationLoadDiagnostics const& diagnostics,
                                              char* buffer, std::size_t buffer_size) {
   char const* stage = "unknown";
@@ -1096,20 +1032,11 @@ void FormatInitialPublicationLoadDiagnostics(InitialPublicationLoadDiagnostics c
     case InitialPublicationLoadStage::LoadRoot:
       stage = "load_root";
       break;
-    case InitialPublicationLoadStage::LoadExistingObject:
-      stage = "load_existing_object";
-      break;
     case InitialPublicationLoadStage::ReadGenerationCount:
       stage = "read_generation_count";
       break;
     case InitialPublicationLoadStage::ReadGenerationEntry:
       stage = "read_generation_entry";
-      break;
-    case InitialPublicationLoadStage::FinalFindRoot:
-      stage = "final_find_root";
-      break;
-    case InitialPublicationLoadStage::MandatoryLayersPending:
-      stage = "mandatory_layers_pending";
       break;
   }
   std::snprintf(
@@ -1122,57 +1049,6 @@ void FormatInitialPublicationLoadDiagnostics(InitialPublicationLoadDiagnostics c
       diagnostics.layer_index, diagnostics.layer_count, diagnostics.object_class_id,
       diagnostics.factory_class_id, diagnostics.load_error_code,
       diagnostics.storage_layers[0] != '\0' ? diagnostics.storage_layers : "(none)");
-}
-
-bool HydrateInjectedPublicationGraph(ae::Domain& ui_domain,
-                                   ae::IDomainStorage& ui_storage,
-                                   std::uint32_t root_id,
-                                   std::vector<std::uint32_t> const& unique_obj_ids,
-                                   InitialPublicationLoadDiagnostics* diagnostics) {
-  ae::DomainGraph graph{&ui_domain};
-  auto ui_root = graph.LoadRoot(ae::ObjId{root_id});
-  if (!ui_root) {
-    if (diagnostics) {
-      diagnostics->stage = InitialPublicationLoadStage::LoadRoot;
-      diagnostics->root_id = root_id;
-      for (std::uint32_t obj_id : unique_obj_ids) {
-        ae::DomainGraph probe{&ui_domain};
-        ae::Ptr<ae::Obj> probe_root;
-        if (probe.LoadRoot(ae::ObjId{obj_id}, probe_root).IsErr()) {
-          diagnostics->obj_id = obj_id;
-          ae::ClassList classes = ui_storage.Enumerate(ae::ObjId{obj_id});
-          if (!classes.empty()) {
-            diagnostics->class_id = classes.back();
-          }
-          break;
-        }
-      }
-    }
-    return false;
-  }
-  std::vector<std::uint32_t> load_order = unique_obj_ids;
-  std::sort(load_order.begin(), load_order.end());
-
-  for (int pass = 0; pass < 8; ++pass) {
-    for (std::uint32_t obj_id : load_order) {
-      ae::Ptr<ae::Obj> loaded;
-      if (graph.LoadRoot(ae::ObjId{obj_id}, loaded).IsErr() || !loaded) {
-        if (diagnostics) {
-          diagnostics->stage = InitialPublicationLoadStage::LoadExistingObject;
-          diagnostics->root_id = root_id;
-          diagnostics->obj_id = obj_id;
-        }
-        return false;
-      }
-      graph.EnsureStoredLayersLoaded(ae::ObjId{obj_id});
-    }
-    graph.FlushIncompleteStoredLayers();
-    int const pending = graph.HasIncompleteStoredLayers() ? 1 : 0;
-    if (!pending) {
-      break;
-    }
-  }
-  return true;
 }
 
 ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
@@ -1221,26 +1097,19 @@ ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain
     return {};
   }
 
-  if (!HydrateInjectedPublicationGraph(ui_domain, ui_storage, root_id,
-                                       unique_obj_ids, diagnostics)) {
+  // One LoadRoot builds every eagerly referenced object; ui_root owns the
+  // graph from here on, Domain only holds weak entries. Lazy refs stay unloaded.
+  ae::DomainGraph load_graph{&ui_domain};
+  ae::Ptr<ae::Obj> ui_root;
+  auto const load_result = load_graph.LoadRoot(ae::ObjId{root_id}, ui_root);
+  if (load_result.IsErr()) {
+    diagnostics->stage = InitialPublicationLoadStage::LoadRoot;
+    diagnostics->load_error_code = load_result.error().error_code;
+    RecordStorageLayers(ui_storage, ae::ObjId{root_id}, diagnostics);
     return {};
   }
 
   ApplyGraphPublicationNodeGenerations(payload, ui_domain);
-
-  ae::DomainGraph layer_graph{&ui_domain};
-  layer_graph.FlushIncompleteStoredLayers();
-  if (layer_graph.HasIncompleteStoredLayers()) {
-    diagnostics->stage = InitialPublicationLoadStage::MandatoryLayersPending;
-    return {};
-  }
-
-  ae::DomainGraph final_graph{&ui_domain};
-  auto ui_root = final_graph.LoadRoot(ae::ObjId{root_id});
-  if (!ui_root) {
-    diagnostics->stage = InitialPublicationLoadStage::FinalFindRoot;
-    return {};
-  }
 
   diagnostics->stage = InitialPublicationLoadStage::Ok;
   return ui_root;

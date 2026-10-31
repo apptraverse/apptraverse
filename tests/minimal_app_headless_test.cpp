@@ -544,6 +544,8 @@ void TestMinimalAppAuxiliaryCloseOpenHeadless() {
   MinimalApplication& model_app = *model_root;
   CHECK(!model_app.auxiliary_presented_open);
   CHECK(!ui_app.auxiliary_presented_open);
+  CHECK(!ui_app.auxiliary.window.is_loaded());
+  CHECK(!ui_app.domain->Find(example::minimal::MinimalAuxiliaryWindowId()));
 
   auto open = example::minimal::MinimalOpenAuxiliaryWindowEvent::ptr::Create(
       ae::CreateWith{model_domain});
@@ -554,11 +556,23 @@ void TestMinimalAppAuxiliaryCloseOpenHeadless() {
   CHECK(ui_app.auxiliary_presented_open);
   CHECK(AuxiliaryWindowTitleMirror(ui_app).Resolve(0) == "Detail Panel");
 
-  UiAuxiliaryRowListPresenter(ui_app).SubmitListRowSelectionChangedFromUi(1);
+  // Selection goes presenter -> ModelObjectProxy -> Event -> structural
+  // publication; the apply updates the existing mirror list and keeps the
+  // live presenter.
+  ui::UiListContainerPresenter* const aux_list_presenter =
+      &UiAuxiliaryRowListPresenter(ui_app);
+  ui::UiListContainer* const aux_list_mirror = &UiAuxiliaryRowList(ui_app);
+  CHECK(aux_list_presenter->presentation_loaded);
+  aux_list_presenter->SubmitListRowSelectionChangedFromUi(1);
+  CHECK(UiAuxiliaryRowList(ui_app).selection_index == -1);
   PumpModelWorkAndApplyStructural(deferred, model_domain, model_app,
                                   ui_session);
   CHECK(ModelAuxiliaryRowList(model_app).selection_index == 1);
-  CHECK(UiAuxiliaryRowList(ui_app).selection_index == 1);
+  CHECK(UiAuxiliaryRowList(ui_app).selection_index ==
+        ModelAuxiliaryRowList(model_app).selection_index);
+  CHECK(&UiAuxiliaryRowList(ui_app) == aux_list_mirror);
+  CHECK(&UiAuxiliaryRowListPresenter(ui_app) == aux_list_presenter);
+  CHECK(aux_list_presenter->presentation_loaded);
   CHECK(ModelRowList(model_app).selection_index == -1);
 
   UiApplyButtonPresenter(ui_app).SimulateClickForTest();
@@ -652,6 +666,32 @@ MinimalApplication::ptr BuildHeadlessGraphWithOpenerProbeLabel(
   return application;
 }
 
+ae::Obj const* AsObj(ae::Obj const& obj) { return &obj; }
+
+// row_list is referenced from the application, the apply button and the
+// opener; main window and its presenter reference each other.
+void CheckSharedRefsAndCycleIdentity(MinimalApplication& app) {
+  CHECK(app.row_list.is_loaded());
+  CHECK(app.apply_button.is_loaded());
+  CHECK(app.auxiliary_opener.is_loaded());
+  CHECK(app.apply_button->row_list.is_loaded());
+  CHECK(app.auxiliary_opener->row_list.is_loaded());
+  CHECK(AsObj(*app.apply_button->row_list) == AsObj(*app.row_list));
+  CHECK(AsObj(*app.auxiliary_opener->row_list) == AsObj(*app.row_list));
+
+  CHECK(app.main_window.is_loaded());
+  CHECK(app.main_window->presenter.is_loaded());
+  CHECK(app.main_window->presenter->window.is_loaded());
+  CHECK(AsObj(*app.main_window->presenter->window) ==
+        AsObj(*app.main_window));
+
+  CHECK(app.presenters.auxiliary_opener.is_loaded());
+  CHECK(app.presenters.auxiliary_opener->button.is_loaded());
+  CHECK(AsObj(*app.presenters.auxiliary_opener->button) ==
+        AsObj(*app.auxiliary_opener));
+  CHECK(app.auxiliary_opener->label.is_valid());
+}
+
 }  // namespace
 
 void TestMinimalAppProductionOpenerColdLoadInitialPublication() {
@@ -693,10 +733,18 @@ void TestMinimalAppProductionOpenerColdLoadInitialPublication() {
 
   CHECK(ui_root);
   auto& ui_app = static_cast<MinimalApplication&>(*ui_root);
+  CheckSharedRefsAndCycleIdentity(*model_root);
+  CheckSharedRefsAndCycleIdentity(ui_app);
   ui_app.presenters.auxiliary_opener->button->label.Load();
   CHECK(ui_app.presenters.auxiliary_opener->button->label);
   CHECK(ui_app.presenters.auxiliary_opener->button->label->Resolve(0) ==
         "Open Detail");
+
+  // The closed auxiliary window is a lazy ref: present in the mirror graph,
+  // not materialized by the initial load.
+  CHECK(ui_app.auxiliary.window.is_valid());
+  CHECK(!ui_app.auxiliary.window.is_loaded());
+  CHECK(!ui_domain.Find(example::minimal::MinimalAuxiliaryWindowId()));
 }
 
 void TestMinimalAppProductionOpenerInitialPublication() {

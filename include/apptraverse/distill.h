@@ -64,10 +64,6 @@ template <typename T>
 typename T::ptr LoadApplication(ae::Domain& domain, ae::ObjId id) {
   auto root = T::ptr::Declare(ae::CreateWith{domain}.with_id(id));
   root.Load();
-  {
-    ae::DomainGraph flush_graph{&domain};
-    flush_graph.FlushIncompleteStoredLayers();
-  }
   if (!root) {
     char buf[96];
     std::snprintf(buf, sizeof(buf), "fatal: LoadApplication failed id=%u\n",

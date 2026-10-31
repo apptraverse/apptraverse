@@ -1,0 +1,56 @@
+diff --git a/src/aether-objects/obj/domain.cpp b/src/aether-objects/obj/domain.cpp
+index 6dcefdd..7316084 100644
+--- a/src/aether-objects/obj/domain.cpp
++++ b/src/aether-objects/obj/domain.cpp
+@@ -53,6 +53,9 @@ seri::SeriResult DomainGraph::LoadRoot(ObjId obj_id, Ptr<Obj>& ptr) {
+     return Error{seri::read_error};
+   }
+ 
++  // Load marks belong to an instance: a previous instance with this id was
++  // released, so its marks must not skip layers of the new one.
++  cycle_detector.Remove(obj_id);
+   ptr = domain->ConstructObj(*factory, obj_id);
+   LoadStoredLayers(ptr, obj_id);
+   if (!ptr) {
+diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
+index 579ff7e..c3e7dff 100644
+--- a/src/aether-objects/obj/domain.h
++++ b/src/aether-objects/obj/domain.h
+@@ -78,6 +78,16 @@ struct DomainCycleDetector {
+     return ok;
+   }
+ 
++  void Remove(ObjId obj_id) {
++    for (auto it = visited_nodes.begin(); it != visited_nodes.end();) {
++      if (it->id == obj_id) {
++        it = visited_nodes.erase(it);
++      } else {
++        ++it;
++      }
++    }
++  }
++
+   std::set<Node> visited_nodes;
+ };
+ 
+diff --git a/src/aether-objects/obj/obj_ptr_base.cpp b/src/aether-objects/obj/obj_ptr_base.cpp
+index 2dfa684..224647a 100644
+--- a/src/aether-objects/obj/obj_ptr_base.cpp
++++ b/src/aether-objects/obj/obj_ptr_base.cpp
+@@ -160,12 +160,15 @@ SeriResult ObjPtrBaseSerializer::Deseri(Archive& archive,
+   meta.value.domain_ = archive.buffer().domain_graph->domain;
+   TRY_RESULT((archive.buffer().Read(DataTag{meta.value.id_})));
+   TRY_RESULT((archive.buffer().Read(DataTag{meta.value.flags_})));
+-  meta.value.cached_.Reset();
+   if (meta.value.is_valid() &&
+       (meta.value.flags_ & ObjFlags::kUnloadedByDefault) == 0 &&
+       (meta.value.flags_ & ObjFlags::kUnloaded) == 0) {
++    // cached_ keeps a live instance with this id alive through the lookup, so
++    // a re-read reference keeps identity instead of rebuilding the object.
+     TRY_RESULT(archive.buffer().domain_graph->LoadRoot(meta.value.id_,
+                                                        meta.value.cached_));
++  } else {
++    meta.value.cached_.Reset();
+   }
+   return Ok{seri::good};
+ }

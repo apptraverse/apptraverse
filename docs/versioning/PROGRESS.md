@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-10-31):** **P3.T3.A1R2 IN_PROGRESS** (§P3.T3.A1R2). **P3.T3.A1R1 PASS** (§P3.T3.A1R1). **P3.T3.A** / **P3** / **Android/P3** — **IN_PROGRESS**. **NEXT после A1R2 PASS:** **P3.T3.A2** — Android input (не начинать). **P3.T3.Web5R1 PASS**, **P3.T3.MinimalAppR1 PASS**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
+**Активный порядок (2026-10-31):** **P3.T3.A1R3 PASS** (§P3.T3.A1R3; заменяет механизм A1R2). **P3.T3.A1R1 PASS** (§P3.T3.A1R1). **P3.T3.A** / **P3** / **Android/P3** — **IN_PROGRESS**. **NEXT:** **P3.T3.A2** — Android input (не начинать). **P3.T3.Web5R1 PASS**, **P3.T3.MinimalAppR1 PASS**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -244,6 +244,32 @@
 
 ---
 
+<a id="p3t3a1r3--graph-load-architecture-2026-10-31-pass"></a>
+
+## P3.T3.A1R3 — Graph load architecture (2026-10-31) — PASS
+
+**Base (lease):** `23b6e8e66dc9a7c2da95fe065089e153868c8ac4` (**P3.T3.A1R2 IN_PROGRESS**). Контроль: `ad95a14`, `2342029`.
+
+**Старая проблема:** v6/v6r1/v6r2 добавляли в `Domain` очередь `pending_stored_layers` / `loading_root_ids`, завершение в деструкторе `LoadRootScope` после вычисления результата и 8-проходный `HydrateInjectedPublicationGraph`. Метки `cycle_detector` переживали освобождённый экземпляр с тем же ObjId (новый объект пропускал слои), а `Serializer<ObjPtr>` сбрасывал `cached_` до `LoadRoot`, поэтому повторное чтение ссылки пересоздавало живой объект. Под cdb подтверждён UB в v6 `CompletePendingStoredLayersFor` (итератор `unordered_map` через reentrant `LoadRoot`) — ~30% `0xC0000005` headless. v6r2 CPM фактически не применялся (patch cache по именам), поэтому FAIL @561 на v6r2 **не** атрибутирован.
+
+**Новый контракт:** один `DomainGraph::LoadRoot` строит весь eager граф (циклы разрешаются через `Find` на частично построенный экземпляр); корневой `ae::Ptr` владеет графом, `Domain` — только weak. Метки загрузки принадлежат экземпляру: `LoadRoot` перед `ConstructObj` снимает метки ObjId. Ошибка обязательного слоя — `LoadRoot` error → `InitialPublicationLoadStage::LoadRoot`, `root` пуст, presenters не создаются. Structural apply перечитывает слои в живые mirror-экземпляры (`LoadExistingObject` с проверкой каждого), identity presenters/controls сохраняется. Обычный Load держит `cached_` живого экземпляра → unsaved changes и identity сохраняются. Lazy prefab/closed окна не загружаются.
+
+**Заменено:** удалены `aether-objects-cold-load-root-flush-v6`, `-reset-object-load-state-v6r1`, `-deferred-load-completion-v6r2`; добавлен **`aether-objects-graph-load-instance-identity.patch`** (`DomainCycleDetector::Remove`, `cycle_detector.Remove(obj_id)` в `LoadRoot`, `cached_` reset только для lazy/invalid). Цепочка — **15 patches** списком `APPTRAVERSE_AETHER_OBJECTS_PATCH_NAMES` в `cmake/aether_version.cmake`; `verify-aether-patch-chain.sh` читает его же. App: удалены `HydrateInjectedPublicationGraph`, `FlushIncompleteStoredLayers` в `LoadApplication`, `MandatoryLayersPending` / `FinalFindRoot` / `LoadExistingObject` stages, `InitialPublicationPayloadRemoveLayer`, `FormatDomainStorageClasses`.
+
+**Тесты (в существующих):** `minimal_app_headless` — cold load: общие ссылки `row_list`, цикл window↔presenter, presenter→button identity, label; auxiliary lazy не загружен; auxiliary list selection presenter→proxy→Event→publication, mirror==model, identity presenter. `application_ui_session` — corrupt mandatory layer и отсутствующий обязательный объект отказывают до presenters. `checkpoint_load_rehydration` — saved → unsaved → повторный LoadRoot (identity + change).
+
+**Проверки (incremental Debug, `apptraverse-wt-web5`, 2026-10-31) — PASS:**
+- `verify-aether-patch-chain.sh` — 15 patches на pin `79283b6`; Win/WASM/Android CPM `aether-objects/2915` содержат `cycle_detector.Remove(obj_id)`, без `pending_stored_layers`.
+- Win (`win64-ninja-msvc-debug`): §W2 восемь (win_ui_command_routing, win_ui_native_push_button, win_application_host, minimal_app_win32_acceptance, window_catalog_win32_acceptance, minimal_app_headless, window_catalog_headless, ui_control_materialization), presenter_load_order, application_ui_session, application_model_runtime, application_contract_headless, checkpoint_load_cycle_persistence, checkpoint_load_rehydration, model_persistence, object_clone, object_origin_facet; CTest `apptraverse_object_origin_disk_roundtrip_test` + `apptraverse_object_origin_disk_matrix`. Повторы: minimal_app_headless 20/20, window_catalog_headless / checkpoint_load_rehydration / minimal_app_win32_acceptance 10/10. Сборки `win32_minimal_app`, `win32_minimal_app_load_only`.
+- WASM (`wasm-ninja-debug`): `wasm_minimal_app_browser_smoke.py` (8766), `wasm_web_presenter_lifecycle_test.py` (8770), `wasm_window_catalog_browser_smoke.py` (8785).
+- Android (`Aether_NDK_Smoke_x86_64`, Android 14, `connectedDebugAndroidTest` без clean): `ColdLoadLabelInstrumentedTest`, `InitialPublicationLabelInstrumentedTest`, `InitialUiInstrumentedTest` — 3/3.
+
+**Не прогонялось:** полный CTest, `win64-vs2022`.
+
+**NEXT:** **P3.T3.A2** — Android input (не начинать).
+
+---
+
 <a id="p3t3a1r2--deferred-load-completion-catalog-smoke-2026-10-31"></a>
 
 ## P3.T3.A1R2 — Deferred load completion + catalog smoke (2026-10-31) — IN_PROGRESS
@@ -372,7 +398,7 @@
 | **P3.2 (оставшееся)** — Web actions + persist | PLAN §P4 | **Перенесено в P4.C2/Web**; не DONE, не текущий NEXT |
 | **P3** — библиотечный template + controls, семь backend | PLAN §P3.T | **IN_PROGRESS**; прежние PASS не подтверждают новую цель |
 | **P3.T0** — границы и порядок template → catalog → admin | уточнение пользователя, 2026-10-28 | **DONE (doc-only)**; новых code PASS нет |
-| **P3.T1** — воспроизводимый Æther/WASM patch | §P3.T1 ниже | **PASS** — **14 baseline** + v6 + v6r1 + v6r2 = **16 patches** (§P3.T3.A1R2); nested Obj deseri no-op **только** `ae::Obj`; contract/ui_session + Win regressions + WASM smoke **PASS** (historical) |
+| **P3.T1** — воспроизводимый Æther/WASM patch | §P3.T1 ниже | **PASS** — **14 baseline** + graph-load-instance-identity = **15 patches** (§P3.T3.A1R3; v6/v6r1/v6r2 удалены); nested Obj deseri no-op **только** `ae::Obj`; contract/ui_session + Win regressions + WASM smoke **PASS** (historical) |
 | **P3.T2a** — MinimalApp common builder + Headless session E2E | §P3.T2a ниже | **PASS** |
 | **P3.T2b** — нейтральные Window/List/Button contracts | §P3.T2b ниже | **PASS** — `SetUiListSelectionEvent`; `apptraverse_ui_control_materialization_test` |
 | **P3.T2** — минимальный template scope (T2a+T2b) | PLAN §P3.T | **PASS** |
