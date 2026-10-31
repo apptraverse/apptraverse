@@ -1,6 +1,18 @@
+#include <cstring>
 #include <deque>
+#include <filesystem>
 #include <iostream>
 #include <vector>
+
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#ifdef RegisterClass
+#undef RegisterClass
+#endif
+#endif
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
@@ -488,13 +500,97 @@ void TestPresentedListRowPrimaryTextsMatchRowIndices() {
   CHECK(labels[1] == "Row B");
 }
 
+#ifdef _WIN32
+std::filesystem::path MaterializationTestExePath() {
+  wchar_t buf[MAX_PATH];
+  DWORD const n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
+  CHECK(n > 0 && n < MAX_PATH);
+  return std::filesystem::path(buf);
+}
+
+std::string ReadAllBytes(std::filesystem::path const& path) {
+  HANDLE file = CreateFileW(path.wstring().c_str(), GENERIC_READ,
+                            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  CHECK(file != INVALID_HANDLE_VALUE);
+  DWORD const size = GetFileSize(file, nullptr);
+  CHECK(size != INVALID_FILE_SIZE);
+  std::string out(size, '\0');
+  DWORD read = 0;
+  CHECK(ReadFile(file, out.data(), size, &read, nullptr) != 0);
+  CloseHandle(file);
+  out.resize(read);
+  return out;
+}
+
+void RunMaterializationChildExpectingFatal(char const* expected_substring) {
+  auto const err_path = std::filesystem::temp_directory_path() /
+                        "apptraverse_presented_list_row_fatal.stderr.txt";
+  std::error_code ec;
+  std::filesystem::remove(err_path, ec);
+
+  std::filesystem::path const exe = MaterializationTestExePath();
+  std::wstring cmd = L"\"" + exe.wstring() +
+                     L"\" missing_primary_text_fatal";
+  std::vector<wchar_t> cmd_buf(cmd.begin(), cmd.end());
+  cmd_buf.push_back(L'\0');
+
+  SECURITY_ATTRIBUTES sa{};
+  sa.nLength = sizeof(sa);
+  sa.bInheritHandle = TRUE;
+  HANDLE errf = CreateFileW(err_path.wstring().c_str(), GENERIC_WRITE,
+                            FILE_SHARE_READ, &sa, CREATE_ALWAYS,
+                            FILE_ATTRIBUTE_NORMAL, nullptr);
+  CHECK(errf != INVALID_HANDLE_VALUE);
+  HANDLE nul = CreateFileW(L"NUL", GENERIC_READ | GENERIC_WRITE,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE, &sa,
+                           OPEN_EXISTING, 0, nullptr);
+  CHECK(nul != INVALID_HANDLE_VALUE);
+
+  STARTUPINFOW si{};
+  si.cb = sizeof(si);
+  si.dwFlags = STARTF_USESTDHANDLES;
+  si.hStdInput = nul;
+  si.hStdOutput = nul;
+  si.hStdError = errf;
+  PROCESS_INFORMATION pi{};
+  BOOL const ok =
+      CreateProcessW(exe.wstring().c_str(), cmd_buf.data(), nullptr, nullptr,
+                     TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+  CloseHandle(errf);
+  CloseHandle(nul);
+  CHECK(ok);
+  CloseHandle(pi.hThread);
+  CHECK(WaitForSingleObject(pi.hProcess, 30000) == WAIT_OBJECT_0);
+  DWORD code = 1;
+  GetExitCodeProcess(pi.hProcess, &code);
+  CloseHandle(pi.hProcess);
+  CHECK(code != 0);
+  std::string const err = ReadAllBytes(err_path);
+  CHECK(err.find(expected_substring) != std::string::npos);
+}
+
+void RunMissingPrimaryTextFatalChildMode() {
+  EnsureObjectRegistration();
+  apptraverse::ui::EnsureUiPresenterRegistration();
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto unlabeled = UiListRow::ptr::Create(ae::CreateWith{domain});
+  (void)ResolvePresentedListRowPrimaryText(unlabeled, 0);
+}
+#endif
+
 void TestPresentedListRowMissingPrimaryTextRefusesPartialList() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto unlabeled = UiListRow::ptr::Create(ae::CreateWith{domain});
   CHECK(!unlabeled->primary_text.is_valid());
-  // ResolvePresentedListRowPrimaryText fatals here (no partial list); runtime
-  // death is not driven from this shared test executable.
+#ifdef _WIN32
+  RunMaterializationChildExpectingFatal(
+      "fatal: presented list row label: missing mandatory primary_text link");
+#else
+  (void)ResolvePresentedListRowPrimaryText;
+#endif
 }
 
 void TestPushButtonClickViaPresenter() {
@@ -527,8 +623,15 @@ void TestPushButtonClickViaPresenter() {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
   EnableNoninteractiveCrt();
+#ifdef _WIN32
+  if (argc >= 2 &&
+      std::strcmp(argv[1], "missing_primary_text_fatal") == 0) {
+    RunMissingPrimaryTextFatalChildMode();
+    return 1;
+  }
+#endif
   EnsureObjectRegistration();
   apptraverse::ui::EnsureUiPresenterRegistration();
   apptraverse::ui::EnsureExtendedUiPresenterRegistration();

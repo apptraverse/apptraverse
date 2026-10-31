@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-10-31):** **P3.T3.A2R1 IN_PROGRESS** (§P3.T3.A2R1; list row labels). **P3.T3.A2 PASS** (§P3.T3.A2). **P3.T3.A1R3 PASS** (§P3.T3.A1R3). **P3.T3.A1R1 PASS** (§P3.T3.A1R1). **P3.T3.A** / **P3** / **Android/P3** — **IN_PROGRESS**. **NEXT:** **P3.T3.A** — Android lifecycle/save (не начинать). **P3.T3.Web5R1 PASS**, **P3.T3.MinimalAppR1 PASS**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
+**Активный порядок (2026-10-31):** **P3.T3.A2R1 PASS** (§P3.T3.A2R1). **P3.T3.A2 PASS** (§P3.T3.A2). **P3.T3.A1R3 PASS** (§P3.T3.A1R3). **P3.T3.A1R1 PASS** (§P3.T3.A1R1). **P3.T3.A** / **P3** / **Android/P3** — **IN_PROGRESS**. **NEXT:** **P3.T3.A** — Android lifecycle/save (не начинать). **P3.T3.Web5R1 PASS**, **P3.T3.MinimalAppR1 PASS**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -244,7 +244,7 @@
 
 ---
 
-<a id="p3t3a2r1--presented-list-row-labels-2026-10-31"></a>
+<a id="p3t3a2r1--presented-list-row-labels-2026-10-31-pass"></a>
 
 ## P3.T3.A2R1 — Presented list row labels (2026-10-31) — IN_PROGRESS
 

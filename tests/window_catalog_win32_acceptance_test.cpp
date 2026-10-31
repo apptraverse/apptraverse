@@ -1431,9 +1431,17 @@ void RunLanguageAndFocusAcceptance() {
   }));
   CHECK(child2_reopened != child2_before);
 
+  // Second Open on an already-open holder sets pending_focus_window → publication
+  // → after_incremental ShowWindow(SW_RESTORE)+SetForegroundWindow. Must finish
+  // before the test minimizes, or a late SW_RESTORE undoes SW_MINIMIZE.
   ClickControl(main, kOpenControlId);
-  Sleep(100);
-  CHECK(FindTopLevelWithTitle(pi.dwProcessId, L"Window 2") == child2_reopened);
+  CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
+    return FindTopLevelWithTitle(pi.dwProcessId, L"Window 2") ==
+           child2_reopened;
+  }));
+  CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
+    return GetForegroundWindow() == child2_reopened;
+  }));
 
   ShowWindow(child2_reopened, SW_MINIMIZE);
   {
