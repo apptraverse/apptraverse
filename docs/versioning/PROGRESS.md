@@ -246,7 +246,7 @@
 
 <a id="p3t3a2r1--presented-list-row-labels-2026-10-31-pass"></a>
 
-## P3.T3.A2R1 — Presented list row labels (2026-10-31) — IN_PROGRESS
+## P3.T3.A2R1 — Presented list row labels (2026-10-31) — PASS
 
 **Base (lease):** `82006f4b3afb850464bd22e48d62477bf9c9440e` (**P3.T3.A2 PASS**).
 
@@ -256,7 +256,13 @@
 
 **Проверки (incremental Debug, 2026-10-31):** **PASS** — Headless (`minimal_app_headless`, `window_catalog_headless`, Object Core subset incl. `ui_control_materialization`), Android 4 instrumented, WASM (incremental build `web_minimal_app` + lifecycle + catalog smokes на HEAD). **Windows — не полный PASS:** `apptraverse_window_catalog_win32_acceptance_test` — **FAIL** @ iconic wait после `SW_MINIMIZE` (диагностика: `IsWindow=1`, `IsIconic=0`, `IsVisible=1`, `showCmd=1`; PID/HWND в stderr); один прогон §W2 batch дал **PASS** для того же exe — **наблюдение**, не объяснение FAIL. Остальные §W2 + `minimal_app_win32_acceptance` — **PASS**.
 
-**NEXT:** стабилизировать/диагностировать WindowCatalog win32 iconic wait (не начинать lifecycle/save).
+**Iconic FAIL — причина:** второй Open Window 2 → `after_incremental` `SW_RESTORE`/`SetForegroundWindow` (`window_catalog_main.cpp`) гонялся с тестовым `SW_MINIMIZE`. Fix test-only (`8fb0cf5`): wait `GetForegroundWindow()==child2` после второго Open.
+
+**Negative test (`8fb0cf5`):** subprocess `missing_primary_text_fatal` → fatal missing mandatory primary_text link.
+
+**Проверки завершения:** §W2 + Object Core **PASS** (acceptance ×3 после fix). Android/Web в `8fb0cf5` не перезапускались.
+
+**NEXT:** **P3.T3.A** — Android lifecycle/save (не начинать).
 
 ---
 
