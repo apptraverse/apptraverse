@@ -256,11 +256,13 @@
 
 **Проверки (incremental Debug, 2026-10-31):** **PASS** — Headless (`minimal_app_headless`, `window_catalog_headless`, Object Core subset incl. `ui_control_materialization`), Android 4 instrumented, WASM (incremental build `web_minimal_app` + lifecycle + catalog smokes на HEAD). **Windows — не полный PASS:** `apptraverse_window_catalog_win32_acceptance_test` — **FAIL** @ iconic wait после `SW_MINIMIZE` (диагностика: `IsWindow=1`, `IsIconic=0`, `IsVisible=1`, `showCmd=1`; PID/HWND в stderr); один прогон §W2 batch дал **PASS** для того же exe — **наблюдение**, не объяснение FAIL. Остальные §W2 + `minimal_app_win32_acceptance` — **PASS**.
 
-**Iconic FAIL — причина:** второй Open Window 2 → `after_incremental` `SW_RESTORE`/`SetForegroundWindow` (`window_catalog_main.cpp`) гонялся с тестовым `SW_MINIMIZE`. Fix test-only (`8fb0cf5`): wait `GetForegroundWindow()==child2` после второго Open.
+**Iconic FAIL (исходный):** гипотеза — гонка второго Open `after_incremental` (`SW_RESTORE`) с тестовым `SW_MINIMIZE`; **подтверждена только** при stderr `iconic_wait_failed` (`IsIconic=0`, `showCmd=1`). Повторные PASS (в т.ч. ×3 на `8fb0cf5`) — не доказательство причины.
 
-**Negative test (`8fb0cf5`):** subprocess `missing_primary_text_fatal` → fatal missing mandatory primary_text link.
+**Синхронизация второго Open:** foreground `== child2` **не** годится (после первого Open child2 уже foreground). Test-only счётчик `APPTRAVERSE_WC_FOCUS_APPLY_COUNT_FILE` в demo `after_incremental` (без env — no-op); acceptance ждёт count `1` → второй Open → count `2`, затем minimize / третий Open / restore.
 
-**Проверки завершения:** §W2 + Object Core **PASS** (acceptance ×3 после fix). Android/Web в `8fb0cf5` не перезапускались.
+**Negative test:** subprocess `missing_primary_text_fatal`.
+
+**Проверки (2026-10-31):** acceptance ×5 + `ui_control_materialization` после counter-sync; Android/Web не перезапускались (demo env-hook only).
 
 **NEXT:** **P3.T3.A** — Android lifecycle/save (не начинать).
 

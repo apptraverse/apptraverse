@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <string>
@@ -1391,8 +1392,24 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
   return state_dir;
 }
 
+unsigned long long ReadFocusApplyCount(
+    std::filesystem::path const& path) {
+  std::ifstream in(path);
+  unsigned long long count = 0;
+  in >> count;
+  return count;
+}
+
 void RunLanguageAndFocusAcceptance() {
   auto const state_dir = FreshStateDir("window_catalog_win32_lang_focus");
+  auto const focus_count_file = state_dir / "focus_apply_count.txt";
+  {
+    std::ofstream out(focus_count_file);
+    out << "0\n";
+  }
+  SetEnvironmentVariableW(L"APPTRAVERSE_WC_FOCUS_APPLY_COUNT_FILE",
+                          focus_count_file.wstring().c_str());
+
   auto const demo = DemoExe("win32_window_catalog_demo.exe");
   CHECK(std::filesystem::exists(demo));
 
@@ -1431,17 +1448,18 @@ void RunLanguageAndFocusAcceptance() {
   }));
   CHECK(child2_reopened != child2_before);
 
-  // Second Open on an already-open holder sets pending_focus_window → publication
-  // → after_incremental ShowWindow(SW_RESTORE)+SetForegroundWindow. Must finish
-  // before the test minimizes, or a late SW_RESTORE undoes SW_MINIMIZE.
+  // First Open already applied pending-focus (count==1). Foreground==child2 can
+  // be true before the second Open, so wait on test-only apply counter instead.
+  CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
+    return ReadFocusApplyCount(focus_count_file) >= 1;
+  }));
+  CHECK(ReadFocusApplyCount(focus_count_file) == 1);
+
   ClickControl(main, kOpenControlId);
   CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
-    return FindTopLevelWithTitle(pi.dwProcessId, L"Window 2") ==
-           child2_reopened;
+    return ReadFocusApplyCount(focus_count_file) >= 2;
   }));
-  CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
-    return GetForegroundWindow() == child2_reopened;
-  }));
+  CHECK(ReadFocusApplyCount(focus_count_file) == 2);
 
   ShowWindow(child2_reopened, SW_MINIMIZE);
   {
