@@ -17,6 +17,11 @@ ApplicationUiSession::ApplicationUiSession(
 
 ApplicationUiSession::~ApplicationUiSession() { UnloadPresenters(*root_); }
 
+void ApplicationUiSession::RemountPresentation() {
+  UnloadPresenters(*root_);
+  InitializePresenters(*root_, presentation_host_, &model_proxy_);
+}
+
 void ApplicationUiSession::ApplyStructural(
     std::vector<std::uint8_t> const& publication) {
   ByteSource in;

@@ -62,6 +62,9 @@ void AndroidApplicationHost::SetPresentationRoot(JNIEnv* env, jobject activity,
   if (callbacks_.refresh_presentation_host) {
     callbacks_.refresh_presentation_host(presentation_host_);
   }
+  if (ui_session_) {
+    ui_session_->RemountPresentation();
+  }
 }
 
 void AndroidApplicationHost::EnqueueModelWork(ModelObjectProxy::ModelWork work) {

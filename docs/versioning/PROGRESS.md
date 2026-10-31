@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-10-31):** **P3.T3.A1R3 PASS** (§P3.T3.A1R3; заменяет механизм A1R2). **P3.T3.A1R1 PASS** (§P3.T3.A1R1). **P3.T3.A** / **P3** / **Android/P3** — **IN_PROGRESS**. **NEXT:** **P3.T3.A2** — Android input (не начинать). **P3.T3.Web5R1 PASS**, **P3.T3.MinimalAppR1 PASS**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
+**Активный порядок (2026-10-31):** **P3.T3.A2 PASS** (§P3.T3.A2). **P3.T3.A1R3 PASS** (§P3.T3.A1R3). **P3.T3.A1R1 PASS** (§P3.T3.A1R1). **P3.T3.A** / **P3** / **Android/P3** — **IN_PROGRESS**. **NEXT:** **P3.T3.A** — Android lifecycle/save (не начинать). **P3.T3.Web5R1 PASS**, **P3.T3.MinimalAppR1 PASS**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -241,6 +241,28 @@
 **Проверки (incremental Debug, `apptraverse-wt-web5`):** Android **ColdLoadLabel**, **InitialPublicationLabel**, **InitialUi** instrumented **PASS**; §Web5 Win — §W2 восемь + `apptraverse_presenter_load_order_test`, `apptraverse_application_ui_session_test`, `apptraverse_application_model_runtime_test`, `apptraverse_application_contract_headless_test`, `apptraverse_minimal_app_headless_test` **PASS**; Object Core — `apptraverse_checkpoint_load_cycle_persistence_test`, `apptraverse_checkpoint_load_rehydration_test` (+ cached `Find` identity/unsaved locale), `apptraverse_model_persistence_test`, `apptraverse_object_clone_test`, `apptraverse_object_origin_facet_test`, CTest **`apptraverse_object_origin_disk_roundtrip_test`** **PASS**; `win32_minimal_app` / `win32_minimal_app_load_only` **build PASS**; WASM — `wasm_minimal_app_browser_smoke.py`, `wasm_web_presenter_lifecycle_test.py`, `wasm_window_catalog_browser_smoke.py` **PASS** (serve `8766` / `8770` / `8785`).
 
 **NEXT:** **P3.T3.A2** — Android input (не начинать).
+
+---
+
+<a id="p3t3a2--android-minimalapp-input-e2e-2026-10-31-pass"></a>
+
+## P3.T3.A2 — Android MinimalApp input E2E (2026-10-31) — PASS
+
+**Base (lease):** `9db1fcdc6a6bc2a24cbaefef626c9ac6754951d3` (**P3.T3.A1R3 PASS**).
+
+**Scope:** один E2E на `Aether_NDK_Smoke_x86_64` (Android 14): после initial publication — UiAutomator tap **Row B** → mirror selection; tap **Apply** → activity title **Applied**, Apply disabled, selection сброшен. Без прямой мутации model/mirror из Java/JNI и без второй publication-очереди.
+
+**Маршрут команды:** `View.OnClickListener` (UI thread) → JNI `nativeOnListSelection` / `nativeOnPushButtonClick` → `AndroidListContainerPresenter::HandleRowClickFromJava` / `AndroidPushButtonPresenter` → `UiListContainerPresenter::SubmitListRowSelectionChangedFromUi` / `UiPushButtonPresenter::NotifyClickedFromUi` → `ModelObjectProxy::Invoke` → model thread Event → incremental publication → `NativeUiBridge.onNativePublication` (main looper) → `ApplicationUiSession::ApplyStructural` → `OnModelChanged` → `SyncFromMirror` / `SyncTitleFromMirror`.
+
+**Исправление (library):** при повторном `SetPresentationRoot` (новый Activity/content root в том же процессе) presenters держали global refs на снятые views — `AndroidApplicationHost::SetPresentationRoot` вызывает `ApplicationUiSession::RemountPresentation()` (`UnloadPresenters` + `InitializePresenters`, те же presenter identities). Shell: `Theme.Material.Light` (action bar), чтобы `setActivityTitle` от window presenter был виден в UiAutomator.
+
+**Тест:** `ListApplyInputInstrumentedTest` + прежние ColdLoadLabel / InitialPublicationLabel / InitialUi — **4/4 PASS**.
+
+**Регрессии (incremental Debug, 2026-10-31):** §W2 восемь + presenter_load_order, application_ui_session, application_model_runtime, application_contract_headless, checkpoint cycle/rehydration, model_persistence, object_clone, object_origin_facet, origin disk roundtrip/matrix; WASM MinimalApp Web5R1 + presenter lifecycle + WindowCatalog smoke — **PASS**.
+
+**Не начиналось:** полный Android lifecycle/save, Linux/macOS/iOS.
+
+**NEXT:** **P3.T3.A** — Android lifecycle/save slice (не начинать).
 
 ---
 

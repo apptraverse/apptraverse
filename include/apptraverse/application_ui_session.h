@@ -24,6 +24,10 @@ class ApplicationUiSession {
 
   void ApplyStructural(std::vector<std::uint8_t> const& publication);
 
+  // Unload native views and rebuild them against the current presentation host
+  // (same UI mirror graph and presenter identities).
+  void RemountPresentation();
+
   ae::Obj& root();
   ae::Obj const& root() const;
 

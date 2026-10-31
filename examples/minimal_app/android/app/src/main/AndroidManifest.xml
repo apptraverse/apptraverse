@@ -6,7 +6,7 @@
       android:allowBackup="true"
       android:label="Minimal App"
       android:supportsRtl="true"
-      android:theme="@android:style/Theme.Material.Light.NoActionBar">
+      android:theme="@android:style/Theme.Material.Light">
 
     <activity
         android:name=".MainActivity"
