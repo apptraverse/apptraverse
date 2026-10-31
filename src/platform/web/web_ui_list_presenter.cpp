@@ -181,11 +181,8 @@ void WebListContainerPresenter::OnLoad() {
 
 void WebListContainerPresenter::SyncFromMirror() {
   int const language_index = window_presenter->locale->language_index();
-  std::vector<std::string> desired;
-  desired.reserve(container->rows.size());
-  for (auto const& row : container->rows) {
-    desired.push_back(row->primary_text->Resolve(language_index));
-  }
+  std::vector<std::string> const desired =
+      ResolvePresentedListRowPrimaryTexts(*container, language_index);
 
   applying_mirror_sync_ = true;
   int const dom_count = ApptraverseListRowCount(dom_refs_->list_element);

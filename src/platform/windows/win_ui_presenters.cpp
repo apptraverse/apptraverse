@@ -4,6 +4,7 @@
 #include "apptraverse/platform/windows/win_ui_frame.h"
 #include "apptraverse/platform/windows/win_ui_utf8.h"
 #include "apptraverse/platform/windows/win32_fatal.h"
+#include "apptraverse/ui/ui_list_container.h"
 #include "apptraverse/ui/ui_localization_string.h"
 
 namespace apptraverse::ui::windows {
@@ -402,14 +403,12 @@ void WinListContainerPresenter::SyncFromMirror() {
   if (window_presenter && window_presenter->locale) {
     language_index = window_presenter->locale->language_index();
   }
+  std::vector<std::string> const labels =
+      ResolvePresentedListRowPrimaryTexts(*container, language_index);
   std::vector<std::wstring> desired;
-  desired.reserve(container->rows.size());
-  for (auto const& row : container->rows) {
-    if (!row || !row->primary_text) {
-      continue;
-    }
-    desired.push_back(
-        Utf8ToWide(row->primary_text->Resolve(language_index)));
+  desired.reserve(labels.size());
+  for (std::string const& label : labels) {
+    desired.push_back(Utf8ToWide(label));
   }
 
   std::vector<std::wstring> const current = ReadListBoxStrings(hwnd_);

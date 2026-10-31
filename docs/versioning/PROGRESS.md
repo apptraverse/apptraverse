@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-10-31):** **P3.T3.A2 PASS** (§P3.T3.A2). **P3.T3.A1R3 PASS** (§P3.T3.A1R3). **P3.T3.A1R1 PASS** (§P3.T3.A1R1). **P3.T3.A** / **P3** / **Android/P3** — **IN_PROGRESS**. **NEXT:** **P3.T3.A** — Android lifecycle/save (не начинать). **P3.T3.Web5R1 PASS**, **P3.T3.MinimalAppR1 PASS**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
+**Активный порядок (2026-10-31):** **P3.T3.A2R1 IN_PROGRESS** (§P3.T3.A2R1; list row labels). **P3.T3.A2 PASS** (§P3.T3.A2). **P3.T3.A1R3 PASS** (§P3.T3.A1R3). **P3.T3.A1R1 PASS** (§P3.T3.A1R1). **P3.T3.A** / **P3** / **Android/P3** — **IN_PROGRESS**. **NEXT:** **P3.T3.A** — Android lifecycle/save (не начинать). **P3.T3.Web5R1 PASS**, **P3.T3.MinimalAppR1 PASS**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -241,6 +241,22 @@
 **Проверки (incremental Debug, `apptraverse-wt-web5`):** Android **ColdLoadLabel**, **InitialPublicationLabel**, **InitialUi** instrumented **PASS**; §Web5 Win — §W2 восемь + `apptraverse_presenter_load_order_test`, `apptraverse_application_ui_session_test`, `apptraverse_application_model_runtime_test`, `apptraverse_application_contract_headless_test`, `apptraverse_minimal_app_headless_test` **PASS**; Object Core — `apptraverse_checkpoint_load_cycle_persistence_test`, `apptraverse_checkpoint_load_rehydration_test` (+ cached `Find` identity/unsaved locale), `apptraverse_model_persistence_test`, `apptraverse_object_clone_test`, `apptraverse_object_origin_facet_test`, CTest **`apptraverse_object_origin_disk_roundtrip_test`** **PASS**; `win32_minimal_app` / `win32_minimal_app_load_only` **build PASS**; WASM — `wasm_minimal_app_browser_smoke.py`, `wasm_web_presenter_lifecycle_test.py`, `wasm_window_catalog_browser_smoke.py` **PASS** (serve `8766` / `8770` / `8785`).
 
 **NEXT:** **P3.T3.A2** — Android input (не начинать).
+
+---
+
+<a id="p3t3a2r1--presented-list-row-labels-2026-10-31"></a>
+
+## P3.T3.A2R1 — Presented list row labels (2026-10-31) — IN_PROGRESS
+
+**Base (lease):** `82006f4b3afb850464bd22e48d62477bf9c9440e` (**P3.T3.A2 PASS**).
+
+**Граница materialization:** для **presented visible list** (`SyncFromMirror` / native row bind) каждая запись `container->rows` обязана иметь `primary_text`, доступный через `Load()` на UI mirror (`ResolvePresentedListRowPrimaryText` / `ResolvePresentedListRowPrimaryTexts` в `ui_list_container`). Valid-but-unloaded `ObjPtr` не ошибка до `Load()`; `Declare`/recovery по ObjId убраны. Lazy/closed окна вне этой границы (headless auxiliary lazy — без изменений).
+
+**Изменено:** Android/Win/Web list presenters вызывают общий resolver; удалены Android `Declare`+`continue` и Win silent `continue`. Тесты: `ui_control_materialization_test` — две строки сохраняют текст и индекс; precondition для missing link.
+
+**Проверки (incremental Debug, 2026-10-31):** **PASS** — Headless (`minimal_app_headless`, `window_catalog_headless`, Object Core subset incl. `ui_control_materialization`), Android 4 instrumented, WASM (incremental build `web_minimal_app` + lifecycle + catalog smokes на HEAD). **Windows — не полный PASS:** `apptraverse_window_catalog_win32_acceptance_test` — **FAIL** @ iconic wait после `SW_MINIMIZE` (диагностика: `IsWindow=1`, `IsIconic=0`, `IsVisible=1`, `showCmd=1`; PID/HWND в stderr); один прогон §W2 batch дал **PASS** для того же exe — **наблюдение**, не объяснение FAIL. Остальные §W2 + `minimal_app_win32_acceptance` — **PASS**.
+
+**NEXT:** стабилизировать/диагностировать WindowCatalog win32 iconic wait (не начинать lifecycle/save).
 
 ---
 

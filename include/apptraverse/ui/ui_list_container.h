@@ -82,6 +82,15 @@ class UiListContainer : public NodeFor<UiListContainer> {
   virtual void HandleListRowSelectionChanged(std::size_t row_index);
 };
 
+// Visible list sync boundary: each row in container->rows for a presented list
+// must resolve primary_text via Load() on the UI mirror (no ObjId recovery).
+// Invalid link or unavailable mandatory label is fatal.
+std::string ResolvePresentedListRowPrimaryText(UiListRow::ptr const& row,
+                                               int language_index);
+
+std::vector<std::string> ResolvePresentedListRowPrimaryTexts(
+    UiListContainer const& container, int language_index);
+
 class SetUiListSelectionEvent
     : public EventFor<UiListContainer, SetUiListSelectionEvent> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::SetUiListSelectionEvent",

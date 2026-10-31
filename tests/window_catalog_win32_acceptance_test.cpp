@@ -1436,9 +1436,25 @@ void RunLanguageAndFocusAcceptance() {
   CHECK(FindTopLevelWithTitle(pi.dwProcessId, L"Window 2") == child2_reopened);
 
   ShowWindow(child2_reopened, SW_MINIMIZE);
-  CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
-    return IsIconic(child2_reopened);
-  }));
+  {
+    bool const iconic = WaitUntil(std::chrono::seconds{5}, [&] {
+      return IsIconic(child2_reopened);
+    });
+    if (!iconic) {
+      WINDOWPLACEMENT placement{};
+      placement.length = sizeof(placement);
+      if (IsWindow(child2_reopened)) {
+        GetWindowPlacement(child2_reopened, &placement);
+      }
+      std::cerr << "iconic_wait_failed pid=" << pi.dwProcessId
+                << " hwnd=" << static_cast<void*>(child2_reopened)
+                << " IsWindow=" << IsWindow(child2_reopened)
+                << " IsIconic=" << IsIconic(child2_reopened)
+                << " IsVisible=" << IsWindowVisible(child2_reopened)
+                << " showCmd=" << placement.showCmd << '\n';
+    }
+    CHECK(iconic);
+  }
   SelectListIndex(main, 1);
   ClickControl(main, kOpenControlId);
   CHECK(WaitUntil(std::chrono::seconds{5}, [&] {

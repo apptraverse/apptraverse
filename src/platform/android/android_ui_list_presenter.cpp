@@ -72,27 +72,10 @@ void AndroidListContainerPresenter::SyncFromMirror() {
       "(Landroid/widget/LinearLayout;ILjava/lang/String;ZJ)V");
   int const language_index = window_presenter->locale->language_index();
   int const selection = container->selection_index;
-  for (std::size_t i = 0; i < container->rows.size(); ++i) {
-    auto const& row = container->rows[i];
-    row.Load();
-    ui::UiLocalizationString const* row_label = nullptr;
-    if (row->primary_text.is_valid()) {
-      row->primary_text.Load();
-      if (row->primary_text) {
-        row_label = row->primary_text.operator->();
-      } else {
-        auto label_ref = ui::UiLocalizationString::ptr::Declare(
-            ae::CreateWith{*row->domain}.with_id(row->primary_text.id()));
-        label_ref.Load();
-        if (label_ref) {
-          row_label = label_ref.operator->();
-        }
-      }
-    }
-    if (row_label == nullptr) {
-      continue;
-    }
-    std::string label = row_label->Resolve(language_index);
+  std::vector<std::string> const labels =
+      ResolvePresentedListRowPrimaryTexts(*container, language_index);
+  for (std::size_t i = 0; i < labels.size(); ++i) {
+    std::string const& label = labels[i];
     jstring jlabel = Utf8ToJstring(env, label.c_str());
     env->CallStaticVoidMethod(
         ui_class, bind_row, view_refs_->list, static_cast<jint>(i), jlabel,

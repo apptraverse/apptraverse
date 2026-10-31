@@ -1,8 +1,49 @@
 #include "apptraverse/ui/ui_list_container.h"
 
 #include <algorithm>
+#include <cstdio>
+
+#include "apptraverse/noninteractive_crt.h"
 
 namespace apptraverse::ui {
+
+namespace {
+
+[[noreturn]] void FatalPresentedListRowLabel(char const* reason) {
+  char message[192];
+  std::snprintf(message, sizeof(message),
+                "fatal: presented list row label: %s\n", reason);
+  WriteFatalStderr(message);
+  std::abort();
+}
+
+}  // namespace
+
+std::string ResolvePresentedListRowPrimaryText(UiListRow::ptr const& row,
+                                               int language_index) {
+  row.Load();
+  if (!row) {
+    FatalPresentedListRowLabel("row missing from UI mirror");
+  }
+  if (!row->primary_text.is_valid()) {
+    FatalPresentedListRowLabel("missing mandatory primary_text link");
+  }
+  row->primary_text.Load();
+  if (!row->primary_text) {
+    FatalPresentedListRowLabel("primary_text not available in UI mirror");
+  }
+  return row->primary_text->Resolve(language_index);
+}
+
+std::vector<std::string> ResolvePresentedListRowPrimaryTexts(
+    UiListContainer const& container, int language_index) {
+  std::vector<std::string> labels;
+  labels.reserve(container.rows.size());
+  for (auto const& row : container.rows) {
+    labels.push_back(ResolvePresentedListRowPrimaryText(row, language_index));
+  }
+  return labels;
+}
 
 void UiListContainer::SubmitListRowActivatedFromUi(std::size_t row_index) {
   HandleListRowActivated(row_index);

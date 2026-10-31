@@ -448,6 +448,55 @@ void TestListSelectionViaPresenterProxy() {
   list->ClearMaterializedChangeNotifier();
 }
 
+ui::UiLocalizationString::ptr MakeRowLabel(ae::Domain& domain,
+                                           char const* utf8) {
+  auto label = ui::UiLocalizationString::ptr::Create(ae::CreateWith{domain});
+  auto str = ui::UiString::ptr::Create(ae::CreateWith{domain});
+  str->utf8 = utf8;
+  label->strings = {str};
+  return label;
+}
+
+void TestPresentedListRowPrimaryTextsMatchRowIndices() {
+  ae::RamDomainStorage model_storage;
+  ae::Domain model_domain{model_storage};
+  auto list = UiListContainer::ptr::Create(ae::CreateWith{model_domain});
+  list->selection_index = -1;
+  auto row0 = UiListRow::ptr::Create(ae::CreateWith{model_domain});
+  auto row1 = UiListRow::ptr::Create(ae::CreateWith{model_domain});
+  row0->primary_text = MakeRowLabel(model_domain, "Row A");
+  row1->primary_text = MakeRowLabel(model_domain, "Row B");
+  list->rows = {row0, row1};
+
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  ByteSink initial;
+  SerializeInitialPublication(*list, initial);
+  ByteSource initial_in;
+  initial_in.data = initial.bytes.data();
+  initial_in.size = initial.bytes.size();
+  auto ui_obj = LoadInitialPublication(initial_in, ui_domain, ui_storage);
+  CHECK(ui_obj);
+  auto ui_list = UiListContainer::ptr::MakeFromThis(
+      static_cast<UiListContainer*>(ui_obj.get()));
+  CHECK(ui_list->rows.size() == 2);
+
+  std::vector<std::string> const labels =
+      ResolvePresentedListRowPrimaryTexts(*ui_list, 0);
+  CHECK(labels.size() == ui_list->rows.size());
+  CHECK(labels[0] == "Row A");
+  CHECK(labels[1] == "Row B");
+}
+
+void TestPresentedListRowMissingPrimaryTextRefusesPartialList() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto unlabeled = UiListRow::ptr::Create(ae::CreateWith{domain});
+  CHECK(!unlabeled->primary_text.is_valid());
+  // ResolvePresentedListRowPrimaryText fatals here (no partial list); runtime
+  // death is not driven from this shared test executable.
+}
+
 void TestPushButtonClickViaPresenter() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
@@ -490,5 +539,7 @@ int main() {
   TestLocalizationLazyInitialPublication();
   TestPushButtonClickViaPresenter();
   TestListSelectionViaPresenterProxy();
+  TestPresentedListRowPrimaryTextsMatchRowIndices();
+  TestPresentedListRowMissingPrimaryTextRefusesPartialList();
   return 0;
 }
