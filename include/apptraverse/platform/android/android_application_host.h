@@ -39,6 +39,10 @@ class AndroidApplicationHost {
   void StartModelThread();
   void ConsumePublication(ApplicationPublicationKind kind);
 
+  // Ends the model session (RequestStop) so shutdown persist runs on the model
+  // thread; completion is reported on the main looper.
+  void RequestBackgroundSave();
+
   ApplicationUiSession* ui_session() {
     return ui_session_ ? &*ui_session_ : nullptr;
   }
@@ -52,6 +56,11 @@ class AndroidApplicationHost {
   void HandlePublicationOnMainThread(ApplicationPublicationKind kind);
   void EnqueueModelWork(ModelObjectProxy::ModelWork work);
 
+  enum class SaveState : std::uint8_t {
+    kIdle,
+    kSaving,
+  };
+
   ApplicationModelRuntime& runtime_;
   ui::android::AndroidPresentationHost& presentation_host_;
   AndroidUiBridge ui_bridge_;
@@ -60,6 +69,7 @@ class AndroidApplicationHost {
   std::optional<ApplicationUiSession> ui_session_;
   pthread_t model_thread_{};
   bool model_thread_live_{false};
+  std::atomic<SaveState> save_state_{SaveState::kIdle};
 };
 
 }  // namespace apptraverse::android

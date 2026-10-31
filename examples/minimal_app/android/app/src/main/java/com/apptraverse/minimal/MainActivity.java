@@ -10,8 +10,6 @@ import android.widget.FrameLayout;
 public final class MainActivity extends Activity {
 
   private static final String TAG = "AppTraverseMinimal";
-  private static boolean modelStarted;
-
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
@@ -23,6 +21,10 @@ public final class MainActivity extends Activity {
     setContentView(contentRoot);
 
     MinimalAppApplication app = (MinimalAppApplication) getApplication();
+    String stateSubdir =
+        getIntent().getStringExtra(MinimalAppStateDirs.INTENT_EXTRA_STATE_SUBDIR);
+    app.ensureNativeRuntime(stateSubdir);
+
     if (app.runtimeHandle() == 0L) {
       Log.e(TAG, "Runtime missing");
       return;
@@ -31,9 +33,17 @@ public final class MainActivity extends Activity {
     NativeRuntime.nativeSetPresentationRoot(
         app.runtimeHandle(), this, contentRoot);
 
-    if (!modelStarted) {
-      modelStarted = true;
-      app.startModelOnce();
+    app.startModelOnce();
+  }
+
+  @Override
+  protected void onStop() {
+    super.onStop();
+    if (getIntent().getBooleanExtra(MinimalAppStateDirs.INTENT_EXTRA_SKIP_CHECKPOINT_SAVE,
+        false)) {
+      return;
     }
+    MinimalAppApplication app = (MinimalAppApplication) getApplication();
+    app.requestBackgroundSave();
   }
 }

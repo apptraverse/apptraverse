@@ -25,6 +25,7 @@ class MinimalNativeRuntime {
   void SetPresentationRoot(JNIEnv* env, jobject activity, jobject content_root);
   void StartModelThread();
   void ConsumePublication(int kind);
+  void RequestBackgroundSave();
 
  private:
   std::filesystem::path state_dir_;

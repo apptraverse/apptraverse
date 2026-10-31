@@ -8,6 +8,8 @@ public final class NativeUiBridge {
 
   interface Host {
     void consumePublication(int kind);
+
+    void onBackgroundSaveFinished(int persistResult);
   }
 
   private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -15,6 +17,18 @@ public final class NativeUiBridge {
 
   void attachHost(Host newHost) {
     host = newHost;
+  }
+
+  /** Called from the model thread. */
+  void onNativeBackgroundSaveFinished(final int persistResult) {
+    mainHandler.post(new Runnable() {
+      @Override
+      public void run() {
+        if (host != null) {
+          host.onBackgroundSaveFinished(persistResult);
+        }
+      }
+    });
   }
 
   /** Called from the model thread. */

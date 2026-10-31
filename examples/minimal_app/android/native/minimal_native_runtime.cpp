@@ -39,4 +39,11 @@ void MinimalNativeRuntime::ConsumePublication(int kind) {
                                        : ApplicationPublicationKind::Incremental);
 }
 
+void MinimalNativeRuntime::RequestBackgroundSave() {
+  if (!host_) {
+    return;
+  }
+  host_->RequestBackgroundSave();
+}
+
 }  // namespace apptraverse::example::minimal

@@ -72,4 +72,16 @@ int PersistMinimalApplication(MinimalApplication& application,
   return 0;
 }
 
+int PersistMinimalApplicationFromDomain(ae::Domain& domain,
+                                        std::filesystem::path const& state_dir) {
+  ae::Ptr<ae::Obj> const held = domain.Find(MinimalApplicationRootId());
+  if (!held) {
+    WriteFatalStderr("fatal: MinimalApplication missing from model domain\n");
+    return 1;
+  }
+  auto& application = static_cast<MinimalApplication&>(*held);
+  DirectoryDomainStorage storage{state_dir};
+  return PersistMinimalApplication(application, storage);
+}
+
 }  // namespace apptraverse::example::minimal

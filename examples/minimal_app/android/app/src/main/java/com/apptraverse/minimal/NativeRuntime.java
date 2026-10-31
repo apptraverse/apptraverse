@@ -5,7 +5,8 @@ public final class NativeRuntime {
 
   private NativeRuntime() {}
 
-  static native long nativeCreate(String filesDir, NativeUiBridge uiBridge);
+  static native long nativeCreate(
+      String filesDir, String stateSubdir, NativeUiBridge uiBridge);
 
   static native void nativeSetPresentationRoot(
       long handle, android.app.Activity activity, android.view.ViewGroup contentRoot);
@@ -14,9 +15,13 @@ public final class NativeRuntime {
 
   static native void nativeConsumePublication(long handle, int kind);
 
+  static native void nativeRequestBackgroundSave(long handle);
+
   static native void nativeDestroy(long handle);
 
   /** A1R1: distill → cold LoadApplication label probe (no UI presenters). */
+  static native String nativeRunColdReloadApplyStateProbe(String profileDir);
+
   static native String nativeRunColdLoadLabelProbe(String profileDir);
 
   static native String nativeRunInitialPublicationLabelProbe(String profileDir);

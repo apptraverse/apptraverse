@@ -19,6 +19,7 @@
 #include "minimal_application.h"
 #include "minimal_app_android_cold_load_probe.h"
 #include "minimal_app_android_initial_publication_probe.h"
+#include "minimal_app_android_cold_reload_apply_probe.h"
 #include "minimal_native_runtime.h"
 
 namespace apptraverse::example::minimal {
@@ -31,7 +32,8 @@ MinimalNativeRuntime* FromHandle(jlong handle) {
   return reinterpret_cast<MinimalNativeRuntime*>(handle);
 }
 
-jlong NativeCreate(JNIEnv* env, jclass, jstring files_dir, jobject ui_bridge) {
+jlong NativeCreate(JNIEnv* env, jclass, jstring files_dir, jstring state_subdir,
+                   jobject ui_bridge) {
   EnsureObjectRegistration();
   ui::EnsureUiPresenterRegistration();
   ui::android::EnsureAndroidUiPresenterRegistration();
@@ -42,10 +44,11 @@ jlong NativeCreate(JNIEnv* env, jclass, jstring files_dir, jobject ui_bridge) {
     return 0;
   }
 
-  char const* chars = env->GetStringUTFChars(files_dir, nullptr);
-  auto state_dir =
-      std::filesystem::path{chars} / "minimal_app_android_state";
-  env->ReleaseStringUTFChars(files_dir, chars);
+  char const* files_chars = env->GetStringUTFChars(files_dir, nullptr);
+  char const* sub_chars = env->GetStringUTFChars(state_subdir, nullptr);
+  auto state_dir = std::filesystem::path{files_chars} / sub_chars;
+  env->ReleaseStringUTFChars(files_dir, files_chars);
+  env->ReleaseStringUTFChars(state_subdir, sub_chars);
 
   auto* runtime = new MinimalNativeRuntime(std::move(state_dir), std::move(bridge));
   return reinterpret_cast<jlong>(runtime);
@@ -64,6 +67,10 @@ void NativeConsumePublication(JNIEnv*, jclass, jlong handle, jint kind) {
   FromHandle(handle)->ConsumePublication(static_cast<int>(kind));
 }
 
+void NativeRequestBackgroundSave(JNIEnv*, jclass, jlong handle) {
+  FromHandle(handle)->RequestBackgroundSave();
+}
+
 void NativeDestroy(JNIEnv*, jclass, jlong handle) { delete FromHandle(handle); }
 
 jstring NativeRunInitialPublicationLabelProbe(JNIEnv* env, jclass,
@@ -80,6 +87,22 @@ jstring NativeRunInitialPublicationLabelProbe(JNIEnv* env, jclass,
   return env->NewStringUTF(out.c_str());
 }
 
+jstring NativeRunColdReloadApplyStateProbe(JNIEnv* env, jclass,
+                                           jstring profile_dir) {
+  EnsureObjectRegistration();
+  EnsureMinimalApplicationRegistration();
+  char const* chars = env->GetStringUTFChars(profile_dir, nullptr);
+  auto const dir = std::filesystem::path{chars};
+  env->ReleaseStringUTFChars(profile_dir, chars);
+  AndroidColdReloadApplyProbeResult const probe =
+      RunAndroidColdReloadApplyStateProbe(dir);
+  std::string const out =
+      probe.ok ? std::string{"OK:"} + probe.title
+               : std::string{"FAIL:"} + std::string{probe.detail} + ":sel=" +
+                     std::to_string(probe.selection_index);
+  return env->NewStringUTF(out.c_str());
+}
+
 jstring NativeRunColdLoadLabelProbe(JNIEnv* env, jclass, jstring profile_dir) {
   EnsureMinimalApplicationRegistration();
   char const* chars = env->GetStringUTFChars(profile_dir, nullptr);
@@ -93,16 +116,21 @@ jstring NativeRunColdLoadLabelProbe(JNIEnv* env, jclass, jstring profile_dir) {
 }
 
 JNINativeMethod const kNativeMethods[] = {
-    {"nativeCreate", "(Ljava/lang/String;Lcom/apptraverse/minimal/NativeUiBridge;)J",
+    {"nativeCreate",
+     "(Ljava/lang/String;Ljava/lang/String;Lcom/apptraverse/minimal/NativeUiBridge;)J",
      reinterpret_cast<void*>(&NativeCreate)},
     {"nativeSetPresentationRoot", "(JLandroid/app/Activity;Landroid/view/ViewGroup;)V",
      reinterpret_cast<void*>(&NativeSetPresentationRoot)},
     {"nativeStartModel", "(J)V", reinterpret_cast<void*>(&NativeStartModel)},
     {"nativeConsumePublication", "(JI)V",
      reinterpret_cast<void*>(&NativeConsumePublication)},
+    {"nativeRequestBackgroundSave", "(J)V",
+     reinterpret_cast<void*>(&NativeRequestBackgroundSave)},
     {"nativeDestroy", "(J)V", reinterpret_cast<void*>(&NativeDestroy)},
     {"nativeRunColdLoadLabelProbe", "(Ljava/lang/String;)Ljava/lang/String;",
      reinterpret_cast<void*>(&NativeRunColdLoadLabelProbe)},
+    {"nativeRunColdReloadApplyStateProbe", "(Ljava/lang/String;)Ljava/lang/String;",
+     reinterpret_cast<void*>(&NativeRunColdReloadApplyStateProbe)},
     {"nativeRunInitialPublicationLabelProbe", "(Ljava/lang/String;)Ljava/lang/String;",
      reinterpret_cast<void*>(&NativeRunInitialPublicationLabelProbe)},
 };

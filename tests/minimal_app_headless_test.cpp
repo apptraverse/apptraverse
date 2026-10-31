@@ -879,6 +879,45 @@ void TestMinimalAppOpenerLabelInInitialPublication() {
         kOpenerProbeLabel);
 }
 
+void TestMinimalAppApplyCheckpointPersistColdLoad() {
+  EnsureObjectRegistration();
+  EnsureHeadlessMinimalApplicationGraphRegistration();
+
+  std::filesystem::path const profile_dir =
+      std::filesystem::temp_directory_path() /
+      "minimal_app_apply_checkpoint_persist_test";
+  std::error_code ec;
+  std::filesystem::remove_all(profile_dir, ec);
+
+  {
+    DirectoryDomainStorage storage{profile_dir};
+    ae::Domain domain{storage};
+    auto application = BuildHeadlessMinimalApplicationGraph(domain);
+    PrepareMinimalApplicationForRun(*application);
+    ModelRowList(*application).HandleListRowSelectionChanged(1);
+    application->apply_button.Load();
+    static_cast<example::minimal::MinimalApplyButton&>(*application->apply_button)
+        .HandlePushButtonClicked();
+    CHECK(ModelRowList(*application).selection_index == -1);
+    CHECK(WindowTitleMirror(*application).Resolve(0) == "Applied");
+    CHECK(!application->apply_button->enabled());
+    CHECK(example::minimal::PersistMinimalApplication(*application, storage) == 0);
+  }
+
+  {
+    DirectoryDomainStorage storage{profile_dir};
+    ae::Domain domain{storage};
+    auto application = LoadApplication<example::minimal::MinimalApplication>(
+        domain, example::minimal::MinimalApplicationRootId());
+    application->row_list.Load();
+    application->apply_button.Load();
+    application->row_list->window_title.Load();
+    CHECK(application->row_list->selection_index == -1);
+    CHECK(!application->apply_button->enabled());
+    CHECK(application->row_list->window_title->Resolve(0) == "Applied");
+  }
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -890,6 +929,7 @@ int main() {
   apptraverse::test::TestMinimalAppOpenerLabelInInitialPublication();
   apptraverse::test::TestMinimalAppHeadlessSessionE2e();
   apptraverse::test::TestMinimalAppHeadlessUiCommandE2e();
+  apptraverse::test::TestMinimalAppApplyCheckpointPersistColdLoad();
   apptraverse::test::TestMinimalAppAuxiliaryPersistColdLoad();
   apptraverse::test::TestMinimalAppAuxiliaryCloseOpenHeadless();
   std::cout << "minimal_app_headless_test OK\n";

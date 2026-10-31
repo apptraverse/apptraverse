@@ -79,7 +79,12 @@ ApplicationPublishedCallback AndroidApplicationHost::ModelThreadPublicationBridg
 }
 
 void AndroidApplicationHost::RunModelWorkerThread() {
-  (void)callbacks_.run_model(ModelThreadPublicationBridge());
+  int const session_result = callbacks_.run_model(ModelThreadPublicationBridge());
+  if (save_state_.load(std::memory_order_acquire) == SaveState::kSaving) {
+    ui_bridge_.PostBackgroundSaveFinished(session_result);
+    save_state_.store(SaveState::kIdle, std::memory_order_release);
+  }
+  model_thread_live_ = false;
   LogInfo("MINIMAL_APP_ANDROID_MODEL_THREAD_EXIT");
 }
 
@@ -128,6 +133,18 @@ void AndroidApplicationHost::HandlePublicationOnMainThread(
 
 void AndroidApplicationHost::ConsumePublication(ApplicationPublicationKind kind) {
   HandlePublicationOnMainThread(kind);
+}
+
+void AndroidApplicationHost::RequestBackgroundSave() {
+  if (!model_thread_live_) {
+    return;
+  }
+  SaveState expected = SaveState::kIdle;
+  if (!save_state_.compare_exchange_strong(expected, SaveState::kSaving,
+                                           std::memory_order_acq_rel)) {
+    return;
+  }
+  runtime_.RequestStop();
 }
 
 }  // namespace apptraverse::android

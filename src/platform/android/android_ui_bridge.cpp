@@ -6,11 +6,13 @@ namespace apptraverse::android {
 
 AndroidUiBridge::AndroidUiBridge(JavaVM* vm, jobject global_object,
                                  jclass global_class,
-                                 jmethodID on_publication)
+                                 jmethodID on_publication,
+                                 jmethodID on_background_save_finished)
     : vm_{vm},
       object_{global_object},
       class_{global_class},
-      on_publication_{on_publication} {}
+      on_publication_{on_publication},
+      on_background_save_finished_{on_background_save_finished} {}
 
 AndroidUiBridge::~AndroidUiBridge() { Reset(); }
 
@@ -18,7 +20,8 @@ AndroidUiBridge::AndroidUiBridge(AndroidUiBridge&& other) noexcept
     : vm_{other.vm_},
       object_{other.object_},
       class_{other.class_},
-      on_publication_{other.on_publication_} {
+      on_publication_{other.on_publication_},
+      on_background_save_finished_{other.on_background_save_finished_} {
   other.vm_ = nullptr;
   other.object_ = nullptr;
   other.class_ = nullptr;
@@ -31,6 +34,7 @@ AndroidUiBridge& AndroidUiBridge::operator=(AndroidUiBridge&& other) noexcept {
     object_ = other.object_;
     class_ = other.class_;
     on_publication_ = other.on_publication_;
+    on_background_save_finished_ = other.on_background_save_finished_;
     other.vm_ = nullptr;
     other.object_ = nullptr;
     other.class_ = nullptr;
@@ -77,6 +81,24 @@ JNIEnv* AndroidUiBridge::AttachedEnv() const {
   return nullptr;
 }
 
+void AndroidUiBridge::PostBackgroundSaveFinished(int persist_result) const {
+  if (on_background_save_finished_ == nullptr) {
+    return;
+  }
+  JNIEnv* env = AttachedEnv();
+  if (env == nullptr) {
+    LogError("AndroidUiBridge: failed to attach JNIEnv for background save");
+    return;
+  }
+  env->CallVoidMethod(object_, on_background_save_finished_,
+                      static_cast<jint>(persist_result));
+  if (env->ExceptionCheck()) {
+    env->ExceptionDescribe();
+    env->ExceptionClear();
+    LogError("AndroidUiBridge: onNativeBackgroundSaveFinished threw");
+  }
+}
+
 void AndroidUiBridge::PostPublication(int kind) const {
   JNIEnv* env = AttachedEnv();
   if (env == nullptr) {
@@ -115,6 +137,15 @@ AndroidUiBridge MakeAndroidUiBridge(JNIEnv* env, jobject ui_bridge) {
     return {};
   }
 
+  jmethodID const on_background_save_finished = env->GetMethodID(
+      global_class, "onNativeBackgroundSaveFinished", "(I)V");
+  if (on_background_save_finished == nullptr) {
+    env->ExceptionClear();
+    env->DeleteGlobalRef(global_class);
+    LogError("MakeAndroidUiBridge: onNativeBackgroundSaveFinished missing");
+    return {};
+  }
+
   jobject global_object = env->NewGlobalRef(ui_bridge);
   if (global_object == nullptr) {
     env->DeleteGlobalRef(global_class);
@@ -122,7 +153,8 @@ AndroidUiBridge MakeAndroidUiBridge(JNIEnv* env, jobject ui_bridge) {
     return {};
   }
 
-  return AndroidUiBridge{vm, global_object, global_class, on_publication};
+  return AndroidUiBridge{vm, global_object, global_class, on_publication,
+                         on_background_save_finished};
 }
 
 }  // namespace apptraverse::android

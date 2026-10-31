@@ -3,25 +3,32 @@ package com.apptraverse.minimal;
 import android.app.Application;
 import android.util.Log;
 
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicReference;
+
 public final class MinimalAppApplication extends Application
     implements NativeUiBridge.Host {
 
   private static final String TAG = "AppTraverseMinimal";
   private static final String LIBRARY_NAME = "apptraverse_minimal_app";
 
+  public interface BackgroundSaveObserver {
+    void onBackgroundSaveFinished(int persistResult);
+  }
+
   private final NativeUiBridge uiBridge = new NativeUiBridge();
+  private final AtomicReference<BackgroundSaveObserver> backgroundSaveObserver =
+      new AtomicReference<>();
+  private final AtomicReference<CountDownLatch> backgroundSaveLatch =
+      new AtomicReference<>();
+
   private long runtimeHandle;
+  private boolean modelThreadStarted;
 
   @Override
   public void onCreate() {
     super.onCreate();
     System.loadLibrary(LIBRARY_NAME);
-    runtimeHandle =
-        NativeRuntime.nativeCreate(getFilesDir().getAbsolutePath(), uiBridge);
-    if (runtimeHandle == 0L) {
-      Log.e(TAG, "Native runtime create failed");
-      return;
-    }
     uiBridge.attachHost(this);
   }
 
@@ -33,11 +40,44 @@ public final class MinimalAppApplication extends Application
     return runtimeHandle;
   }
 
+  synchronized void ensureNativeRuntime(String stateSubdir) {
+    if (runtimeHandle != 0L) {
+      return;
+    }
+    String subdir = stateSubdir != null ? stateSubdir : MinimalAppStateDirs.DEFAULT;
+    runtimeHandle = NativeRuntime.nativeCreate(
+        getFilesDir().getAbsolutePath(), subdir, uiBridge);
+    modelThreadStarted = false;
+    if (runtimeHandle == 0L) {
+      Log.e(TAG, "Native runtime create failed");
+    }
+  }
+
+  void setBackgroundSaveLatch(CountDownLatch latch) {
+    backgroundSaveLatch.set(latch);
+  }
+
+  void clearBackgroundSaveLatch() {
+    backgroundSaveLatch.set(null);
+  }
+
+  void setBackgroundSaveObserver(BackgroundSaveObserver observer) {
+    backgroundSaveObserver.set(observer);
+  }
+
   void startModelOnce() {
+    if (runtimeHandle == 0L || modelThreadStarted) {
+      return;
+    }
+    modelThreadStarted = true;
+    NativeRuntime.nativeStartModel(runtimeHandle);
+  }
+
+  void requestBackgroundSave() {
     if (runtimeHandle == 0L) {
       return;
     }
-    NativeRuntime.nativeStartModel(runtimeHandle);
+    NativeRuntime.nativeRequestBackgroundSave(runtimeHandle);
   }
 
   @Override
@@ -46,5 +86,18 @@ public final class MinimalAppApplication extends Application
       return;
     }
     NativeRuntime.nativeConsumePublication(runtimeHandle, kind);
+  }
+
+  @Override
+  public void onBackgroundSaveFinished(int persistResult) {
+    Log.i(TAG, "background save finished result=" + persistResult);
+    BackgroundSaveObserver observer = backgroundSaveObserver.get();
+    if (observer != null) {
+      observer.onBackgroundSaveFinished(persistResult);
+    }
+    CountDownLatch latch = backgroundSaveLatch.get();
+    if (latch != null) {
+      latch.countDown();
+    }
   }
 }

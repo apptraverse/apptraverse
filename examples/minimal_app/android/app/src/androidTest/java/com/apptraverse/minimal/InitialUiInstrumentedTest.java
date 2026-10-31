@@ -22,16 +22,13 @@ public final class InitialUiInstrumentedTest {
 
   private UiDevice device;
 
+  private static final String PROFILE = "minimal_app_instrumented_initial_ui";
+
   @Before
   public void setUp() {
     device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
     Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
-    device.pressHome();
-    context.startActivity(context.getPackageManager()
-        .getLaunchIntentForPackage("com.apptraverse.minimal")
-        .addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK));
-    assertTrue(device.wait(Until.hasObject(By.pkg("com.apptraverse.minimal").depth(0)),
-        15000));
+    MinimalAppTestLaunch.launchFreshProfile(context, device, PROFILE);
   }
 
   @Test

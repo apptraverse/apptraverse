@@ -25,6 +25,10 @@ bool BootstrapMinimalApplicationProfileIfAbsent(
 int PersistMinimalApplication(MinimalApplication& application,
                               DirectoryDomainStorage& storage);
 
+// Model-thread checkpoint persist for the live session root in |domain|.
+int PersistMinimalApplicationFromDomain(
+    ae::Domain& domain, std::filesystem::path const& state_dir);
+
 }  // namespace apptraverse::example::minimal
 
 #endif  // APPTRAVERSE_EXAMPLE_MINIMAL_MINIMAL_APP_PERSISTENCE_H_

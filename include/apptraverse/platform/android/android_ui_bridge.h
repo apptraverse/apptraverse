@@ -9,7 +9,7 @@ class AndroidUiBridge {
  public:
   AndroidUiBridge() = default;
   AndroidUiBridge(JavaVM* vm, jobject global_object, jclass global_class,
-                  jmethodID on_publication);
+                  jmethodID on_publication, jmethodID on_background_save_finished);
   ~AndroidUiBridge();
   AndroidUiBridge(AndroidUiBridge&&) noexcept;
   AndroidUiBridge& operator=(AndroidUiBridge&&) noexcept;
@@ -20,6 +20,7 @@ class AndroidUiBridge {
   [[nodiscard]] bool is_valid() const { return vm_ != nullptr && object_ != nullptr; }
 
   void PostPublication(int kind) const;
+  void PostBackgroundSaveFinished(int persist_result) const;
 
  private:
   void Reset();
@@ -29,6 +30,7 @@ class AndroidUiBridge {
   jobject object_{nullptr};
   jclass class_{nullptr};
   jmethodID on_publication_{nullptr};
+  jmethodID on_background_save_finished_{nullptr};
 };
 
 AndroidUiBridge MakeAndroidUiBridge(JNIEnv* env, jobject ui_bridge);
