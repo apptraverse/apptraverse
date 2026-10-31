@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-10-31):** **P3.T3.A1R1 PASS** (§P3.T3.A1R1). **P3.T3.A** / **P3** / **Android/P3** — **IN_PROGRESS**. **NEXT (единственный):** **P3.T3.A2** — Android input (не начинать). **P3.T3.Web5R1 PASS**, **P3.T3.MinimalAppR1 PASS**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
+**Активный порядок (2026-10-31):** **P3.T3.A1R2 IN_PROGRESS** (§P3.T3.A1R2). **P3.T3.A1R1 PASS** (§P3.T3.A1R1). **P3.T3.A** / **P3** / **Android/P3** — **IN_PROGRESS**. **NEXT после A1R2 PASS:** **P3.T3.A2** — Android input (не начинать). **P3.T3.Web5R1 PASS**, **P3.T3.MinimalAppR1 PASS**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -244,6 +244,35 @@
 
 ---
 
+<a id="p3t3a1r2--deferred-load-completion-catalog-smoke-2026-10-31"></a>
+
+## P3.T3.A1R2 — Deferred load completion + catalog smoke (2026-10-31) — IN_PROGRESS
+
+**Base (lease):** `751c14e5d8aa645feb47b38783a2a6ec646c1b4d` (**P3.T3.A1R1 PASS**).
+
+**Дефекты до исправления:**
+- `HydrateInjectedPublicationGraph` / `TryLoadInitialPublication` возвращали успех после 8 проходов при непустой `pending_stored_layers` (обязательная загрузка не завершена).
+- `CompleteAllPendingStoredLayers` делал `snapshot` + `layers.clear()` — при `TryLoadStoredLayer` ошибке mid-loop необработанный хвост pending терялся вместе с очередью.
+- `TryLoadStoredLayer` — `assert(layer && layer->load)` на повреждённых/неизвестных class id в corrupt publication tests (abort вместо controlled fail).
+- Catalog smoke (`tools/wasm_window_catalog_browser_smoke.py`) был приведён к polling/`data-apptraverse-control-id` и не совпадал с опубликованным shell adapter (`#catalog-title`, `data-control-id`, пустой список, 4 кнопки).
+
+**Fix (shipping):**
+- **`aether-objects-deferred-load-completion-v6r2.patch`** (поверх v6+v6r1): reentrant-safe `CompleteAllPendingStoredLayers` (work snapshot без wipe pending); `TryLoadStoredLayer` fail-closed без assert для missing factory (defer, не abort).
+- **App:** `TryLoadInitialPublication` — после финального `FlushIncompleteStoredLayers` отказ при `HasIncompleteStoredLayers()` → `MandatoryLayersPending`; helpers `InitialPublicationPayloadReplaceLayerBytes` / `RemoveLayer` / `RemoveObjectLayers`; regression tests в `application_ui_session_test` (corrupt deferred layer + mandatory incomplete до presenters); cached-state rehydration через повторный `LoadRoot` same ObjId в `checkpoint_load_rehydration_test`.
+- **Catalog smoke:** восстановлен контракт P3.2a (`window_catalog_shell.html`), без `wait_for_timeout` polling.
+
+**Æther patches (16, без diag):** 14 baseline + **v6** + **v6r1** + **v6r2**; `cmake/scripts/verify-aether-patch-chain.sh` — `work.emplace_back` + queue fix.
+
+**Проверки (incremental Debug, `apptraverse-wt-web5`, 2026-10-31):** **PASS** — `apptraverse_application_ui_session_test` (в т.ч. corrupt/mandatory publication до presenters), `apptraverse_checkpoint_load_rehydration_test`, subset §A1R1 Win/Headless/Object Core (ui_session, checkpoint rehydration, model_persistence, application_contract_headless, application_model_runtime, object_clone). **FAIL / не зелёный полный §A1R1:** `apptraverse_minimal_app_headless_test` — `TestMinimalAppAuxiliaryCloseOpenHeadless` @561 (`UiAuxiliaryRowList` selection sync после structural apply; **воспроизводится только с v6r2 queue fix**, на `751c14e` **PASS**); `apptraverse_object_origin_disk_matrix` (disk roundtrip matrix, отдельная диагностика). **Не прогонялись в этой итерации:** Android 3 instrumented, WASM catalog serve `8785`, полный §W2 восемь.
+
+**Отложено (не в shipping v6r2):** bool-API `Flush/Ensure/Complete*` и явный `LoadRoot` finalize до return — регрессия `minimal_app_headless_test` auxiliary structural sync; отдельный follow-up.
+
+**PASS:** не выставлен — полный §A1R1 regression + Android/WASM smoke не зелёные.
+
+**NEXT:** завершить A1R2 (auxiliary sync + оставшиеся прогоны) → затем **P3.T3.A2** (не начинать).
+
+---
+
 <a id="p3t3web2r2--web-dom-teardown-2026-10-30-pass"></a>
 
 ## P3.T3.Web2R2 — Web DOM teardown (2026-10-30) — PASS
@@ -343,7 +372,7 @@
 | **P3.2 (оставшееся)** — Web actions + persist | PLAN §P4 | **Перенесено в P4.C2/Web**; не DONE, не текущий NEXT |
 | **P3** — библиотечный template + controls, семь backend | PLAN §P3.T | **IN_PROGRESS**; прежние PASS не подтверждают новую цель |
 | **P3.T0** — границы и порядок template → catalog → admin | уточнение пользователя, 2026-10-28 | **DONE (doc-only)**; новых code PASS нет |
-| **P3.T1** — воспроизводимый Æther/WASM patch | §P3.T1 ниже | **PASS** — **14 patches**; nested Obj deseri no-op **только** `ae::Obj`; contract/ui_session + Win regressions + WASM smoke **PASS** |
+| **P3.T1** — воспроизводимый Æther/WASM patch | §P3.T1 ниже | **PASS** — **14 baseline** + v6 + v6r1 + v6r2 = **16 patches** (§P3.T3.A1R2); nested Obj deseri no-op **только** `ae::Obj`; contract/ui_session + Win regressions + WASM smoke **PASS** (historical) |
 | **P3.T2a** — MinimalApp common builder + Headless session E2E | §P3.T2a ниже | **PASS** |
 | **P3.T2b** — нейтральные Window/List/Button contracts | §P3.T2b ниже | **PASS** — `SetUiListSelectionEvent`; `apptraverse_ui_control_materialization_test` |
 | **P3.T2** — минимальный template scope (T2a+T2b) | PLAN §P3.T | **PASS** |

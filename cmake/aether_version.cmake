@@ -35,9 +35,11 @@ set(APPTRAVERSE_AETHER_OBJECTS_COLD_LOAD_ROOT_FLUSH_PATCH
   "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-cold-load-root-flush-v6.patch")
 set(APPTRAVERSE_AETHER_OBJECTS_RESET_OBJECT_LOAD_STATE_PATCH
   "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-reset-object-load-state-v6r1.patch")
+set(APPTRAVERSE_AETHER_OBJECTS_DEFERRED_LOAD_COMPLETION_PATCH
+  "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-deferred-load-completion-v6r2.patch")
 
 # Pinned SHA verified with a clean CPM cache (GraphSerializationScope + LoadStoredLayers).
-# Cold-load: v6 flush; v6r1 additive patch clears cycle/pending on evict/rematerialize.
+# Cold-load: v6 flush; v6r1 reset on rematerialize; v6r2 propagates pending completion errors.
 set(APPTRAVERSE_AETHER_OBJECTS_GIT_TAG
   "79283b667cabf689da1059d618fe2a22abf51db4")
 set(APPTRAVERSE_AETHER_MISCPP_GIT_TAG "main")

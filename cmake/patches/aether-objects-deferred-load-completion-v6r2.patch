@@ -1,0 +1,61 @@
+diff --git a/src/aether-objects/obj/domain.cpp b/src/aether-objects/obj/domain.cpp
+index a8d6bce..ac3f82f 100644
+--- a/src/aether-objects/obj/domain.cpp
++++ b/src/aether-objects/obj/domain.cpp
+@@ -146,7 +146,9 @@ bool DomainGraph::TryLoadStoredLayer(Ptr<Obj>& obj, ObjId storage_id,
+                                       std::uint32_t class_id, bool& loaded) {
+   loaded = false;
+   auto* layer = domain->FindClassFactory(class_id);
+-  assert(layer && layer->load);
++  if (layer == nullptr || layer->load == nullptr) {
++    return true;
++  }
+   auto result = layer->load(this, obj, storage_id);
+   if (!result) {
+     return true;
+@@ -202,9 +204,16 @@ void DomainGraph::CompleteAllPendingStoredLayers() {
+   bool progress = true;
+   while (progress && !layers.empty()) {
+     progress = false;
+-    auto snapshot = layers;
+-    layers.clear();
+-    for (auto const& entry : snapshot) {
++    std::vector<std::pair<ObjId::Type, std::vector<std::uint32_t>>> work;
++    work.reserve(layers.size());
++    for (auto const& entry : layers) {
++      work.emplace_back(entry.first, entry.second);
++    }
++    for (auto const& entry : work) {
++      auto it = layers.find(entry.first);
++      if (it == layers.end()) {
++        continue;
++      }
+       ObjId const storage_id{entry.first};
+       Ptr<Obj> obj = domain->Find(storage_id);
+       if (!obj) {
+@@ -212,7 +221,7 @@ void DomainGraph::CompleteAllPendingStoredLayers() {
+         continue;
+       }
+       std::vector<std::uint32_t> still;
+-      for (auto const class_id : entry.second) {
++      for (auto const class_id : it->second) {
+         bool loaded = false;
+         if (!TryLoadStoredLayer(obj, storage_id, class_id, loaded)) {
+           return;
+@@ -223,8 +232,14 @@ void DomainGraph::CompleteAllPendingStoredLayers() {
+           progress = true;
+         }
+       }
+-      if (!still.empty()) {
+-        layers[entry.first] = std::move(still);
++      auto current = layers.find(entry.first);
++      if (current == layers.end()) {
++        continue;
++      }
++      if (still.empty()) {
++        layers.erase(current);
++      } else {
++        current->second = std::move(still);
+       }
+     }
+   }

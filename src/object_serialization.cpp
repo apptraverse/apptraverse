@@ -901,6 +901,137 @@ bool InitialPublicationPayloadCopyLayerBytes(
   return true;
 }
 
+bool InitialPublicationPayloadReplaceLayerBytes(
+    std::vector<std::uint8_t>& initial_publication_bytes, ae::ObjId object_id,
+    std::uint32_t class_id, std::uint8_t version,
+    std::vector<std::uint8_t> const& new_layer_bytes) {
+  if (initial_publication_bytes.empty()) {
+    return false;
+  }
+  ae::seri::BinaryVectorBuffer buffer{initial_publication_bytes};
+  ae::seri::BinaryArchive load_archive{buffer};
+  InitialPublicationEnvelope envelope{};
+  if (load_archive.Load(envelope).IsErr()) {
+    return false;
+  }
+  ByteSource graph;
+  graph.data = envelope.graph_bytes.data();
+  graph.size = envelope.graph_bytes.size();
+  graph.pos = 0;
+  GraphPublicationPayload payload;
+  if (!LoadGraphPublicationPayload(graph, payload)) {
+    return false;
+  }
+  auto obj_it = payload.layers.find(object_id);
+  if (obj_it == payload.layers.end() || !obj_it->second) {
+    return false;
+  }
+  auto class_it = obj_it->second->find(class_id);
+  if (class_it == obj_it->second->end()) {
+    return false;
+  }
+  class_it->second[version] = new_layer_bytes;
+
+  std::vector<std::uint8_t> graph_bytes;
+  ae::seri::BinaryVectorBuffer graph_buffer{graph_bytes};
+  ae::seri::BinaryArchive save_graph{graph_buffer};
+  if (save_graph.Save(payload).IsErr()) {
+    return false;
+  }
+  envelope.graph_bytes = std::move(graph_bytes);
+
+  initial_publication_bytes.clear();
+  ae::seri::BinaryVectorBuffer out_buffer{initial_publication_bytes};
+  ae::seri::BinaryArchive save_envelope{out_buffer};
+  return save_envelope.Save(envelope).IsOk();
+}
+
+bool InitialPublicationPayloadRemoveLayer(
+    std::vector<std::uint8_t>& initial_publication_bytes, ae::ObjId object_id,
+    std::uint32_t class_id) {
+  if (initial_publication_bytes.empty()) {
+    return false;
+  }
+  ae::seri::BinaryVectorBuffer buffer{initial_publication_bytes};
+  ae::seri::BinaryArchive load_archive{buffer};
+  InitialPublicationEnvelope envelope{};
+  if (load_archive.Load(envelope).IsErr()) {
+    return false;
+  }
+  ByteSource graph;
+  graph.data = envelope.graph_bytes.data();
+  graph.size = envelope.graph_bytes.size();
+  graph.pos = 0;
+  GraphPublicationPayload payload;
+  if (!LoadGraphPublicationPayload(graph, payload)) {
+    return false;
+  }
+  auto obj_it = payload.layers.find(object_id);
+  if (obj_it == payload.layers.end() || !obj_it->second) {
+    return false;
+  }
+  auto class_it = obj_it->second->find(class_id);
+  if (class_it == obj_it->second->end()) {
+    return false;
+  }
+  obj_it->second->erase(class_it);
+  if (obj_it->second->empty()) {
+    payload.layers.erase(obj_it);
+  }
+
+  std::vector<std::uint8_t> graph_bytes;
+  ae::seri::BinaryVectorBuffer graph_buffer{graph_bytes};
+  ae::seri::BinaryArchive save_graph{graph_buffer};
+  if (save_graph.Save(payload).IsErr()) {
+    return false;
+  }
+  envelope.graph_bytes = std::move(graph_bytes);
+
+  initial_publication_bytes.clear();
+  ae::seri::BinaryVectorBuffer out_buffer{initial_publication_bytes};
+  ae::seri::BinaryArchive save_envelope{out_buffer};
+  return save_envelope.Save(envelope).IsOk();
+}
+
+bool InitialPublicationPayloadRemoveObjectLayers(
+    std::vector<std::uint8_t>& initial_publication_bytes, ae::ObjId object_id) {
+  if (initial_publication_bytes.empty()) {
+    return false;
+  }
+  ae::seri::BinaryVectorBuffer buffer{initial_publication_bytes};
+  ae::seri::BinaryArchive load_archive{buffer};
+  InitialPublicationEnvelope envelope{};
+  if (load_archive.Load(envelope).IsErr()) {
+    return false;
+  }
+  ByteSource graph;
+  graph.data = envelope.graph_bytes.data();
+  graph.size = envelope.graph_bytes.size();
+  graph.pos = 0;
+  GraphPublicationPayload payload;
+  if (!LoadGraphPublicationPayload(graph, payload)) {
+    return false;
+  }
+  auto obj_it = payload.layers.find(object_id);
+  if (obj_it == payload.layers.end()) {
+    return false;
+  }
+  payload.layers.erase(obj_it);
+
+  std::vector<std::uint8_t> graph_bytes;
+  ae::seri::BinaryVectorBuffer graph_buffer{graph_bytes};
+  ae::seri::BinaryArchive save_graph{graph_buffer};
+  if (save_graph.Save(payload).IsErr()) {
+    return false;
+  }
+  envelope.graph_bytes = std::move(graph_bytes);
+
+  initial_publication_bytes.clear();
+  ae::seri::BinaryVectorBuffer out_buffer{initial_publication_bytes};
+  ae::seri::BinaryArchive save_envelope{out_buffer};
+  return save_envelope.Save(envelope).IsOk();
+}
+
 void SerializeInitialPublication(ae::Obj const& root, ByteSink& out) {
   std::vector<Node*> nodes;
   CollectReachableNodes(const_cast<ae::Obj&>(root), nodes);
@@ -1099,6 +1230,10 @@ ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain
 
   ae::DomainGraph layer_graph{&ui_domain};
   layer_graph.FlushIncompleteStoredLayers();
+  if (layer_graph.HasIncompleteStoredLayers()) {
+    diagnostics->stage = InitialPublicationLoadStage::MandatoryLayersPending;
+    return {};
+  }
 
   ae::DomainGraph final_graph{&ui_domain};
   auto ui_root = final_graph.LoadRoot(ae::ObjId{root_id});

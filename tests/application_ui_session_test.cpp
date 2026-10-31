@@ -392,6 +392,57 @@ void TestDestructorUnloadsPresenters() {
   CHECK(g_session_presenter_unload_total == 1);
 }
 
+void TestInitialPublicationRejectsCorruptDeferredLayerBeforePresenters() {
+  ModelFixture fixture;
+  auto bytes = fixture.SerializeInitial();
+  std::vector<std::uint8_t> layer_bytes;
+  CHECK(InitialPublicationPayloadCopyLayerBytes(
+      bytes, kTitleId, ui::UiLocalizationString::kClassId, 0, layer_bytes));
+  CHECK(!layer_bytes.empty());
+  for (auto& byte : layer_bytes) {
+    byte = static_cast<std::uint8_t>(byte ^ 0xFFu);
+  }
+  CHECK(InitialPublicationPayloadReplaceLayerBytes(
+      bytes, kTitleId, ui::UiLocalizationString::kClassId, 0, layer_bytes));
+
+  g_session_presenter_load_total = 0;
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  ByteSource in;
+  in.data = bytes.data();
+  in.size = bytes.size();
+  InitialPublicationLoadDiagnostics diagnostics;
+  ae::Ptr<ae::Obj> root =
+      TryLoadInitialPublication(in, ui_domain, ui_storage, &diagnostics);
+  CHECK(!root);
+  CHECK(diagnostics.stage != InitialPublicationLoadStage::Ok);
+  CHECK(g_session_presenter_load_total == 0);
+}
+
+void TestInitialPublicationRejectsMandatoryLayersPendingBeforePresenters() {
+  ModelFixture fixture;
+  auto bytes = fixture.SerializeInitial();
+  std::vector<std::uint8_t> const empty_layer;
+  CHECK(InitialPublicationPayloadReplaceLayerBytes(
+      bytes, kTitleId, ui::UiLocalizationString::kClassId, 0, empty_layer));
+
+  g_session_presenter_load_total = 0;
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  ByteSource in;
+  in.data = bytes.data();
+  in.size = bytes.size();
+  InitialPublicationLoadDiagnostics diagnostics;
+  ae::Ptr<ae::Obj> root =
+      TryLoadInitialPublication(in, ui_domain, ui_storage, &diagnostics);
+  CHECK(!root);
+  CHECK(diagnostics.stage == InitialPublicationLoadStage::MandatoryLayersPending ||
+        diagnostics.stage == InitialPublicationLoadStage::LoadExistingObject ||
+        diagnostics.stage == InitialPublicationLoadStage::LoadRoot ||
+        diagnostics.stage == InitialPublicationLoadStage::FinalFindRoot);
+  CHECK(g_session_presenter_load_total == 0);
+}
+
 void TestModelProxyTargetsModelDomain() {
   ModelFixture fixture;
   ApplicationUiSession ui_session(fixture.SerializeInitial(), nullptr,
@@ -419,6 +470,8 @@ int main() {
   apptraverse::test::TestPresenterLifecycleCloseOpen();
   apptraverse::test::TestDestructorUnloadsPresenters();
   apptraverse::test::TestModelProxyTargetsModelDomain();
+  apptraverse::test::TestInitialPublicationRejectsCorruptDeferredLayerBeforePresenters();
+  apptraverse::test::TestInitialPublicationRejectsMandatoryLayersPendingBeforePresenters();
   std::cout << "application_ui_session_test OK\n";
   return 0;
 }

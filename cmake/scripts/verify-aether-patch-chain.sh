@@ -31,7 +31,9 @@ for p in "${PATCHES[@]}"; do
 done
 patch -p1 --batch --forward < "$PATCH_DIR/aether-objects-cold-load-root-flush-v6.patch" || exit 1
 patch -p1 --batch --forward < "$PATCH_DIR/aether-objects-reset-object-load-state-v6r1.patch" || exit 1
+patch -p1 --batch --forward < "$PATCH_DIR/aether-objects-deferred-load-completion-v6r2.patch" || exit 1
 grep -q ResetObjectLoadState src/aether-objects/obj/domain.cpp
+grep -q 'work.emplace_back' src/aether-objects/obj/domain.cpp
 grep -q HasIncompleteStoredLayers src/aether-objects/obj/domain.h
 grep -q DomainLoadRootState src/aether-objects/obj/domain.h
 grep -q FlushIncompleteStoredLayers src/aether-objects/obj/domain.h

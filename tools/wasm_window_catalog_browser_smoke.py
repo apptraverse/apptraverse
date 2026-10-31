@@ -62,36 +62,41 @@ def main() -> int:
 
         try:
             page.goto(args.url, wait_until="domcontentloaded", timeout=60000)
-            expect(page.locator("h1")).to_have_text("WindowCatalog (Web)", timeout=60000)
-            page.wait_for_function(
-                "() => typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated",
-                timeout=60000,
+            expect(page.locator("#catalog-title")).to_have_text(
+                "Window Catalog", timeout=60000
             )
-            page.wait_for_function(
-                "() => typeof SharedArrayBuffer !== 'undefined'",
-                timeout=60000,
+            expect(page.locator("#catalog-list li")).to_have_count(0, timeout=5000)
+            expect(page.locator("#catalog-buttons button.catalog-button")).to_have_count(
+                4, timeout=60000
             )
-            deadline_ms = 120000
-            while not saw_render_ok and deadline_ms > 0:
-                page.wait_for_timeout(250)
-                deadline_ms -= 250
+
+            for control_id, spec in EXPECTED_BUTTONS.items():
+                btn = page.locator(
+                    f'#catalog-buttons button[data-control-id="{control_id}"]'
+                )
+                expect(btn).to_have_count(1, timeout=5000)
+                expect(btn).to_have_text(spec["label"], timeout=5000)
+                if spec["enabled"]:
+                    expect(btn).to_be_enabled(timeout=5000)
+                else:
+                    expect(btn).to_be_disabled(timeout=5000)
+
+            isolated = page.evaluate("() => crossOriginIsolated === true")
+            if not isolated:
+                print("FAIL: crossOriginIsolated is not true", file=sys.stderr)
+                return 1
+            sab = page.evaluate(
+                "() => typeof SharedArrayBuffer !== 'undefined'"
+            )
+            if not sab:
+                print("FAIL: SharedArrayBuffer unavailable", file=sys.stderr)
+                return 1
             if not saw_render_ok:
                 print(
                     "FAIL: missing console marker WINDOW_CATALOG_INITIAL_RENDER_OK",
                     file=sys.stderr,
                 )
                 return 1
-
-            for control_id, spec in EXPECTED_BUTTONS.items():
-                btn = page.locator(
-                    f'[data-apptraverse-control-id="{control_id}"]'
-                )
-                expect(btn).to_have_count(1, timeout=60000)
-                expect(btn).to_have_text(spec["label"], timeout=5000)
-                if spec["enabled"]:
-                    expect(btn).to_be_enabled(timeout=5000)
-                else:
-                    expect(btn).to_be_disabled(timeout=5000)
 
             shot = Path(args.screenshot)
             shot.parent.mkdir(parents=True, exist_ok=True)

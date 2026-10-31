@@ -59,6 +59,18 @@ bool InitialPublicationPayloadCopyLayerBytes(
     ae::ObjId object_id, std::uint32_t class_id, std::uint8_t version,
     std::vector<std::uint8_t>& out_layer_bytes);
 
+bool InitialPublicationPayloadReplaceLayerBytes(
+    std::vector<std::uint8_t>& initial_publication_bytes, ae::ObjId object_id,
+    std::uint32_t class_id, std::uint8_t version,
+    std::vector<std::uint8_t> const& new_layer_bytes);
+
+bool InitialPublicationPayloadRemoveLayer(
+    std::vector<std::uint8_t>& initial_publication_bytes, ae::ObjId object_id,
+    std::uint32_t class_id);
+
+bool InitialPublicationPayloadRemoveObjectLayers(
+    std::vector<std::uint8_t>& initial_publication_bytes, ae::ObjId object_id);
+
 bool InitialPublicationPayloadContainsObject(
     std::vector<std::uint8_t> const& initial_publication_bytes,
     ae::ObjId object_id);

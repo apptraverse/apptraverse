@@ -197,13 +197,19 @@ void RunCycleGraphLocaleRehydrationTest() {
     CHECK(&*load_app->window->app == &*load_app);
 
     ae::Ptr<ae::Obj> const locale_cached = load_domain.Find(kLocaleId);
-    CHECK(locale_cached.get() == load_app->window->locale.get());
+    CHECK(locale_cached.get() == &*load_app->window->locale);
     auto lang_unsaved =
         ui::SetUiLanguageIndexEvent::ptr::Create(ae::CreateWith{load_domain});
     lang_unsaved->language_index = 2;
     load_app->window->locale->Commit(lang_unsaved);
     CHECK(load_domain.Find(kLocaleId).get() == locale_cached.get());
     CHECK(load_app->window->locale->language_index() == 2);
+
+    ae::Ptr<ae::Obj> reload_obj;
+    CHECK(load_graph.LoadRoot(kLocaleId, reload_obj).IsOk());
+    CHECK(reload_obj.get() == locale_cached.get());
+    CHECK(static_cast<ui::UiLocaleSettings*>(reload_obj.get())->language_index() ==
+          2);
 
     auto lang2 =
         ui::SetUiLanguageIndexEvent::ptr::Create(ae::CreateWith{load_domain});
