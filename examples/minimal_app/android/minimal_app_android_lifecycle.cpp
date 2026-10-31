@@ -4,6 +4,8 @@
 
 #include <vector>
 
+#include "android_log.h"
+
 #include "apptraverse/application_model_session.h"
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/noninteractive_crt.h"
@@ -29,10 +31,15 @@ int RunMinimalApplicationModel(
 
 #if defined(APPTRAVERSE_ENABLE_DISTILLATION)
   if (allow_distilled_bootstrap) {
-    (void)BootstrapMinimalApplicationProfileIfAbsent(
+    bool const bootstrapped = BootstrapMinimalApplicationProfileIfAbsent(
         state_dir, [](ae::Domain& domain) {
           return BuildAndroidMinimalApplicationGraph(domain);
         });
+    if (bootstrapped) {
+      apptraverse::android::LogInfo("MINIMAL_APP_PROFILE_BOOTSTRAP");
+    } else {
+      apptraverse::android::LogInfo("MINIMAL_APP_LOADED_FROM_PROFILE");
+    }
   }
 #else
   (void)allow_distilled_bootstrap;

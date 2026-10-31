@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-10-31):** **P3.T3.A PASS** (§P3.T3.A). **P3.T3.A2R1 PASS** (§P3.T3.A2R1). **P3.T3.A2 PASS** (§P3.T3.A2). **P3.T3.A1R3 PASS** (§P3.T3.A1R3). **P3.T3.A1R1 PASS** (§P3.T3.A1R1). **P3** / **Android/P3** — **IN_PROGRESS**. **NEXT:** resume-after-checkpoint model session (не начинать). **P3.T3.Web5R1 PASS**, **P3.T3.MinimalAppR1 PASS**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
+**Активный порядок (2026-10-31):** **P3.T3.A PASS** (§P3.T3.A, checkpoint fix). **P3.T3.A2R1 PASS**. **P3** / **Android lifecycle (полная матрица)** — **IN_PROGRESS**. **NEXT:** расширение lifecycle beyond checkpoint/resume/cold slice (не начинать). **P3.T3.Web5R1 PASS**, **P3.T3.MinimalAppR1 PASS**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -246,23 +246,27 @@
 
 <a id="p3t3a--android-save-cold-reload-2026-10-31-pass"></a>
 
-## P3.T3.A — Android save + cold reload (2026-10-31) — PASS
+## P3.T3.A — Android checkpoint save + resume + cold reload (2026-10-31) — PASS
 
-**Base (lease):** `043671d6f25943e3a7c0b1f19903d85ed92a14bb` (**P3.T3.A2R1 PASS**).
+**Base (lease):** `fc0f89f87afa9f2260101b3bbec0e7b5211fcf62` (исправление поверх первого среза **fc0f89f**).
 
-**Scope:** первый срез checkpoint save при `Activity.onStop` без блокировки UI thread; подтверждение только после штатного `PersistMinimalApplication` (shutdown persist через `RequestStop` → `RunApplicationModelSession` hooks); instrumented E2E на изолированном профиле; cold reload + list input после reload.
+**Исторический прогон (fc0f89f, superseded):** checkpoint через `RequestStop` + shutdown persist; model session не переживал Home; E2E cold reload опирался на kill без same-process resume. Сохранён в истории коммита **fc0f89f**; не является целевой архитектурой.
 
-**Маршрут Save:** `MainActivity.onStop` → `MinimalAppApplication.requestBackgroundSave` → JNI → `AndroidApplicationHost::RequestBackgroundSave` → `ApplicationModelRuntime::RequestStop` → model thread drain → `hooks.persist` / `PersistMinimalApplication` → `AndroidUiBridge.onNativeBackgroundSaveFinished` (main looper) → latch в `SaveColdReloadInstrumentedTest`.
+**Scope (fix):** `onStop` — **запрос checkpoint**, model session **продолжает работать**; `PersistMinimalApplicationFromDomain` через `ApplicationModelRuntime::Post` (FIFO после UI work); подтверждение на main looper; `model_thread_live_` + `pthread_create` синхронизированы через worker entry + `condition_variable` (без фиктивного live до старта worker).
 
-**Cold reload / input:** Row B + Apply → publication → Home → save confirmed (result 0) → `am kill` demo process → новый процесс с тем же `stateSubdir` → UI **Applied**, Apply disabled → Row B selection через presenter/proxy (post-reload input).
+**Маршрут Save:** `MainActivity.onStop` → `requestBackgroundSave` → `AndroidApplicationHost::RequestBackgroundSave` → `runtime_.Post` → `persist_model` / `PersistMinimalApplicationFromDomain` → `NativeUiBridge.onNativeBackgroundSaveFinished` (main Handler) → latch/observer.
 
-**Тесты (Aether_NDK_Smoke_x86_64, Debug):** ColdLoadLabel, InitialPublicationLabel, InitialUi, ListApplyInput, **SaveColdReloadInstrumentedTest** — **5/5 PASS**. Instrumented UI tests используют `skipCheckpointSave` + `am kill` per profile; production launcher без skip.
+**Same-process resume:** Home → save confirmed → foreground без kill → Row A tap → selection + **Applied** (model/proxy живы).
 
-**Регрессии (incremental Debug, 2026-10-31):** `apptraverse_minimal_app_headless_test` (+ apply checkpoint persist case), `apptraverse_ui_control_materialization_test` — **PASS**.
+**Cold reload evidence:** out-of-process `:demo` (debug manifest) — `am kill` + подтверждение смерти PID + новый PID; in-process instrumentation — `clearRuntimeForColdReloadTest` (main thread) + relaunch; disk probe `nativeRunColdReloadApplyStateProbe` + UI **Applied** + log `MINIMAL_APP_LOADED_FROM_PROFILE` (best-effort); post-reload Row A selection change.
 
-**Не заявлялось:** полная Android lifecycle matrix, resume model session после checkpoint без cold process, selection mirror parity после reload.
+**Тесты (Aether_NDK_Smoke_x86_64, Debug, 2026-10-31):** 7/7 instrumented (**SaveColdReloadInstrumentedTest** ×3: same-process, save-in-flight, cold reload) — **PASS**.
 
-**NEXT:** model-session restart after background checkpoint (onStart) without requiring process death — не начинать.
+**Регрессии (incremental Debug):** `apptraverse_minimal_app_headless_test`, `apptraverse_ui_control_materialization_test` — **PASS**. **Web/WASM smokes** — не перегонялись (runner profile в этой итерации).
+
+**Android lifecycle (общий):** **IN_PROGRESS** — заявлены checkpoint/resume/cold slice; полная матрица lifecycle/shutdown не закрыта.
+
+**NEXT:** полная lifecycle matrix / production process model (не начинать).
 
 ---
 

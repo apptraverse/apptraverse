@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+  <!-- Debug/instrumented runs: demo in :demo so tests can kill for cold reload E2E. -->
+  <application android:process=":demo" />
+
+</manifest>

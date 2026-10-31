@@ -3,6 +3,7 @@
 #include "android_log.h"
 
 #include "minimal_app_android_lifecycle.h"
+#include "minimal_app_persistence.h"
 
 namespace apptraverse::example::minimal {
 
@@ -10,7 +11,11 @@ MinimalNativeRuntime::MinimalNativeRuntime(std::filesystem::path state_dir,
                                              android::AndroidUiBridge ui_bridge)
     : state_dir_{std::move(state_dir)}, ui_bridge_{std::move(ui_bridge)} {}
 
-MinimalNativeRuntime::~MinimalNativeRuntime() = default;
+MinimalNativeRuntime::~MinimalNativeRuntime() {
+  if (host_) {
+    host_->JoinModelThreadForRelease();
+  }
+}
 
 void MinimalNativeRuntime::SetPresentationRoot(JNIEnv* env, jobject activity,
                                                  jobject content_root) {
@@ -22,6 +27,9 @@ void MinimalNativeRuntime::SetPresentationRoot(JNIEnv* env, jobject activity,
     };
     callbacks.after_initial = [](ae::Obj&) {
       apptraverse::android::LogInfo("MINIMAL_APP_INITIAL_RENDER_OK");
+    };
+    callbacks.persist_model = [this](ae::Domain& domain) -> int {
+      return PersistMinimalApplicationFromDomain(domain, state_dir_);
     };
     host_ = std::make_unique<android::AndroidApplicationHost>(
         runtime_, presentation_host_, std::move(ui_bridge_), std::move(callbacks));

@@ -40,6 +40,10 @@ public final class MinimalAppApplication extends Application
     return runtimeHandle;
   }
 
+  boolean hasNativeRuntime() {
+    return runtimeHandle != 0L;
+  }
+
   synchronized void ensureNativeRuntime(String stateSubdir) {
     if (runtimeHandle != 0L) {
       return;
@@ -71,6 +75,14 @@ public final class MinimalAppApplication extends Application
     }
     modelThreadStarted = true;
     NativeRuntime.nativeStartModel(runtimeHandle);
+  }
+
+  synchronized void clearRuntimeForColdReloadTest() {
+    if (runtimeHandle != 0L) {
+      NativeRuntime.nativeDestroy(runtimeHandle);
+      runtimeHandle = 0L;
+    }
+    modelThreadStarted = false;
   }
 
   void requestBackgroundSave() {

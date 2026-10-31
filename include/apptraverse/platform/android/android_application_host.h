@@ -2,8 +2,10 @@
 #define APPTRAVERSE_PLATFORM_ANDROID_ANDROID_APPLICATION_HOST_H_
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <functional>
+#include <mutex>
 #include <optional>
 #include <pthread.h>
 
@@ -22,6 +24,8 @@ struct AndroidApplicationHostCallbacks {
   std::function<void(ui::android::AndroidPresentationHost&)> refresh_presentation_host;
   std::function<void(ae::Obj& application_root)> after_initial;
   std::function<void(ae::Obj& application_root)> after_incremental;
+  // Model-thread checkpoint persist (after queued UI work), same contract as Web.
+  std::function<int(ae::Domain& domain)> persist_model;
 };
 
 class AndroidApplicationHost {
@@ -39,9 +43,11 @@ class AndroidApplicationHost {
   void StartModelThread();
   void ConsumePublication(ApplicationPublicationKind kind);
 
-  // Ends the model session (RequestStop) so shutdown persist runs on the model
-  // thread; completion is reported on the main looper.
+  // Queues checkpoint persist on the model thread; completion on the main looper.
   void RequestBackgroundSave();
+
+  // RequestStop + join for test/process cold reload (not a lifecycle shutdown API).
+  void JoinModelThreadForRelease();
 
   ApplicationUiSession* ui_session() {
     return ui_session_ ? &*ui_session_ : nullptr;
@@ -68,7 +74,9 @@ class AndroidApplicationHost {
   ModelObjectProxy model_proxy_;
   std::optional<ApplicationUiSession> ui_session_;
   pthread_t model_thread_{};
-  bool model_thread_live_{false};
+  std::mutex model_start_mu_;
+  std::condition_variable model_start_cv_;
+  std::atomic<bool> model_thread_live_{false};
   std::atomic<SaveState> save_state_{SaveState::kIdle};
 };
 
