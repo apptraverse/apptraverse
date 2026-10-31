@@ -47,6 +47,25 @@ void DeserializeObjectGraphFromBuffer(ae::Obj& existing_root, ByteSource& in,
 // Load creates UI shells from the buffer (no model Domain / model Obj*).
 void SerializeInitialPublication(ae::Obj const& root, ByteSink& out);
 
+// Diagnostic: true when initial-publication graph bytes include non-empty layer
+// bytes for object_id/class_id (does not hydrate a UI domain).
+bool InitialPublicationPayloadHasLayer(
+    std::vector<std::uint8_t> const& initial_publication_bytes,
+    ae::ObjId object_id, std::uint32_t class_id);
+
+// Copies stored layer bytes for object_id/class_id/version (empty when missing).
+bool InitialPublicationPayloadCopyLayerBytes(
+    std::vector<std::uint8_t> const& initial_publication_bytes,
+    ae::ObjId object_id, std::uint32_t class_id, std::uint8_t version,
+    std::vector<std::uint8_t>& out_layer_bytes);
+
+bool InitialPublicationPayloadContainsObject(
+    std::vector<std::uint8_t> const& initial_publication_bytes,
+    ae::ObjId object_id);
+
+void FormatDomainStorageClasses(ae::IDomainStorage& storage, ae::ObjId object_id,
+                                char* buffer, std::size_t buffer_size);
+
 enum class InitialPublicationLoadStage : std::uint8_t {
   Ok = 0,
   ReadRootId,
@@ -61,6 +80,7 @@ enum class InitialPublicationLoadStage : std::uint8_t {
   ReadGenerationCount,
   ReadGenerationEntry,
   FinalFindRoot,
+  MandatoryLayersPending,
 };
 
 struct InitialPublicationLoadDiagnostics {

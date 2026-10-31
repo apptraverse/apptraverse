@@ -489,7 +489,10 @@ def main() -> int:
 
             page.on("console", on_console_shutdown_observed)
 
-            page.locator("#stop-button").click()
+            stop_btn = page.locator("#stop-button")
+            stop_btn.wait_for(state="attached", timeout=60000)
+            stop_btn.scroll_into_view_if_needed()
+            stop_btn.click(timeout=60000)
             wait_shutdown_stopped(page)
             page.remove_listener("console", on_console_shutdown_observed)
             if not saw_shutdown_stopped:

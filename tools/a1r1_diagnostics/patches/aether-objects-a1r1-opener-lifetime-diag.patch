@@ -1,0 +1,108 @@
+diff --git a/src/aether-objects/obj/domain.cpp b/src/aether-objects/obj/domain.cpp
+--- a/src/aether-objects/obj/domain.cpp
++++ b/src/aether-objects/obj/domain.cpp
++++ b/src/aether-objects/obj/domain.cpp
+@@ -23,6 +23,26 @@
+ 
+ #include "aether-objects/log.h"
+ 
++
++#if defined(__GNUC__)
++extern "C" void apptraverse_a1r1_domain_construct_obj(void* domain, void* obj,
++                                                      unsigned obj_id)
++    __attribute__((weak));
++extern "C" void apptraverse_a1r1_domain_remove_object(void* domain, void* obj,
++                                                      unsigned obj_id)
++    __attribute__((weak));
++extern "C" void apptraverse_a1r1_try_load_stored_layer(
++    void* domain_graph, unsigned storage_id, unsigned class_id, int loaded,
++    int cycle_deferred, int is_err, int err_code) __attribute__((weak));
++#else
++extern "C" void apptraverse_a1r1_domain_construct_obj(void* domain, void* obj,
++                                                      unsigned obj_id);
++extern "C" void apptraverse_a1r1_domain_remove_object(void* domain, void* obj,
++                                                      unsigned obj_id);
++extern "C" void apptraverse_a1r1_try_load_stored_layer(
++    void* domain_graph, unsigned storage_id, unsigned class_id, int loaded,
++    int cycle_deferred, int is_err, int err_code);
++#endif
+ namespace ae {
+ 
+ DomainGraph::DomainGraph(Domain* domain) : DomainGraph(domain, GraphSerializationScope::LocalPersistent) {}
+@@ -149,15 +169,28 @@
+   assert(layer && layer->load);
+   auto result = layer->load(this, obj, storage_id);
+   if (!result) {
++    if (apptraverse_a1r1_try_load_stored_layer) {
++      apptraverse_a1r1_try_load_stored_layer(this, storage_id.id(), class_id, 0,
++                                             1, 0, 0);
++    }
+     return true;
+   }
+   if (result->IsErr()) {
++    if (apptraverse_a1r1_try_load_stored_layer) {
++      apptraverse_a1r1_try_load_stored_layer(
++          this, storage_id.id(), class_id, 0, 0, 1,
++          static_cast<int>(result->error().error_code));
++    }
+     ResetObjectLoadState(storage_id);
+     domain->RemoveObject(obj.get());
+     obj.Reset();
+     return false;
+   }
+   loaded = true;
++  if (apptraverse_a1r1_try_load_stored_layer) {
++    apptraverse_a1r1_try_load_stored_layer(this, storage_id.id(), class_id, 1,
++                                           0, 0, 0);
++  }
+   return true;
+ }
+ 
+@@ -339,6 +372,9 @@
+ Ptr<Obj> Domain::ConstructObj(Factory const& factory, ObjId obj_id) {
+   Ptr<Obj> o = factory.create();
+   AddObject(obj_id, o);
++  if (apptraverse_a1r1_domain_construct_obj) {
++    apptraverse_a1r1_domain_construct_obj(this, o.get(), obj_id.id());
++  }
+   return o;
+ }
+ 
+@@ -373,6 +409,9 @@
+ void Domain::RemoveObject(Obj* ptr) {
+   if (ptr == nullptr || !ptr->registered_objects_) {
+     return;
++  }
++  if (apptraverse_a1r1_domain_remove_object) {
++    apptraverse_a1r1_domain_remove_object(this, ptr, ptr->obj_id.id());
+   }
+   ptr->registered_objects_->Remove(ptr->obj_id.id());
+ }
+diff --git a/src/aether-objects/obj/obj.cpp b/src/aether-objects/obj/obj.cpp
+--- a/src/aether-objects/obj/obj.cpp
++++ b/src/aether-objects/obj/obj.cpp
++++ b/src/aether-objects/obj/obj.cpp
+@@ -21,6 +21,13 @@
+ #include "aether-objects/obj/domain.h"
+ #include "aether-objects/obj/registry.h"
+ 
++
++#if defined(__GNUC__)
++extern "C" void apptraverse_a1r1_obj_dtor(void* domain, void* obj, unsigned obj_id)
++    __attribute__((weak));
++#else
++extern "C" void apptraverse_a1r1_obj_dtor(void* domain, void* obj, unsigned obj_id);
++#endif
+ namespace ae {
+ 
+ Ptr<Obj> ObjFacetFactoryCreateMustNotRun() { return {}; }
+@@ -63,6 +70,9 @@
+ Obj::Obj(ObjProp prop) : domain{prop.domain}, obj_id{prop.id} {}
+ 
+ Obj::~Obj() {
++  if (apptraverse_a1r1_obj_dtor) {
++    apptraverse_a1r1_obj_dtor(domain, this, obj_id.id());
++  }
+   if (registered_objects_) {
+     registered_objects_->Remove(obj_id.id());
+   }

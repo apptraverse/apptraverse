@@ -31,8 +31,13 @@ set(APPTRAVERSE_AETHER_OBJECTS_EMSCRIPTEN_DOMAIN_INCLUDE_PATCH
   "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-emscripten-domain-include.patch")
 set(APPTRAVERSE_AETHER_OBJECTS_NESTED_OBJ_ARCHIVE_DESERI_PATCH
   "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-nested-obj-archive-deseri.patch")
+set(APPTRAVERSE_AETHER_OBJECTS_COLD_LOAD_ROOT_FLUSH_PATCH
+  "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-cold-load-root-flush-v6.patch")
+set(APPTRAVERSE_AETHER_OBJECTS_RESET_OBJECT_LOAD_STATE_PATCH
+  "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-reset-object-load-state-v6r1.patch")
 
 # Pinned SHA verified with a clean CPM cache (GraphSerializationScope + LoadStoredLayers).
+# Cold-load: v6 flush; v6r1 additive patch clears cycle/pending on evict/rematerialize.
 set(APPTRAVERSE_AETHER_OBJECTS_GIT_TAG
   "79283b667cabf689da1059d618fe2a22abf51db4")
 set(APPTRAVERSE_AETHER_MISCPP_GIT_TAG "main")

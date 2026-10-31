@@ -202,6 +202,23 @@ std::size_t CountClassLayersForObject(std::filesystem::path const& root,
 
 }  // namespace
 
+void TestLoadedObjPtrAliasSeesLiveMutationWithoutReload() {
+  ae::RamDomainStorage backing;
+  ae::Domain domain{backing};
+  ae::ObjId const doc_id{44050};
+  DocNode::ptr ref =
+      DocNode::ptr::Create(ae::CreateWith{domain}.with_id(doc_id));
+  ae::Ptr<DocNode> const primary = ref.Load();
+  primary->label = "before";
+  ae::Ptr<DocNode> const alias = ref.Load();
+  CHECK(alias.get() == primary.get());
+  CHECK(alias->label == "before");
+  primary->label = "after-live-mutation";
+  ae::Ptr<ae::Obj> const from_domain = domain.Find(doc_id);
+  CHECK(from_domain.get() == primary.get());
+  CHECK(ref->label == "after-live-mutation");
+}
+
 void RunModelPersistenceTest() {
   auto const temp =
       std::filesystem::temp_directory_path() /
@@ -904,6 +921,7 @@ void RunDistilledLazyOverlayTest() {
 
 int main() {
   apptraverse::EnsureObjectRegistration();
+  apptraverse::test::TestLoadedObjPtrAliasSeesLiveMutationWithoutReload();
   apptraverse::test::RunModelPersistenceTest();
   apptraverse::test::RunSaveToStorageDoesNotMutateLiveGraphTest();
   apptraverse::test::RunSaveToStorageColdDirectoryRoundTripTest();

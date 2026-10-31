@@ -1,0 +1,267 @@
+diff --git a/src/aether-objects/obj/domain.cpp b/src/aether-objects/obj/domain.cpp
+index 6dcefdd..984b4dc 100644
+--- a/src/aether-objects/obj/domain.cpp
++++ b/src/aether-objects/obj/domain.cpp
+@@ -17,6 +17,7 @@
+ #include "aether-objects/obj/obj.h"
+ 
+ #include <algorithm>
++#include <vector>
+ 
+ #include "aether-objects/obj/domain.h"
+ 
+@@ -45,6 +46,16 @@ seri::SeriResult DomainGraph::LoadRoot(ObjId obj_id, Ptr<Obj>& ptr) {
+   }
+   // if already loaded
+   if (ptr = domain->Find(obj_id); ptr) {
++    if (LoadRootState().loading_root_ids.find(obj_id.id()) !=
++        LoadRootState().loading_root_ids.end()) {
++      return Ok{seri::good};
++    }
++    if (LoadRootState().pending_stored_layers.count(obj_id.id()) != 0) {
++      CompletePendingStoredLayersFor(obj_id);
++      if (LoadRootState().loading_root_ids.empty()) {
++        CompleteAllPendingStoredLayers();
++      }
++    }
+     return Ok{seri::good};
+   }
+ 
+@@ -53,6 +64,19 @@ seri::SeriResult DomainGraph::LoadRoot(ObjId obj_id, Ptr<Obj>& ptr) {
+     return Error{seri::read_error};
+   }
+ 
++  LoadRootState().loading_root_ids.insert(obj_id.id());
++  struct LoadRootScope {
++    DomainGraph* self;
++    ObjId id;
++    ~LoadRootScope() {
++      self->CompletePendingStoredLayersFor(id);
++      self->LoadRootState().loading_root_ids.erase(id.id());
++      if (self->LoadRootState().loading_root_ids.empty()) {
++        self->CompleteAllPendingStoredLayers();
++      }
++    }
++  } const load_root_scope{this, obj_id};
++
+   ptr = domain->ConstructObj(*factory, obj_id);
+   LoadStoredLayers(ptr, obj_id);
+   if (!ptr) {
+@@ -84,16 +108,142 @@ Ptr<Obj> DomainGraph::LoadCopyImpl(ObjId ref_id, ObjId copy_id) {
+   return ptr;
+ }
+ 
++DomainLoadRootState& DomainGraph::LoadRootState() const {
++  assert(domain && domain->load_root_state_);
++  return *domain->load_root_state_;
++}
++
++void DomainGraph::FlushIncompleteStoredLayers() {
++  CompleteAllPendingStoredLayers();
++}
++
++void DomainGraph::EnsureStoredLayersLoaded(ObjId storage_id) {
++  if (!domain->Find(storage_id)) {
++    return;
++  }
++  CompletePendingStoredLayersFor(storage_id);
++  CompleteAllPendingStoredLayers();
++  if (LoadRootState().pending_stored_layers.count(storage_id.id()) != 0) {
++    return;
++  }
++  Ptr<Obj> obj = domain->Find(storage_id);
++  LoadStoredLayers(obj, storage_id);
++  CompletePendingStoredLayersFor(storage_id);
++  CompleteAllPendingStoredLayers();
++}
++
++bool DomainGraph::HasIncompleteStoredLayers() const {
++  return !LoadRootState().pending_stored_layers.empty();
++}
++
++bool DomainGraph::TryLoadStoredLayer(Ptr<Obj>& obj, ObjId storage_id,
++                                      std::uint32_t class_id, bool& loaded) {
++  loaded = false;
++  auto* layer = domain->FindClassFactory(class_id);
++  assert(layer && layer->load);
++  auto result = layer->load(this, obj, storage_id);
++  if (!result) {
++    return true;
++  }
++  if (result->IsErr()) {
++    domain->RemoveObject(obj.get());
++    obj.Reset();
++    return false;
++  }
++  loaded = true;
++  return true;
++}
++
++void DomainGraph::EnqueuePendingStoredLayers(
++    ObjId storage_id, std::vector<std::uint32_t> const& class_ids) {
++  if (class_ids.empty()) {
++    return;
++  }
++  auto& pending = LoadRootState().pending_stored_layers[storage_id.id()];
++  pending.insert(pending.end(), class_ids.begin(), class_ids.end());
++}
++
++void DomainGraph::CompletePendingStoredLayersFor(ObjId storage_id) {
++  auto& layers = LoadRootState().pending_stored_layers;
++  auto it = layers.find(storage_id.id());
++  if (it == layers.end()) {
++    return;
++  }
++  Ptr<Obj> obj = domain->Find(storage_id);
++  if (!obj) {
++    return;
++  }
++  std::vector<std::uint32_t> still;
++  for (auto const class_id : it->second) {
++    bool loaded = false;
++    if (!TryLoadStoredLayer(obj, storage_id, class_id, loaded)) {
++      return;
++    }
++    if (!loaded) {
++      still.push_back(class_id);
++    }
++  }
++  if (still.empty()) {
++    layers.erase(it);
++  } else {
++    it->second = std::move(still);
++  }
++}
++
++void DomainGraph::CompleteAllPendingStoredLayers() {
++  auto& layers = LoadRootState().pending_stored_layers;
++  bool progress = true;
++  while (progress && !layers.empty()) {
++    progress = false;
++    auto snapshot = layers;
++    layers.clear();
++    for (auto const& entry : snapshot) {
++      ObjId const storage_id{entry.first};
++      Ptr<Obj> obj = domain->Find(storage_id);
++      if (!obj) {
++        layers[entry.first] = entry.second;
++        continue;
++      }
++      std::vector<std::uint32_t> still;
++      for (auto const class_id : entry.second) {
++        bool loaded = false;
++        if (!TryLoadStoredLayer(obj, storage_id, class_id, loaded)) {
++          return;
++        }
++        if (!loaded) {
++          still.push_back(class_id);
++        } else {
++          progress = true;
++        }
++      }
++      if (!still.empty()) {
++        layers[entry.first] = std::move(still);
++      }
++    }
++  }
++}
++
+ void DomainGraph::LoadStoredLayers(Ptr<Obj>& obj, ObjId storage_id) {
++  std::vector<std::uint32_t> pending;
+   for (auto const class_id : domain->KnownStoredClasses(storage_id)) {
+-    auto* layer = domain->FindClassFactory(class_id);
+-    assert(layer && layer->load);
+-    auto result = layer->load(this, obj, storage_id);
+-    if (result && result->IsErr()) {
+-      domain->RemoveObject(obj.get());
+-      obj.Reset();
++    pending.push_back(class_id);
++  }
++  while (!pending.empty() && obj) {
++    std::vector<std::uint32_t> deferred;
++    for (auto const class_id : pending) {
++      bool loaded = false;
++      if (!TryLoadStoredLayer(obj, storage_id, class_id, loaded)) {
++        return;
++      }
++      if (!loaded) {
++        deferred.push_back(class_id);
++      }
++    }
++    if (deferred.size() == pending.size()) {
++      EnqueuePendingStoredLayers(storage_id, deferred);
+       return;
+     }
++    pending = std::move(deferred);
+   }
+ }
+ 
+@@ -168,7 +318,8 @@ Domain::Domain(IDomainStorage& storage, Env* env)
+     : storage_{&storage},
+       registry_{&Registry::GetRegistry()},
+       env_{env},
+-      registered_objects_{std::make_shared<DomainRegisteredObjects>()} {}
++      registered_objects_{std::make_shared<DomainRegisteredObjects>()},
++      load_root_state_{std::make_shared<DomainLoadRootState>()} {}
+ 
+ void DomainRegisteredObjects::Add(ObjId id, Ptr<Obj> const& obj) {
+   by_id[id.id()] = obj;
+diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
+index 579ff7e..2127ae1 100644
+--- a/src/aether-objects/obj/domain.h
++++ b/src/aether-objects/obj/domain.h
+@@ -25,6 +25,7 @@
+ #include <set>
+ #include <type_traits>
+ #include <unordered_map>
++#include <unordered_set>
+ 
+ #include "aether-miscpp/domain_visitor/domain_visitor.h"
+ #include "aether-miscpp/serialization/binary_archive.h"
+@@ -50,6 +51,12 @@ class Obj;
+ class Domain;
+ class DomainGraph;
+ 
++struct DomainLoadRootState {
++  std::unordered_set<ObjId::Type> loading_root_ids;
++  std::unordered_map<ObjId::Type, std::vector<std::uint32_t>>
++      pending_stored_layers;
++};
++
+ struct DomainRegisteredObjects {
+   std::map<ObjId::Type, PtrView<Obj>> by_id;
+ 
+@@ -148,6 +148,10 @@ class DomainGraph {
+   ObjId CloneSaveRemapId(ObjId id) const;
+   bool CloneSaveShouldTraverse(ObjId id) const;
+ 
++  void FlushIncompleteStoredLayers();
++  void EnsureStoredLayersLoaded(ObjId storage_id);
++  bool HasIncompleteStoredLayers() const;
++
+   Domain* domain{};
+   DomainCycleDetector cycle_detector{};
+   GraphSerializationScope serialization_scope{
+@@ -160,6 +171,14 @@ class DomainGraph {
+ 
+   void LoadStoredLayers(Ptr<Obj>& obj, ObjId storage_id);
+ 
++  bool TryLoadStoredLayer(Ptr<Obj>& obj, ObjId storage_id,
++                          std::uint32_t class_id, bool& loaded);
++  void EnqueuePendingStoredLayers(
++      ObjId storage_id, std::vector<std::uint32_t> const& class_ids);
++  void CompletePendingStoredLayersFor(ObjId storage_id);
++  void CompleteAllPendingStoredLayers();
++  DomainLoadRootState& LoadRootState() const;
++
+   DomainLoad GetReader(DomainQuery const& query);
+   std::unique_ptr<IDomainStorageWriter> GetWriter(DomainQuery const& query);
+ 
+@@ -207,6 +226,7 @@ class Domain {
+   Env* env_{};
+ 
+   std::shared_ptr<DomainRegisteredObjects> registered_objects_;
++  std::shared_ptr<DomainLoadRootState> load_root_state_;
+ };
+ 
+ template <typename T>

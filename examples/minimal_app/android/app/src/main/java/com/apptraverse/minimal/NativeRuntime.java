@@ -15,4 +15,9 @@ public final class NativeRuntime {
   static native void nativeConsumePublication(long handle, int kind);
 
   static native void nativeDestroy(long handle);
+
+  /** A1R1: distill → cold LoadApplication label probe (no UI presenters). */
+  static native String nativeRunColdLoadLabelProbe(String profileDir);
+
+  static native String nativeRunInitialPublicationLabelProbe(String profileDir);
 }

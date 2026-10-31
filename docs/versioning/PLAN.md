@@ -48,7 +48,7 @@
 | **P0** | Импорт канона; синхронизация PLAN/PROGRESS/rules | **DONE** |
 | **P1** | Удалить сеть/replication и ненужные deps; локальный WindowCatalog (Windows) остаётся рабочим | **DONE** |
 | **P2** | Общий application template + минимум persistence/Clone | **IN_PROGRESS** |
-| **P3** | Библиотечный application template + компоненты, E2E на семи backend | **IN_PROGRESS**; **P3.T1–T2 PASS**; **P3.T3.H PASS**; **P3.T3.W1–W2 PASS**; **P3.T3.Web1–Web5 PASS**; **P3.T3.Web5R1 PASS**; **P3.T3.A1 PASS** (historical Android visual smoke); **P3.T3.A1R1 IN_PROGRESS**; **NEXT: A1R1 PASS**, then **P3.T3.A2** (Android input) |
+| **P3** | Библиотечный application template + компоненты, E2E на семи backend | **IN_PROGRESS**; **P3.T1–T2 PASS**; **P3.T3.H PASS**; **P3.T3.W1–W2 PASS**; **P3.T3.Web1–Web5 PASS**; **P3.T3.Web5R1 PASS**; **P3.T3.A1 PASS** (historical Android visual smoke); **P3.T3.A1R1 PASS**; **NEXT: P3.T3.A2** (Android input; не начинать) |
 | **P4** | WindowCatalog — тонкий потребитель готового template и controls, E2E на семи backend | TODO; существующие результаты сохраняются |
 | **A1** | Первый сценарий администрирования на проверенном шаблоне | TODO; только после P3 и P4 на всех семи backend |
 | **P5** | Расширенные обновления, resource-set delivery, replay | DEFERRED; не блокирует P3/P4/A1 |
@@ -135,7 +135,7 @@
 | **P3.T3.W2 — PASS** | Windows list selection sync из mirror | `ApplyPublishedListSelection` в `SyncFromMirror` при `notify_list_selection_change`; E2E в `win_ui_command_routing_test`; [PROGRESS §P3.T3.W2](./PROGRESS.md#p3t3w2--windows-list-selection-sync-from-mirror-2026-10-29-pass) |
 | **P3.T3.W** | Windows backend и общие Window/List/Button | MinimalApp через публичные library targets; native host/controls без зависимости от WindowCatalog |
 | **P3.T3.Web** | Web backend и общие Window/List/Button | Та же сессия и компоненты; UI delivery, DOM lifecycle, несколько представлений, сохранение и подтверждение записи browser storage |
-| **P3.T3.A** | Android backend | **IN_PROGRESS**; **P3.T3.A1 PASS** (historical smoke, [PROGRESS §P3.T3.A1](./PROGRESS.md#p3t3a1--android-minimalapp-initial-ui-2026-10-30-pass)); **P3.T3.A1R1 IN_PROGRESS** — opener label без обходов ([PROGRESS §P3.T3.A1R1](./PROGRESS.md#p3t3a1r1--android-opener-label-from-graph-2026-10-30)); **NEXT A1R1 PASS**, then **P3.T3.A2** |
+| **P3.T3.A** | Android backend | **IN_PROGRESS**; **P3.T3.A1 PASS** (historical smoke, [PROGRESS §P3.T3.A1](./PROGRESS.md#p3t3a1--android-minimalapp-initial-ui-2026-10-30-pass)); **P3.T3.A1R1 PASS** ([PROGRESS §P3.T3.A1R1](./PROGRESS.md#p3t3a1r1--android-opener-label-from-graph-2026-10-31--pass)); **NEXT: P3.T3.A2** (не начинать) |
 | **P3.T3.L** | Linux backend | GTK host/controls на общей сессии; не SurfacesModelSession |
 | **P3.T3.M** | macOS backend | AppKit/ObjC++ host/controls на общей сессии |
 | **P3.T3.I** | iOS/iPadOS backend | UIKit/SwiftUI integration на общей сессии; mobile lifecycle и страничное отображение |

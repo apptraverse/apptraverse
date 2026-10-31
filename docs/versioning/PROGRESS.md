@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-10-30):** **P3.T3.A1R1** — подпись opener из графа без обходов (**IN_PROGRESS**; Android initial UI **не PASS**, §P3.T3.A1R1). **P3.T3.A1** — исторический **PASS** визуального smoke с A1 workarounds (§P3.T3.A1). **P3.T3.A** / **P3** — **IN_PROGRESS**. **P3.T3.Web5R1 PASS**, **P3.T3.MinimalAppR1 PASS**. **NEXT после A1R1 PASS:** **P3.T3.A2** (Android input; **не начинать**). **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
+**Активный порядок (2026-10-31):** **P3.T3.A1R1 PASS** (§P3.T3.A1R1). **P3.T3.A** / **P3** / **Android/P3** — **IN_PROGRESS**. **NEXT (единственный):** **P3.T3.A2** — Android input (не начинать). **P3.T3.Web5R1 PASS**, **P3.T3.MinimalAppR1 PASS**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -224,21 +224,23 @@
 
 <a id="p3t3a1r1--android-opener-label-from-graph-2026-10-30"></a>
 
-## P3.T3.A1R1 — Android opener label from published graph (2026-10-30) — IN_PROGRESS
+## P3.T3.A1R1 — Android opener label from published graph (2026-10-31) — PASS
 
-**Base (lease):** `5e3f6123ca743792294f5945c8c804fc7f30ec55` (**P3.T3.A1**).
+**Base (lease):** `2342029eaf9d8a11eb1fa87f71877bfb56bbd378`.
 
-**Сделано:** удалены A1 workarounds (`minimal_app_android_ui_labels.*`, `resolve_push_button_label_utf8`, `Declare(MinimalAuxiliaryOpenerLabelId)` в Prepare, default title «Minimal App»); Android presenters читают `button->label` из mirror; расширен `TestMinimalAppOpenerLabelInInitialPublication` (probe `OpenerLabel-A1R1-probe`, стадии graph → cold load до Prepare → publication → UI `presenter->button->label`).
+**Продукт:** без A1 workarounds; label opener **«Open Detail»** из distilled графа → cold load до Prepare → `SerializeInitialPublication` → UI RamDomain → `presenter->button->label` (Android instrumented + Win headless probes).
 
-**Первая доказанная граница (Android NDK, без обходов):** после `LoadApplication` + `auxiliary_opener.Load()` на model thread **`auxiliary_opener->label.is_valid()` == false** (`PrepareMinimalApplicationForRun` → `fatal: … auxiliary_opener label ref invalid`), при том что **apply_button.label** на том же профиле валиден. В `DirectoryDomainStorage` у объекта **127991825** (`MinimalAuxiliaryOpenerId`) слой **1491514641** (UiPushButton) содержит ref на localization с UTF-8 «Open Detail» — данные сохранены, поле C++ после load не гидратировано. **Win64 headless** тот же pipeline **PASS** (отдельный дефект сериализатора на Win **не воспроизведён**).
+**Исправленный дефект (shipping, Æther pin `79283b6`):** additive **`aether-objects-reset-object-load-state-v6r1.patch`** поверх **`aether-objects-cold-load-root-flush-v6.patch`** — `DomainGraph::ResetObjectLoadState` сбрасывает `pending_stored_layers` и `cycle_detector.visited_nodes` при rematerialize / `TryLoadStoredLayer::IsErr` / pending без `Find`, чтобы повторный `LoadRoot` не пропускал обязательные stored-слои (в т.ч. **UiPushButton** `1491514641` для opener **127991825**). Алгоритм v6 **не менялся**; diag-патч и trace **не** в shipping chain.
 
-**Проверки (Win, incremental Debug):** `apptraverse_minimal_app_headless_test` **PASS** (включая opener-label probe); `apptraverse_minimal_app_win32_acceptance_test` **PASS**.
+**ClassId (исправленная интерпретация):** `MinimalAuxiliaryOpenerButton` **1145469484**, `MinimalApplyButton` **209895325**, `UiPushButton` **1491514641**; после UI hydrate opener **127991825** → `GetClassId()==1145469484`. **209895325** на том же ObjId в **disk profile** ≠ UI **RamDomainStorage** publication.
 
-**Android (API 34 / x86_64, без hook):** `InitialUiInstrumentedTest` **FAIL** (process crash на model thread до UI); `MINIMAL_APP_INITIAL_RENDER_OK` **не** получен.
+**Pre-fix причина первого снятия opener #1 с registry — не доказана на финальном кандидате:** LLDB/WIP указывали второй `ConstructObj` при `Find==null`; на v6+v6r1 **без diag** `Domain::RemoveObject` для opener **0**, `TryLoadStoredLayer is_err` **0**, были `Obj::~Obj` без предшествующего `RemoveObject` (артефакты: `tools/a1r1_diagnostics/`, `tools/a1r1_*.txt`).
 
-**Object Core / Æther:** не менялись (Win без repro).
+**Æther patches (15, без diag):** 14 baseline + **v6** + **v6r1**; `cmake/scripts/verify-aether-patch-chain.sh` **OK**.
 
-**NEXT:** устранить NDK cold-load гидратацию `UiPushButton.label` для `MinimalAuxiliaryOpenerButton` **или** зафиксировать upstream fix; затем повторить Android instrumented + Web5R1 smoke. **A2** — только после A1R1 **PASS**.
+**Проверки (incremental Debug, `apptraverse-wt-web5`):** Android **ColdLoadLabel**, **InitialPublicationLabel**, **InitialUi** instrumented **PASS**; §Web5 Win — §W2 восемь + `apptraverse_presenter_load_order_test`, `apptraverse_application_ui_session_test`, `apptraverse_application_model_runtime_test`, `apptraverse_application_contract_headless_test`, `apptraverse_minimal_app_headless_test` **PASS**; Object Core — `apptraverse_checkpoint_load_cycle_persistence_test`, `apptraverse_checkpoint_load_rehydration_test` (+ cached `Find` identity/unsaved locale), `apptraverse_model_persistence_test`, `apptraverse_object_clone_test`, `apptraverse_object_origin_facet_test`, CTest **`apptraverse_object_origin_disk_roundtrip_test`** **PASS**; `win32_minimal_app` / `win32_minimal_app_load_only` **build PASS**; WASM — `wasm_minimal_app_browser_smoke.py`, `wasm_web_presenter_lifecycle_test.py`, `wasm_window_catalog_browser_smoke.py` **PASS** (serve `8766` / `8770` / `8785`).
+
+**NEXT:** **P3.T3.A2** — Android input (не начинать).
 
 ---
 

@@ -60,6 +60,14 @@ android {
     debug {
       debuggable true
       jniDebuggable true
+      ndk {
+        debugSymbolLevel "FULL"
+      }
+      packaging {
+        jniLibs {
+          keepDebugSymbols += "**/*.so"
+        }
+      }
     }
     release {
       minifyEnabled false

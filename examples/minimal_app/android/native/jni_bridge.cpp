@@ -17,6 +17,8 @@
 #include "apptraverse/ui/ui_presenters.h"
 
 #include "minimal_application.h"
+#include "minimal_app_android_cold_load_probe.h"
+#include "minimal_app_android_initial_publication_probe.h"
 #include "minimal_native_runtime.h"
 
 namespace apptraverse::example::minimal {
@@ -64,6 +66,32 @@ void NativeConsumePublication(JNIEnv*, jclass, jlong handle, jint kind) {
 
 void NativeDestroy(JNIEnv*, jclass, jlong handle) { delete FromHandle(handle); }
 
+jstring NativeRunInitialPublicationLabelProbe(JNIEnv* env, jclass,
+                                              jstring profile_dir) {
+  EnsureMinimalApplicationRegistration();
+  char const* chars = env->GetStringUTFChars(profile_dir, nullptr);
+  auto const dir = std::filesystem::path{chars};
+  env->ReleaseStringUTFChars(profile_dir, chars);
+  AndroidInitialPublicationLabelProbeResult const probe =
+      RunAndroidInitialPublicationLabelProbe(dir);
+  std::string const out =
+      probe.ok ? std::string{"OK:"} + probe.stage
+               : std::string{"FAIL:"} + std::string{probe.stage} + ":" + probe.detail;
+  return env->NewStringUTF(out.c_str());
+}
+
+jstring NativeRunColdLoadLabelProbe(JNIEnv* env, jclass, jstring profile_dir) {
+  EnsureMinimalApplicationRegistration();
+  char const* chars = env->GetStringUTFChars(profile_dir, nullptr);
+  auto const dir = std::filesystem::path{chars};
+  env->ReleaseStringUTFChars(profile_dir, chars);
+  AndroidColdLoadLabelProbeResult const probe = RunAndroidColdLoadLabelProbe(dir);
+  std::string const out =
+      probe.ok ? std::string{"OK:"} + std::to_string(probe.built_label_obj_id)
+               : std::string{"FAIL:"} + probe.detail;
+  return env->NewStringUTF(out.c_str());
+}
+
 JNINativeMethod const kNativeMethods[] = {
     {"nativeCreate", "(Ljava/lang/String;Lcom/apptraverse/minimal/NativeUiBridge;)J",
      reinterpret_cast<void*>(&NativeCreate)},
@@ -73,6 +101,10 @@ JNINativeMethod const kNativeMethods[] = {
     {"nativeConsumePublication", "(JI)V",
      reinterpret_cast<void*>(&NativeConsumePublication)},
     {"nativeDestroy", "(J)V", reinterpret_cast<void*>(&NativeDestroy)},
+    {"nativeRunColdLoadLabelProbe", "(Ljava/lang/String;)Ljava/lang/String;",
+     reinterpret_cast<void*>(&NativeRunColdLoadLabelProbe)},
+    {"nativeRunInitialPublicationLabelProbe", "(Ljava/lang/String;)Ljava/lang/String;",
+     reinterpret_cast<void*>(&NativeRunInitialPublicationLabelProbe)},
 };
 
 constexpr char const kAndroidUiClass[] =

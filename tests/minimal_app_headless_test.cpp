@@ -54,6 +54,10 @@ using example::minimal::EnsureHeadlessMinimalApplicationGraphRegistration;
 using example::minimal::MakeMinimalLabel;
 using example::minimal::MinimalApplication;
 using example::minimal::MinimalApplicationRootId;
+using example::minimal::MinimalApplyButton;
+using example::minimal::MinimalApplyButtonId;
+using example::minimal::MinimalAuxiliaryOpenerButton;
+using example::minimal::MinimalAuxiliaryOpenerId;
 using example::minimal::MinimalMainWindowId;
 using example::minimal::MinimalPresenterId;
 using example::minimal::PrepareMinimalApplicationForRun;
@@ -650,6 +654,125 @@ MinimalApplication::ptr BuildHeadlessGraphWithOpenerProbeLabel(
 
 }  // namespace
 
+void TestMinimalAppProductionOpenerColdLoadInitialPublication() {
+  EnsureObjectRegistration();
+  EnsureHeadlessMinimalApplicationGraphRegistration();
+
+  std::filesystem::path const profile_dir =
+      std::filesystem::temp_directory_path() /
+      "minimal_app_production_opener_cold_pub_test";
+  std::error_code ec;
+  std::filesystem::remove_all(profile_dir, ec);
+
+  BootstrapMinimalApplicationProfileIfAbsent(
+      profile_dir,
+      [](ae::Domain& domain) { return BuildHeadlessMinimalApplicationGraph(domain); });
+
+  DirectoryDomainStorage model_storage{profile_dir};
+  ae::Domain model_domain{model_storage};
+  auto model_root =
+      LoadApplication<MinimalApplication>(model_domain, MinimalApplicationRootId());
+  CHECK(model_root->auxiliary_opener->label.is_valid());
+
+  PrepareMinimalApplicationForRun(*model_root);
+  ae::ObjId const model_label_id = model_root->auxiliary_opener->label.id();
+  CHECK(model_label_id.is_valid());
+  ByteSink initial;
+  SerializeInitialPublication(*model_root, initial);
+
+  CHECK(InitialPublicationPayloadHasLayer(
+      initial.bytes, MinimalAuxiliaryOpenerId(), ui::UiPushButton::kClassId));
+  CHECK(InitialPublicationPayloadContainsObject(initial.bytes, model_label_id));
+
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  ByteSource in;
+  in.data = initial.bytes.data();
+  in.size = initial.bytes.size();
+  ae::Ptr<ae::Obj> ui_root = TryLoadInitialPublication(in, ui_domain, ui_storage);
+
+  CHECK(ui_root);
+  auto& ui_app = static_cast<MinimalApplication&>(*ui_root);
+  ui_app.presenters.auxiliary_opener->button->label.Load();
+  CHECK(ui_app.presenters.auxiliary_opener->button->label);
+  CHECK(ui_app.presenters.auxiliary_opener->button->label->Resolve(0) ==
+        "Open Detail");
+}
+
+void TestMinimalAppProductionOpenerInitialPublication() {
+  EnsureObjectRegistration();
+  EnsureHeadlessMinimalApplicationGraphRegistration();
+
+  ae::RamDomainStorage build_storage;
+  ae::Domain build_domain{build_storage};
+  auto built = BuildHeadlessMinimalApplicationGraph(build_domain);
+  built->auxiliary_opener.Load();
+  ae::ObjId const built_label_id = built->auxiliary_opener->label.id();
+  CHECK(built_label_id.is_valid());
+
+  PrepareMinimalApplicationForRun(*built);
+  ByteSink initial;
+  SerializeInitialPublication(*built, initial);
+
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  ByteSource in;
+  in.data = initial.bytes.data();
+  in.size = initial.bytes.size();
+  ae::Ptr<ae::Obj> root = LoadInitialPublication(in, ui_domain, ui_storage);
+  auto& ui_app = static_cast<MinimalApplication&>(*root);
+
+  ui_app.presenters.auxiliary_opener.Load();
+  ui_app.presenters.auxiliary_opener->button.Load();
+  ui_app.presenters.auxiliary_opener->button->label.Load();
+  CHECK(ui_app.presenters.auxiliary_opener->button->label);
+  CHECK(ui_app.presenters.auxiliary_opener->button->label->Resolve(0) ==
+        "Open Detail");
+}
+
+void TestMinimalAppProductionOpenerColdLoadBeforePrepare() {
+  EnsureObjectRegistration();
+  EnsureHeadlessMinimalApplicationGraphRegistration();
+
+  std::filesystem::path const profile_dir =
+      std::filesystem::temp_directory_path() /
+      "minimal_app_production_opener_cold_load_test";
+  std::error_code ec;
+  std::filesystem::remove_all(profile_dir, ec);
+
+  ae::ObjId built_label_id{};
+  BootstrapMinimalApplicationProfileIfAbsent(
+      profile_dir, [&built_label_id](ae::Domain& domain) {
+        auto built = BuildHeadlessMinimalApplicationGraph(domain);
+        built->auxiliary_opener.Load();
+        built_label_id = built->auxiliary_opener->label.id();
+        CHECK(built_label_id.is_valid());
+        return built;
+      });
+
+  DirectoryDomainStorage model_storage{profile_dir};
+  ae::Domain model_domain{model_storage};
+  auto model_root =
+      LoadApplication<MinimalApplication>(model_domain, MinimalApplicationRootId());
+
+  ae::Ptr<ae::Obj> const opener_obj = model_domain.Find(MinimalAuxiliaryOpenerId());
+  CHECK(opener_obj);
+  auto& opener = static_cast<MinimalAuxiliaryOpenerButton&>(*opener_obj);
+  CHECK(opener.label.is_valid());
+  CHECK(opener.label.id() == built_label_id);
+
+  ae::Ptr<ae::Obj> const apply_obj = model_domain.Find(MinimalApplyButtonId());
+  CHECK(apply_obj);
+  auto& apply = static_cast<MinimalApplyButton&>(*apply_obj);
+  CHECK(apply.label.is_valid());
+
+  model_root->auxiliary_opener.Load();
+  CHECK(model_root->auxiliary_opener->label.is_valid());
+  CHECK(model_root->auxiliary_opener->label.id() == built_label_id);
+  model_root->auxiliary_opener->label.Load();
+  CHECK(model_root->auxiliary_opener->label->Resolve(0) == "Open Detail");
+}
+
 void TestMinimalAppOpenerLabelInInitialPublication() {
   EnsureObjectRegistration();
   EnsureHeadlessMinimalApplicationGraphRegistration();
@@ -713,6 +836,9 @@ void TestMinimalAppOpenerLabelInInitialPublication() {
 
 int main() {
   apptraverse::EnableNoninteractiveCrt();
+  apptraverse::test::TestMinimalAppProductionOpenerColdLoadInitialPublication();
+  apptraverse::test::TestMinimalAppProductionOpenerInitialPublication();
+  apptraverse::test::TestMinimalAppProductionOpenerColdLoadBeforePrepare();
   apptraverse::test::TestMinimalAppOpenerLabelInInitialPublication();
   apptraverse::test::TestMinimalAppHeadlessSessionE2e();
   apptraverse::test::TestMinimalAppHeadlessUiCommandE2e();
