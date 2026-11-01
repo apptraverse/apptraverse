@@ -155,6 +155,9 @@ public final class SaveColdReloadInstrumentedTest {
     SaveLatch saves = armSaveConfirmation(2);
     device.pressHome();
     assertFalse("first save still in gate", saves.await(2, TimeUnit.SECONDS));
+    assertTrue(
+        "first persist must enter gate before overlap input",
+        NativeRuntime.nativeWaitForCheckpointPersistGateEntries(1, 5000));
 
     MinimalAppTestLaunch.bringAppToForeground(context, device, OVERLAP_PROFILE, false);
     UiObject2 rowA = device.wait(Until.findObject(By.desc("Row A")), 15000);
@@ -165,7 +168,10 @@ public final class SaveColdReloadInstrumentedTest {
 
     NativeRuntime.nativeOpenCheckpointPersistTestGate();
     assertTrue("both checkpoint saves confirmed", saves.await(45, TimeUnit.SECONDS));
-    assertEquals(0, saves.result.get());
+    assertEquals(
+        "last checkpoint confirmed by final onBackgroundSaveFinished(0)",
+        0,
+        saves.result.get());
     disarmSaveConfirmation();
     NativeRuntime.nativeDisableCheckpointPersistTestGate();
 
@@ -196,9 +202,6 @@ public final class SaveColdReloadInstrumentedTest {
 
     rowA = device.wait(Until.findObject(By.desc("Row A")), 15000);
     assertNotNull(rowA);
-    if (!rowA.isSelected()) {
-      rowA.click();
-    }
     waitForSelected(rowA, true, 30000);
     assertEquals("cold reload path", ColdReloadPath.IN_PROCESS_RUNTIME_RESET, pathUsed);
   }

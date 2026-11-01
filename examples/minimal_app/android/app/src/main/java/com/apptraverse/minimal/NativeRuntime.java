@@ -25,6 +25,11 @@ public final class NativeRuntime {
 
   static native void nativeDisableCheckpointPersistTestGate();
 
+  static native boolean nativeWaitForCheckpointPersistGateEntries(
+      int expectedCount, long timeoutMs);
+
+  static native String nativeRunPendingBackgroundSaveRaceProbe();
+
   static native String nativeRunModelThreadStartSyncProbe();
 
   /** A1R1: distill → cold LoadApplication label probe (no UI presenters). */

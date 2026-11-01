@@ -262,7 +262,7 @@
 
 **Тесты (Aether_NDK_Smoke_x86_64, Debug, 2026-10-31):** 7/7 instrumented (**SaveColdReloadInstrumentedTest** ×3: same-process, save-in-flight, cold reload) — **PASS** (historical на **fc0f89f**).
 
-**Корректирующий срез (2026-11-01, lease `fae9c1ae…`):**
+**Корректирующий срез (2026-11-01, lease `fae9c1ae…`, superseded частично `cf61692`):**
 
 - **Model thread start:** ожидание на UI — `model_worker_entered_` (+ `model_start_cv_`), не `model_thread_live_`; joinable worker при быстром exit (`model_thread_joinable_`); `JoinModelThreadForRelease` join даже если worker уже не live. Probe `nativeRunModelThreadStartSyncProbe` + `ModelThreadStartSyncInstrumentedTest` (cv, без Sleep).
 - **Повторный checkpoint:** `pending_background_save_` при `kSaving`; второй persist через повторный `EnqueueBackgroundSaveWork` (FIFO после UI), не inline-loop в одном `Post`. Persist test gate (`nativeEnable/Open/DisableCheckpointPersistTestGate`) для удержания первого save.
@@ -274,6 +274,17 @@
 **Android lifecycle (общий):** **IN_PROGRESS** — checkpoint/resume/cold + race/overlap slice; полная матрица lifecycle/shutdown не закрыта.
 
 **NEXT:** при необходимости cold reload E2E с **NEW_PID_DEMO_PROCESS** на конфигурации `:demo` ≠ instrumentation; иначе расширение lifecycle beyond slice (не начинать полную matrix).
+
+**Доработка checkpoint-среза (2026-11-01, lease `cf61692…`):**
+
+- **`RequestBackgroundSave`:** `pending_background_save_=true` до CAS; при успешном старте save pending сбрасывается; устраняет окно «persist завершился до pending». Подтверждение **последнего** checkpoint — финальный **`NativeUiBridge.onNativeBackgroundSaveFinished` → `MinimalAppApplication.onBackgroundSaveFinished`** (в overlap: latch **2** + `result==0` после второго callback).
+- **`StartModelThread`:** без ожидания worker на UI thread; probe + **`ModelThreadStartSyncInstrumentedTest`** (non-blocking start + fast exit join).
+- **Overlap E2E:** `nativeWaitForCheckpointPersistGateEntries(1)` после первого home; disk probe и UI selection **раздельно**; после cold reload **Row A selected до кликов**; путь **`IN_PROCESS_RUNTIME_RESET`** только.
+- **Win acceptance `main==nullptr` @1418:** не iconic — demo **exit 3** (`LoadApplication failed`): `focus_apply_count.txt` создавался **внутри** `--state-dir`, профиль не empty → bootstrap пропускался. Исправление: sidecar в `%TEMP%/apptraverse_test/…`; **`apptraverse_window_catalog_win32_acceptance_test` PASS**.
+
+**Проверки (incremental Debug, 2026-11-01):** Android **10/10** instrumented; Headless + §W2 (incl. catalog acceptance); WASM minimal + presenter lifecycle + catalog (**8785** serve) — **PASS**.
+
+**NEXT:** NEW_PID cold reload E2E при отдельном задании; не начинать полную lifecycle matrix.
 
 ---
 

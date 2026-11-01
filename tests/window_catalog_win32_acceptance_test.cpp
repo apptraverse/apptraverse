@@ -1402,8 +1402,12 @@ unsigned long long ReadFocusApplyCount(
 
 void RunLanguageAndFocusAcceptance() {
   auto const state_dir = FreshStateDir("window_catalog_win32_lang_focus");
-  auto const focus_count_file = state_dir / "focus_apply_count.txt";
+  auto const focus_count_file =
+      std::filesystem::temp_directory_path() / "apptraverse_test" /
+      "window_catalog_win32_lang_focus_apply_count.txt";
   {
+    std::error_code ec;
+    std::filesystem::create_directories(focus_count_file.parent_path(), ec);
     std::ofstream out(focus_count_file);
     out << "0\n";
   }
@@ -1415,6 +1419,17 @@ void RunLanguageAndFocusAcceptance() {
 
   PROCESS_INFORMATION pi = StartDemo(demo, state_dir);
   HWND main = WaitCatalogMainWindow(pi.dwProcessId, std::chrono::seconds{30});
+  if (main == nullptr) {
+    DWORD exit_code = STILL_ACTIVE;
+    if (WaitForSingleObject(pi.hProcess, 0) == WAIT_OBJECT_0) {
+      GetExitCodeProcess(pi.hProcess, &exit_code);
+    }
+    std::cerr << "catalog_main_wait_failed pid=" << pi.dwProcessId
+              << " process_exited=" << (exit_code != STILL_ACTIVE)
+              << " exit_code=" << exit_code
+              << " top_level_visible="
+              << TopLevelWindowsForPid(pi.dwProcessId).size() << '\n';
+  }
   CHECK(main != nullptr);
   WaitChromeReady(main);
   ExpectChromeEn(main);

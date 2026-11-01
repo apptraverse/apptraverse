@@ -131,19 +131,6 @@ void AndroidApplicationHost::StartModelThread() {
     std::abort();
   }
   model_thread_joinable_ = true;
-
-  std::unique_lock<std::mutex> lock{model_start_mu_};
-  model_start_cv_.wait(lock, [this] { return model_worker_entered_; });
-
-  if (!model_thread_live_.load(std::memory_order_acquire)) {
-    lock.unlock();
-    JoinModelThreadIfJoinable(model_thread_, model_thread_joinable_);
-    model_thread_joinable_ = false;
-    model_worker_entered_ = false;
-    WriteFatalStderr(
-        "fatal: AndroidApplicationHost model worker exited during start\n");
-    std::abort();
-  }
 }
 
 void AndroidApplicationHost::HandlePublicationOnMainThread(
@@ -220,13 +207,13 @@ void AndroidApplicationHost::RequestBackgroundSave() {
         "persist_model\n");
     std::abort();
   }
+  pending_background_save_.store(true, std::memory_order_release);
   SaveState expected = SaveState::kIdle;
   if (save_state_.compare_exchange_strong(expected, SaveState::kSaving,
                                           std::memory_order_acq_rel)) {
+    pending_background_save_.store(false, std::memory_order_release);
     EnqueueBackgroundSaveWork();
-    return;
   }
-  pending_background_save_.store(true, std::memory_order_release);
 }
 
 }  // namespace apptraverse::android
