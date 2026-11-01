@@ -297,7 +297,7 @@
 
 **NEXT:** NEW_PID cold reload E2E (отдельное задание); полная lifecycle matrix не начинать.
 
-**Teardown flag sync (2026-11-01, lease `d88b38f…`):** все чтения/записи `model_teardown_requested_` под `model_start_mu_` (в т.ч. post-save проверка в worker и сброс в `JoinModelThreadForRelease`); **`RunConcurrentStartJoinProbe`** в `ModelThreadStartSyncInstrumentedTest`. Android **11/11**, Headless + §W2, WASM ×3 — **PASS**.
+**Teardown flag sync (2026-11-01, HEAD `af42cc4`, base lease `d88b38f…`):** все чтения/записи `model_teardown_requested_` под `model_start_mu_` (в т.ч. post-save проверка в worker и сброс в `JoinModelThreadForRelease`); **`RunConcurrentStartJoinProbe`** в `ModelThreadStartSyncInstrumentedTest`. Android **11/11**, Headless + §W2, WASM ×3 — **PASS**.
 
 **NEXT:** NEW_PID cold reload E2E (отдельное задание).
 
