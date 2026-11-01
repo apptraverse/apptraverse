@@ -11,6 +11,10 @@ import static org.junit.Assert.assertTrue;
 @RunWith(AndroidJUnit4.class)
 public final class EarlyBackgroundSaveInstrumentedTest {
 
+  static {
+    InstrumentedTestNative.ensureLoaded();
+  }
+
   @Test
   public void earlyBackgroundSavePendingFlushedWhenModelLive() {
     String result = NativeRuntime.nativeRunEarlyBackgroundSaveProbe();

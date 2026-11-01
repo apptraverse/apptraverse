@@ -12,6 +12,10 @@ import static org.junit.Assert.assertTrue;
 @RunWith(AndroidJUnit4.class)
 public final class PendingSaveRaceInstrumentedTest {
 
+  static {
+    InstrumentedTestNative.ensureLoaded();
+  }
+
   @After
   public void tearDown() {
     NativeRuntime.nativeDisableCheckpointPersistTestGate();

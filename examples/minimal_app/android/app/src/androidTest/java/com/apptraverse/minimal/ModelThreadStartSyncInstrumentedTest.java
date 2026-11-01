@@ -11,6 +11,10 @@ import static org.junit.Assert.assertTrue;
 @RunWith(AndroidJUnit4.class)
 public final class ModelThreadStartSyncInstrumentedTest {
 
+  static {
+    InstrumentedTestNative.ensureLoaded();
+  }
+
   @Test
   public void startModelThreadUnblocksOnWorkerEntry() {
     String result = NativeRuntime.nativeRunModelThreadStartSyncProbe();

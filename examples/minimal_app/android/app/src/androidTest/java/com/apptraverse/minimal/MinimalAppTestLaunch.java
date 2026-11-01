@@ -1,6 +1,7 @@
 package com.apptraverse.minimal;
 
 import android.app.ActivityManager;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Process;
@@ -12,12 +13,18 @@ import androidx.test.uiautomator.UiDevice;
 import androidx.test.uiautomator.Until;
 
 import java.io.File;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 /** Launches Minimal App with an isolated on-disk profile for instrumented tests. */
 final class MinimalAppTestLaunch {
+
+  static {
+    InstrumentedTestNative.ensureLoaded();
+  }
 
   static final String PKG = "com.apptraverse.minimal";
   static final String LOG_LOADED_FROM_PROFILE = "MINIMAL_APP_LOADED_FROM_PROFILE";
@@ -61,6 +68,17 @@ final class MinimalAppTestLaunch {
 
   static int readDemoProcessPid(Context context, UiDevice device, int excludePid)
       throws Exception {
+    return readDemoProcessPid(context, device, excludePid, false);
+  }
+
+  /** Requires {@code com.apptraverse.minimal:demo} (not default package process). */
+  static int readDemoProcessPidStrict(Context context, UiDevice device, int excludePid)
+      throws Exception {
+    return readDemoProcessPid(context, device, excludePid, true);
+  }
+
+  private static int readDemoProcessPid(Context context, UiDevice device, int excludePid,
+      boolean strictDemoSuffix) throws Exception {
     ActivityManager am =
         (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
     if (am != null) {
@@ -68,7 +86,11 @@ final class MinimalAppTestLaunch {
       if (processes != null) {
         int fallback = -1;
         for (ActivityManager.RunningAppProcessInfo info : processes) {
-          if (!isDemoProcessName(info.processName)) {
+          if (strictDemoSuffix) {
+            if (!isStrictDemoProcessName(info.processName)) {
+              continue;
+            }
+          } else if (!isDemoProcessName(info.processName)) {
             continue;
           }
           if (info.pid == excludePid) {
@@ -77,7 +99,7 @@ final class MinimalAppTestLaunch {
           if (info.processName.equals(PKG + ":demo")) {
             return info.pid;
           }
-          if (fallback < 0) {
+          if (!strictDemoSuffix && fallback < 0) {
             fallback = info.pid;
           }
         }
@@ -86,30 +108,64 @@ final class MinimalAppTestLaunch {
         }
       }
     }
-    return readDemoProcessPidFromShell(device, excludePid);
+    return readDemoProcessPidFromShell(device, excludePid, strictDemoSuffix);
   }
 
-  private static int readDemoProcessPidFromShell(UiDevice device, int excludePid)
-      throws Exception {
-    String out = device.executeShellCommand("ps -A -o PID,NAME");
-    int fallback = -1;
+  private static boolean isStrictDemoProcessName(String processName) {
+    return (PKG + ":demo").equals(processName);
+  }
+
+  private static int readDemoProcessPidFromShell(UiDevice device, int excludePid,
+      boolean strictDemoSuffix) throws Exception {
+    int fromDumpsys = readDemoProcessPidFromDumpsys(device, excludePid, strictDemoSuffix);
+    if (fromDumpsys > 0) {
+      return fromDumpsys;
+    }
+    String out = device.executeShellCommand("ps -A -o PID,NAME").trim();
     for (String line : out.split("\n")) {
       String trimmed = line.trim();
-      if (!trimmed.contains(PKG)) {
+      if (trimmed.isEmpty() || trimmed.startsWith("PID")) {
         continue;
       }
       if (trimmed.contains(".test") || trimmed.contains("instrumentedtests")) {
+        continue;
+      }
+      if (strictDemoSuffix && !trimmed.contains(PKG + ":demo")) {
+        continue;
+      }
+      if (!strictDemoSuffix && !trimmed.contains(PKG)) {
         continue;
       }
       String[] parts = trimmed.split("\\s+");
       if (parts.length < 2) {
         continue;
       }
-      int pid = Integer.parseInt(parts[0]);
+      int pid;
+      try {
+        pid = Integer.parseInt(parts[0]);
+      } catch (NumberFormatException ignored) {
+        continue;
+      }
       if (pid == excludePid) {
         continue;
       }
-      if (parts[1].contains(":demo") || trimmed.contains(":demo")) {
+      return pid;
+    }
+    return -1;
+  }
+
+  private static int readDemoProcessPidFromDumpsys(UiDevice device, int excludePid,
+      boolean strictDemoSuffix) throws Exception {
+    String needle = strictDemoSuffix ? (PKG + ":demo") : PKG;
+    Pattern pattern = Pattern.compile("(\\d+):" + Pattern.quote(needle) + "/");
+    Matcher matcher = pattern.matcher(device.executeShellCommand("dumpsys activity processes"));
+    int fallback = -1;
+    while (matcher.find()) {
+      int pid = Integer.parseInt(matcher.group(1));
+      if (pid == excludePid) {
+        continue;
+      }
+      if (strictDemoSuffix) {
         return pid;
       }
       if (fallback < 0) {
@@ -180,15 +236,62 @@ final class MinimalAppTestLaunch {
 
   static int waitForDemoProcessPid(Context context, UiDevice device, int excludePid,
       long timeoutMs) throws Exception {
+    return waitForDemoProcessPid(context, device, excludePid, timeoutMs, false);
+  }
+
+  static int waitForStrictDemoProcessPid(Context context, UiDevice device, int excludePid,
+      long timeoutMs) throws Exception {
+    return waitForDemoProcessPid(context, device, excludePid, timeoutMs, true);
+  }
+
+  private static int waitForDemoProcessPid(Context context, UiDevice device, int excludePid,
+      long timeoutMs, boolean strictDemoSuffix) throws Exception {
     long deadline = System.currentTimeMillis() + timeoutMs;
     while (System.currentTimeMillis() < deadline) {
-      int pid = readDemoProcessPid(context, device, excludePid);
+      int pid = readDemoProcessPid(context, device, excludePid, strictDemoSuffix);
       if (pid > 0) {
         return pid;
+      }
+      if (strictDemoSuffix) {
+        int demoOnly = readDemoProcessPidFromDumpsys(device, -1, true);
+        if (demoOnly > 0 && demoOnly == excludePid) {
+          throw new AssertionError(
+              "instrumentation co-located in :demo pid=" + demoOnly);
+        }
       }
       Thread.sleep(200);
     }
     throw new AssertionError("demo process pid not found");
+  }
+
+  static void waitForApplyCheckpointOnDisk(Context context, String profileSubdir,
+      long timeoutMs) throws Exception {
+    String profilePath = new File(context.getFilesDir(), profileSubdir).getAbsolutePath();
+    long deadline = System.currentTimeMillis() + timeoutMs;
+    String last = "";
+    while (System.currentTimeMillis() < deadline) {
+      last = NativeRuntime.nativeRunColdReloadApplyStateProbe(profilePath);
+      if (last.startsWith("OK:")) {
+        return;
+      }
+      Thread.sleep(400);
+    }
+    throw new AssertionError("checkpoint apply probe: " + last);
+  }
+
+  static boolean isApplyCheckpointOnDisk(Context context, String profileSubdir) {
+    String profilePath = new File(context.getFilesDir(), profileSubdir).getAbsolutePath();
+    return NativeRuntime.nativeRunColdReloadApplyStateProbe(profilePath).startsWith("OK:");
+  }
+
+  static void assertApplyCheckpointNotOnDiskWithin(Context context, String profileSubdir,
+      long windowMs) throws Exception {
+    long deadline = System.currentTimeMillis() + windowMs;
+    while (System.currentTimeMillis() < deadline) {
+      assertFalse("checkpoint must not be complete yet: " + profileSubdir,
+          isApplyCheckpointOnDisk(context, profileSubdir));
+      Thread.sleep(200);
+    }
   }
 
   static void waitForLoadedFromProfileLog(UiDevice device, long timeoutMs) throws Exception {
@@ -211,9 +314,25 @@ final class MinimalAppTestLaunch {
     waitForLoadedFromProfileLog(device, Math.min(timeoutMs, 15000));
   }
 
+  static String demoProcessShellDiagnostics(UiDevice device) throws Exception {
+    String dumpsys = device.executeShellCommand("dumpsys activity processes");
+    StringBuilder hits = new StringBuilder();
+    for (String line : dumpsys.split("\n")) {
+      if (line.contains(PKG)) {
+        if (hits.length() > 0) {
+          hits.append(" | ");
+        }
+        hits.append(line.trim());
+      }
+    }
+    return hits.toString();
+  }
+
   private static void startMainActivity(Context context, String stateSubdir,
       boolean skipCheckpointSaveOnStop) {
-    Intent intent = context.getPackageManager().getLaunchIntentForPackage(PKG);
+    Intent intent = new Intent(Intent.ACTION_MAIN);
+    intent.setComponent(new ComponentName(PKG, PKG + ".MainActivity"));
+    intent.addCategory(Intent.CATEGORY_LAUNCHER);
     intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK);
     intent.putExtra(MinimalAppStateDirs.INTENT_EXTRA_STATE_SUBDIR, stateSubdir);
     if (skipCheckpointSaveOnStop) {

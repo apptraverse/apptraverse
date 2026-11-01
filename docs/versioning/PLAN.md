@@ -135,7 +135,7 @@
 | **P3.T3.W2 — PASS** | Windows list selection sync из mirror | `ApplyPublishedListSelection` в `SyncFromMirror` при `notify_list_selection_change`; E2E в `win_ui_command_routing_test`; [PROGRESS §P3.T3.W2](./PROGRESS.md#p3t3w2--windows-list-selection-sync-from-mirror-2026-10-29-pass) |
 | **P3.T3.W** | Windows backend и общие Window/List/Button | MinimalApp через публичные library targets; native host/controls без зависимости от WindowCatalog |
 | **P3.T3.Web** | Web backend и общие Window/List/Button | Та же сессия и компоненты; UI delivery, DOM lifecycle, несколько представлений, сохранение и подтверждение записи browser storage |
-| **P3.T3.A** | Android backend | **P3.T3.A1–A2R1 PASS**; **P3.T3.A PASS** (teardown flag under `model_start_mu_`, concurrent start/join probe, §P3.T3.A); **Android lifecycle matrix IN_PROGRESS**; **NEXT:** NEW_PID cold E2E; полная matrix (не начинать) |
+| **P3.T3.A** | Android backend | **P3.T3.A1–A2R1 PASS**; **P3.T3.A PASS**; **NEW_PID cold E2E** — isolated instrumented **PASS** (§P3.T3.A); full **12/12** + desktop/WASM regressions pending AVD/build; **Android lifecycle matrix IN_PROGRESS**; полная matrix (не начинать) |
 | **P3.T3.L** | Linux backend | GTK host/controls на общей сессии; не SurfacesModelSession |
 | **P3.T3.M** | macOS backend | AppKit/ObjC++ host/controls на общей сессии |
 | **P3.T3.I** | iOS/iPadOS backend | UIKit/SwiftUI integration на общей сессии; mobile lifecycle и страничное отображение |

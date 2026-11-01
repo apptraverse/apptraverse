@@ -10,6 +10,10 @@ import static org.junit.Assert.assertTrue;
 @RunWith(AndroidJUnit4.class)
 public final class InitialPublicationLabelInstrumentedTest {
 
+  static {
+    InstrumentedTestNative.ensureLoaded();
+  }
+
   @Test
   public void productionColdLoadInitialPublicationHasOpenerLabel() {
     String profileDir = "/data/data/com.apptraverse.minimal/files/a1r1_initial_pub_probe";

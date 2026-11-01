@@ -3,6 +3,9 @@
 
   <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
+  <!-- Test APK in its own process (≠ target :demo). -->
+  <application android:process=":instrumentedtests" />
+
   <!-- Run tests out-of-process so demo PID can be killed for cold reload E2E. -->
   <instrumentation
       android:name="androidx.test.runner.AndroidJUnitRunner"

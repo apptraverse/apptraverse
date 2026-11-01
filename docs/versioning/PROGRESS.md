@@ -299,7 +299,14 @@
 
 **Teardown flag sync (2026-11-01, HEAD `af42cc4`, base lease `d88b38f…`):** все чтения/записи `model_teardown_requested_` под `model_start_mu_` (в т.ч. post-save проверка в worker и сброс в `JoinModelThreadForRelease`); **`RunConcurrentStartJoinProbe`** в `ModelThreadStartSyncInstrumentedTest`. Android **11/11**, Headless + §W2, WASM ×3 — **PASS**.
 
-**NEXT:** NEW_PID cold reload E2E (отдельное задание).
+**NEW_PID cold reload E2E (2026-11-01, base lease `5302ab5…`):**
+
+- **Процессы:** debug — только `MainActivity` в `:demo`; test APK — `<application android:process=":instrumentedtests">`; JNI в instrumentation через **`InstrumentedTestNative`** (отдельно от `:demo`).
+- **`NewPidColdReloadInstrumentedTest`:** профиль `minimal_app_new_pid_cold_reload_e2e`; UI → disk checkpoint (`waitForApplyCheckpointOnDisk`) → kill `:demo` (≠ instrumentation) → relaunch → новый PID (`dumpsys activity processes`), cold load probe + UI до ввода + Row A после reload. In-process reset **не** используется.
+- **Инфра:** `MinimalAppTestLaunch` — strict demo PID, disk save helpers; `SaveColdReloadInstrumentedTest` — disk confirmation + **NEW_PID** kill path при раздельных процессах.
+- **Проверки (Aether_NDK_Smoke_x86_64, Debug):** **`NewPidColdReloadInstrumentedTest` PASS** (изолированный прогон, ~20–24s; PID до/после ≠ instrumentation — log tag `NewPidColdReload` / instrumentation status). Полный **`connectedDebugAndroidTest` 12/12** на этой сессии — **NOT RUN** (эмулятор: `Can't find service: package` после серии прогонов). Headless + §W2 + WASM ×3 — **NOT RUN** (нет готового CMake build tree в `apptraverse-wt-web5`).
+
+**NEXT:** повторить полный Android **12/12** + Headless + §W2 + WASM ×3 после восстановления AVD/build; стабилизировать порядок suite для `NewPidColdReloadInstrumentedTest`.
 
 ---
 

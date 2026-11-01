@@ -13,6 +13,10 @@ import static org.junit.Assert.assertTrue;
 @RunWith(AndroidJUnit4.class)
 public final class ColdLoadLabelInstrumentedTest {
 
+  static {
+    InstrumentedTestNative.ensureLoaded();
+  }
+
   @Test
   public void coldLoadPreservesOpenerLabelBeforePrepare() {
     Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();

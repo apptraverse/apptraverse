@@ -15,10 +15,6 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
-
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
@@ -42,7 +38,8 @@ public final class SaveColdReloadInstrumentedTest {
   private MinimalAppApplication app;
 
   @Before
-  public void setUp() {
+  public void setUp() throws Exception {
+    InstrumentedTestNative.ensureLoaded();
     device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
     context = InstrumentationRegistry.getInstrumentation().getTargetContext();
     app = (MinimalAppApplication) context.getApplicationContext();
@@ -56,6 +53,27 @@ public final class SaveColdReloadInstrumentedTest {
   @After
   public void tearDown() {
     NativeRuntime.nativeDisableCheckpointPersistTestGate();
+  }
+
+  private ColdReloadPath resolveColdReloadPath(int pidBefore) {
+    return pidBefore == Process.myPid()
+        ? ColdReloadPath.IN_PROCESS_RUNTIME_RESET
+        : ColdReloadPath.NEW_PID_DEMO_PROCESS;
+  }
+
+  private void coldReloadAfterSave(String profile, int pidBefore, ColdReloadPath pathUsed)
+      throws Exception {
+    if (pathUsed == ColdReloadPath.IN_PROCESS_RUNTIME_RESET) {
+      InstrumentationRegistry.getInstrumentation().runOnMainSync(
+          app::clearRuntimeForColdReloadTest);
+      MinimalAppTestLaunch.bringAppToForeground(context, device, profile, false);
+      return;
+    }
+    MinimalAppTestLaunch.killDemoProcessAndWait(context, device, pidBefore, 45000);
+    MinimalAppTestLaunch.launchExistingProfile(context, device, profile, false);
+    int pidAfter =
+        MinimalAppTestLaunch.waitForDemoProcessPid(context, device, Process.myPid(), 15000);
+    assertNotEquals("cold start must be a new demo PID", pidBefore, pidAfter);
   }
 
   private void waitForSelected(UiObject2 row, boolean selected, long timeoutMs)
@@ -85,29 +103,12 @@ public final class SaveColdReloadInstrumentedTest {
     assertFalse(apply.isEnabled());
   }
 
-  private SaveLatch armSaveConfirmation(int expectedCount) {
-    app.clearBackgroundSaveLatch();
-    app.setBackgroundSaveObserver(null);
-    SaveLatch latch = new SaveLatch(expectedCount);
-    app.setBackgroundSaveObserver(latch.result::set);
-    app.setBackgroundSaveLatch(latch.countDown);
-    return latch;
-  }
-
-  private void disarmSaveConfirmation() {
-    app.clearBackgroundSaveLatch();
-    app.setBackgroundSaveObserver(null);
-  }
-
   @Test
   public void sameProcessResumeAfterBackgroundSaveAcceptsInput() throws Exception {
     MinimalAppTestLaunch.launchFreshProfile(context, device, PROFILE, false);
     applyRowBAndWaitPublication();
-    SaveLatch save = armSaveConfirmation(1);
     device.pressHome();
-    assertTrue("background save confirmation", save.await(30, TimeUnit.SECONDS));
-    assertEquals(0, save.result.get());
-    disarmSaveConfirmation();
+    MinimalAppTestLaunch.waitForApplyCheckpointOnDisk(context, PROFILE, 45000);
 
     MinimalAppTestLaunch.bringAppToForeground(context, device, PROFILE, false);
     UiObject2 rowA = device.wait(Until.findObject(By.desc("Row A")), 15000);
@@ -124,11 +125,8 @@ public final class SaveColdReloadInstrumentedTest {
     applyRowBAndWaitPublication();
 
     NativeRuntime.nativeEnableCheckpointPersistTestGate();
-    SaveLatch save = armSaveConfirmation(1);
     device.pressHome();
-
-    assertFalse("save must not finish while gate closed",
-        save.await(2, TimeUnit.SECONDS));
+    MinimalAppTestLaunch.assertApplyCheckpointNotOnDiskWithin(context, PROFILE, 2500);
 
     MinimalAppTestLaunch.bringAppToForeground(context, device, PROFILE, false);
     UiObject2 rowA = device.wait(Until.findObject(By.desc("Row A")), 15000);
@@ -138,9 +136,7 @@ public final class SaveColdReloadInstrumentedTest {
 
     NativeRuntime.nativeOpenCheckpointPersistTestGate();
     waitForSelected(rowA, true, 15000);
-    assertTrue("background save confirmation", save.await(30, TimeUnit.SECONDS));
-    assertEquals(0, save.result.get());
-    disarmSaveConfirmation();
+    MinimalAppTestLaunch.waitForApplyCheckpointOnDisk(context, PROFILE, 45000);
     NativeRuntime.nativeDisableCheckpointPersistTestGate();
     assertTrue(device.hasObject(By.text("Applied")));
     assertTrue(rowA.isSelected());
@@ -152,9 +148,8 @@ public final class SaveColdReloadInstrumentedTest {
     applyRowBAndWaitPublication();
 
     NativeRuntime.nativeEnableCheckpointPersistTestGate();
-    SaveLatch saves = armSaveConfirmation(2);
     device.pressHome();
-    assertFalse("first save still in gate", saves.await(2, TimeUnit.SECONDS));
+    MinimalAppTestLaunch.assertApplyCheckpointNotOnDiskWithin(context, OVERLAP_PROFILE, 2500);
     assertTrue(
         "first persist must enter gate before overlap input",
         NativeRuntime.nativeWaitForCheckpointPersistGateEntries(1, 5000));
@@ -167,12 +162,7 @@ public final class SaveColdReloadInstrumentedTest {
     device.pressHome();
 
     NativeRuntime.nativeOpenCheckpointPersistTestGate();
-    assertTrue("both checkpoint saves confirmed", saves.await(45, TimeUnit.SECONDS));
-    assertEquals(
-        "last checkpoint confirmed by final onBackgroundSaveFinished(0)",
-        0,
-        saves.result.get());
-    disarmSaveConfirmation();
+    MinimalAppTestLaunch.waitForApplyCheckpointOnDisk(context, OVERLAP_PROFILE, 45000);
     NativeRuntime.nativeDisableCheckpointPersistTestGate();
 
     String overlapProfilePath =
@@ -183,15 +173,11 @@ public final class SaveColdReloadInstrumentedTest {
     assertTrue("disk after overlapping saves: " + diskAfterSaves,
         diskAfterSaves.startsWith("OK:"));
 
-    int pidBefore = MinimalAppTestLaunch.waitForDemoProcessPid(context, device, -1, 15000);
-    ColdReloadPath pathUsed =
-        pidBefore == Process.myPid()
-            ? ColdReloadPath.IN_PROCESS_RUNTIME_RESET
-            : ColdReloadPath.NEW_PID_DEMO_PROCESS;
+    int pidBefore =
+        MinimalAppTestLaunch.waitForDemoProcessPid(context, device, Process.myPid(), 15000);
+    ColdReloadPath pathUsed = resolveColdReloadPath(pidBefore);
 
-    InstrumentationRegistry.getInstrumentation().runOnMainSync(
-        app::clearRuntimeForColdReloadTest);
-    MinimalAppTestLaunch.bringAppToForeground(context, device, OVERLAP_PROFILE, false);
+    coldReloadAfterSave(OVERLAP_PROFILE, pidBefore, pathUsed);
 
     assertTrue(device.wait(Until.findObject(By.text("Applied")), 30000) != null);
     String diskAfterCold =
@@ -203,36 +189,21 @@ public final class SaveColdReloadInstrumentedTest {
     rowA = device.wait(Until.findObject(By.desc("Row A")), 15000);
     assertNotNull(rowA);
     waitForSelected(rowA, true, 30000);
-    assertEquals("cold reload path", ColdReloadPath.IN_PROCESS_RUNTIME_RESET, pathUsed);
+    assertEquals("cold reload path", ColdReloadPath.NEW_PID_DEMO_PROCESS, pathUsed);
   }
 
   @Test
   public void backgroundSaveSurvivesColdReloadAndAcceptsInput() throws Exception {
     MinimalAppTestLaunch.launchFreshProfile(context, device, PROFILE, false);
     applyRowBAndWaitPublication();
-    int pidBefore = MinimalAppTestLaunch.waitForDemoProcessPid(context, device, -1, 15000);
-    boolean inProcessDemo = pidBefore == Process.myPid();
-    ColdReloadPath pathUsed = inProcessDemo
-        ? ColdReloadPath.IN_PROCESS_RUNTIME_RESET
-        : ColdReloadPath.NEW_PID_DEMO_PROCESS;
+    int pidBefore =
+        MinimalAppTestLaunch.waitForDemoProcessPid(context, device, Process.myPid(), 15000);
+    ColdReloadPath pathUsed = resolveColdReloadPath(pidBefore);
 
-    SaveLatch save = armSaveConfirmation(1);
     device.pressHome();
-    assertTrue("background save confirmation", save.await(30, TimeUnit.SECONDS));
-    assertEquals(0, save.result.get());
-    disarmSaveConfirmation();
+    MinimalAppTestLaunch.waitForApplyCheckpointOnDisk(context, PROFILE, 45000);
 
-    if (pathUsed == ColdReloadPath.IN_PROCESS_RUNTIME_RESET) {
-      InstrumentationRegistry.getInstrumentation().runOnMainSync(
-          app::clearRuntimeForColdReloadTest);
-      MinimalAppTestLaunch.bringAppToForeground(context, device, PROFILE, false);
-    } else {
-      MinimalAppTestLaunch.killDemoProcessAndWait(context, device, pidBefore, 45000);
-      MinimalAppTestLaunch.launchExistingProfile(context, device, PROFILE, false);
-      int pidAfter =
-          MinimalAppTestLaunch.waitForDemoProcessPid(context, device, Process.myPid(), 15000);
-      assertNotEquals("cold start must be a new demo PID", pidBefore, pidAfter);
-    }
+    coldReloadAfterSave(PROFILE, pidBefore, pathUsed);
 
     UiObject2 apply = device.wait(Until.findObject(By.desc("Apply")), 15000);
     UiObject2 rowA = device.wait(Until.findObject(By.desc("Row A")), 15000);
@@ -256,19 +227,6 @@ public final class SaveColdReloadInstrumentedTest {
     if (pathUsed == ColdReloadPath.NEW_PID_DEMO_PROCESS) {
       assertNotEquals("instrumentation pid is not demo cold-start evidence",
           Process.myPid(), pidBefore);
-    }
-  }
-
-  private static final class SaveLatch {
-    final CountDownLatch countDown;
-    final AtomicInteger result = new AtomicInteger(1);
-
-    SaveLatch(int expectedSaveCallbacks) {
-      countDown = new CountDownLatch(expectedSaveCallbacks);
-    }
-
-    boolean await(long timeout, TimeUnit unit) throws InterruptedException {
-      return countDown.await(timeout, unit);
     }
   }
 }
