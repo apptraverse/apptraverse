@@ -17,6 +17,10 @@ struct AndroidColdReloadApplyProbeResult {
 AndroidColdReloadApplyProbeResult RunAndroidColdReloadApplyStateProbe(
     std::filesystem::path const& profile_dir);
 
+AndroidColdReloadApplyProbeResult RunAndroidColdReloadProfileStateProbe(
+    std::filesystem::path const& profile_dir, int expected_selection_index,
+    bool expected_apply_enabled, char const* expected_title);
+
 }  // namespace apptraverse::example::minimal
 
 #endif

@@ -2,6 +2,7 @@
 
 #include "android_log.h"
 
+#include "minimal_app_android_checkpoint_test_gate.h"
 #include "minimal_app_android_lifecycle.h"
 #include "minimal_app_persistence.h"
 
@@ -29,6 +30,7 @@ void MinimalNativeRuntime::SetPresentationRoot(JNIEnv* env, jobject activity,
       apptraverse::android::LogInfo("MINIMAL_APP_INITIAL_RENDER_OK");
     };
     callbacks.persist_model = [this](ae::Domain& domain) -> int {
+      WaitAndroidCheckpointPersistTestGateIfEnabled();
       return PersistMinimalApplicationFromDomain(domain, state_dir_);
     };
     host_ = std::make_unique<android::AndroidApplicationHost>(

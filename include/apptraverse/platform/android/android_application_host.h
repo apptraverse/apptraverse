@@ -9,6 +9,8 @@
 #include <optional>
 #include <pthread.h>
 
+#include "aether-objects/obj/domain.h"
+
 #include "apptraverse/application_model_runtime.h"
 #include "apptraverse/application_ui_session.h"
 #include "apptraverse/model_object_proxy.h"
@@ -73,11 +75,17 @@ class AndroidApplicationHost {
   AndroidApplicationHostCallbacks callbacks_;
   ModelObjectProxy model_proxy_;
   std::optional<ApplicationUiSession> ui_session_;
+  void EnqueueBackgroundSaveWork();
+  void RunBackgroundSaveOnModelThread(ae::Domain& domain);
+
   pthread_t model_thread_{};
   std::mutex model_start_mu_;
   std::condition_variable model_start_cv_;
+  bool model_worker_entered_{false};
+  bool model_thread_joinable_{false};
   std::atomic<bool> model_thread_live_{false};
   std::atomic<SaveState> save_state_{SaveState::kIdle};
+  std::atomic<bool> pending_background_save_{false};
 };
 
 }  // namespace apptraverse::android

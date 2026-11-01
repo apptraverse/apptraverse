@@ -72,4 +72,60 @@ AndroidColdReloadApplyProbeResult RunAndroidColdReloadApplyStateProbe(
   return result;
 }
 
+AndroidColdReloadApplyProbeResult RunAndroidColdReloadProfileStateProbe(
+    std::filesystem::path const& profile_dir, int expected_selection_index,
+    bool expected_apply_enabled, char const* expected_title) {
+  AndroidColdReloadApplyProbeResult result;
+  EnsureObjectRegistration();
+  EnsureMinimalApplicationRegistration();
+
+  DirectoryDomainStorage storage{profile_dir};
+  ae::Domain domain{storage};
+  MinimalApplication::ptr application = MinimalApplication::ptr::Declare(
+      ae::CreateWith{domain}.with_id(MinimalApplicationRootId()));
+  ae::DomainGraph graph{&domain};
+  ae::seri::SeriResult const load =
+      graph.LoadRoot(MinimalApplicationRootId(), application.cached());
+  if (load.IsErr()) {
+    SetDetail(result, "LoadRoot failed");
+    return result;
+  }
+  if (!application) {
+    SetDetail(result, "application root missing after LoadRoot");
+    return result;
+  }
+
+  application->row_list.Load();
+  application->apply_button.Load();
+  application->row_list->window_title.Load();
+  if (!application->row_list || !application->apply_button ||
+      !application->row_list->window_title) {
+    SetDetail(result, "required refs missing after Load");
+    return result;
+  }
+
+  result.selection_index = application->row_list->selection_index;
+  result.apply_enabled = application->apply_button->enabled();
+  std::string const title =
+      application->row_list->window_title->Resolve(0);
+  std::snprintf(result.title, sizeof(result.title), "%s", title.c_str());
+
+  if (result.selection_index != expected_selection_index) {
+    SetDetail(result, "selection_index mismatch");
+    return result;
+  }
+  if (result.apply_enabled != expected_apply_enabled) {
+    SetDetail(result, "apply_button enabled mismatch");
+    return result;
+  }
+  if (std::string_view{result.title} != expected_title) {
+    SetDetail(result, "window title mismatch");
+    return result;
+  }
+
+  result.ok = true;
+  SetDetail(result, "profile state probe OK");
+  return result;
+}
+
 }  // namespace apptraverse::example::minimal

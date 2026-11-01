@@ -19,8 +19,20 @@ public final class NativeRuntime {
 
   static native void nativeDestroy(long handle);
 
+  static native void nativeEnableCheckpointPersistTestGate();
+
+  static native void nativeOpenCheckpointPersistTestGate();
+
+  static native void nativeDisableCheckpointPersistTestGate();
+
+  static native String nativeRunModelThreadStartSyncProbe();
+
   /** A1R1: distill → cold LoadApplication label probe (no UI presenters). */
   static native String nativeRunColdReloadApplyStateProbe(String profileDir);
+
+  static native String nativeRunColdReloadProfileStateProbe(
+      String profileDir, int expectedSelectionIndex, boolean expectedApplyEnabled,
+      String expectedTitle);
 
   static native String nativeRunColdLoadLabelProbe(String profileDir);
 

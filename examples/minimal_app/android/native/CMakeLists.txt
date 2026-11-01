@@ -33,6 +33,8 @@ add_library(minimal_app_android STATIC
   ../minimal_app_android_cold_load_probe.cpp
   ../minimal_app_android_initial_publication_probe.cpp
   ../minimal_app_android_cold_reload_apply_probe.cpp
+  ../minimal_app_android_checkpoint_test_gate.cpp
+  ../minimal_app_android_model_thread_start_probe.cpp
 )
 target_include_directories(minimal_app_android PUBLIC
   ${APPTRAVERSE_ROOT}/examples/minimal_app/android

@@ -10,6 +10,7 @@ import androidx.test.uiautomator.UiDevice;
 import androidx.test.uiautomator.UiObject2;
 import androidx.test.uiautomator.Until;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -29,6 +30,12 @@ import static org.junit.Assert.assertTrue;
 public final class SaveColdReloadInstrumentedTest {
 
   private static final String PROFILE = "minimal_app_save_cold_reload_e2e";
+  private static final String OVERLAP_PROFILE = "minimal_app_save_overlap_e2e";
+
+  enum ColdReloadPath {
+    IN_PROCESS_RUNTIME_RESET,
+    NEW_PID_DEMO_PROCESS
+  }
 
   private UiDevice device;
   private Context context;
@@ -39,11 +46,16 @@ public final class SaveColdReloadInstrumentedTest {
     device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
     context = InstrumentationRegistry.getInstrumentation().getTargetContext();
     app = (MinimalAppApplication) context.getApplicationContext();
+    NativeRuntime.nativeDisableCheckpointPersistTestGate();
     if (app.hasNativeRuntime()) {
       InstrumentationRegistry.getInstrumentation().runOnMainSync(
           app::clearRuntimeForColdReloadTest);
     }
-    MinimalAppTestLaunch.launchFreshProfile(context, device, PROFILE, false);
+  }
+
+  @After
+  public void tearDown() {
+    NativeRuntime.nativeDisableCheckpointPersistTestGate();
   }
 
   private void waitForSelected(UiObject2 row, boolean selected, long timeoutMs)
@@ -73,10 +85,10 @@ public final class SaveColdReloadInstrumentedTest {
     assertFalse(apply.isEnabled());
   }
 
-  private SaveLatch armSaveConfirmation() {
+  private SaveLatch armSaveConfirmation(int expectedCount) {
     app.clearBackgroundSaveLatch();
     app.setBackgroundSaveObserver(null);
-    SaveLatch latch = new SaveLatch();
+    SaveLatch latch = new SaveLatch(expectedCount);
     app.setBackgroundSaveObserver(latch.result::set);
     app.setBackgroundSaveLatch(latch.countDown);
     return latch;
@@ -89,8 +101,9 @@ public final class SaveColdReloadInstrumentedTest {
 
   @Test
   public void sameProcessResumeAfterBackgroundSaveAcceptsInput() throws Exception {
+    MinimalAppTestLaunch.launchFreshProfile(context, device, PROFILE, false);
     applyRowBAndWaitPublication();
-    SaveLatch save = armSaveConfirmation();
+    SaveLatch save = armSaveConfirmation(1);
     device.pressHome();
     assertTrue("background save confirmation", save.await(30, TimeUnit.SECONDS));
     assertEquals(0, save.result.get());
@@ -107,37 +120,106 @@ public final class SaveColdReloadInstrumentedTest {
 
   @Test
   public void resumeWhileSaveInProgressDoesNotDropInput() throws Exception {
+    MinimalAppTestLaunch.launchFreshProfile(context, device, PROFILE, false);
     applyRowBAndWaitPublication();
 
-    SaveLatch save = armSaveConfirmation();
+    NativeRuntime.nativeEnableCheckpointPersistTestGate();
+    SaveLatch save = armSaveConfirmation(1);
     device.pressHome();
-    MinimalAppTestLaunch.bringAppToForeground(context, device, PROFILE, false);
 
+    assertFalse("save must not finish while gate closed",
+        save.await(2, TimeUnit.SECONDS));
+
+    MinimalAppTestLaunch.bringAppToForeground(context, device, PROFILE, false);
     UiObject2 rowA = device.wait(Until.findObject(By.desc("Row A")), 15000);
     assertNotNull(rowA);
+    assertFalse(rowA.isSelected());
     rowA.click();
-    waitForSelected(rowA, true, 15000);
 
+    NativeRuntime.nativeOpenCheckpointPersistTestGate();
+    waitForSelected(rowA, true, 15000);
     assertTrue("background save confirmation", save.await(30, TimeUnit.SECONDS));
     assertEquals(0, save.result.get());
     disarmSaveConfirmation();
+    NativeRuntime.nativeDisableCheckpointPersistTestGate();
     assertTrue(device.hasObject(By.text("Applied")));
+    assertTrue(rowA.isSelected());
+  }
+
+  @Test
+  public void overlappingBackgroundSavePersistsLastChangeAfterColdLoad() throws Exception {
+    MinimalAppTestLaunch.launchFreshProfile(context, device, OVERLAP_PROFILE, false);
+    applyRowBAndWaitPublication();
+
+    NativeRuntime.nativeEnableCheckpointPersistTestGate();
+    SaveLatch saves = armSaveConfirmation(2);
+    device.pressHome();
+    assertFalse("first save still in gate", saves.await(2, TimeUnit.SECONDS));
+
+    MinimalAppTestLaunch.bringAppToForeground(context, device, OVERLAP_PROFILE, false);
+    UiObject2 rowA = device.wait(Until.findObject(By.desc("Row A")), 15000);
+    assertNotNull(rowA);
+    rowA.click();
+
+    device.pressHome();
+
+    NativeRuntime.nativeOpenCheckpointPersistTestGate();
+    assertTrue("both checkpoint saves confirmed", saves.await(45, TimeUnit.SECONDS));
+    assertEquals(0, saves.result.get());
+    disarmSaveConfirmation();
+    NativeRuntime.nativeDisableCheckpointPersistTestGate();
+
+    String overlapProfilePath =
+        new java.io.File(context.getFilesDir(), OVERLAP_PROFILE).getAbsolutePath();
+    String diskAfterSaves =
+        NativeRuntime.nativeRunColdReloadProfileStateProbe(
+            overlapProfilePath, 0, false, "Applied");
+    assertTrue("disk after overlapping saves: " + diskAfterSaves,
+        diskAfterSaves.startsWith("OK:"));
+
+    int pidBefore = MinimalAppTestLaunch.waitForDemoProcessPid(context, device, -1, 15000);
+    ColdReloadPath pathUsed =
+        pidBefore == Process.myPid()
+            ? ColdReloadPath.IN_PROCESS_RUNTIME_RESET
+            : ColdReloadPath.NEW_PID_DEMO_PROCESS;
+
+    InstrumentationRegistry.getInstrumentation().runOnMainSync(
+        app::clearRuntimeForColdReloadTest);
+    MinimalAppTestLaunch.bringAppToForeground(context, device, OVERLAP_PROFILE, false);
+
+    assertTrue(device.wait(Until.findObject(By.text("Applied")), 30000) != null);
+    String diskAfterCold =
+        NativeRuntime.nativeRunColdReloadProfileStateProbe(
+            overlapProfilePath, 0, false, "Applied");
+    assertTrue("disk after cold reload: " + diskAfterCold, diskAfterCold.startsWith("OK:"));
+    MinimalAppTestLaunch.waitForLoadedFromProfileLog(device, 15000);
+
+    rowA = device.wait(Until.findObject(By.desc("Row A")), 15000);
+    assertNotNull(rowA);
+    if (!rowA.isSelected()) {
+      rowA.click();
+    }
+    waitForSelected(rowA, true, 30000);
+    assertEquals("cold reload path", ColdReloadPath.IN_PROCESS_RUNTIME_RESET, pathUsed);
   }
 
   @Test
   public void backgroundSaveSurvivesColdReloadAndAcceptsInput() throws Exception {
+    MinimalAppTestLaunch.launchFreshProfile(context, device, PROFILE, false);
     applyRowBAndWaitPublication();
     int pidBefore = MinimalAppTestLaunch.waitForDemoProcessPid(context, device, -1, 15000);
     boolean inProcessDemo = pidBefore == Process.myPid();
+    ColdReloadPath pathUsed = inProcessDemo
+        ? ColdReloadPath.IN_PROCESS_RUNTIME_RESET
+        : ColdReloadPath.NEW_PID_DEMO_PROCESS;
 
-    SaveLatch save = armSaveConfirmation();
+    SaveLatch save = armSaveConfirmation(1);
     device.pressHome();
     assertTrue("background save confirmation", save.await(30, TimeUnit.SECONDS));
     assertEquals(0, save.result.get());
     disarmSaveConfirmation();
 
-    device.executeShellCommand("logcat -c");
-    if (inProcessDemo) {
+    if (pathUsed == ColdReloadPath.IN_PROCESS_RUNTIME_RESET) {
       InstrumentationRegistry.getInstrumentation().runOnMainSync(
           app::clearRuntimeForColdReloadTest);
       MinimalAppTestLaunch.bringAppToForeground(context, device, PROFILE, false);
@@ -146,8 +228,9 @@ public final class SaveColdReloadInstrumentedTest {
       MinimalAppTestLaunch.launchExistingProfile(context, device, PROFILE, false);
       int pidAfter =
           MinimalAppTestLaunch.waitForDemoProcessPid(context, device, Process.myPid(), 15000);
-      assertNotEquals("cold start must be a new process", pidBefore, pidAfter);
+      assertNotEquals("cold start must be a new demo PID", pidBefore, pidAfter);
     }
+
     UiObject2 apply = device.wait(Until.findObject(By.desc("Apply")), 15000);
     UiObject2 rowA = device.wait(Until.findObject(By.desc("Row A")), 15000);
     UiObject2 rowB = device.wait(Until.findObject(By.desc("Row B")), 15000);
@@ -166,11 +249,20 @@ public final class SaveColdReloadInstrumentedTest {
     rowA.click();
     waitForSelected(rowA, true, 15000);
     assertTrue(device.hasObject(By.text("Applied")));
+
+    if (pathUsed == ColdReloadPath.NEW_PID_DEMO_PROCESS) {
+      assertNotEquals("instrumentation pid is not demo cold-start evidence",
+          Process.myPid(), pidBefore);
+    }
   }
 
   private static final class SaveLatch {
-    final CountDownLatch countDown = new CountDownLatch(1);
+    final CountDownLatch countDown;
     final AtomicInteger result = new AtomicInteger(1);
+
+    SaveLatch(int expectedSaveCallbacks) {
+      countDown = new CountDownLatch(expectedSaveCallbacks);
+    }
 
     boolean await(long timeout, TimeUnit unit) throws InterruptedException {
       return countDown.await(timeout, unit);

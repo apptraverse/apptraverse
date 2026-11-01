@@ -20,6 +20,8 @@
 #include "minimal_app_android_cold_load_probe.h"
 #include "minimal_app_android_initial_publication_probe.h"
 #include "minimal_app_android_cold_reload_apply_probe.h"
+#include "minimal_app_android_checkpoint_test_gate.h"
+#include "minimal_app_android_model_thread_start_probe.h"
 #include "minimal_native_runtime.h"
 
 namespace apptraverse::example::minimal {
@@ -73,6 +75,23 @@ void NativeRequestBackgroundSave(JNIEnv*, jclass, jlong handle) {
 
 void NativeDestroy(JNIEnv*, jclass, jlong handle) { delete FromHandle(handle); }
 
+void NativeEnableCheckpointPersistTestGate(JNIEnv*, jclass) {
+  EnableAndroidCheckpointPersistTestGate();
+}
+
+void NativeOpenCheckpointPersistTestGate(JNIEnv*, jclass) {
+  OpenAndroidCheckpointPersistTestGate();
+}
+
+void NativeDisableCheckpointPersistTestGate(JNIEnv*, jclass) {
+  DisableAndroidCheckpointPersistTestGate();
+}
+
+jstring NativeRunModelThreadStartSyncProbe(JNIEnv* env, jclass) {
+  std::string const out = RunAndroidModelThreadStartSyncProbe();
+  return env->NewStringUTF(out.c_str());
+}
+
 jstring NativeRunInitialPublicationLabelProbe(JNIEnv* env, jclass,
                                               jstring profile_dir) {
   EnsureMinimalApplicationRegistration();
@@ -84,6 +103,27 @@ jstring NativeRunInitialPublicationLabelProbe(JNIEnv* env, jclass,
   std::string const out =
       probe.ok ? std::string{"OK:"} + probe.stage
                : std::string{"FAIL:"} + std::string{probe.stage} + ":" + probe.detail;
+  return env->NewStringUTF(out.c_str());
+}
+
+jstring NativeRunColdReloadProfileStateProbe(
+    JNIEnv* env, jclass, jstring profile_dir, jint expected_selection_index,
+    jboolean expected_apply_enabled, jstring expected_title) {
+  EnsureObjectRegistration();
+  EnsureMinimalApplicationRegistration();
+  char const* dir_chars = env->GetStringUTFChars(profile_dir, nullptr);
+  auto const dir = std::filesystem::path{dir_chars};
+  env->ReleaseStringUTFChars(profile_dir, dir_chars);
+  char const* title_chars = env->GetStringUTFChars(expected_title, nullptr);
+  AndroidColdReloadApplyProbeResult const probe =
+      RunAndroidColdReloadProfileStateProbe(
+          dir, static_cast<int>(expected_selection_index),
+          expected_apply_enabled == JNI_TRUE, title_chars);
+  env->ReleaseStringUTFChars(expected_title, title_chars);
+  std::string const out =
+      probe.ok ? std::string{"OK:"} + probe.title
+               : std::string{"FAIL:"} + std::string{probe.detail} + ":sel=" +
+                     std::to_string(probe.selection_index);
   return env->NewStringUTF(out.c_str());
 }
 
@@ -127,10 +167,21 @@ JNINativeMethod const kNativeMethods[] = {
     {"nativeRequestBackgroundSave", "(J)V",
      reinterpret_cast<void*>(&NativeRequestBackgroundSave)},
     {"nativeDestroy", "(J)V", reinterpret_cast<void*>(&NativeDestroy)},
+    {"nativeEnableCheckpointPersistTestGate", "()V",
+     reinterpret_cast<void*>(&NativeEnableCheckpointPersistTestGate)},
+    {"nativeOpenCheckpointPersistTestGate", "()V",
+     reinterpret_cast<void*>(&NativeOpenCheckpointPersistTestGate)},
+    {"nativeDisableCheckpointPersistTestGate", "()V",
+     reinterpret_cast<void*>(&NativeDisableCheckpointPersistTestGate)},
+    {"nativeRunModelThreadStartSyncProbe", "()Ljava/lang/String;",
+     reinterpret_cast<void*>(&NativeRunModelThreadStartSyncProbe)},
     {"nativeRunColdLoadLabelProbe", "(Ljava/lang/String;)Ljava/lang/String;",
      reinterpret_cast<void*>(&NativeRunColdLoadLabelProbe)},
     {"nativeRunColdReloadApplyStateProbe", "(Ljava/lang/String;)Ljava/lang/String;",
      reinterpret_cast<void*>(&NativeRunColdReloadApplyStateProbe)},
+    {"nativeRunColdReloadProfileStateProbe",
+     "(Ljava/lang/String;IZLjava/lang/String;)Ljava/lang/String;",
+     reinterpret_cast<void*>(&NativeRunColdReloadProfileStateProbe)},
     {"nativeRunInitialPublicationLabelProbe", "(Ljava/lang/String;)Ljava/lang/String;",
      reinterpret_cast<void*>(&NativeRunInitialPublicationLabelProbe)},
 };

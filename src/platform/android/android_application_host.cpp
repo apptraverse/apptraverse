@@ -21,6 +21,18 @@ void DeleteGlobalRef(JavaVM* vm, jobject& ref) {
   ref = nullptr;
 }
 
+void JoinModelThreadIfJoinable(pthread_t& thread, bool joinable) {
+  if (!joinable) {
+    return;
+  }
+  void* join_result = nullptr;
+  int const join_rc = pthread_join(thread, &join_result);
+  if (join_rc != 0) {
+    WriteFatalStderr("fatal: AndroidApplicationHost pthread_join failed\n");
+    std::abort();
+  }
+}
+
 }  // namespace
 
 void* AndroidApplicationHost::ModelThreadTrampoline(void* arg) {
@@ -41,6 +53,9 @@ AndroidApplicationHost::AndroidApplicationHost(
       }} {}
 
 AndroidApplicationHost::~AndroidApplicationHost() {
+  if (model_thread_joinable_) {
+    JoinModelThreadForRelease();
+  }
   if (model_thread_live_.load(std::memory_order_acquire)) {
     WriteFatalStderr(
         "fatal: AndroidApplicationHost destroyed before model thread joined\n");
@@ -81,6 +96,7 @@ ApplicationPublishedCallback AndroidApplicationHost::ModelThreadPublicationBridg
 void AndroidApplicationHost::RunModelWorkerThread() {
   {
     std::lock_guard<std::mutex> lock{model_start_mu_};
+    model_worker_entered_ = true;
     model_thread_live_.store(true, std::memory_order_release);
   }
   model_start_cv_.notify_all();
@@ -92,6 +108,11 @@ void AndroidApplicationHost::RunModelWorkerThread() {
 }
 
 void AndroidApplicationHost::StartModelThread() {
+  if (model_thread_joinable_) {
+    WriteFatalStderr(
+        "fatal: AndroidApplicationHost::StartModelThread joinable thread\n");
+    std::abort();
+  }
   if (model_thread_live_.load(std::memory_order_acquire)) {
     WriteFatalStderr(
         "fatal: AndroidApplicationHost::StartModelThread already live\n");
@@ -102,16 +123,27 @@ void AndroidApplicationHost::StartModelThread() {
         "fatal: AndroidApplicationHost start without presentation root\n");
     std::abort();
   }
+  model_worker_entered_ = false;
   int const create_rc =
       pthread_create(&model_thread_, nullptr, ModelThreadTrampoline, this);
   if (create_rc != 0) {
     WriteFatalStderr("fatal: AndroidApplicationHost pthread_create failed\n");
     std::abort();
   }
+  model_thread_joinable_ = true;
+
   std::unique_lock<std::mutex> lock{model_start_mu_};
-  model_start_cv_.wait(lock, [this] {
-    return model_thread_live_.load(std::memory_order_acquire);
-  });
+  model_start_cv_.wait(lock, [this] { return model_worker_entered_; });
+
+  if (!model_thread_live_.load(std::memory_order_acquire)) {
+    lock.unlock();
+    JoinModelThreadIfJoinable(model_thread_, model_thread_joinable_);
+    model_thread_joinable_ = false;
+    model_worker_entered_ = false;
+    WriteFatalStderr(
+        "fatal: AndroidApplicationHost model worker exited during start\n");
+    std::abort();
+  }
 }
 
 void AndroidApplicationHost::HandlePublicationOnMainThread(
@@ -142,20 +174,40 @@ void AndroidApplicationHost::ConsumePublication(ApplicationPublicationKind kind)
 }
 
 void AndroidApplicationHost::JoinModelThreadForRelease() {
-  if (!model_thread_live_.load(std::memory_order_acquire)) {
+  if (!model_thread_joinable_) {
     ui_session_.reset();
     return;
   }
-  runtime_.RequestStop();
-  void* join_result = nullptr;
-  int const join_rc = pthread_join(model_thread_, &join_result);
-  if (join_rc != 0) {
-    WriteFatalStderr(
-        "fatal: AndroidApplicationHost::JoinModelThreadForRelease join failed\n");
-    std::abort();
+  if (model_thread_live_.load(std::memory_order_acquire)) {
+    runtime_.RequestStop();
   }
+  JoinModelThreadIfJoinable(model_thread_, model_thread_joinable_);
+  model_thread_joinable_ = false;
+  model_worker_entered_ = false;
   model_thread_live_.store(false, std::memory_order_release);
   ui_session_.reset();
+}
+
+void AndroidApplicationHost::EnqueueBackgroundSaveWork() {
+  runtime_.Post([this](ae::Domain& domain) {
+    RunBackgroundSaveOnModelThread(domain);
+  });
+}
+
+void AndroidApplicationHost::RunBackgroundSaveOnModelThread(ae::Domain& domain) {
+  int const persist_result = callbacks_.persist_model(domain);
+  ui_bridge_.PostBackgroundSaveFinished(persist_result);
+  save_state_.store(SaveState::kIdle, std::memory_order_release);
+  if (!pending_background_save_.exchange(false, std::memory_order_acq_rel)) {
+    return;
+  }
+  SaveState expected = SaveState::kIdle;
+  if (save_state_.compare_exchange_strong(expected, SaveState::kSaving,
+                                          std::memory_order_acq_rel)) {
+    EnqueueBackgroundSaveWork();
+    return;
+  }
+  pending_background_save_.store(true, std::memory_order_release);
 }
 
 void AndroidApplicationHost::RequestBackgroundSave() {
@@ -169,15 +221,12 @@ void AndroidApplicationHost::RequestBackgroundSave() {
     std::abort();
   }
   SaveState expected = SaveState::kIdle;
-  if (!save_state_.compare_exchange_strong(expected, SaveState::kSaving,
-                                           std::memory_order_acq_rel)) {
+  if (save_state_.compare_exchange_strong(expected, SaveState::kSaving,
+                                          std::memory_order_acq_rel)) {
+    EnqueueBackgroundSaveWork();
     return;
   }
-  runtime_.Post([this](ae::Domain& domain) {
-    int const persist_result = callbacks_.persist_model(domain);
-    ui_bridge_.PostBackgroundSaveFinished(persist_result);
-    save_state_.store(SaveState::kIdle, std::memory_order_release);
-  });
+  pending_background_save_.store(true, std::memory_order_release);
 }
 
 }  // namespace apptraverse::android

@@ -260,13 +260,20 @@
 
 **Cold reload evidence:** out-of-process `:demo` (debug manifest) — `am kill` + подтверждение смерти PID + новый PID; in-process instrumentation — `clearRuntimeForColdReloadTest` (main thread) + relaunch; disk probe `nativeRunColdReloadApplyStateProbe` + UI **Applied** + log `MINIMAL_APP_LOADED_FROM_PROFILE` (best-effort); post-reload Row A selection change.
 
-**Тесты (Aether_NDK_Smoke_x86_64, Debug, 2026-10-31):** 7/7 instrumented (**SaveColdReloadInstrumentedTest** ×3: same-process, save-in-flight, cold reload) — **PASS**.
+**Тесты (Aether_NDK_Smoke_x86_64, Debug, 2026-10-31):** 7/7 instrumented (**SaveColdReloadInstrumentedTest** ×3: same-process, save-in-flight, cold reload) — **PASS** (historical на **fc0f89f**).
 
-**Регрессии (incremental Debug):** `apptraverse_minimal_app_headless_test`, `apptraverse_ui_control_materialization_test` — **PASS**. **Web/WASM smokes** — не перегонялись (runner profile в этой итерации).
+**Корректирующий срез (2026-11-01, lease `fae9c1ae…`):**
 
-**Android lifecycle (общий):** **IN_PROGRESS** — заявлены checkpoint/resume/cold slice; полная матрица lifecycle/shutdown не закрыта.
+- **Model thread start:** ожидание на UI — `model_worker_entered_` (+ `model_start_cv_`), не `model_thread_live_`; joinable worker при быстром exit (`model_thread_joinable_`); `JoinModelThreadForRelease` join даже если worker уже не live. Probe `nativeRunModelThreadStartSyncProbe` + `ModelThreadStartSyncInstrumentedTest` (cv, без Sleep).
+- **Повторный checkpoint:** `pending_background_save_` при `kSaving`; второй persist через повторный `EnqueueBackgroundSaveWork` (FIFO после UI), не inline-loop в одном `Post`. Persist test gate (`nativeEnable/Open/DisableCheckpointPersistTestGate`) для удержания первого save.
+- **E2E overlap:** `overlappingBackgroundSavePersistsLastChangeAfterColdLoad` — Row A через presenter при закрытом gate; disk `nativeRunColdReloadProfileStateProbe(..., sel=0)` до/после cold reload; **ColdReloadPath:** на smoke AVD выполнен только **`IN_PROCESS_RUNTIME_RESET`** (`clearRuntimeForColdReloadTest`, demo PID = instrumentation PID); **NEW_PID_DEMO_PROCESS** в этом прогоне не доказан.
+- **Logcat:** `logcat -c` не используется; `resumeWhileSaveInProgress` доказывает пересечение (save не завершён 2s при закрытом gate, ввод Row A, затем gate open + confirmation).
 
-**NEXT:** полная lifecycle matrix / production process model (не начинать).
+**Проверки (incremental Debug, `apptraverse-wt-web5`, 2026-11-01):** Android **9/9** `connectedDebugAndroidTest` — **PASS**. Headless **`apptraverse_minimal_app_headless_test`**, **`apptraverse_window_catalog_headless_test`**, §W2 кроме catalog acceptance — **PASS**. **`apptraverse_window_catalog_win32_acceptance_test`** — **FAIL** @ `window_catalog_win32_acceptance_test.cpp:1418` (`main != nullptr`, iconic/minimize; исторически flaky, не Android checkpoint). WASM **`wasm_minimal_app_browser_smoke.py`**, **`wasm_web_presenter_lifecycle_test.py`**, **`wasm_window_catalog_browser_smoke.py`** (serve **8785**) — **PASS**.
+
+**Android lifecycle (общий):** **IN_PROGRESS** — checkpoint/resume/cold + race/overlap slice; полная матрица lifecycle/shutdown не закрыта.
+
+**NEXT:** при необходимости cold reload E2E с **NEW_PID_DEMO_PROCESS** на конфигурации `:demo` ≠ instrumentation; иначе расширение lifecycle beyond slice (не начинать полную matrix).
 
 ---
 

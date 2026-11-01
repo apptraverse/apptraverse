@@ -191,13 +191,8 @@ final class MinimalAppTestLaunch {
     throw new AssertionError("demo process pid not found");
   }
 
-  static void assertColdLoadFromProfile(Context context, UiDevice device, String profileSubdir,
-      long timeoutMs) throws Exception {
-    String profilePath = new File(context.getFilesDir(), profileSubdir).getAbsolutePath();
-    String probe = NativeRuntime.nativeRunColdReloadApplyStateProbe(profilePath);
-    assertTrue("cold load disk probe: " + probe, probe.startsWith("OK:"));
-
-    long deadline = System.currentTimeMillis() + Math.min(timeoutMs, 15000);
+  static void waitForLoadedFromProfileLog(UiDevice device, long timeoutMs) throws Exception {
+    long deadline = System.currentTimeMillis() + timeoutMs;
     while (System.currentTimeMillis() < deadline) {
       String log = device.executeShellCommand("logcat -d -T 120");
       if (log.contains(LOG_LOADED_FROM_PROFILE)) {
@@ -205,6 +200,15 @@ final class MinimalAppTestLaunch {
       }
       Thread.sleep(400);
     }
+    throw new AssertionError(LOG_LOADED_FROM_PROFILE + " not observed in log tail");
+  }
+
+  static void assertColdLoadFromProfile(Context context, UiDevice device, String profileSubdir,
+      long timeoutMs) throws Exception {
+    String profilePath = new File(context.getFilesDir(), profileSubdir).getAbsolutePath();
+    String probe = NativeRuntime.nativeRunColdReloadApplyStateProbe(profilePath);
+    assertTrue("cold load disk probe: " + probe, probe.startsWith("OK:"));
+    waitForLoadedFromProfileLog(device, Math.min(timeoutMs, 15000));
   }
 
   private static void startMainActivity(Context context, String stateSubdir,
