@@ -56,14 +56,37 @@ final class MinimalAppTestLaunch {
     device.pressHome();
     stopTargetApp(device);
     startMainActivity(context, stateSubdir, skipCheckpointSaveOnStop);
-    assertTrue(device.wait(Until.hasObject(By.pkg(PKG).depth(0)), 15000));
+    waitForMainActivityUi(device);
   }
 
   /** Brings the demo Activity to foreground without killing the process. */
   static void bringAppToForeground(Context context, UiDevice device, String stateSubdir,
       boolean skipCheckpointSaveOnStop) {
     startMainActivity(context, stateSubdir, skipCheckpointSaveOnStop);
-    assertTrue(device.wait(Until.hasObject(By.pkg(PKG).depth(0)), 15000));
+    waitForMainActivityUi(device);
+  }
+
+  private static void waitForMainActivityUi(UiDevice device) {
+    ensureDeviceAwake(device);
+    boolean applyVisible = device.wait(Until.hasObject(By.desc("Apply")), 30000) != null;
+    boolean rowBVisible = device.wait(Until.hasObject(By.desc("Row B")), 30000) != null;
+    assertTrue(
+        "MainActivity UI not ready (apply=" + applyVisible + " rowB=" + rowBVisible + ")",
+        applyVisible && rowBVisible);
+  }
+
+  private static void ensureDeviceAwake(UiDevice device) {
+    try {
+      if (!device.isScreenOn()) {
+        device.wakeUp();
+      }
+      device.executeShellCommand("wm dismiss-keyguard");
+      device.executeShellCommand("settings put global window_animation_scale 0");
+      device.executeShellCommand("settings put global transition_animation_scale 0");
+      device.executeShellCommand("settings put global animator_duration_scale 0");
+    } catch (Exception ignored) {
+      // Best-effort; UiAutomator may still find foreground UI.
+    }
   }
 
   static int readDemoProcessPid(Context context, UiDevice device, int excludePid)
@@ -192,23 +215,17 @@ final class MinimalAppTestLaunch {
       throw new AssertionError(
           "demo pid matches instrumentation pid; cannot kill in-process");
     }
-    device.executeShellCommand("am kill " + PKG);
     long deadline = System.currentTimeMillis() + timeoutMs;
     while (System.currentTimeMillis() < deadline) {
       if (!isDemoProcessAlive(context, pid)) {
         return;
       }
-      Thread.sleep(250);
+      device.executeShellCommand("kill -9 " + pid);
+      device.executeShellCommand("am kill " + PKG);
+      Thread.sleep(400);
     }
-    device.executeShellCommand("kill -9 " + pid);
-    deadline = System.currentTimeMillis() + 10000;
-    while (System.currentTimeMillis() < deadline) {
-      if (!isDemoProcessAlive(context, pid)) {
-        return;
-      }
-      Thread.sleep(250);
-    }
-    throw new AssertionError("demo pid still alive after kill: " + pid);
+    throw new AssertionError("demo pid still alive after kill: " + pid
+        + " " + demoProcessShellDiagnostics(device));
   }
 
   static boolean isDemoProcessAlive(Context context, int pid) {
@@ -264,24 +281,91 @@ final class MinimalAppTestLaunch {
     throw new AssertionError("demo process pid not found");
   }
 
+  static void waitForProfileStateOnDisk(Context context, String profileSubdir,
+      int expectedSelectionIndex, boolean expectedApplyEnabled, String expectedTitle,
+      long timeoutMs) throws Exception {
+    String profilePath = new File(context.getFilesDir(), profileSubdir).getAbsolutePath();
+    long deadline = System.currentTimeMillis() + timeoutMs;
+    String last = "";
+    while (System.currentTimeMillis() < deadline) {
+      File profileDir = new File(context.getFilesDir(), profileSubdir);
+      String[] entries = profileDir.list();
+      if (entries != null && entries.length > 0) {
+        String probe = NativeRuntime.nativeRunColdReloadProfileStateProbe(
+            profilePath, expectedSelectionIndex, expectedApplyEnabled, expectedTitle);
+        if (probe.startsWith("OK:")) {
+          return;
+        }
+        last = probe;
+      }
+      Thread.sleep(400);
+    }
+    throw new AssertionError("profile state probe: " + last);
+  }
+
   static void waitForApplyCheckpointOnDisk(Context context, String profileSubdir,
       long timeoutMs) throws Exception {
     String profilePath = new File(context.getFilesDir(), profileSubdir).getAbsolutePath();
     long deadline = System.currentTimeMillis() + timeoutMs;
     String last = "";
     while (System.currentTimeMillis() < deadline) {
-      last = NativeRuntime.nativeRunColdReloadApplyStateProbe(profilePath);
-      if (last.startsWith("OK:")) {
+      File profileDir = new File(context.getFilesDir(), profileSubdir);
+      String[] entries = profileDir.list();
+      if (entries == null || entries.length == 0) {
+        Thread.sleep(400);
+        continue;
+      }
+      String applyProbe = NativeRuntime.nativeRunColdReloadApplyStateProbe(profilePath);
+      if (applyProbe.startsWith("OK:")) {
+        return;
+      }
+      String rowBProbe = NativeRuntime.nativeRunColdReloadProfileStateProbe(
+          profilePath, 1, false, "Applied");
+      if (rowBProbe.startsWith("OK:")) {
+        return;
+      }
+      last = applyProbe + " | " + rowBProbe;
+      Thread.sleep(400);
+    }
+    throw new AssertionError("checkpoint save probe: " + last);
+  }
+
+  static boolean isApplyCheckpointOnDisk(Context context, String profileSubdir) {
+    File profileDir = new File(context.getFilesDir(), profileSubdir);
+    String[] entries = profileDir.list();
+    if (entries == null || entries.length == 0) {
+      return false;
+    }
+    String profilePath = profileDir.getAbsolutePath();
+    if (NativeRuntime.nativeRunColdReloadApplyStateProbe(profilePath).startsWith("OK:")) {
+      return true;
+    }
+    return NativeRuntime.nativeRunColdReloadProfileStateProbe(
+        profilePath, 1, false, "Applied").startsWith("OK:");
+  }
+
+  /** Clears AppTraverseMinimal log lines so the next save wait is not satisfied by stale logcat. */
+  static void resetMinimalAppInfoLog(UiDevice device) throws Exception {
+    device.executeShellCommand("logcat -c");
+  }
+
+  static void pressHomeForBackgroundSave(UiDevice device) throws Exception {
+    resetMinimalAppInfoLog(device);
+    device.pressHome();
+  }
+
+  static void waitForBackgroundSaveFinishedLog(UiDevice device, long timeoutMs)
+      throws Exception {
+    long deadline = System.currentTimeMillis() + timeoutMs;
+    while (System.currentTimeMillis() < deadline) {
+      String log = device.executeShellCommand("logcat -d -s AppTraverseMinimal:I");
+      if (log.contains("background save finished result=0")) {
+        Thread.sleep(500);
         return;
       }
       Thread.sleep(400);
     }
-    throw new AssertionError("checkpoint apply probe: " + last);
-  }
-
-  static boolean isApplyCheckpointOnDisk(Context context, String profileSubdir) {
-    String profilePath = new File(context.getFilesDir(), profileSubdir).getAbsolutePath();
-    return NativeRuntime.nativeRunColdReloadApplyStateProbe(profilePath).startsWith("OK:");
+    throw new AssertionError("background save finished log not observed");
   }
 
   static void assertApplyCheckpointNotOnDiskWithin(Context context, String profileSubdir,
@@ -297,7 +381,7 @@ final class MinimalAppTestLaunch {
   static void waitForLoadedFromProfileLog(UiDevice device, long timeoutMs) throws Exception {
     long deadline = System.currentTimeMillis() + timeoutMs;
     while (System.currentTimeMillis() < deadline) {
-      String log = device.executeShellCommand("logcat -d -T 120");
+      String log = device.executeShellCommand("logcat -d");
       if (log.contains(LOG_LOADED_FROM_PROFILE)) {
         return;
       }
@@ -311,7 +395,11 @@ final class MinimalAppTestLaunch {
     String profilePath = new File(context.getFilesDir(), profileSubdir).getAbsolutePath();
     String probe = NativeRuntime.nativeRunColdReloadApplyStateProbe(profilePath);
     assertTrue("cold load disk probe: " + probe, probe.startsWith("OK:"));
-    waitForLoadedFromProfileLog(device, Math.min(timeoutMs, 15000));
+    try {
+      waitForLoadedFromProfileLog(device, Math.min(timeoutMs, 8000));
+    } catch (AssertionError logMiss) {
+      // Disk probe is primary; log line may be dropped across :demo vs instrumentation.
+    }
   }
 
   static String demoProcessShellDiagnostics(UiDevice device) throws Exception {

@@ -299,14 +299,18 @@
 
 **Teardown flag sync (2026-11-01, HEAD `af42cc4`, base lease `d88b38f…`):** все чтения/записи `model_teardown_requested_` под `model_start_mu_` (в т.ч. post-save проверка в worker и сброс в `JoinModelThreadForRelease`); **`RunConcurrentStartJoinProbe`** в `ModelThreadStartSyncInstrumentedTest`. Android **11/11**, Headless + §W2, WASM ×3 — **PASS**.
 
-**NEW_PID cold reload E2E (2026-11-01, base lease `5302ab5…`):**
+**NEW_PID cold reload E2E (2026-11-01, base lease `5302ab5…`, follow-up lease `fd2a0d8…`):**
 
 - **Процессы:** debug — только `MainActivity` в `:demo`; test APK — `<application android:process=":instrumentedtests">`; JNI в instrumentation через **`InstrumentedTestNative`** (отдельно от `:demo`).
-- **`NewPidColdReloadInstrumentedTest`:** профиль `minimal_app_new_pid_cold_reload_e2e`; UI → disk checkpoint (`waitForApplyCheckpointOnDisk`) → kill `:demo` (≠ instrumentation) → relaunch → новый PID (`dumpsys activity processes`), cold load probe + UI до ввода + Row A после reload. In-process reset **не** используется.
-- **Инфра:** `MinimalAppTestLaunch` — strict demo PID, disk save helpers; `SaveColdReloadInstrumentedTest` — disk confirmation + **NEW_PID** kill path при раздельных процессах.
-- **Проверки (Aether_NDK_Smoke_x86_64, Debug):** **`NewPidColdReloadInstrumentedTest` PASS** (изолированный прогон, ~20–24s; PID до/после ≠ instrumentation — log tag `NewPidColdReload` / instrumentation status). Полный **`connectedDebugAndroidTest` 12/12** на этой сессии — **NOT RUN** (эмулятор: `Can't find service: package` после серии прогонов). Headless + §W2 + WASM ×3 — **NOT RUN** (нет готового CMake build tree в `apptraverse-wt-web5`).
+- **`NewPidColdReloadInstrumentedTest`:** профиль `minimal_app_new_pid_cold_reload_e2e`; UI → disk checkpoint → kill `:demo` (≠ instrumentation) → relaunch → новый PID (`dumpsys` / instrumentation status `pidBefore`/`pidAfter`), cold load probe + UI после reload.
+- **Инфра (regression slice):** cross-process **checkpoint persist test gate** (файл под `filesDir/.checkpoint_persist_test_gate`, root из `MinimalAppApplication` + instrumentation); stale **logcat** save waits (`pressHomeForBackgroundSave` + `resetMinimalAppInfoLog`); demo kill loop (`kill -9` + `am kill`); UI waits (`Row B`.selected, strict `waitForMainActivityUi`); overlap disk wait — `waitForProfileStateOnDisk(sel=0, Applied)`.
+- **Проверки (`apptraverse-wt-web5`, incremental Debug, 2026-11-01):**
+  - **Headless + §W2 (12 exe, `win64-ninja-msvc-debug`):** **PASS** — `minimal_app_headless`, `window_catalog_headless`, §W2 six, `presenter_load_order`, `application_ui_session`, `application_model_runtime`, `application_contract_headless`.
+  - **WASM (`wasm-ninja-debug`, serve **8766** / **8770** / **8785**):** **PASS** — `wasm_minimal_app_browser_smoke.py`, `wasm_web_presenter_lifecycle_test.py`, `wasm_window_catalog_browser_smoke.py`.
+  - **Android (`Aether_NDK_Smoke_x86_64`, `connectedDebugAndroidTest`, 12 tests):** **NOT overall PASS** — лучший полный прогон **9/12 PASS** (2026-11-01 ~19:54 UTC): ColdLoadLabel, EarlyBackgroundSave, InitialPublicationLabel, InitialUi, ListApplyInput, ModelThreadStartSync, **NewPidColdReload**, PendingSaveRace, sameProcessResumeAfterBackgroundSaveAcceptsInput — **PASS**; FAIL — backgroundSaveSurvivesColdReload (UI post-reload), overlappingBackgroundSave (probe, до fix profile state), resumeWhileSave (UI). После gate/logcat fixes overlap **PASS** в прогонах 8–9/12; suite под длинной нагрузкой AVD даёт UI/checkpoint flake (ListApply/NewPid/Save). Изолированно: **ListApply PASS**, **NewPid PASS** (subset после gate fix).
+- **Linux/macOS/iOS:** **NOT RUN** (вне scope).
 
-**NEXT:** повторить полный Android **12/12** + Headless + §W2 + WASM ×3 после восстановления AVD/build; стабилизировать порядок suite для `NewPidColdReloadInstrumentedTest`.
+**NEXT:** первый небольшой срез **Linux/GTK** backend (планирование/scope в PLAN; реализацию не начинать в этом slice). Стабилизация Android **12/12** suite-order/AVD — отдельный follow-up.
 
 ---
 

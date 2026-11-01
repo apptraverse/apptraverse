@@ -77,6 +77,13 @@ void NativeRequestBackgroundSave(JNIEnv*, jclass, jlong handle) {
 
 void NativeDestroy(JNIEnv*, jclass, jlong handle) { delete FromHandle(handle); }
 
+void NativeSetCheckpointPersistTestGateRoot(JNIEnv* env, jclass,
+                                          jstring files_dir) {
+  char const* chars = env->GetStringUTFChars(files_dir, nullptr);
+  SetAndroidCheckpointPersistTestGateRoot(chars);
+  env->ReleaseStringUTFChars(files_dir, chars);
+}
+
 void NativeEnableCheckpointPersistTestGate(JNIEnv*, jclass) {
   EnableAndroidCheckpointPersistTestGate();
 }
@@ -188,6 +195,8 @@ JNINativeMethod const kNativeMethods[] = {
     {"nativeRequestBackgroundSave", "(J)V",
      reinterpret_cast<void*>(&NativeRequestBackgroundSave)},
     {"nativeDestroy", "(J)V", reinterpret_cast<void*>(&NativeDestroy)},
+    {"nativeSetCheckpointPersistTestGateRoot", "(Ljava/lang/String;)V",
+     reinterpret_cast<void*>(&NativeSetCheckpointPersistTestGateRoot)},
     {"nativeEnableCheckpointPersistTestGate", "()V",
      reinterpret_cast<void*>(&NativeEnableCheckpointPersistTestGate)},
     {"nativeOpenCheckpointPersistTestGate", "()V",

@@ -47,9 +47,9 @@ public final class ListApplyInputInstrumentedTest {
 
   @Test
   public void rowBSelectionThenApplyUpdatesTitleAndMirror() throws InterruptedException {
-    UiObject2 apply = device.wait(Until.findObject(By.desc("Apply")), 15000);
-    UiObject2 rowA = device.wait(Until.findObject(By.desc("Row A")), 15000);
-    UiObject2 rowB = device.wait(Until.findObject(By.desc("Row B")), 15000);
+    UiObject2 apply = device.wait(Until.findObject(By.desc("Apply")), 30000);
+    UiObject2 rowA = device.wait(Until.findObject(By.desc("Row A")), 30000);
+    UiObject2 rowB = device.wait(Until.findObject(By.desc("Row B")), 30000);
 
     assertNotNull(apply);
     assertNotNull(rowA);
@@ -60,7 +60,9 @@ public final class ListApplyInputInstrumentedTest {
     assertTrue(device.wait(Until.findObject(By.text("Minimal App")), 15000) != null);
 
     rowB.click();
-    waitForSelected(rowB, true, 10000);
+    assertNotNull(
+        device.wait(Until.findObject(By.desc("Row B").selected(true)), 20000));
+    rowB = device.findObject(By.desc("Row B"));
     assertFalse(rowA.isSelected());
     assertTrue(apply.isEnabled());
 

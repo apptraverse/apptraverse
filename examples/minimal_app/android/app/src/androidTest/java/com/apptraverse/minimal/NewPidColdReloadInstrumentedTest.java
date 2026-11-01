@@ -41,6 +41,8 @@ public final class NewPidColdReloadInstrumentedTest {
     InstrumentedTestNative.ensureLoaded();
     device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
     context = InstrumentationRegistry.getInstrumentation().getTargetContext();
+    NativeRuntime.nativeSetCheckpointPersistTestGateRoot(
+        context.getFilesDir().getAbsolutePath());
     NativeRuntime.nativeDisableCheckpointPersistTestGate();
   }
 
@@ -86,15 +88,17 @@ public final class NewPidColdReloadInstrumentedTest {
     assertNotNull(rowB);
     assertNotNull(apply);
     rowB.click();
-    waitForSelected(rowB, true, 10000);
+    assertNotNull(
+        device.wait(Until.findObject(By.desc("Row B").selected(true)), 20000));
     apply.click();
-    assertTrue(device.wait(Until.findObject(By.text("Applied")), 15000) != null);
+    assertTrue(device.wait(Until.findObject(By.text("Applied")), 25000) != null);
     apply = device.findObject(By.desc("Apply"));
     assertNotNull(apply);
     assertFalse(apply.isEnabled());
 
-    device.pressHome();
-    MinimalAppTestLaunch.waitForApplyCheckpointOnDisk(context, PROFILE, 60000);
+    MinimalAppTestLaunch.pressHomeForBackgroundSave(device);
+    MinimalAppTestLaunch.waitForBackgroundSaveFinishedLog(device, 60000);
+    MinimalAppTestLaunch.waitForApplyCheckpointOnDisk(context, PROFILE, 30000);
 
     MinimalAppTestLaunch.killDemoProcessAndWait(context, device, pidBefore, 45000);
     assertFalse("demo process must be dead", MinimalAppTestLaunch.isDemoProcessAlive(context, pidBefore));
@@ -108,9 +112,9 @@ public final class NewPidColdReloadInstrumentedTest {
 
     MinimalAppTestLaunch.assertColdLoadFromProfile(context, device, PROFILE, 30000);
 
-    apply = device.wait(Until.findObject(By.desc("Apply")), 15000);
-    UiObject2 rowA = device.wait(Until.findObject(By.desc("Row A")), 15000);
-    UiObject2 rowBAfter = device.wait(Until.findObject(By.desc("Row B")), 15000);
+    apply = device.wait(Until.findObject(By.desc("Apply")), 30000);
+    UiObject2 rowA = device.wait(Until.findObject(By.desc("Row A")), 30000);
+    UiObject2 rowBAfter = device.wait(Until.findObject(By.desc("Row B")), 30000);
     assertNotNull(apply);
     assertNotNull(rowA);
     assertNotNull(rowBAfter);

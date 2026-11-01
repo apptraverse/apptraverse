@@ -29,6 +29,8 @@ public final class MinimalAppApplication extends Application
   public void onCreate() {
     super.onCreate();
     System.loadLibrary(LIBRARY_NAME);
+    NativeRuntime.nativeSetCheckpointPersistTestGateRoot(
+        getFilesDir().getAbsolutePath());
     uiBridge.attachHost(this);
   }
 

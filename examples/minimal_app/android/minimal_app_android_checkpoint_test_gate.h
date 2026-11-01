@@ -5,6 +5,8 @@
 
 namespace apptraverse::example::minimal {
 
+void SetAndroidCheckpointPersistTestGateRoot(char const* files_dir);
+
 void EnableAndroidCheckpointPersistTestGate();
 void DisableAndroidCheckpointPersistTestGate();
 void OpenAndroidCheckpointPersistTestGate();

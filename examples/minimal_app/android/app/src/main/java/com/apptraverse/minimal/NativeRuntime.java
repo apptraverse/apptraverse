@@ -19,6 +19,8 @@ public final class NativeRuntime {
 
   static native void nativeDestroy(long handle);
 
+  static native void nativeSetCheckpointPersistTestGateRoot(String filesDir);
+
   static native void nativeEnableCheckpointPersistTestGate();
 
   static native void nativeOpenCheckpointPersistTestGate();

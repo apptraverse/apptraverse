@@ -1,8 +1,12 @@
 package com.apptraverse.minimal;
 
+import android.content.Context;
+
 import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -14,6 +18,13 @@ public final class PendingSaveRaceInstrumentedTest {
 
   static {
     InstrumentedTestNative.ensureLoaded();
+  }
+
+  @Before
+  public void setUp() {
+    Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
+    NativeRuntime.nativeSetCheckpointPersistTestGateRoot(
+        context.getFilesDir().getAbsolutePath());
   }
 
   @After
