@@ -286,6 +286,17 @@
 
 **NEXT:** NEW_PID cold reload E2E при отдельном задании; не начинать полную lifecycle matrix.
 
+**Checkpoint join / early onStop (2026-11-01, lease `d6917ca…`):**
+
+- **`JoinModelThreadForRelease`:** `model_teardown_requested_` + всегда `RequestStop` + `model_start_cv_` notify; worker может выйти до `run_model` / до `model_thread_live_`; hook `before_model_thread_join` для gate-probe. **`StartModelThread`** по-прежнему без блокировки UI.
+- **Ранний `onStop`:** `RequestBackgroundSave` ставит `pending` даже до `model_thread_live_`; **`TryStartBackgroundSaveFromPending`** при входе worker — **`EarlyBackgroundSaveInstrumentedTest`**.
+- **`PendingSaveRace` probe:** один первый save после `run_model` ready (cv), второй запрос **после** gate entry=1, без retry/polling loop — **`PendingSaveRaceInstrumentedTest`**.
+- **Model thread probes:** gate join до long `RunMinimalApplicationModel` + immediate join stop — в **`ModelThreadStartSyncInstrumentedTest`**.
+
+**Проверки:** Android **11/11** instrumented; Headless + §W2; WASM ×3 (**8785** catalog) — **PASS**.
+
+**NEXT:** NEW_PID cold reload E2E (отдельное задание); полная lifecycle matrix не начинать.
+
 ---
 
 <a id="p3t3a2r1--presented-list-row-labels-2026-10-31-pass"></a>

@@ -28,6 +28,8 @@ struct AndroidApplicationHostCallbacks {
   std::function<void(ae::Obj& application_root)> after_incremental;
   // Model-thread checkpoint persist (after queued UI work), same contract as Web.
   std::function<int(ae::Domain& domain)> persist_model;
+  // Test/probe hook: invoked on JoinModelThreadForRelease before RequestStop.
+  std::function<void()> before_model_thread_join;
 };
 
 class AndroidApplicationHost {
@@ -77,11 +79,13 @@ class AndroidApplicationHost {
   std::optional<ApplicationUiSession> ui_session_;
   void EnqueueBackgroundSaveWork();
   void RunBackgroundSaveOnModelThread(ae::Domain& domain);
+  void TryStartBackgroundSaveFromPending();
 
   pthread_t model_thread_{};
   std::mutex model_start_mu_;
   std::condition_variable model_start_cv_;
   bool model_worker_entered_{false};
+  bool model_teardown_requested_{false};
   bool model_thread_joinable_{false};
   std::atomic<bool> model_thread_live_{false};
   std::atomic<SaveState> save_state_{SaveState::kIdle};

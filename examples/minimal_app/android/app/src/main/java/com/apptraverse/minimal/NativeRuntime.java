@@ -30,6 +30,8 @@ public final class NativeRuntime {
 
   static native String nativeRunPendingBackgroundSaveRaceProbe();
 
+  static native String nativeRunEarlyBackgroundSaveProbe();
+
   static native String nativeRunModelThreadStartSyncProbe();
 
   /** A1R1: distill → cold LoadApplication label probe (no UI presenters). */

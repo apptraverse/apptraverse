@@ -36,6 +36,7 @@ add_library(minimal_app_android STATIC
   ../minimal_app_android_checkpoint_test_gate.cpp
   ../minimal_app_android_model_thread_start_probe.cpp
   ../minimal_app_android_pending_save_race_probe.cpp
+  ../minimal_app_android_early_background_save_probe.cpp
 )
 target_include_directories(minimal_app_android PUBLIC
   ${APPTRAVERSE_ROOT}/examples/minimal_app/android

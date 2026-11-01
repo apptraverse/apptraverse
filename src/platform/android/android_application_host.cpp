@@ -97,9 +97,19 @@ void AndroidApplicationHost::RunModelWorkerThread() {
   {
     std::lock_guard<std::mutex> lock{model_start_mu_};
     model_worker_entered_ = true;
+    model_start_cv_.notify_all();
+    if (model_teardown_requested_) {
+      return;
+    }
     model_thread_live_.store(true, std::memory_order_release);
   }
-  model_start_cv_.notify_all();
+
+  TryStartBackgroundSaveFromPending();
+
+  if (model_teardown_requested_) {
+    model_thread_live_.store(false, std::memory_order_release);
+    return;
+  }
 
   (void)callbacks_.run_model(ModelThreadPublicationBridge());
 
@@ -124,6 +134,7 @@ void AndroidApplicationHost::StartModelThread() {
     std::abort();
   }
   model_worker_entered_ = false;
+  model_teardown_requested_ = false;
   int const create_rc =
       pthread_create(&model_thread_, nullptr, ModelThreadTrampoline, this);
   if (create_rc != 0) {
@@ -165,12 +176,19 @@ void AndroidApplicationHost::JoinModelThreadForRelease() {
     ui_session_.reset();
     return;
   }
-  if (model_thread_live_.load(std::memory_order_acquire)) {
-    runtime_.RequestStop();
+  {
+    std::lock_guard<std::mutex> lock{model_start_mu_};
+    model_teardown_requested_ = true;
   }
+  model_start_cv_.notify_all();
+  if (callbacks_.before_model_thread_join) {
+    callbacks_.before_model_thread_join();
+  }
+  runtime_.RequestStop();
   JoinModelThreadIfJoinable(model_thread_, model_thread_joinable_);
   model_thread_joinable_ = false;
   model_worker_entered_ = false;
+  model_teardown_requested_ = false;
   model_thread_live_.store(false, std::memory_order_release);
   ui_session_.reset();
 }
@@ -197,10 +215,22 @@ void AndroidApplicationHost::RunBackgroundSaveOnModelThread(ae::Domain& domain) 
   pending_background_save_.store(true, std::memory_order_release);
 }
 
-void AndroidApplicationHost::RequestBackgroundSave() {
-  if (!model_thread_live_.load(std::memory_order_acquire)) {
+void AndroidApplicationHost::TryStartBackgroundSaveFromPending() {
+  if (!callbacks_.persist_model) {
     return;
   }
+  if (!pending_background_save_.load(std::memory_order_acquire)) {
+    return;
+  }
+  SaveState expected = SaveState::kIdle;
+  if (save_state_.compare_exchange_strong(expected, SaveState::kSaving,
+                                          std::memory_order_acq_rel)) {
+    pending_background_save_.store(false, std::memory_order_release);
+    EnqueueBackgroundSaveWork();
+  }
+}
+
+void AndroidApplicationHost::RequestBackgroundSave() {
   if (!callbacks_.persist_model) {
     WriteFatalStderr(
         "fatal: AndroidApplicationHost::RequestBackgroundSave without "
@@ -208,12 +238,10 @@ void AndroidApplicationHost::RequestBackgroundSave() {
     std::abort();
   }
   pending_background_save_.store(true, std::memory_order_release);
-  SaveState expected = SaveState::kIdle;
-  if (save_state_.compare_exchange_strong(expected, SaveState::kSaving,
-                                          std::memory_order_acq_rel)) {
-    pending_background_save_.store(false, std::memory_order_release);
-    EnqueueBackgroundSaveWork();
+  if (!model_thread_live_.load(std::memory_order_acquire)) {
+    return;
   }
+  TryStartBackgroundSaveFromPending();
 }
 
 }  // namespace apptraverse::android

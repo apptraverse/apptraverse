@@ -23,6 +23,7 @@
 #include "minimal_app_android_checkpoint_test_gate.h"
 #include "minimal_app_android_model_thread_start_probe.h"
 #include "minimal_app_android_pending_save_race_probe.h"
+#include "minimal_app_android_early_background_save_probe.h"
 #include "minimal_native_runtime.h"
 
 namespace apptraverse::example::minimal {
@@ -99,6 +100,11 @@ jboolean NativeWaitForCheckpointPersistGateEntries(
 
 jstring NativeRunPendingBackgroundSaveRaceProbe(JNIEnv* env, jclass) {
   std::string const out = RunAndroidPendingBackgroundSaveRaceProbe();
+  return env->NewStringUTF(out.c_str());
+}
+
+jstring NativeRunEarlyBackgroundSaveProbe(JNIEnv* env, jclass) {
+  std::string const out = RunAndroidEarlyBackgroundSaveProbe();
   return env->NewStringUTF(out.c_str());
 }
 
@@ -192,6 +198,8 @@ JNINativeMethod const kNativeMethods[] = {
      reinterpret_cast<void*>(&NativeWaitForCheckpointPersistGateEntries)},
     {"nativeRunPendingBackgroundSaveRaceProbe", "()Ljava/lang/String;",
      reinterpret_cast<void*>(&NativeRunPendingBackgroundSaveRaceProbe)},
+    {"nativeRunEarlyBackgroundSaveProbe", "()Ljava/lang/String;",
+     reinterpret_cast<void*>(&NativeRunEarlyBackgroundSaveProbe)},
     {"nativeRunModelThreadStartSyncProbe", "()Ljava/lang/String;",
      reinterpret_cast<void*>(&NativeRunModelThreadStartSyncProbe)},
     {"nativeRunColdLoadLabelProbe", "(Ljava/lang/String;)Ljava/lang/String;",
