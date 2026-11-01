@@ -106,9 +106,12 @@ void AndroidApplicationHost::RunModelWorkerThread() {
 
   TryStartBackgroundSaveFromPending();
 
-  if (model_teardown_requested_) {
-    model_thread_live_.store(false, std::memory_order_release);
-    return;
+  {
+    std::lock_guard<std::mutex> lock{model_start_mu_};
+    if (model_teardown_requested_) {
+      model_thread_live_.store(false, std::memory_order_release);
+      return;
+    }
   }
 
   (void)callbacks_.run_model(ModelThreadPublicationBridge());
@@ -133,8 +136,11 @@ void AndroidApplicationHost::StartModelThread() {
         "fatal: AndroidApplicationHost start without presentation root\n");
     std::abort();
   }
-  model_worker_entered_ = false;
-  model_teardown_requested_ = false;
+  {
+    std::lock_guard<std::mutex> lock{model_start_mu_};
+    model_worker_entered_ = false;
+    model_teardown_requested_ = false;
+  }
   int const create_rc =
       pthread_create(&model_thread_, nullptr, ModelThreadTrampoline, this);
   if (create_rc != 0) {
@@ -187,8 +193,11 @@ void AndroidApplicationHost::JoinModelThreadForRelease() {
   runtime_.RequestStop();
   JoinModelThreadIfJoinable(model_thread_, model_thread_joinable_);
   model_thread_joinable_ = false;
-  model_worker_entered_ = false;
-  model_teardown_requested_ = false;
+  {
+    std::lock_guard<std::mutex> lock{model_start_mu_};
+    model_worker_entered_ = false;
+    model_teardown_requested_ = false;
+  }
   model_thread_live_.store(false, std::memory_order_release);
   ui_session_.reset();
 }

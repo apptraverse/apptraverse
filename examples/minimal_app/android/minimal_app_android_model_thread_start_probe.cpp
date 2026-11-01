@@ -140,6 +140,62 @@ std::string RunJoinBeforeRunModelGateProbe() {
   return "OK:join_released_run_model_gate";
 }
 
+std::string RunConcurrentStartJoinProbe() {
+  apptraverse::ApplicationModelRuntime runtime;
+  apptraverse::ui::android::AndroidPresentationHost presentation_host{};
+  presentation_host.content_root = reinterpret_cast<jobject>(1);
+
+  apptraverse::android::AndroidApplicationHostCallbacks callbacks;
+  callbacks.run_model = [](apptraverse::ApplicationPublishedCallback) -> int {
+    {
+      std::lock_guard<std::mutex> lock{run_model_mu};
+      run_model_entered = true;
+    }
+    run_model_cv.notify_all();
+    std::unique_lock<std::mutex> lock{run_model_mu};
+    run_model_cv.wait(lock, [] { return release_run_model; });
+    return 0;
+  };
+  callbacks.before_model_thread_join = [] {
+    release_run_model = true;
+    run_model_cv.notify_all();
+  };
+
+  apptraverse::android::AndroidUiBridge bridge;
+  apptraverse::android::AndroidApplicationHost host(
+      runtime, presentation_host, std::move(bridge), std::move(callbacks));
+
+  run_model_entered = false;
+  release_run_model = false;
+
+  std::mutex done_mu;
+  std::condition_variable done_cv;
+  bool join_finished = false;
+
+  std::thread joiner{[&] {
+    host.JoinModelThreadForRelease();
+    std::lock_guard<std::mutex> lock{done_mu};
+    join_finished = true;
+    done_cv.notify_all();
+  }};
+  std::thread starter{[&] { host.StartModelThread(); }};
+
+  starter.join();
+  {
+    std::unique_lock<std::mutex> lock{done_mu};
+    bool const finished = done_cv.wait_for(
+        lock, std::chrono::seconds(10), [&] { return join_finished; });
+    if (!finished) {
+      release_run_model = true;
+      run_model_cv.notify_all();
+      joiner.join();
+      return "FAIL:concurrent_start_join_timeout";
+    }
+  }
+  joiner.join();
+  return "OK:concurrent_start_join";
+}
+
 std::string RunImmediateJoinLongRunModelProbe() {
   std::filesystem::path const state_dir =
       std::filesystem::temp_directory_path() /
@@ -182,6 +238,10 @@ std::string RunAndroidModelThreadStartSyncProbe() {
   std::string const gate_join = RunJoinBeforeRunModelGateProbe();
   if (gate_join.rfind("OK:", 0) != 0) {
     return gate_join;
+  }
+  std::string const concurrent = RunConcurrentStartJoinProbe();
+  if (concurrent.rfind("OK:", 0) != 0) {
+    return concurrent;
   }
   std::string const immediate = RunImmediateJoinLongRunModelProbe();
   if (immediate.rfind("OK:", 0) != 0) {
