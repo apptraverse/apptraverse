@@ -24,6 +24,7 @@ public final class MinimalAppApplication extends Application
 
   private long runtimeHandle;
   private boolean modelThreadStarted;
+  private String activeStateSubdir = MinimalAppStateDirs.DEFAULT;
 
   @Override
   public void onCreate() {
@@ -47,10 +48,16 @@ public final class MinimalAppApplication extends Application
   }
 
   synchronized void ensureNativeRuntime(String stateSubdir) {
-    if (runtimeHandle != 0L) {
-      return;
-    }
     String subdir = stateSubdir != null ? stateSubdir : MinimalAppStateDirs.DEFAULT;
+    if (runtimeHandle != 0L) {
+      if (subdir.equals(activeStateSubdir)) {
+        return;
+      }
+      NativeRuntime.nativeDestroy(runtimeHandle);
+      runtimeHandle = 0L;
+      modelThreadStarted = false;
+    }
+    activeStateSubdir = subdir;
     runtimeHandle = NativeRuntime.nativeCreate(
         getFilesDir().getAbsolutePath(), subdir, uiBridge);
     modelThreadStarted = false;
@@ -104,7 +111,8 @@ public final class MinimalAppApplication extends Application
 
   @Override
   public void onBackgroundSaveFinished(int persistResult) {
-    Log.i(TAG, "background save finished result=" + persistResult);
+    Log.i(TAG, "background save finished subdir=" + activeStateSubdir
+        + " result=" + persistResult);
     BackgroundSaveObserver observer = backgroundSaveObserver.get();
     if (observer != null) {
       observer.onBackgroundSaveFinished(persistResult);

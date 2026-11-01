@@ -25,7 +25,7 @@ public final class InitialUiInstrumentedTest {
   private static final String PROFILE = "minimal_app_instrumented_initial_ui";
 
   @Before
-  public void setUp() {
+  public void setUp() throws Exception {
     device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
     Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
     MinimalAppTestLaunch.launchFreshProfile(context, device, PROFILE);

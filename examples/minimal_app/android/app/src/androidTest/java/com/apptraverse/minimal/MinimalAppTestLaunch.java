@@ -13,6 +13,8 @@ import androidx.test.uiautomator.UiDevice;
 import androidx.test.uiautomator.Until;
 
 import java.io.File;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -29,6 +31,7 @@ final class MinimalAppTestLaunch {
   static final String PKG = "com.apptraverse.minimal";
   static final String LOG_LOADED_FROM_PROFILE = "MINIMAL_APP_LOADED_FROM_PROFILE";
   static final String LOG_PROFILE_BOOTSTRAP = "MINIMAL_APP_PROFILE_BOOTSTRAP";
+  static final String LOG_BACKGROUND_SAVE_FINISHED_PREFIX = "background save finished subdir=";
 
   private MinimalAppTestLaunch() {}
 
@@ -37,24 +40,26 @@ final class MinimalAppTestLaunch {
     deleteRecursively(root);
   }
 
-  static void launchFreshProfile(Context context, UiDevice device, String stateSubdir) {
+  static void launchFreshProfile(Context context, UiDevice device, String stateSubdir)
+      throws Exception {
     launchFreshProfile(context, device, stateSubdir, true);
   }
 
   static void launchFreshProfile(Context context, UiDevice device, String stateSubdir,
-      boolean skipCheckpointSaveOnStop) {
+      boolean skipCheckpointSaveOnStop) throws Exception {
     deleteProfileTree(context, stateSubdir);
     launchExistingProfile(context, device, stateSubdir, skipCheckpointSaveOnStop);
   }
 
-  static void launchExistingProfile(Context context, UiDevice device, String stateSubdir) {
+  static void launchExistingProfile(Context context, UiDevice device, String stateSubdir)
+      throws Exception {
     launchExistingProfile(context, device, stateSubdir, true);
   }
 
   static void launchExistingProfile(Context context, UiDevice device, String stateSubdir,
-      boolean skipCheckpointSaveOnStop) {
+      boolean skipCheckpointSaveOnStop) throws Exception {
     device.pressHome();
-    stopTargetApp(device);
+    stopDemoProcesses(context, device);
     startMainActivity(context, stateSubdir, skipCheckpointSaveOnStop);
     waitForMainActivityUi(device);
   }
@@ -208,6 +213,11 @@ final class MinimalAppTestLaunch {
     return processName.equals(PKG) || processName.equals(PKG + ":demo");
   }
 
+  private static void requestDemoProcessExit(UiDevice device) throws Exception {
+    device.executeShellCommand(
+        "am broadcast -a " + MinimalAppTestControl.ACTION_EXIT_DEMO_PROCESS + " -p " + PKG);
+  }
+
   static void killDemoProcessAndWait(Context context, UiDevice device, int pid,
       long timeoutMs) throws Exception {
     int instrumentationPid = Process.myPid();
@@ -215,17 +225,31 @@ final class MinimalAppTestLaunch {
       throw new AssertionError(
           "demo pid matches instrumentation pid; cannot kill in-process");
     }
+    requestDemoProcessExit(device);
     long deadline = System.currentTimeMillis() + timeoutMs;
     while (System.currentTimeMillis() < deadline) {
-      if (!isDemoProcessAlive(context, pid)) {
+      if (!isStrictDemoPidAlive(device, pid)) {
         return;
       }
       device.executeShellCommand("kill -9 " + pid);
-      device.executeShellCommand("am kill " + PKG);
       Thread.sleep(400);
     }
     throw new AssertionError("demo pid still alive after kill: " + pid
         + " " + demoProcessShellDiagnostics(device));
+  }
+
+  private static boolean isPidAliveInProc(UiDevice device, int pid) throws Exception {
+    String out =
+        device.executeShellCommand("test -d /proc/" + pid + " && echo yes || echo no").trim();
+    return "yes".equals(out);
+  }
+
+  static boolean isStrictDemoPidAlive(UiDevice device, int pid) throws Exception {
+    if (!isPidAliveInProc(device, pid)) {
+      return false;
+    }
+    String ps = device.executeShellCommand("ps -p " + pid + " -o NAME=").trim();
+    return ps.contains(PKG + ":demo");
   }
 
   static boolean isDemoProcessAlive(Context context, int pid) {
@@ -239,7 +263,7 @@ final class MinimalAppTestLaunch {
       return false;
     }
     for (ActivityManager.RunningAppProcessInfo info : processes) {
-      if (info.pid == pid && isDemoProcessName(info.processName)) {
+      if (info.pid == pid && isStrictDemoProcessName(info.processName)) {
         return true;
       }
     }
@@ -344,28 +368,42 @@ final class MinimalAppTestLaunch {
         profilePath, 1, false, "Applied").startsWith("OK:");
   }
 
-  /** Clears AppTraverseMinimal log lines so the next save wait is not satisfied by stale logcat. */
-  static void resetMinimalAppInfoLog(UiDevice device) throws Exception {
-    device.executeShellCommand("logcat -c");
+  static int countMinimalAppInfoLines(UiDevice device, String needle) throws Exception {
+    String log = device.executeShellCommand("logcat -d -s AppTraverseMinimal:I");
+    int count = 0;
+    for (String line : log.split("\n")) {
+      if (line.contains(needle)) {
+        count++;
+      }
+    }
+    return count;
   }
 
-  static void pressHomeForBackgroundSave(UiDevice device) throws Exception {
-    resetMinimalAppInfoLog(device);
-    device.pressHome();
+  private static String backgroundSaveLogNeedle(String profileSubdir) {
+    return LOG_BACKGROUND_SAVE_FINISHED_PREFIX + profileSubdir + " result=0";
   }
 
-  static void waitForBackgroundSaveFinishedLog(UiDevice device, long timeoutMs)
-      throws Exception {
+  static void waitForBackgroundSaveFinishedAfter(UiDevice device, String profileSubdir,
+      int baselineCount, long timeoutMs) throws Exception {
+    String needle = backgroundSaveLogNeedle(profileSubdir);
     long deadline = System.currentTimeMillis() + timeoutMs;
     while (System.currentTimeMillis() < deadline) {
-      String log = device.executeShellCommand("logcat -d -s AppTraverseMinimal:I");
-      if (log.contains("background save finished result=0")) {
+      if (countMinimalAppInfoLines(device, needle) > baselineCount) {
         Thread.sleep(500);
         return;
       }
       Thread.sleep(400);
     }
-    throw new AssertionError("background save finished log not observed");
+    throw new AssertionError("background save finished log not observed for " + profileSubdir
+        + " (baseline=" + baselineCount + ")");
+  }
+
+  static void pressHomeForBackgroundSave(UiDevice device, String profileSubdir,
+      long timeoutMs) throws Exception {
+    String needle = backgroundSaveLogNeedle(profileSubdir);
+    int baseline = countMinimalAppInfoLines(device, needle);
+    device.pressHome();
+    waitForBackgroundSaveFinishedAfter(device, profileSubdir, baseline, timeoutMs);
   }
 
   static void assertApplyCheckpointNotOnDiskWithin(Context context, String profileSubdir,
@@ -378,25 +416,27 @@ final class MinimalAppTestLaunch {
     }
   }
 
-  static void waitForLoadedFromProfileLog(UiDevice device, long timeoutMs) throws Exception {
+  static void waitForLoadedFromProfileAfter(UiDevice device, int baselineCount, long timeoutMs)
+      throws Exception {
     long deadline = System.currentTimeMillis() + timeoutMs;
     while (System.currentTimeMillis() < deadline) {
-      String log = device.executeShellCommand("logcat -d");
-      if (log.contains(LOG_LOADED_FROM_PROFILE)) {
+      if (countMinimalAppInfoLines(device, LOG_LOADED_FROM_PROFILE) > baselineCount) {
         return;
       }
       Thread.sleep(400);
     }
-    throw new AssertionError(LOG_LOADED_FROM_PROFILE + " not observed in log tail");
+    throw new AssertionError(LOG_LOADED_FROM_PROFILE + " not observed (baseline="
+        + baselineCount + ")");
   }
 
   static void assertColdLoadFromProfile(Context context, UiDevice device, String profileSubdir,
-      long timeoutMs) throws Exception {
+      int loadedFromProfileLogBaseline, long timeoutMs) throws Exception {
     String profilePath = new File(context.getFilesDir(), profileSubdir).getAbsolutePath();
     String probe = NativeRuntime.nativeRunColdReloadApplyStateProbe(profilePath);
     assertTrue("cold load disk probe: " + probe, probe.startsWith("OK:"));
     try {
-      waitForLoadedFromProfileLog(device, Math.min(timeoutMs, 8000));
+      waitForLoadedFromProfileAfter(
+          device, loadedFromProfileLogBaseline, Math.min(timeoutMs, 8000));
     } catch (AssertionError logMiss) {
       // Disk probe is primary; log line may be dropped across :demo vs instrumentation.
     }
@@ -429,12 +469,42 @@ final class MinimalAppTestLaunch {
     context.startActivity(intent);
   }
 
-  private static void stopTargetApp(UiDevice device) {
-    try {
-      device.executeShellCommand("am kill " + PKG);
-      Thread.sleep(500);
-    } catch (Exception e) {
-      throw new RuntimeException(e);
+  private static Set<Integer> collectStrictDemoProcessPids(UiDevice device, int excludePid)
+      throws Exception {
+    Set<Integer> pids = new HashSet<>();
+    String dumpsys = device.executeShellCommand("dumpsys activity processes");
+    Pattern demoPattern = Pattern.compile("(\\d+):" + Pattern.quote(PKG + ":demo") + "/");
+    Matcher demoMatcher = demoPattern.matcher(dumpsys);
+    while (demoMatcher.find()) {
+      int pid = Integer.parseInt(demoMatcher.group(1));
+      if (pid != excludePid) {
+        pids.add(pid);
+      }
+    }
+    return pids;
+  }
+
+  /** Best-effort stop of {@code :demo} only; never targets instrumentation host process. */
+  static void stopDemoProcesses(Context context, UiDevice device) throws Exception {
+    int instrumentationPid = Process.myPid();
+    Set<Integer> pids = collectStrictDemoProcessPids(device, instrumentationPid);
+    if (pids.isEmpty()) {
+      return;
+    }
+    requestDemoProcessExit(device);
+    long deadline = System.currentTimeMillis() + 8000;
+    while (System.currentTimeMillis() < deadline) {
+      Set<Integer> remaining = collectStrictDemoProcessPids(device, instrumentationPid);
+      if (remaining.isEmpty()) {
+        Thread.sleep(300);
+        return;
+      }
+      for (int pid : remaining) {
+        if (isStrictDemoPidAlive(device, pid)) {
+          device.executeShellCommand("kill -9 " + pid);
+        }
+      }
+      Thread.sleep(250);
     }
   }
 

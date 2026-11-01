@@ -72,10 +72,12 @@ public final class SaveColdReloadInstrumentedTest {
       return;
     }
     MinimalAppTestLaunch.killDemoProcessAndWait(context, device, pidBefore, 45000);
+    assertFalse("demo process must be dead before cold start",
+        MinimalAppTestLaunch.isStrictDemoPidAlive(device, pidBefore));
     MinimalAppTestLaunch.launchExistingProfile(context, device, profile, false);
-    int pidAfter =
-        MinimalAppTestLaunch.waitForDemoProcessPid(context, device, Process.myPid(), 15000);
-    assertNotEquals("cold start must be a new demo PID", pidBefore, pidAfter);
+    int pidAfter = MinimalAppTestLaunch.waitForStrictDemoProcessPid(
+        context, device, Process.myPid(), 15000);
+    assertTrue("demo process must return after cold start", pidAfter > 0);
   }
 
   private void waitForSelected(UiObject2 row, boolean selected, long timeoutMs)
@@ -110,8 +112,7 @@ public final class SaveColdReloadInstrumentedTest {
   public void sameProcessResumeAfterBackgroundSaveAcceptsInput() throws Exception {
     MinimalAppTestLaunch.launchFreshProfile(context, device, PROFILE, false);
     applyRowBAndWaitPublication();
-    MinimalAppTestLaunch.pressHomeForBackgroundSave(device);
-    MinimalAppTestLaunch.waitForBackgroundSaveFinishedLog(device, 60000);
+    MinimalAppTestLaunch.pressHomeForBackgroundSave(device, PROFILE, 60000);
     MinimalAppTestLaunch.waitForApplyCheckpointOnDisk(context, PROFILE, 30000);
 
     MinimalAppTestLaunch.bringAppToForeground(context, device, PROFILE, false);
@@ -138,10 +139,13 @@ public final class SaveColdReloadInstrumentedTest {
     assertFalse(rowA.isSelected());
     rowA.click();
 
-    MinimalAppTestLaunch.resetMinimalAppInfoLog(device);
+    int saveLogBaseline = MinimalAppTestLaunch.countMinimalAppInfoLines(
+        device, MinimalAppTestLaunch.LOG_BACKGROUND_SAVE_FINISHED_PREFIX + PROFILE
+            + " result=0");
     NativeRuntime.nativeOpenCheckpointPersistTestGate();
     waitForSelected(rowA, true, 15000);
-    MinimalAppTestLaunch.waitForBackgroundSaveFinishedLog(device, 60000);
+    MinimalAppTestLaunch.waitForBackgroundSaveFinishedAfter(
+        device, PROFILE, saveLogBaseline, 60000);
     MinimalAppTestLaunch.waitForApplyCheckpointOnDisk(context, PROFILE, 30000);
     NativeRuntime.nativeDisableCheckpointPersistTestGate();
     assertTrue(device.hasObject(By.text("Applied")));
@@ -165,10 +169,14 @@ public final class SaveColdReloadInstrumentedTest {
     assertNotNull(rowA);
     rowA.click();
 
-    MinimalAppTestLaunch.pressHomeForBackgroundSave(device);
+    int saveLogBaseline = MinimalAppTestLaunch.countMinimalAppInfoLines(
+        device, MinimalAppTestLaunch.LOG_BACKGROUND_SAVE_FINISHED_PREFIX + OVERLAP_PROFILE
+            + " result=0");
+    device.pressHome();
 
     NativeRuntime.nativeOpenCheckpointPersistTestGate();
-    MinimalAppTestLaunch.waitForBackgroundSaveFinishedLog(device, 90000);
+    MinimalAppTestLaunch.waitForBackgroundSaveFinishedAfter(
+        device, OVERLAP_PROFILE, saveLogBaseline, 90000);
     MinimalAppTestLaunch.waitForProfileStateOnDisk(
         context, OVERLAP_PROFILE, 0, false, "Applied", 30000);
     NativeRuntime.nativeDisableCheckpointPersistTestGate();
@@ -185,6 +193,9 @@ public final class SaveColdReloadInstrumentedTest {
         MinimalAppTestLaunch.waitForDemoProcessPid(context, device, Process.myPid(), 15000);
     ColdReloadPath pathUsed = resolveColdReloadPath(pidBefore);
 
+    int loadedFromProfileBaseline =
+        MinimalAppTestLaunch.countMinimalAppInfoLines(
+            device, MinimalAppTestLaunch.LOG_LOADED_FROM_PROFILE);
     coldReloadAfterSave(OVERLAP_PROFILE, pidBefore, pathUsed);
 
     assertTrue(device.wait(Until.findObject(By.text("Applied")), 30000) != null);
@@ -193,7 +204,8 @@ public final class SaveColdReloadInstrumentedTest {
             overlapProfilePath, 0, false, "Applied");
     assertTrue("disk after cold reload: " + diskAfterCold, diskAfterCold.startsWith("OK:"));
     try {
-      MinimalAppTestLaunch.waitForLoadedFromProfileLog(device, 8000);
+      MinimalAppTestLaunch.waitForLoadedFromProfileAfter(
+          device, loadedFromProfileBaseline, 8000);
     } catch (AssertionError ignored) {
       // best-effort; disk probe above is primary
     }
@@ -212,10 +224,12 @@ public final class SaveColdReloadInstrumentedTest {
         MinimalAppTestLaunch.waitForDemoProcessPid(context, device, Process.myPid(), 15000);
     ColdReloadPath pathUsed = resolveColdReloadPath(pidBefore);
 
-    MinimalAppTestLaunch.pressHomeForBackgroundSave(device);
-    MinimalAppTestLaunch.waitForBackgroundSaveFinishedLog(device, 60000);
+    MinimalAppTestLaunch.pressHomeForBackgroundSave(device, PROFILE, 60000);
     MinimalAppTestLaunch.waitForApplyCheckpointOnDisk(context, PROFILE, 30000);
 
+    int loadedFromProfileBaseline =
+        MinimalAppTestLaunch.countMinimalAppInfoLines(
+            device, MinimalAppTestLaunch.LOG_LOADED_FROM_PROFILE);
     coldReloadAfterSave(PROFILE, pidBefore, pathUsed);
 
     UiObject2 apply = device.wait(Until.findObject(By.desc("Apply")), 15000);
@@ -225,7 +239,8 @@ public final class SaveColdReloadInstrumentedTest {
     assertNotNull(rowA);
     assertNotNull(rowB);
     assertTrue(device.wait(Until.findObject(By.text("Applied")), 30000) != null);
-    MinimalAppTestLaunch.assertColdLoadFromProfile(context, device, PROFILE, 30000);
+    MinimalAppTestLaunch.assertColdLoadFromProfile(
+        context, device, PROFILE, loadedFromProfileBaseline, 30000);
     apply = device.findObject(By.desc("Apply"));
     assertNotNull(apply);
     assertFalse(apply.isEnabled());
