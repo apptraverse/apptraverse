@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-10-31):** **P3.T3.A PASS** (§P3.T3.A, checkpoint fix). **P3.T3.A2R1 PASS**. **P3** / **Android lifecycle (полная матрица)** — **IN_PROGRESS**. **NEXT:** расширение lifecycle beyond checkpoint/resume/cold slice (не начинать). **P3.T3.Web5R1 PASS**, **P3.T3.MinimalAppR1 PASS**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
+**Активный порядок (2026-11-02):** **P3.T3.A PASS** (§P3.T3.A, lease `6f5298e…`, instrumented **12/12**). **P3.T3.L0 DONE** (Linux/GTK planning only). **P3.T3.A2R1 PASS**, **P3.T3.Web5R1 PASS**, **P3.T3.MinimalAppR1 PASS**. **NEXT:** **P3.T3.L1** — initial GTK publication screen ([PLAN §P3.T3.L](./PLAN.md#p3t3l--linuxgtk-minimalapp)). Полная Android lifecycle matrix / расширение beyond slice — **не начинать**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -302,7 +302,8 @@
 **NEW_PID cold reload E2E (2026-11-01, base lease `5302ab5…`, follow-up `fd2a0d8…` → `67c52ed…`):**
 
 - **Процессы:** debug — только `MainActivity` в `:demo`; test APK — `:instrumentedtests`; JNI в instrumentation через **`InstrumentedTestNative`**.
-- **`NewPidColdReloadInstrumentedTest`:** UI → profile-scoped save log + disk checkpoint → **debug `EXIT_DEMO_PROCESS` broadcast** (без `am kill` пакета) → relaunch → cold load probe + UI; `pidBefore`/`pidAfter` в instrumentation status (номер PID может переиспользоваться после kill — подтверждение через `/proc` + gap без `:demo`).
+- **`NewPidColdReloadInstrumentedTest`:** UI → profile-scoped save log + disk checkpoint → **debug `EXIT_DEMO_PROCESS` broadcast** (без `am kill` пакета) → relaunch → cold load probe + UI.
+- **Evidence (разные утверждения):** (1) **Перезапуск процесса `:demo`** — после exit broadcast (+ optional `kill -9`) `:demo` отсутствует в `/proc` в окне ожидания теста; relaunch доказывает cold load E2E. (2) **Числовой PID** — `pidBefore`/`pidAfter` в instrumentation status только для диагностики; **`pidAfter ≠ pidBefore` не требуется** (reuse возможен после verified death gap). Исторические PASS-блоки (9/12, более ранние срезы) **не** переписываются этим уточнением.
 - **Корневые причины suite FAIL (исправлено):** (1) **приложение** — `ensureNativeRuntime` не пересоздавал runtime при смене `stateSubdir` в живом `:demo`; (2) **тест** — save log без `subdir=` принимал чужой `background save finished` из logcat; `logcat -c` и `am kill`/`dumpsys` давали ложные сигналы; (3) **тест/AVD** — liveness `:demo` через `/proc`, не `dumpsys`; остановка только `:demo`, не instrumentation host `com.apptraverse.minimal`.
 - **Инфра:** cross-process checkpoint gate (файл); log baseline по `background save finished subdir=<profile> result=0`; `DemoProcessExitReceiver` (debug); `waitForProfileStateOnDisk` для overlap.
 - **Проверки (`apptraverse-wt-web5`, incremental Debug, 2026-11-01 ~21:18–21:35 UTC):**
@@ -311,7 +312,35 @@
   - **Android (`connectedDebugAndroidTest` 12/12):** **PASS** — ColdLoadLabel, EarlyBackgroundSave, InitialPublicationLabel, InitialUi, ListApplyInput, ModelThreadStartSync, **NewPidColdReload**, PendingSaveRace, backgroundSaveSurvivesColdReload, overlappingBackgroundSave, resumeWhileSave, sameProcessResume (два подряд полных прогона **12/12** после fix stop-wait; один прогон под двойной нагрузкой AVD — **10/12**, ListApply/NewPid UI timeout — **причина:** эмулятор/очередь UI после back-to-back suite, не продукт).
 - **Linux/macOS/iOS:** **NOT RUN**
 
-**NEXT:** первый небольшой срез **Linux/GTK** (planning/scope only; код не начинать).
+**NEXT:** **P3.T3.L1** — initial GTK screen ([PLAN §P3.T3.L](./PLAN.md#p3t3l--linuxgtk-minimalapp)).
+
+---
+
+<a id="p3t3l0--linuxgtk-toolchain-probe-2026-11-02--planning-only"></a>
+
+## P3.T3.L0 — Linux/GTK toolchain probe (2026-11-02) — planning only
+
+**Worktree:** `apptraverse-wt-web5`. **Base lease:** **`6f5298e62f8311ea6a593ad8830102df4bcad0c4`** (Android **12/12** + Headless/§W2/WASM×3 **PASS** на том SHA; Linux-код **не** начинался).
+
+**Probe:** read-only; без установки пакетов и без изменения окружения.
+
+| Check | Result |
+| --- | --- |
+| Default `wsl` (implicit distro) | **BLOCKED** — `execvpe(/bin/sh) failed`, `getpwuid(0) failed`, `/etc/fstab` mount failures, Windows PATH translate errors |
+| `wsl -d Ubuntu` | **OK** — WSL2 x86_64 |
+| `gcc` / `g++` | **OK** — Ubuntu 13.3.0 |
+| `cmake` / `ninja` | **OK** — 3.28.3 / 1.11.1 |
+| `pkg-config gtk+-3.0` | **OK** — 3.24.41; `libgtk-3-dev` installed |
+| `DISPLAY` / `WAYLAND_DISPLAY` (probe shell) | **OK** — `:0` / `wayland-0` |
+| PyGObject `Gtk.Window()` create/destroy | **OK** — `gtk_init_ok` |
+| `xvfb-run` | **NOT RUN** — not on PATH (`which` → missing) |
+| `gtk3-demo` | **NOT RUN** — binary not installed |
+| Configure/build MinimalApp Linux target | **NOT RUN** — нет target/исходников в репозитории |
+| Re-run Headless / §W2 / WASM / Android this task | **NOT RUN** — prior **PASS** at `6f5298e` unchanged |
+
+**Документация:** scope **P3.T3.L1–L3** — [PLAN §P3.T3.L](./PLAN.md#p3t3l--linuxgtk-minimalapp).
+
+**NEXT:** реализовать **P3.T3.L1** (initial publication GTK chrome).
 
 ---
 

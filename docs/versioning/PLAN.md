@@ -48,7 +48,7 @@
 | **P0** | Импорт канона; синхронизация PLAN/PROGRESS/rules | **DONE** |
 | **P1** | Удалить сеть/replication и ненужные deps; локальный WindowCatalog (Windows) остаётся рабочим | **DONE** |
 | **P2** | Общий application template + минимум persistence/Clone | **IN_PROGRESS** |
-| **P3** | Библиотечный application template + компоненты, E2E на семи backend | **IN_PROGRESS**; **P3.T1–T2 PASS**; **P3.T3.H PASS**; **P3.T3.W1–W2 PASS**; **P3.T3.Web1–Web5 PASS**; **P3.T3.Web5R1 PASS**; **P3.T3.A1–A2R1 PASS**; **P3.T3.A PASS** (checkpoint fix, §P3.T3.A); **Android lifecycle matrix** — **IN_PROGRESS**; **NEXT:** полная lifecycle matrix (не начинать) |
+| **P3** | Библиотечный application template + компоненты, E2E на семи backend | **IN_PROGRESS**; **P3.T1–T2 PASS**; **P3.T3.H PASS**; **P3.T3.W1–W2 PASS**; **P3.T3.Web1–Web5 PASS**; **P3.T3.Web5R1 PASS**; **P3.T3.A1–A2R1 PASS**; **P3.T3.A PASS** (§P3.T3.A, lease `6f5298e…`); **P3.T3.L0 DONE** (planning); **NEXT:** **P3.T3.L1** — initial GTK screen (§P3.T3.L); полная lifecycle matrix — не начинать |
 | **P4** | WindowCatalog — тонкий потребитель готового template и controls, E2E на семи backend | TODO; существующие результаты сохраняются |
 | **A1** | Первый сценарий администрирования на проверенном шаблоне | TODO; только после P3 и P4 на всех семи backend |
 | **P5** | Расширенные обновления, resource-set delivery, replay | DEFERRED; не блокирует P3/P4/A1 |
@@ -135,12 +135,46 @@
 | **P3.T3.W2 — PASS** | Windows list selection sync из mirror | `ApplyPublishedListSelection` в `SyncFromMirror` при `notify_list_selection_change`; E2E в `win_ui_command_routing_test`; [PROGRESS §P3.T3.W2](./PROGRESS.md#p3t3w2--windows-list-selection-sync-from-mirror-2026-10-29-pass) |
 | **P3.T3.W** | Windows backend и общие Window/List/Button | MinimalApp через публичные library targets; native host/controls без зависимости от WindowCatalog |
 | **P3.T3.Web** | Web backend и общие Window/List/Button | Та же сессия и компоненты; UI delivery, DOM lifecycle, несколько представлений, сохранение и подтверждение записи browser storage |
-| **P3.T3.A** | Android backend | **P3.T3.A1–A2R1 PASS**; **P3.T3.A PASS**; **NEW_PID** + **`connectedDebugAndroidTest` 12/12 PASS** (§P3.T3.A, lease `67c52ed…`); Headless+§W2+WASM×3 **PASS**; **NEXT P3.T3.L** — первый срез Linux/GTK (planning only) |
-| **P3.T3.L** | Linux backend | GTK host/controls на общей сессии; не SurfacesModelSession |
+| **P3.T3.A** | Android backend | **P3.T3.A1–A2R1 PASS**; **P3.T3.A PASS**; **NEW_PID** + **`connectedDebugAndroidTest` 12/12 PASS** (§P3.T3.A, lease `6f5298e…`); Headless+§W2+WASM×3 **PASS**; **NEXT P3.T3.L1** |
+| **P3.T3.L** | Linux backend | **P3.T3.L0 DONE** (doc-only); **NEXT P3.T3.L1** — initial GTK screen; host/presenters на `ApplicationUiSession`; не `SurfacesModelSession` — §[P3.T3.L](#p3t3l--linuxgtk-minimalapp) |
 | **P3.T3.M** | macOS backend | AppKit/ObjC++ host/controls на общей сессии |
 | **P3.T3.I** | iOS/iPadOS backend | UIKit/SwiftUI integration на общей сессии; mobile lifecycle и страничное отображение |
 
-P3.T3 выполнять **по одному backend** в порядке H → W → Web → Android → Linux → macOS → iOS/iPadOS; каждый backend разбивать на небольшие законченные задачи. Сначала initial UI, затем команды/изменения, затем обычный save/cold-load/lifecycle. Отсутствие toolchain/устройства — **BLOCKED / не проверено**, не PASS. Не писать сразу семь host и не создавать универсальный framework до первого проверенного среза.
+P3.T3 выполнять **по одному backend** в порядке H → W → Web → Android → Linux → macOS → iOS/iPadOS; каждый backend разбивать на небольшие законченные задачи. Сначала initial UI, затем команды/изменения, затем обычный save/cold-load/lifecycle. Отсутствие toolchain/устройства — **BLOCKED / NOT RUN**, не PASS. Не писать сразу семь host и не создавать универсальный framework до первого проверенного среза.
+
+<a id="p3t3l--linuxgtk-minimalapp"></a>
+
+#### P3.T3.L — Linux/GTK (MinimalApp)
+
+| ID | Узкий результат | Критерий завершения |
+| --- | --- | --- |
+| **P3.T3.L0** | Planning + read-only toolchain probe | **DONE (doc-only)** — [PROGRESS §P3.T3.L0](./PROGRESS.md#p3t3l0--linuxgtk-toolchain-probe-2026-11-02--planning-only); код Linux **не** начинался |
+| **P3.T3.L1** | Initial publication → GTK chrome | Один executable MinimalApp; title + list rows из mirror после первой publication; **без** UI-команд и **без** persistence |
+| **P3.T3.L2** | UI commands | List row selection, Apply, Open Detail — те же neutral presenter/proxy routes, что **P3.T3.W1** / **P3.T3.A2** |
+| **P3.T3.L3** | Save / cold-load / lifecycle | DirectoryDomainStorage, background save, cold reload, close/suspend — после **L2**; порядок как на других backend |
+
+**P3.T3.L1 — первый небольшой E2E-срез (только первый экран):**
+
+- **Общая модель (единственная):** `minimal_app_common` — `minimal_application`, controls, prepare, persistence hooks, window events/lifecycle; **не** вводить вторую прикладную модель и **не** копировать WindowCatalog graph.
+- **Builder:** `minimal_app_graph_builder` / `BuildMinimalApplicationGraph` — тот же граф, что Headless/Windows/Web/Android; платформенный адаптер `examples/minimal_app/linux/minimal_app_graph_linux.cpp` (по образцу `windows/minimal_app_graph.cpp`, `android/minimal_app_android_graph.cpp`) только подставляет фабрики GTK presenters.
+- **Session:** `ApplicationModelRuntime` + `ApplicationUiSession` + `ModelObjectProxy`; model thread через существующий `RunMinimalApplicationModel` / `minimal_app_lifecycle` (как `WinApplicationHost` / `AndroidApplicationHost` в `minimal_app_main`).
+- **Библиотека (новый код в `src/platform/linux/`, headers `include/apptraverse/platform/linux/`):** GTK application host (main loop, UI-thread dispatch, `SetPresentationRoot`, optional loading shell); window/list/button presenters с `SyncFromMirror` и `ResolvePresentedListRowPrimaryTexts` (**P3.T3.A2R1**); CMake target (напр. `apptraverse_ui_linux`) — `pkg-config gtk+-3.0`; common без GTK/GLib типов.
+- **Потребитель:** тонкий `examples/minimal_app/linux/minimal_app_main.cpp` + `CMakeLists.txt` — callbacks как `windows/minimal_app_main.cpp` (`run_model`, `request_stop`, window close → `RequestStop`); **без** Surfaces demo wiring.
+- **Явно вне L1:** маршрут UI-команд (click → Event, Apply, Open Detail) → **L2**; save/cold-load/shutdown persistence → **L3**; WindowCatalog port → **P4**.
+
+**Сборка и запуск (целевой контур после реализации):**
+
+- WSL: **`wsl -d Ubuntu`** (default implicit distro на probe-машине **BLOCKED** — см. PROGRESS); дерево сборки под worktree, preset **`linux-x64-debug`** / Ninja+gcc, `APPTRAVERSE_BUILD_EXAMPLES=ON`, `APPTRAVERSE_BUILD_LINUX_GUI=ON`.
+- Preflight: `tools/runners/run_apptraverse_platform.py` (`LINUX_PROFILE`, опционально `gtk3_available()` / `require_gtk3` для GUI targets).
+- GUI smoke: нужен рабочий **`DISPLAY`/`WAYLAND`** в сессии WSL или отдельный headless-GTK test strategy на этапе реализации; **`xvfb-run`** на probe **не** подтверждён — не предполагать без проверки.
+
+**Критерий PASS L1 (код ещё не начат):** после initial publication видны window title и primary text строк list из UI mirror; Apply/Open Detail могут быть на экране без функциональных команд.
+
+**Регрессия перед merge L1 (тот же scope, что lease `6f5298e…`):** Headless MinimalApp; Windows §**W2** (12 exe); WASM smokes ×3; Android **`connectedDebugAndroidTest` 12/12**. Linux/macOS/iOS до L1 — **NOT RUN**. На этапе **L0** эти прогоны **NOT RUN** (исторический PASS на `6f5298e` не переписывается).
+
+**Reference only (не переносить session):** `examples/surfaces_demo/linux`, CTest `apptraverse_surfaces_linux_smoke_test` — GTK idioms; **не** `SurfacesModelSession` / ручное mirror для template.
+
+**NEXT (после L0):** реализовать **P3.T3.L1**.
 
 #### Границы ответственности и зависимости
 
