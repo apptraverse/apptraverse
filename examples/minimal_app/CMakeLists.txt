@@ -38,4 +38,9 @@ if(EMSCRIPTEN AND APPTRAVERSE_BUILD_EXAMPLES)
   add_subdirectory(web)
 endif()
 
+if(APPTRAVERSE_BUILD_LINUX_GUI AND UNIX AND NOT APPLE AND NOT ANDROID AND
+    NOT EMSCRIPTEN AND APPTRAVERSE_BUILD_EXAMPLES)
+  add_subdirectory(linux)
+endif()
+
 # Android APK is built only via Gradle (examples/minimal_app/android).

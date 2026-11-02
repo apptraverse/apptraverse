@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-11-02):** **P3.T3.A PASS** (§P3.T3.A, lease `6f5298e…`, instrumented **12/12**). **P3.T3.L0 DONE** (Linux/GTK planning only). **P3.T3.A2R1 PASS**, **P3.T3.Web5R1 PASS**, **P3.T3.MinimalAppR1 PASS**. **NEXT:** **P3.T3.L1** — initial GTK publication screen ([PLAN §P3.T3.L](./PLAN.md#p3t3l--linuxgtk-minimalapp)). Полная Android lifecycle matrix / расширение beyond slice — **не начинать**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
+**Активный порядок (2026-11-02):** **P3.T3.L1 PASS** (§P3.T3.L1). **P3.T3.A PASS**, **P3.T3.A2R1 PASS**, **P3.T3.Web5R1 PASS**, **P3.T3.MinimalAppR1 PASS**. **NEXT:** **P3.T3.L2** — GTK UI commands ([PLAN §P3.T3.L](./PLAN.md#p3t3l--linuxgtk-minimalapp)). Полная Android lifecycle matrix — **не начинать**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -312,7 +312,30 @@
   - **Android (`connectedDebugAndroidTest` 12/12):** **PASS** — ColdLoadLabel, EarlyBackgroundSave, InitialPublicationLabel, InitialUi, ListApplyInput, ModelThreadStartSync, **NewPidColdReload**, PendingSaveRace, backgroundSaveSurvivesColdReload, overlappingBackgroundSave, resumeWhileSave, sameProcessResume (два подряд полных прогона **12/12** после fix stop-wait; один прогон под двойной нагрузкой AVD — **10/12**, ListApply/NewPid UI timeout — **причина:** эмулятор/очередь UI после back-to-back suite, не продукт).
 - **Linux/macOS/iOS:** **NOT RUN**
 
-**NEXT:** **P3.T3.L1** — initial GTK screen ([PLAN §P3.T3.L](./PLAN.md#p3t3l--linuxgtk-minimalapp)).
+**NEXT:** **P3.T3.L2** — GTK UI commands ([PLAN §P3.T3.L](./PLAN.md#p3t3l--linuxgtk-minimalapp)).
+
+---
+
+<a id="p3t3l1--linux-minimalapp-initial-gtk-screen-2026-11-02--pass"></a>
+
+## P3.T3.L1 — Linux MinimalApp initial GTK screen (2026-11-02) — PASS
+
+**Base (lease):** **`7c89f3e5bacb36e1862eb19b250e3259285d91ff`** (P3.T3.L0 planning).
+
+**Scope:** initial publication → `ApplicationUiSession` → GTK3 chrome (**без** UI-команд и **без** persistence slice). Единая модель `minimal_app_common` + `minimal_app_graph_builder`; **не** вторая прикладная модель.
+
+**Библиотека:** `apptraverse_ui_linux` — `LinuxApplicationHost` (model thread + `g_idle_add` publication на UI thread), `LinuxDesktopWindowPresenter` / `LinuxListContainerPresenter` / `LinuxPushButtonPresenter`, `LinuxPresentationHost`.
+
+**Потребитель:** `examples/minimal_app/linux/` — `minimal_app_main.cpp`, `minimal_app_graph_linux.cpp`, `minimal_app_lifecycle.cpp` → target **`linux_minimal_app`**.
+
+**Runtime (WSL `Ubuntu`, `build/linux-x64-debug`, 2026-11-02):** **`linux_minimal_app`** — WSLg/GTK окно **«Minimal App»**, list rows **Row A** / **Row B**, кнопки **Apply** / **Open Detail** (labels из mirror; clicks **не** маршрутизируются — L2).
+
+**Регрессии (`apptraverse-wt-web5`, incremental Debug, 2026-11-02):**
+- **Headless + §W2 (12 exe):** **PASS**
+- **WASM:** `wasm_minimal_app_browser_smoke.py`, `wasm_web_presenter_lifecycle_test.py`, `wasm_window_catalog_browser_smoke.py` (serve **8785**) — **PASS**
+- **Android `connectedDebugAndroidTest` 12/12** (`Aether_NDK_Smoke_x86_64`, Android 14) — **PASS**
+
+**NEXT:** **P3.T3.L2** — list selection, Apply, Open Detail через neutral presenter/proxy routes.
 
 ---
 
@@ -340,7 +363,7 @@
 
 **Документация:** scope **P3.T3.L1–L3** — [PLAN §P3.T3.L](./PLAN.md#p3t3l--linuxgtk-minimalapp).
 
-**NEXT:** реализовать **P3.T3.L1** (initial publication GTK chrome).
+**NEXT (historical):** **P3.T3.L1** — выполнено, см. §P3.T3.L1.
 
 ---
 
