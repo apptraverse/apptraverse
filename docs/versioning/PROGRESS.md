@@ -399,6 +399,10 @@
 
 **Проверки (pass 3):** WindowCatalog headless + win32 acceptance + model **PASS**; Linux L3 **PASS**; WASM ×3 **PASS**; Android **12/12 PASS** (1-й прогон).
 
+**Follow-up (2026-11-02, pass 4):** **`FindListHolderByIdentity`** — убраны `if (!catalog.list)` и `if (!row) continue`; **`catalog.list.Load()`**, для каждой строки **`row.Load()`** перед сравнением **`obj_id`** (not found → **`nullptr`**). **`FindHolderForWindow(ObjId)`** — **`list.Load()`**, **`row.Load()`** на итерации; match по **`window.id()`** без требования loaded (closed/lazy окно). CanApply / Open no-op без изменений.
+
+**Проверки (pass 4):** WindowCatalog headless + win32 + model **PASS**; §W2 **PASS**; Linux L3 **PASS**; WASM ×3 **PASS**; Android **12/12 PASS** (1-й прогон).
+
 ---
 
 <a id="p3t3l1--linux-minimalapp-initial-gtk-screen-2026-11-02--pass"></a>

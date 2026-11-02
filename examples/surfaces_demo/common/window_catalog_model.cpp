@@ -219,15 +219,11 @@ WindowHolder* AsHolder(ui::UiListRow& row) {
 WindowHolder const* AsHolder(ui::UiListRow const& row) {
   return static_cast<WindowHolder const*>(&row);
 }
-WindowHolder* FindListHolderByIdentity(WindowCatalog const& catalog,
+WindowHolder* FindListHolderByIdentity(WindowCatalog& catalog,
                                        WindowHolder const& target) {
-  if (!catalog.list) {
-    return nullptr;
-  }
-  for (auto const& row : catalog.list->rows) {
-    if (!row) {
-      continue;
-    }
+  catalog.list.Load();
+  for (auto& row : catalog.list->rows) {
+    row.Load();
     WindowHolder* holder = AsHolder(*row);
     if (holder->obj_id == target.obj_id) {
       return holder;
@@ -302,10 +298,9 @@ void WindowCatalog::Apply(SetWindowCatalogOpenEvent const& event) {
   NoteMaterializedChange();
 }
 WindowHolder* WindowCatalog::FindHolderForWindow(ae::ObjId window_id) {
-  for (auto const& row : list->rows) {
-    if (!row) {
-      continue;
-    }
+  list.Load();
+  for (auto& row : list->rows) {
+    row.Load();
     WindowHolder* holder = AsHolder(*row);
     if (holder->window.is_valid() && holder->window.id() == window_id) {
       return holder;
