@@ -37,9 +37,13 @@ class LinuxListContainerPresenter : public UiListContainerPresenter {
 
  private:
   void SyncFromMirror();
+  void HandleRowSelected(GtkListBoxRow* row);
+  static void OnRowSelected(GtkListBox* box, GtkListBoxRow* row, gpointer user_data);
   LinuxDesktopWindowPresenter* Desktop() const;
 
   GtkWidget* list_box_{nullptr};
+  gulong row_selected_handler_{0};
+  bool applying_mirror_sync_{false};
 };
 
 }  // namespace apptraverse::ui::linux

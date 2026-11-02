@@ -35,8 +35,10 @@ class LinuxPushButtonPresenter : public UiPushButtonPresenter {
 
  private:
   void SyncFromMirror();
+  static void OnClicked(GtkButton* button, gpointer user_data);
 
   GtkWidget* button_{nullptr};
+  gulong clicked_handler_{0};
 };
 
 }  // namespace apptraverse::ui::linux

@@ -6,6 +6,11 @@
 
 namespace apptraverse::ui::linux {
 
+void LinuxPushButtonPresenter::OnClicked(GtkButton* button, gpointer user_data) {
+  (void)button;
+  static_cast<LinuxPushButtonPresenter*>(user_data)->NotifyClickedFromUi();
+}
+
 void LinuxPushButtonPresenter::OnLoad() {
   auto* desktop = static_cast<LinuxDesktopWindowPresenter*>(
       window_presenter.operator->());
@@ -24,6 +29,8 @@ void LinuxPushButtonPresenter::OnLoad() {
   }
   gtk_widget_set_size_request(button_, layout.width, layout.height);
   gtk_fixed_put(GTK_FIXED(parent), button_, layout.x, layout.y);
+  clicked_handler_ = g_signal_connect(button_, "clicked",
+                                    G_CALLBACK(OnClicked), this);
   gtk_widget_show(button_);
   SyncFromMirror();
 }
@@ -49,6 +56,10 @@ void LinuxPushButtonPresenter::OnModelChanged() { SyncFromMirror(); }
 
 void LinuxPushButtonPresenter::OnUnload() {
   if (button_ != nullptr) {
+    if (clicked_handler_ != 0) {
+      g_signal_handler_disconnect(button_, clicked_handler_);
+      clicked_handler_ = 0;
+    }
     GtkWidget* parent = gtk_widget_get_parent(button_);
     if (parent != nullptr) {
       gtk_container_remove(GTK_CONTAINER(parent), button_);
