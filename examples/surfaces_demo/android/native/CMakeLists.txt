@@ -35,7 +35,9 @@ set(APPTRAVERSE_BUILD_AETHER_DEMOS OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 add_subdirectory(${APPTRAVERSE_ROOT} ${CMAKE_CURRENT_BINARY_DIR}/apptraverse)
 
-add_library(apptraverse_surfaces SHARED
+# Gradle/JNI shared object (libapptraverse_surfaces.so). Target name must differ
+# from the static apptraverse_surfaces library in the root CMake tree.
+add_library(apptraverse_surfaces_jni SHARED
   android_surface_presenter.cpp
   jni_bridge.cpp
   native_runtime.cpp
@@ -45,22 +47,22 @@ add_library(apptraverse_surfaces SHARED
 )
 
 # Dev build: create the initial graph when the state directory is empty.
-target_compile_definitions(apptraverse_surfaces PRIVATE
+target_compile_definitions(apptraverse_surfaces_jni PRIVATE
   APPTRAVERSE_ENABLE_DISTILLATION
 )
 
-target_include_directories(apptraverse_surfaces PRIVATE
+target_include_directories(apptraverse_surfaces_jni PRIVATE
   ${CMAKE_CURRENT_LIST_DIR}
 )
 
-target_link_libraries(apptraverse_surfaces PRIVATE
+target_link_libraries(apptraverse_surfaces_jni PRIVATE
   surfaces_demo_distill
   surfaces_demo_mobile
   log
 )
 
 # Only JNI_OnLoad is exported, the natives are bound with RegisterNatives.
-set_target_properties(apptraverse_surfaces PROPERTIES
+set_target_properties(apptraverse_surfaces_jni PROPERTIES
   OUTPUT_NAME "apptraverse_surfaces"
   POSITION_INDEPENDENT_CODE ON
   CXX_VISIBILITY_PRESET hidden

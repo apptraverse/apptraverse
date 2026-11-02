@@ -30,7 +30,7 @@ android {
       cmake {
         arguments "-DANDROID_STL=c++_static",
                   "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
-        targets "apptraverse_surfaces"
+        targets "apptraverse_surfaces_jni"
       }
     }
   }

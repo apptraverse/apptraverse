@@ -393,6 +393,8 @@
 
 **Проверки (pass 2, incremental Debug, `apptraverse-wt-web5`):** WindowCatalog headless + win32 acceptance + model **PASS**; §W2 **PASS**; Linux L3 smoke **PASS** (WSL, существующий `linux-x64-debug` exe); WASM ×3 **PASS** (`wasm-ninja-debug`, serve **8766** / **8770** / **8765**); Android **12/12 — BLOCKED** (1-й прогон `connectedDebugAndroidTest`: CMake `apptraverse_surfaces` duplicate target @ android `native/CMakeLists.txt:38`, APK не собран; повтор не запускался).
 
+**Android surfaces CMake (2026-11-02):** **`add_subdirectory(${APPTRAVERSE_ROOT})`** поднимает статический **`apptraverse_surfaces`** (root `CMakeLists.txt`); JNI shared target в `examples/surfaces_demo/android/native/CMakeLists.txt` совпадал по имени → CMP0002. **Fix:** CMake target **`apptraverse_surfaces_jni`**, `OUTPUT_NAME` / `System.loadLibrary` без изменений; Gradle `targets "apptraverse_surfaces_jni"`. **12/12:** `examples/minimal_app/android` `connectedDebugAndroidTest` на **`Aether_NDK_Smoke_x86_64`** — **PASS** (1-й прогон, 0 failed). Surfaces demo APK **build PASS** (instrumented tests в модуле нет). §W2 / Headless / Linux / WASM — **NOT RUN** (только Android-native CMake + Gradle).
+
 ---
 
 <a id="p3t3l1--linux-minimalapp-initial-gtk-screen-2026-11-02--pass"></a>
