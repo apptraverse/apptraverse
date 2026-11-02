@@ -6,9 +6,6 @@ namespace apptraverse::example::surfaces {
 namespace {
 
 WindowCatalog& LoadedCatalog(WindowCatalog::ptr& catalog) {
-  if (!catalog.is_valid()) {
-    std::abort();
-  }
   if (!catalog.is_loaded()) {
     catalog.Load();
   }

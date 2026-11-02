@@ -401,10 +401,6 @@ void WindowCatalog::AddWindow() {
   }
   ae::Domain& domain = *list->domain;
   std::uint32_t const number = next_window_number;
-  if (!window_prefab.is_valid()) {
-    WriteFatalStderr("fatal: WindowCatalog missing window_prefab\n");
-    std::abort();
-  }
   auto holder = WindowHolder::ptr::Create(ae::CreateWith{domain});
   InitializeRuntimeNode(*holder, *this);
   holder->window_number = number;

@@ -389,6 +389,10 @@
 
 **Follow-up (2026-11-02):** граница инвариантов — **`PrepareWindowCatalogForRun`** (list/locale/chrome/catalog refs) + **`ApplicationUiSession::InitializePresenters`** (`model_proxy` до UI-команд). Удалены повторные fatal в command path (Open/Language buttons, `CatalogListContainer::HandleListRowActivated`, Win/Headless list presenter `Submit*`); lazy **`Load()`** на list/locale/catalog сохранён. Fatal **AddWindow** Load/Clone — без изменений.
 
+**Follow-up (2026-11-02, pass 2):** **`LoadedCatalog`** — убрана повторная проверка `catalog.is_valid()` (chrome `catalog` ref на prepare); **`Load()`** только при `!catalog.is_loaded()`. **`AddWindow`** — убран fatal «missing window_prefab» (ссылка задаётся в **`BuildWindowCatalogGraph`**); fatal **`LoadRoot`** / **`CloneCanonicalRoot`** сохранены.
+
+**Проверки (pass 2, incremental Debug, `apptraverse-wt-web5`):** WindowCatalog headless + win32 acceptance + model **PASS**; §W2 **PASS**; Linux L3 smoke **PASS** (WSL, существующий `linux-x64-debug` exe); WASM ×3 **PASS** (`wasm-ninja-debug`, serve **8766** / **8770** / **8765**); Android **12/12 — BLOCKED** (1-й прогон `connectedDebugAndroidTest`: CMake `apptraverse_surfaces` duplicate target @ android `native/CMakeLists.txt:38`, APK не собран; повтор не запускался).
+
 ---
 
 <a id="p3t3l1--linux-minimalapp-initial-gtk-screen-2026-11-02--pass"></a>
