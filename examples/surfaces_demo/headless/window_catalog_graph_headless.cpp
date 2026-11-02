@@ -4,6 +4,7 @@
 #include "window_catalog_model.h"
 
 #include "apptraverse/model_object_proxy.h"
+#include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/ui/ui_presenters.h"
 
@@ -42,8 +43,17 @@ class HeadlessCatalogListContainerPresenter
 
 void HeadlessCatalogListContainerPresenter::SubmitListRowSelectionChangedFromUi(
     std::size_t row_index) {
-  if (!catalog || !model_proxy) {
-    return;
+  if (!catalog) {
+    WriteFatalStderr(
+        "fatal: HeadlessCatalogListContainerPresenter selection without "
+        "catalog\n");
+    std::abort();
+  }
+  if (!model_proxy) {
+    WriteFatalStderr(
+        "fatal: HeadlessCatalogListContainerPresenter selection without model "
+        "proxy\n");
+    std::abort();
   }
   model_proxy->Invoke(catalog->obj_id, &WindowCatalog::SubmitSelectionFromUi,
                       row_index);
@@ -51,8 +61,17 @@ void HeadlessCatalogListContainerPresenter::SubmitListRowSelectionChangedFromUi(
 
 void HeadlessCatalogListContainerPresenter::SubmitListRowActivatedFromUi(
     std::size_t row_index) {
-  if (!catalog || !model_proxy) {
-    return;
+  if (!catalog) {
+    WriteFatalStderr(
+        "fatal: HeadlessCatalogListContainerPresenter activation without "
+        "catalog\n");
+    std::abort();
+  }
+  if (!model_proxy) {
+    WriteFatalStderr(
+        "fatal: HeadlessCatalogListContainerPresenter activation without model "
+        "proxy\n");
+    std::abort();
   }
   model_proxy->Invoke(catalog->obj_id, &WindowCatalog::OpenRow, row_index);
 }

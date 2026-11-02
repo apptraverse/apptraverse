@@ -1,5 +1,6 @@
 #include "window_catalog_prepare.h"
 
+#include "window_catalog_actions.h"
 #include "window_catalog_model.h"
 
 #include "apptraverse/noninteractive_crt.h"
@@ -12,6 +13,10 @@ void PrepareWindowCatalogForRun(WindowCatalog& catalog) {
   catalog.list.Load();
   if (!catalog.list) {
     WriteFatalStderr("fatal: WindowCatalog required list missing\n");
+    std::abort();
+  }
+  if (!catalog.list->catalog) {
+    WriteFatalStderr("fatal: WindowCatalog list missing catalog ref\n");
     std::abort();
   }
   catalog.locale.Load();
@@ -42,6 +47,21 @@ void PrepareWindowCatalogForRun(WindowCatalog& catalog) {
   if (!chrome_buttons.add_button || !chrome_buttons.open_button ||
       !chrome_buttons.delete_button || !chrome_buttons.language_button) {
     WriteFatalStderr("fatal: WindowCatalog required chrome button missing\n");
+    std::abort();
+  }
+  auto const& add_button =
+      static_cast<example::surfaces::CatalogAddButton&>(*chrome_buttons.add_button);
+  auto const& open_button =
+      static_cast<example::surfaces::CatalogOpenButton&>(*chrome_buttons.open_button);
+  auto const& delete_button =
+      static_cast<example::surfaces::CatalogDeleteButton&>(
+          *chrome_buttons.delete_button);
+  auto const& language_button =
+      static_cast<example::surfaces::CatalogLanguageButton&>(
+          *chrome_buttons.language_button);
+  if (!add_button.catalog || !open_button.catalog || !delete_button.catalog ||
+      !language_button.catalog) {
+    WriteFatalStderr("fatal: WindowCatalog chrome button missing catalog ref\n");
     std::abort();
   }
   auto& localized_texts = catalog.texts;

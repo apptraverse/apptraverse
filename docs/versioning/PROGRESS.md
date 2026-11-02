@@ -371,6 +371,24 @@
 
 ---
 
+<a id="windowcatalog-required-links-fatal-2026-11-02"></a>
+
+## WindowCatalog — required links fatal (2026-11-02)
+
+**Scope:** убраны silent `return` на обязательных связях после `PrepareWindowCatalogForRun`; **без** изменения модели/S0/команд.
+
+**Prepare:** проверка `list→catalog` и `catalog` на chrome-кнопках (Add/Open/Delete/Language).
+
+**Команды:** `CatalogOpenButton` / `CatalogLanguageButton` / `CatalogListContainer::HandleListRowActivated` — `WriteFatalStderr` + abort при отсутствии list/locale/catalog. **Сохранены** допустимые no-op: пустой selection (`OpenSelected`), закрытое окно, out-of-range row (`OpenRow`).
+
+**Presenters:** Windows `CatalogListContainerPresenter` и Headless adapter — fatal при отсутствии `catalog` или `model_proxy` (не пустой selection).
+
+**AddWindow:** `assert(false)+return` заменены на fatal; `LoadRoot` / `CloneCanonicalRoot` вне assert.
+
+**Проверки:** `apptraverse_window_catalog_headless_test`, `apptraverse_window_catalog_win32_acceptance_test`, `apptraverse_window_catalog_model_test` **PASS**; §W2 **PASS**; Linux L3 smoke **PASS**; WASM ×3 **PASS**; Android **12/12 PASS** (1-й прогон).
+
+---
+
 <a id="p3t3l1--linux-minimalapp-initial-gtk-screen-2026-11-02--pass"></a>
 
 ## P3.T3.L1 — Linux MinimalApp initial GTK screen (2026-11-02) — PASS

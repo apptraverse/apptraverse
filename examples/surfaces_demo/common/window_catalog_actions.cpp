@@ -1,5 +1,6 @@
 #include "window_catalog_actions.h"
 
+#include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/object_macros.h"
 
 namespace apptraverse::example::surfaces {
@@ -24,7 +25,8 @@ void CatalogAddButton::HandlePushButtonClicked() {
 void CatalogOpenButton::HandlePushButtonClicked() {
   WindowCatalog& cat = LoadedCatalog(catalog);
   if (!cat.list) {
-    return;
+    WriteFatalStderr("fatal: WindowCatalog Open without list\n");
+    std::abort();
   }
   if (cat.list->selection_index >= 0 &&
       static_cast<std::size_t>(cat.list->selection_index) <
@@ -43,7 +45,8 @@ void CatalogDeleteButton::HandlePushButtonClicked() {
 void CatalogLanguageButton::HandlePushButtonClicked() {
   WindowCatalog& cat = LoadedCatalog(catalog);
   if (!cat.locale) {
-    return;
+    WriteFatalStderr("fatal: WindowCatalog language toggle without locale\n");
+    std::abort();
   }
   int const next = 1 - cat.locale->language_index();
   cat.MaterializeCatalogStrings(next);

@@ -10,6 +10,7 @@
 #include "apptraverse/ui/ui_localization_string.h"
 #include "apptraverse/ui/ui_string.h"
 #include "apptraverse/ui/ui_presented_window_lifecycle.h"
+#include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/ui/ui_window_presenter.h"
 namespace apptraverse {
 namespace {
@@ -210,7 +211,8 @@ void WindowCatalog::Apply(SetWindowCatalogSelectionEvent const& event) {
 }
 void CatalogListContainer::HandleListRowActivated(std::size_t row_index) {
   if (!catalog) {
-    return;
+    WriteFatalStderr("fatal: CatalogListContainer activation without catalog\n");
+    std::abort();
   }
   catalog->OpenRow(row_index);
 }
@@ -396,12 +398,15 @@ void WindowCatalog::CloseHolderWindow(WindowHolder& holder) {
   ui::UnloadPresentedWindow(holder.window);
 }
 void WindowCatalog::AddWindow() {
-  assert(list && list->domain != nullptr);
+  if (!list || list->domain == nullptr) {
+    WriteFatalStderr("fatal: WindowCatalog AddWindow without list domain\n");
+    std::abort();
+  }
   ae::Domain& domain = *list->domain;
   std::uint32_t const number = next_window_number;
   if (!window_prefab.is_valid()) {
-    assert(false && "WindowCatalog missing window_prefab");
-    return;
+    WriteFatalStderr("fatal: WindowCatalog missing window_prefab\n");
+    std::abort();
   }
   auto holder = WindowHolder::ptr::Create(ae::CreateWith{domain});
   InitializeRuntimeNode(*holder, *this);
@@ -412,10 +417,13 @@ void WindowCatalog::AddWindow() {
   ae::Ptr<ae::Obj> prefab_root;
   if (window_prefab.is_loaded()) {
     prefab_root = domain.Find(window_prefab.id());
-  } else if (!load_graph.LoadRoot(window_prefab.id(), prefab_root).IsOk() ||
-             !prefab_root) {
-    assert(false && "LoadRoot window prefab failed");
-    return;
+  } else {
+    ae::seri::SeriResult const load_result =
+        load_graph.LoadRoot(window_prefab.id(), prefab_root);
+    if (load_result.IsErr() || !prefab_root) {
+      WriteFatalStderr("fatal: LoadRoot window prefab failed\n");
+      std::abort();
+    }
   }
   apptraverse::CloneOptions clone_options{};
   clone_options.stable_origin = kWindowPrefabId;
@@ -425,8 +433,8 @@ void WindowCatalog::AddWindow() {
       apptraverse::CloneCanonicalRoot(domain, *prefab_root, domain,
                                       clone_options);
   if (!cloned) {
-    assert(false && "CloneCanonicalRoot catalog window failed");
-    return;
+    WriteFatalStderr("fatal: CloneCanonicalRoot catalog window failed\n");
+    std::abort();
   }
   EvictTransientPrefabObjects(domain, static_cast<CatalogWindow&>(*prefab_root));
   RestoreUnloadedWindowPrefabLink(*this);

@@ -6,6 +6,7 @@
 #include "window_catalog_model.h"
 
 #include "apptraverse/model_object_proxy.h"
+#include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "apptraverse/platform/windows/win_ui_push_button_presenter.h"
@@ -46,8 +47,15 @@ class CatalogListContainerPresenter
 
 void CatalogListContainerPresenter::SubmitListRowSelectionChangedFromUi(
     std::size_t row_index) {
-  if (!catalog || !model_proxy) {
-    return;
+  if (!catalog) {
+    WriteFatalStderr(
+        "fatal: CatalogListContainerPresenter selection without catalog\n");
+    std::abort();
+  }
+  if (!model_proxy) {
+    WriteFatalStderr(
+        "fatal: CatalogListContainerPresenter selection without model proxy\n");
+    std::abort();
   }
   model_proxy->Invoke(catalog->obj_id, &WindowCatalog::SubmitSelectionFromUi,
                       row_index);
@@ -55,8 +63,15 @@ void CatalogListContainerPresenter::SubmitListRowSelectionChangedFromUi(
 
 void CatalogListContainerPresenter::SubmitListRowActivatedFromUi(
     std::size_t row_index) {
-  if (!catalog || !model_proxy) {
-    return;
+  if (!catalog) {
+    WriteFatalStderr(
+        "fatal: CatalogListContainerPresenter activation without catalog\n");
+    std::abort();
+  }
+  if (!model_proxy) {
+    WriteFatalStderr(
+        "fatal: CatalogListContainerPresenter activation without model proxy\n");
+    std::abort();
   }
   model_proxy->Invoke(catalog->obj_id, &WindowCatalog::OpenRow, row_index);
 }
