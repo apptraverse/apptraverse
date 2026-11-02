@@ -52,7 +52,22 @@ def main() -> int:
         return 1
 
     profile = Path(tempfile.mkdtemp(prefix="apptraverse_l3_linux_"))
+    detail_profile = Path(tempfile.mkdtemp(prefix="apptraverse_l3_linux_detail_"))
     try:
+        code, out0 = run_phase(exe, detail_profile, "l3_detail_close", args.timeout_s)
+        if code != 0:
+            print(f"FAIL: l3_detail_close exit {code}", file=sys.stderr)
+            print(out0, file=sys.stderr)
+            return 1
+        require_markers(
+            out0,
+            [
+                "MINIMAL_APP_INITIAL_RENDER_OK",
+                "MINIMAL_APP_L3_DETAIL_NATIVE_CLOSE_OK",
+                "MINIMAL_APP_SHUTDOWN_STOPPED",
+            ],
+        )
+
         code, out1 = run_phase(exe, profile, "l3_save", args.timeout_s)
         if code != 0:
             print(f"FAIL: l3_save exit {code}", file=sys.stderr)
@@ -88,6 +103,7 @@ def main() -> int:
         )
     finally:
         shutil.rmtree(profile, ignore_errors=True)
+        shutil.rmtree(detail_profile, ignore_errors=True)
 
     print("PASS: linux_minimal_app L3 cold reload smoke")
     return 0

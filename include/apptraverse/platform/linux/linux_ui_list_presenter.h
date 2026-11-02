@@ -35,6 +35,8 @@ class LinuxListContainerPresenter : public UiListContainerPresenter {
   void OnModelChanged() override;
   void OnUnload() override;
 
+  GtkWidget* ListWidget() const { return list_box_; }
+
  private:
   void SyncFromMirror();
   void HandleRowSelected(GtkListBoxRow* row);

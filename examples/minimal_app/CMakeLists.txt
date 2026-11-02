@@ -6,6 +6,7 @@ add_library(minimal_app_common STATIC
   common/minimal_app_persistence.cpp
   common/minimal_app_window_events.cpp
   common/minimal_app_window_lifecycle.cpp
+  common/minimal_app_desktop_close.cpp
 )
 target_include_directories(minimal_app_common PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/common

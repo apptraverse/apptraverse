@@ -36,6 +36,7 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
   void* NativeChildParentHandle() const override;
 
   GtkWidget* ClientMount() const;
+  GtkWidget* TopLevelWindow() const { return window_; }
 
  private:
   std::string ResolveTitleText() const;
@@ -45,6 +46,7 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
   GtkWidget* window_{nullptr};
   GtkWidget* client_mount_{nullptr};
+  gulong delete_handler_{0};
 };
 
 }  // namespace apptraverse::ui::linux

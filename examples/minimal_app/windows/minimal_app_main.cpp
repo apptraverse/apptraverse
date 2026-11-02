@@ -10,6 +10,7 @@
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/platform/windows/win_application_host.h"
 
+#include "minimal_app_desktop_close.h"
 #include "minimal_app_lifecycle.h"
 
 namespace {
@@ -52,10 +53,12 @@ int main(int argc, char** argv) {
         state_dir, runtime, on_published, allow_bootstrap);
   };
   callbacks.request_stop = [&] { runtime.RequestStop(); };
-  callbacks.on_desktop_window_close = [&](ae::Obj&, ae::Obj&,
-                                          apptraverse::ModelObjectProxy&) {
-    runtime.RequestStop();
-  };
+  callbacks.on_desktop_window_close =
+      [&](ae::Obj& root, ae::Obj& closed_window,
+          apptraverse::ModelObjectProxy& proxy) {
+        apptraverse::example::minimal::HandleMinimalAppDesktopWindowClose(
+            root, closed_window, proxy, [&] { runtime.RequestStop(); });
+      };
 
   apptraverse::windows::WinApplicationLoadingOptions loading{
       L"AppTraverseMinimalAppLoading", L"Loading", L"Loading", 200, 200, 320,

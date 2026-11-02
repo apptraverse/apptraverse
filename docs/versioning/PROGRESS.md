@@ -361,6 +361,14 @@
 
 **NEXT:** **P3.T3.M** — macOS MinimalApp backend.
 
+**Lifecycle fix (2026-11-02, follow-up на `4bcc34e…`):**
+- **GTK unload:** list/button presenters — disconnect signals, `gtk_widget_destroy` только при `GTK_IS_WIDGET`; window presenter отключает `delete-event` до destroy (без `gtk_container_remove` после возможного unref родителем).
+- **Shutdown hang:** `LinuxApplicationHost` — `g_main_context_wakeup` после exit model thread.
+- **Native close:** `HandleMinimalAppDesktopWindowClose` (common) — main → `RequestStop`; auxiliary → `MinimalCloseAuxiliaryWindowEvent` через proxy (Linux + Windows).
+- **L3 E2E:** automation через реальные GTK widgets (`gtk_list_box_select_row`, `gtk_button_clicked`, `gtk_window_close`); smoke добавляет **`l3_detail_close`** (native close Detail без остановки main до проверки mirror).
+
+**Повторные проверки (2026-11-02):** Linux L3 smoke **PASS**; Headless + §W2 **PASS**; WASM ×3 **PASS**; Android **12/12 PASS** (1-й прогон).
+
 ---
 
 <a id="p3t3l1--linux-minimalapp-initial-gtk-screen-2026-11-02--pass"></a>

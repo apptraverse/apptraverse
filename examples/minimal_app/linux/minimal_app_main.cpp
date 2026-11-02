@@ -6,6 +6,7 @@
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/platform/linux/linux_application_host.h"
 
+#include "minimal_app_desktop_close.h"
 #include "minimal_app_lifecycle.h"
 #include "minimal_app_linux_session_automation.h"
 
@@ -52,10 +53,12 @@ int main(int argc, char** argv) {
     std::cerr << "MINIMAL_APP_LINUX_MODEL_THREAD_EXIT\n";
   };
   callbacks.request_stop = [&] { runtime.RequestStop(); };
-  callbacks.on_desktop_window_close = [&](ae::Obj&, ae::Obj&,
-                                          apptraverse::ModelObjectProxy&) {
-    runtime.RequestStop();
-  };
+  callbacks.on_desktop_window_close =
+      [&](ae::Obj& root, ae::Obj& closed_window,
+          apptraverse::ModelObjectProxy& proxy) {
+        apptraverse::example::minimal::HandleMinimalAppDesktopWindowClose(
+            root, closed_window, proxy, [&] { runtime.RequestStop(); });
+      };
   callbacks.after_initial = [&](ae::Obj& root) {
     automation_hooks.OnAfterInitial(root);
   };

@@ -33,6 +33,8 @@ class LinuxPushButtonPresenter : public UiPushButtonPresenter {
   void OnModelChanged() override;
   void OnUnload() override;
 
+  GtkWidget* ButtonWidget() const { return button_; }
+
  private:
   void SyncFromMirror();
   static void OnClicked(GtkButton* button, gpointer user_data);

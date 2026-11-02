@@ -5,9 +5,12 @@
 #include "minimal_application.h"
 
 #include "apptraverse/noninteractive_crt.h"
+#include "apptraverse/platform/linux/linux_ui_list_presenter.h"
+#include "apptraverse/platform/linux/linux_ui_push_button_presenter.h"
+#include "apptraverse/platform/linux/linux_ui_window_presenter.h"
 #include "apptraverse/ui/ui_desktop_window.h"
-#include "apptraverse/ui/ui_list_container.h"
-#include "apptraverse/ui/ui_push_button_presenter.h"
+
+#include <gtk/gtk.h>
 
 namespace apptraverse::example::minimal {
 namespace {
@@ -47,24 +50,95 @@ bool MirrorShowsAppliedState(MinimalApplication& application) {
   return true;
 }
 
-ui::UiListContainerPresenter& RowListPresenter(MinimalApplication& application) {
-  application.presenters.row_list.Load();
-  if (!application.presenters.row_list) {
+ui::linux::LinuxListContainerPresenter& LinuxRowList(MinimalApplication& app) {
+  app.presenters.row_list.Load();
+  if (!app.presenters.row_list) {
     WriteFatalStderr("fatal: minimal app automation missing row list presenter\n");
     std::abort();
   }
-  return static_cast<ui::UiListContainerPresenter&>(
-      *application.presenters.row_list.operator->());
+  return static_cast<ui::linux::LinuxListContainerPresenter&>(
+      *app.presenters.row_list.operator->());
 }
 
-ui::UiPushButtonPresenter& ApplyPresenter(MinimalApplication& application) {
-  application.presenters.apply_button.Load();
-  if (!application.presenters.apply_button) {
+ui::linux::LinuxPushButtonPresenter& LinuxApply(MinimalApplication& app) {
+  app.presenters.apply_button.Load();
+  if (!app.presenters.apply_button) {
     WriteFatalStderr("fatal: minimal app automation missing apply presenter\n");
     std::abort();
   }
-  return static_cast<ui::UiPushButtonPresenter&>(
-      *application.presenters.apply_button.operator->());
+  return static_cast<ui::linux::LinuxPushButtonPresenter&>(
+      *app.presenters.apply_button.operator->());
+}
+
+ui::linux::LinuxPushButtonPresenter& LinuxAuxiliaryOpener(MinimalApplication& app) {
+  app.presenters.auxiliary_opener.Load();
+  if (!app.presenters.auxiliary_opener) {
+    WriteFatalStderr(
+        "fatal: minimal app automation missing auxiliary opener presenter\n");
+    std::abort();
+  }
+  return static_cast<ui::linux::LinuxPushButtonPresenter&>(
+      *app.presenters.auxiliary_opener.operator->());
+}
+
+ui::linux::LinuxDesktopWindowPresenter& LinuxMainWindowPresenter(
+    MinimalApplication& app) {
+  app.main_window.Load();
+  app.main_window->presenter.Load();
+  if (!app.main_window || !app.main_window->presenter) {
+    WriteFatalStderr("fatal: minimal app automation missing main window presenter\n");
+    std::abort();
+  }
+  return static_cast<ui::linux::LinuxDesktopWindowPresenter&>(
+      *app.main_window->presenter.operator->());
+}
+
+ui::linux::LinuxDesktopWindowPresenter* LinuxAuxiliaryWindowPresenter(
+    MinimalApplication& app) {
+  if (!app.auxiliary_presented_open) {
+    return nullptr;
+  }
+  app.auxiliary.window.Load();
+  app.auxiliary.window->presenter.Load();
+  if (!app.auxiliary.window || !app.auxiliary.window->presenter) {
+    return nullptr;
+  }
+  return &static_cast<ui::linux::LinuxDesktopWindowPresenter&>(
+      *app.auxiliary.window->presenter.operator->());
+}
+
+void SelectListRowNative(ui::linux::LinuxListContainerPresenter& list,
+                         int index) {
+  GtkWidget* widget = list.ListWidget();
+  if (widget == nullptr) {
+    WriteFatalStderr("fatal: automation list widget missing\n");
+    std::abort();
+  }
+  GtkListBox* box = GTK_LIST_BOX(widget);
+  GtkListBoxRow* row = gtk_list_box_get_row_at_index(box, index);
+  if (row == nullptr) {
+    WriteFatalStderr("fatal: automation list row missing\n");
+    std::abort();
+  }
+  gtk_list_box_select_row(box, row);
+}
+
+void ClickButtonNative(ui::linux::LinuxPushButtonPresenter& button) {
+  GtkWidget* widget = button.ButtonWidget();
+  if (widget == nullptr) {
+    WriteFatalStderr("fatal: automation button widget missing\n");
+    std::abort();
+  }
+  gtk_button_clicked(GTK_BUTTON(widget));
+}
+
+void CloseWindowNative(ui::linux::LinuxDesktopWindowPresenter& window) {
+  GtkWidget* widget = window.TopLevelWindow();
+  if (widget == nullptr) {
+    WriteFatalStderr("fatal: automation window widget missing\n");
+    std::abort();
+  }
+  gtk_window_close(GTK_WINDOW(widget));
 }
 
 enum class AutomationStep {
@@ -72,12 +146,14 @@ enum class AutomationStep {
   L3SaveAwaitApplyClick,
   L3SaveAwaitAppliedMirror,
   L3ColdAwaitRowSelection,
+  L3DetailAwaitOpen,
+  L3DetailAwaitNativeClose,
+  L3DetailAwaitClosedMirror,
 };
 
 struct AutomationState {
   LinuxMinimalSessionAutomation mode = LinuxMinimalSessionAutomation::None;
   AutomationStep step = AutomationStep::Idle;
-  std::function<void()> request_stop;
 };
 
 AutomationState& State() {
@@ -95,15 +171,17 @@ LinuxMinimalSessionAutomation ParseLinuxMinimalSessionAutomation(
   if (value == "l3_cold_verify") {
     return LinuxMinimalSessionAutomation::L3ColdVerify;
   }
+  if (value == "l3_detail_close") {
+    return LinuxMinimalSessionAutomation::L3DetailClose;
+  }
   WriteFatalStderr("fatal: unknown --session-automation value\n");
   std::abort();
 }
 
 LinuxMinimalSessionAutomationHooks MakeLinuxMinimalSessionAutomationHooks(
-    LinuxMinimalSessionAutomation mode, std::function<void()> request_stop) {
+    LinuxMinimalSessionAutomation mode, std::function<void()> /*request_stop*/) {
   State().mode = mode;
   State().step = AutomationStep::Idle;
-  State().request_stop = std::move(request_stop);
   return LinuxMinimalSessionAutomationHooks{};
 }
 
@@ -115,7 +193,7 @@ void LinuxMinimalSessionAutomationHooks::OnAfterInitial(ae::Obj& ui_root) {
 
   auto& application = static_cast<MinimalApplication&>(ui_root);
   if (State().mode == LinuxMinimalSessionAutomation::L3Save) {
-    RowListPresenter(application).SubmitListRowSelectionChangedFromUi(1);
+    SelectListRowNative(LinuxRowList(application), 1);
     State().step = AutomationStep::L3SaveAwaitApplyClick;
     return;
   }
@@ -126,8 +204,14 @@ void LinuxMinimalSessionAutomationHooks::OnAfterInitial(ae::Obj& ui_root) {
       std::abort();
     }
     LogMarker("MINIMAL_APP_L3_COLD_STATE_OK");
-    RowListPresenter(application).SubmitListRowSelectionChangedFromUi(0);
+    SelectListRowNative(LinuxRowList(application), 0);
     State().step = AutomationStep::L3ColdAwaitRowSelection;
+    return;
+  }
+
+  if (State().mode == LinuxMinimalSessionAutomation::L3DetailClose) {
+    ClickButtonNative(LinuxAuxiliaryOpener(application));
+    State().step = AutomationStep::L3DetailAwaitOpen;
   }
 }
 
@@ -139,7 +223,7 @@ void LinuxMinimalSessionAutomationHooks::OnAfterIncremental(ae::Obj& ui_root) {
   auto& application = static_cast<MinimalApplication&>(ui_root);
   if (State().mode == LinuxMinimalSessionAutomation::L3Save) {
     if (State().step == AutomationStep::L3SaveAwaitApplyClick) {
-      ApplyPresenter(application).SimulateClickForTest();
+      ClickButtonNative(LinuxApply(application));
       State().step = AutomationStep::L3SaveAwaitAppliedMirror;
       return;
     }
@@ -148,9 +232,7 @@ void LinuxMinimalSessionAutomationHooks::OnAfterIncremental(ae::Obj& ui_root) {
         return;
       }
       LogMarker("MINIMAL_APP_L3_SAVE_READY");
-      if (State().request_stop) {
-        State().request_stop();
-      }
+      CloseWindowNative(LinuxMainWindowPresenter(application));
       State().step = AutomationStep::Idle;
     }
     return;
@@ -164,10 +246,33 @@ void LinuxMinimalSessionAutomationHooks::OnAfterIncremental(ae::Obj& ui_root) {
       return;
     }
     LogMarker("MINIMAL_APP_L3_POST_COMMAND_OK");
-    if (State().request_stop) {
-      State().request_stop();
-    }
+    CloseWindowNative(LinuxMainWindowPresenter(application));
     State().step = AutomationStep::Idle;
+    return;
+  }
+
+  if (State().mode == LinuxMinimalSessionAutomation::L3DetailClose) {
+    if (State().step == AutomationStep::L3DetailAwaitOpen) {
+      if (!application.auxiliary_presented_open) {
+        return;
+      }
+      ui::linux::LinuxDesktopWindowPresenter* aux =
+          LinuxAuxiliaryWindowPresenter(application);
+      if (aux == nullptr) {
+        return;
+      }
+      CloseWindowNative(*aux);
+      State().step = AutomationStep::L3DetailAwaitNativeClose;
+      return;
+    }
+    if (State().step == AutomationStep::L3DetailAwaitNativeClose) {
+      if (application.auxiliary_presented_open) {
+        return;
+      }
+      LogMarker("MINIMAL_APP_L3_DETAIL_NATIVE_CLOSE_OK");
+      CloseWindowNative(LinuxMainWindowPresenter(application));
+      State().step = AutomationStep::Idle;
+    }
   }
 }
 

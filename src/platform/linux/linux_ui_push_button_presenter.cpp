@@ -55,18 +55,17 @@ void LinuxPushButtonPresenter::SyncFromMirror() {
 void LinuxPushButtonPresenter::OnModelChanged() { SyncFromMirror(); }
 
 void LinuxPushButtonPresenter::OnUnload() {
-  if (button_ != nullptr) {
-    if (clicked_handler_ != 0) {
-      g_signal_handler_disconnect(button_, clicked_handler_);
-      clicked_handler_ = 0;
-    }
-    GtkWidget* parent = gtk_widget_get_parent(button_);
-    if (parent != nullptr) {
-      gtk_container_remove(GTK_CONTAINER(parent), button_);
-    }
-    gtk_widget_destroy(button_);
-    button_ = nullptr;
+  if (button_ == nullptr) {
+    return;
   }
+  if (clicked_handler_ != 0) {
+    g_signal_handler_disconnect(button_, clicked_handler_);
+    clicked_handler_ = 0;
+  }
+  if (GTK_IS_WIDGET(button_)) {
+    gtk_widget_destroy(button_);
+  }
+  button_ = nullptr;
 }
 
 }  // namespace apptraverse::ui::linux

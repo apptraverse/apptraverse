@@ -97,6 +97,7 @@ void LinuxApplicationHost::Run() {
       SchedulePublication(kind);
     });
     model_thread_done_.store(true, std::memory_order_release);
+    g_main_context_wakeup(g_main_context_default());
   });
 
   while (!model_thread_done_.load(std::memory_order_acquire)) {

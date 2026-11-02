@@ -12,6 +12,7 @@ enum class LinuxMinimalSessionAutomation {
   None,
   L3Save,
   L3ColdVerify,
+  L3DetailClose,
 };
 
 LinuxMinimalSessionAutomation ParseLinuxMinimalSessionAutomation(

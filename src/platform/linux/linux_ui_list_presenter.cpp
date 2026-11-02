@@ -105,18 +105,17 @@ void LinuxListContainerPresenter::SyncFromMirror() {
 void LinuxListContainerPresenter::OnModelChanged() { SyncFromMirror(); }
 
 void LinuxListContainerPresenter::OnUnload() {
-  if (list_box_ != nullptr) {
-    if (row_selected_handler_ != 0) {
-      g_signal_handler_disconnect(list_box_, row_selected_handler_);
-      row_selected_handler_ = 0;
-    }
-    GtkWidget* parent = gtk_widget_get_parent(list_box_);
-    if (parent != nullptr) {
-      gtk_container_remove(GTK_CONTAINER(parent), list_box_);
-    }
-    gtk_widget_destroy(list_box_);
-    list_box_ = nullptr;
+  if (list_box_ == nullptr) {
+    return;
   }
+  if (row_selected_handler_ != 0) {
+    g_signal_handler_disconnect(list_box_, row_selected_handler_);
+    row_selected_handler_ = 0;
+  }
+  if (GTK_IS_WIDGET(list_box_)) {
+    gtk_widget_destroy(list_box_);
+  }
+  list_box_ = nullptr;
 }
 
 }  // namespace apptraverse::ui::linux

@@ -55,7 +55,8 @@ void LinuxDesktopWindowPresenter::OnLoad() {
     FatalLinux("gtk_window_new");
   }
   g_object_set_data(G_OBJECT(window_), "apptraverse_presenter", this);
-  g_signal_connect(window_, "delete-event", G_CALLBACK(OnDeleteEvent), this);
+  delete_handler_ = g_signal_connect(window_, "delete-event",
+                                     G_CALLBACK(OnDeleteEvent), this);
 
   client_mount_ = gtk_fixed_new();
   if (client_mount_ == nullptr) {
@@ -87,11 +88,18 @@ void LinuxDesktopWindowPresenter::SyncTitleFromMirror() {
 void LinuxDesktopWindowPresenter::OnModelChanged() { SyncTitleFromMirror(); }
 
 void LinuxDesktopWindowPresenter::OnUnload() {
-  if (window_ != nullptr) {
-    gtk_widget_destroy(window_);
-    window_ = nullptr;
-    client_mount_ = nullptr;
+  if (window_ == nullptr) {
+    return;
   }
+  if (delete_handler_ != 0) {
+    g_signal_handler_disconnect(window_, delete_handler_);
+    delete_handler_ = 0;
+  }
+  if (GTK_IS_WIDGET(window_)) {
+    gtk_widget_destroy(window_);
+  }
+  window_ = nullptr;
+  client_mount_ = nullptr;
 }
 
 }  // namespace apptraverse::ui::linux
