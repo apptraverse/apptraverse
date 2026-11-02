@@ -48,7 +48,7 @@
 | **P0** | Импорт канона; синхронизация PLAN/PROGRESS/rules | **DONE** |
 | **P1** | Удалить сеть/replication и ненужные deps; локальный WindowCatalog (Windows) остаётся рабочим | **DONE** |
 | **P2** | Общий application template + минимум persistence/Clone | **IN_PROGRESS** |
-| **P3** | Библиотечный application template + компоненты, E2E на семи backend | **IN_PROGRESS**; **P3.T1–T2 PASS**; **P3.T3.H PASS**; **P3.T3.W1–W2 PASS**; **P3.T3.Web1–Web5 PASS**; **P3.T3.Web5R1 PASS**; **P3.T3.A1–A2R1 PASS**; **P3.T3.A PASS**; **P3.T3.L1–L3 PASS** (§P3.T3.L3); **IN_PROGRESS:** WindowCatalog обязательный граф — pass 6 (CanApply/Remove/Materialize rows, §PROGRESS); **P3.T3.M macOS — не NEXT**; полная lifecycle matrix — не начинать |
+| **P3** | Библиотечный application template + компоненты, E2E на семи backend | **IN_PROGRESS**; **P3.T1–T2 PASS**; **P3.T3.H PASS**; **P3.T3.W1–W2 PASS**; **P3.T3.Web1–Web5 PASS**; **P3.T3.Web5R1 PASS**; **P3.T3.A1–A2R1 PASS**; **P3.T3.A PASS**; **P3.T3.L1–L3 PASS** (§P3.T3.L3); **IN_PROGRESS:** WindowCatalog обязательный граф — pass 7 audit save/restore (no code); **NEXT slice:** lifecycle/graph row guards или закрытие model-path audit (§PROGRESS); **P3.T3.M macOS — не NEXT**; полная lifecycle matrix — не начинать |
 | **P4** | WindowCatalog — тонкий потребитель готового template и controls, E2E на семи backend | TODO; существующие результаты сохраняются |
 | **A1** | Первый сценарий администрирования на проверенном шаблоне | TODO; только после P3 и P4 на всех семи backend |
 | **P5** | Расширенные обновления, resource-set delivery, replay | DEFERRED; не блокирует P3/P4/A1 |

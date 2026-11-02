@@ -411,6 +411,10 @@
 
 **Проверки (pass 6):** WindowCatalog headless + win32 + model **PASS**; §W2 **PASS**; Linux L3 **PASS**; WASM ×3 **PASS**; Android **12/12 PASS** (1-й прогон).
 
+**Audit (2026-11-02, pass 7 — save/restore rows):** **`SaveWindowCatalogPersistentSnapshotImpl`** / **`RestoreLoadedCatalogWindows`** — **код без изменений**. Обход **`catalog.list->rows`** не использует **`if (!row)`**; **`list->`** / **`*row`** на **`ObjPtr`** вызывают **`Load()`** (aether **`operator->`/`operator*`**). **Restore:** **`if (!holder.window.is_loaded()) continue`** — только **закрытое** child-окно (lazy prefab link сохранён), не пропуск holder-строки. **Prepare:** **`list.Load()`** + **`MaterializeCatalogStrings`** (pass 6 **`row.Load()`**) до **`RestoreLoadedCatalogWindows`**. Прямые вызовы Restore/Save из тестов опираются на implicit Load при dereference.
+
+**Проверки (pass 7):** код не менялся — полная backend-регрессия **NOT RUN** (scope pass 7 = audit-only).
+
 ---
 
 <a id="p3t3l1--linux-minimalapp-initial-gtk-screen-2026-11-02--pass"></a>
