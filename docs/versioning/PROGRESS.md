@@ -395,6 +395,10 @@
 
 **Android surfaces CMake (2026-11-02):** **`add_subdirectory(${APPTRAVERSE_ROOT})`** поднимает статический **`apptraverse_surfaces`** (root `CMakeLists.txt`); JNI shared target в `examples/surfaces_demo/android/native/CMakeLists.txt` совпадал по имени → CMP0002. **Fix:** CMake target **`apptraverse_surfaces_jni`**, `OUTPUT_NAME` / `System.loadLibrary` без изменений; Gradle `targets "apptraverse_surfaces_jni"`. **12/12:** `examples/minimal_app/android` `connectedDebugAndroidTest` на **`Aether_NDK_Smoke_x86_64`** — **PASS** (1-й прогон, 0 failed). Surfaces demo APK **build PASS** (instrumented tests в модуле нет). §W2 / Headless / Linux / WASM — **NOT RUN** (только Android-native CMake + Gradle).
 
+**Follow-up (2026-11-02, pass 3):** **`Apply(SetWindowCatalogSelectionEvent)`** — убран `if (list)`; перед записью **`selection_index`**: **`list.Load()`** (replay/cold). **`RefreshChromeButtonEnabledState`** — убраны `if (open_button|delete_button)`; **`buttons.open_button.Load()`** / **`delete_button.Load()`** перед **`MaterializeEnabled`**. Пустой selection без изменений. **Prepare** по-прежнему грузит list и chrome buttons до UI.
+
+**Проверки (pass 3):** WindowCatalog headless + win32 acceptance + model **PASS**; Linux L3 **PASS**; WASM ×3 **PASS**; Android **12/12 PASS** (1-й прогон).
+
 ---
 
 <a id="p3t3l1--linux-minimalapp-initial-gtk-screen-2026-11-02--pass"></a>

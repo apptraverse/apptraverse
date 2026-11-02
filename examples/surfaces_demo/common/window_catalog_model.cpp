@@ -201,11 +201,10 @@ void WindowCatalog::Apply(RemoveWindowCatalogEntryEvent const& event) {
 }
 void WindowCatalog::Apply(SetWindowCatalogSelectionEvent const& event) {
   selected = event.holder;
-  if (list) {
-    list->selection_index =
-        event.holder ? static_cast<std::int32_t>(RowIndexForHolder(*event.holder))
-                     : -1;
-  }
+  list.Load();
+  list->selection_index =
+      event.holder ? static_cast<std::int32_t>(RowIndexForHolder(*event.holder))
+                   : -1;
   RefreshChromeButtonEnabledState();
   NoteMaterializedChange();
 }
@@ -486,11 +485,9 @@ void WindowCatalog::ClearPendingFocusWindow() {
 }
 void WindowCatalog::RefreshChromeButtonEnabledState() {
   bool const has_selection = selected.is_valid();
-  if (buttons.open_button) {
-    buttons.open_button->MaterializeEnabled(has_selection);
-  }
-  if (buttons.delete_button) {
-    buttons.delete_button->MaterializeEnabled(has_selection);
-  }
+  buttons.open_button.Load();
+  buttons.delete_button.Load();
+  buttons.open_button->MaterializeEnabled(has_selection);
+  buttons.delete_button->MaterializeEnabled(has_selection);
 }
 }  // namespace apptraverse
