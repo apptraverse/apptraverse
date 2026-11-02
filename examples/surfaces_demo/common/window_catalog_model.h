@@ -285,7 +285,7 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
   [[nodiscard]] WindowHolder* FindHolderForWindow(CatalogWindow const& window);
 
-  [[nodiscard]] std::size_t RowIndexForHolder(WindowHolder const& holder) const;
+  [[nodiscard]] std::size_t RowIndexForHolder(WindowHolder const& holder);
 
   void OpenHolderWindow(WindowHolder& holder);
 

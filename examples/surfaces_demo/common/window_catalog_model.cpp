@@ -311,10 +311,12 @@ WindowHolder* WindowCatalog::FindHolderForWindow(ae::ObjId window_id) {
 WindowHolder* WindowCatalog::FindHolderForWindow(CatalogWindow const& window) {
   return FindHolderForWindow(window.obj_id);
 }
-std::size_t WindowCatalog::RowIndexForHolder(WindowHolder const& holder) const {
-  auto const& rows = list->rows;
+std::size_t WindowCatalog::RowIndexForHolder(WindowHolder const& holder) {
+  list.Load();
+  auto& rows = list->rows;
   for (std::size_t i = 0; i < rows.size(); ++i) {
-    if (rows[i] && AsHolder(*rows[i]) == &holder) {
+    rows[i].Load();
+    if (AsHolder(*rows[i]) == &holder) {
       return i;
     }
   }
@@ -351,11 +353,14 @@ void WindowCatalog::SelectHolder(WindowHolder::ptr holder) {
   Commit(std::move(event));
 }
 void WindowCatalog::SubmitSelectionFromUi(std::size_t row_index) {
-  if (row_index >= list->rows.size() || !list->rows[row_index]) {
+  list.Load();
+  if (row_index >= list->rows.size()) {
     SelectHolder({});
     return;
   }
-  SelectHolder(WindowHolder::ptr::MakeFromThis(AsHolder(*list->rows[row_index])));
+  list->rows[row_index].Load();
+  SelectHolder(
+      WindowHolder::ptr::MakeFromThis(AsHolder(*list->rows[row_index])));
 }
 void WindowCatalog::OpenListRowFromUi(std::size_t row_index) {
   SubmitSelectionFromUi(row_index);
@@ -441,9 +446,11 @@ void WindowCatalog::AddWindow() {
   SelectHolder(holder);
 }
 void WindowCatalog::OpenRow(std::size_t row_index) {
-  if (row_index >= list->rows.size() || !list->rows[row_index]) {
+  list.Load();
+  if (row_index >= list->rows.size()) {
     return;
   }
+  list->rows[row_index].Load();
   OpenHolderWindow(*AsHolder(*list->rows[row_index]));
 }
 void WindowCatalog::OpenSelected() {

@@ -403,6 +403,10 @@
 
 **Проверки (pass 4):** WindowCatalog headless + win32 + model **PASS**; §W2 **PASS**; Linux L3 **PASS**; WASM ×3 **PASS**; Android **12/12 PASS** (1-й прогон).
 
+**Follow-up (2026-11-02, pass 5 — row index / open path):** аудит **`RowIndexForHolder`**, **`OpenRow`**, **`SubmitSelectionFromUi`**. **`row_index >= rows.size()`** — допустимый no-op / сброс selection (UI). **`!rows[i]`** / **`!rows[row_index]`** — убраны: при cold/replay строка может быть **valid-but-unloaded**; вместо skip — **`list.Load()`** + **`row.Load()`**. **`RowIndexForHolder`**: not-found → **`rows.size()`** (как раньше). **`OpenSelected`/`DeleteSelected` `!selected`** — без изменений (пустой selection).
+
+**Проверки (pass 5):** WindowCatalog headless + win32 + model **PASS**; §W2 **PASS**; Linux L3 **PASS**; WASM ×3 **PASS**; Android **12/12 PASS** (1-й прогон).
+
 ---
 
 <a id="p3t3l1--linux-minimalapp-initial-gtk-screen-2026-11-02--pass"></a>
