@@ -202,9 +202,12 @@ void WindowCatalog::Apply(RemoveWindowCatalogEntryEvent const& event) {
 void WindowCatalog::Apply(SetWindowCatalogSelectionEvent const& event) {
   selected = event.holder;
   list.Load();
-  list->selection_index =
-      event.holder ? static_cast<std::int32_t>(RowIndexForHolder(*event.holder))
-                   : -1;
+  if (event.holder.is_valid()) {
+    list->selection_index =
+        static_cast<std::int32_t>(RowIndexForHolder(*event.holder));
+  } else {
+    list->selection_index = -1;
+  }
   RefreshChromeButtonEnabledState();
   NoteMaterializedChange();
 }
@@ -456,16 +459,18 @@ void WindowCatalog::OpenRow(std::size_t row_index) {
   OpenHolderWindow(*AsHolder(*list->rows[row_index]));
 }
 void WindowCatalog::OpenSelected() {
-  if (!selected) {
+  if (!selected.is_valid()) {
     return;
   }
+  selected.Load();
   OpenHolderWindow(*selected);
 }
 void WindowCatalog::DeleteSelected() {
-  if (!selected) {
+  if (!selected.is_valid()) {
     return;
   }
   WindowHolder::ptr target = selected;
+  target.Load();
   if (target->window.is_loaded()) {
     ui::UnloadPresentedWindow(target->window);
   }

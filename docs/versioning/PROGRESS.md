@@ -415,6 +415,10 @@
 
 **Проверки (pass 7):** код не менялся — полная backend-регрессия **NOT RUN** (scope pass 7 = audit-only).
 
+**Follow-up (2026-11-02, selected ObjPtr):** **`ObjPtr::operator bool` = valid ∧ loaded** ломал **`Apply(SetWindowCatalogSelectionEvent)`** (`event.holder ?` → **`selection_index == -1`** при valid-but-unloaded), **`OpenSelected`** / **`DeleteSelected`** (`if (!selected)` no-op). **Fix:** **`event.holder.is_valid()`** / **`selected.is_valid()`** + **`Load()`** перед dereference; пустой selection без изменений. **Тест:** **`TestCatalogUnloadedSelectedPtrOpenDeleteAndApplyIndex`** — штатный **`selected.Reset()`** после cold-path SelectHolder (RAM; тот же контракт ObjPtr после replay).
+
+**Проверки:** WindowCatalog model + headless + win32 + embedded overlay **PASS**; §W2 **PASS**; Linux L3 **PASS**; WASM ×3 **PASS**; Android **12/12 PASS** (1-й прогон).
+
 ---
 
 <a id="p3t3l1--linux-minimalapp-initial-gtk-screen-2026-11-02--pass"></a>

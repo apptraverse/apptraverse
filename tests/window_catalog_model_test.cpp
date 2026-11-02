@@ -1808,6 +1808,46 @@ void TestCatalogRepeatedOpenKeepsPresenterIdentity() {
   CHECK(CatalogWindowPresented(*holder->window).presenter.id() == presenter_id);
 }
 
+void TestCatalogUnloadedSelectedPtrOpenDeleteAndApplyIndex() {
+  EnsureObjectRegistration();
+  EnsureWindowCatalogModelRegistration();
+  EnsureWindowCatalogGraphRegistration();
+
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto catalog = BuildWindowCatalogGraph(domain);
+  FinalizeDistilledGraph(*catalog);
+  catalog->AddWindow();
+  catalog->AddWindow();
+  WindowHolder* holder0 = AsHolder(catalog->list->rows[0]);
+  catalog->SelectHolder(WindowHolder::ptr::MakeFromThis(holder0));
+  CHECK(catalog->selected.is_valid());
+  CHECK(catalog->list->selection_index == 0);
+
+  catalog->selected.Reset();
+  CHECK(catalog->selected.is_valid());
+  CHECK(!catalog->selected.is_loaded());
+  CHECK(!static_cast<bool>(catalog->selected));
+
+  catalog->OpenSelected();
+  CHECK(holder0->window.is_loaded());
+
+  catalog->selected.Reset();
+  catalog->CloseHolderWindow(*holder0);
+  catalog->DeleteSelected();
+  CHECK(catalog->list->rows.size() == 1);
+
+  catalog->SelectHolder(WindowHolder::ptr::MakeFromThis(
+      AsHolder(catalog->list->rows[0])));
+  catalog->selected.Reset();
+  auto event = SetWindowCatalogSelectionEvent::ptr::Create(
+      ae::CreateWith{domain});
+  event->holder = catalog->selected;
+  catalog->Apply(*event);
+  CHECK(catalog->list->selection_index == 0);
+  CHECK(catalog->selected.is_valid());
+}
+
 void TestCatalogDeleteUnloadedWindowDoesNotLoad() {
   EnsureObjectRegistration();
   EnsureWindowCatalogModelRegistration();
@@ -1836,6 +1876,7 @@ int main() {
   apptraverse::test::TestCatalogPresentedWindowDistilledBaseReplay();
   apptraverse::test::TestCatalogPresentedWindowGraph();
   apptraverse::test::TestCatalogRepeatedOpenKeepsPresenterIdentity();
+  apptraverse::test::TestCatalogUnloadedSelectedPtrOpenDeleteAndApplyIndex();
   apptraverse::test::TestCatalogDeleteUnloadedWindowDoesNotLoad();
   apptraverse::test::TestCatalogReflectionTopologyAndInitialPublication();
   apptraverse::test::TestCatalogAddWindowViaPresentedWindowPrefab();
