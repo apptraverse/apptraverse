@@ -407,6 +407,10 @@
 
 **Проверки (pass 5):** WindowCatalog headless + win32 + model **PASS**; §W2 **PASS**; Linux L3 **PASS**; WASM ×3 **PASS**; Android **12/12 PASS** (1-й прогон).
 
+**Follow-up (2026-11-02, pass 6):** **`ObjPtr::operator bool` = valid ∧ loaded** → **`if (!row)`** в **`CanApply(AddWindow…)`** пропускал valid-but-unloaded дубликат; заменено на **`row.is_valid() && row.id() == event.holder.id()`** без **`Load()`** (применимость Event не материализует модель). **`Apply(Remove…)`** — поиск/сброс selection по **`ObjId`**, **`list.Load()`**; адресное **`&*row`** не требуется. **`MaterializeCatalogStrings`** — **`list.Load()`**, **`row.Load()`** перед **`MaterializeHolderListText`** (locale после cold/replay).
+
+**Проверки (pass 6):** WindowCatalog headless + win32 + model **PASS**; §W2 **PASS**; Linux L3 **PASS**; WASM ×3 **PASS**; Android **12/12 PASS** (1-й прогон).
+
 ---
 
 <a id="p3t3l1--linux-minimalapp-initial-gtk-screen-2026-11-02--pass"></a>

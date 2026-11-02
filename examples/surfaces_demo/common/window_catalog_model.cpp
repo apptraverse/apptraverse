@@ -168,12 +168,9 @@ bool WindowCatalog::CanApply(AddWindowCatalogEntryEvent const& event) const {
   if (!event.holder.is_valid() || !list) {
     return false;
   }
+  ae::ObjId const incoming_id = event.holder.id();
   for (auto const& row : list->rows) {
-    if (!row) {
-      continue;
-    }
-    if (static_cast<WindowHolder const*>(&*row)->obj_id ==
-        event.holder->obj_id) {
+    if (row.is_valid() && row.id() == incoming_id) {
       return false;
     }
   }
@@ -188,13 +185,16 @@ void WindowCatalog::Apply(AddWindowCatalogEntryEvent const& event) {
   NoteMaterializedChange();
 }
 void WindowCatalog::Apply(RemoveWindowCatalogEntryEvent const& event) {
+  list.Load();
+  ae::ObjId const target_id = event.holder.id();
   auto& rows = list->rows;
-  auto const it = std::find_if(
-      rows.begin(), rows.end(),
-      [&](WindowHolder::ptr const& row) { return &*row == &*event.holder; });
+  auto const it = std::find_if(rows.begin(), rows.end(),
+                               [&](WindowHolder::ptr const& row) {
+                                 return row.is_valid() && row.id() == target_id;
+                               });
   assert(it != rows.end());
   rows.erase(it);
-  if (selected && &*selected == &*event.holder) {
+  if (selected.is_valid() && selected.id() == target_id) {
     selected = {};
   }
   NoteMaterializedChange();
@@ -331,7 +331,9 @@ void WindowCatalog::MaterializeCatalogStrings(int language_index) {
   if (main_window.is_loaded()) {
     MainPresented(*this).presenter->title->MaterializeLanguage(language_index);
   }
-  for (auto const& row : list->rows) {
+  list.Load();
+  for (auto& row : list->rows) {
+    row.Load();
     MaterializeHolderListText(*AsHolder(*row), language_index);
   }
 }
