@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-11-02):** **P3.T3.L2 PASS** (§P3.T3.L2). **P3.T3.L1 PASS**, **P3.T3.A PASS**, **P3.T3.A2R1 PASS**, **P3.T3.Web5R1 PASS**, **P3.T3.MinimalAppR1 PASS**. **NEXT:** **P3.T3.L3** — GTK persistence/lifecycle ([PLAN §P3.T3.L](./PLAN.md#p3t3l--linuxgtk-minimalapp)). Полная Android lifecycle matrix — **не начинать**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
+**Активный порядок (2026-11-02):** **P3.T3.L3 PASS** (§P3.T3.L3). **P3.T3.L2 PASS**, **P3.T3.L1 PASS**, **P3.T3.A PASS**, **P3.T3.Web5R1 PASS**, **P3.T3.MinimalAppR1 PASS**. **NEXT:** **P3.T3.M** — macOS backend ([PLAN §P3.T3.M](./PLAN.md#p3t3m--macos-backend)). Полная Android lifecycle matrix — **не начинать**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -312,7 +312,7 @@
   - **Android (`connectedDebugAndroidTest` 12/12):** **PASS** — ColdLoadLabel, EarlyBackgroundSave, InitialPublicationLabel, InitialUi, ListApplyInput, ModelThreadStartSync, **NewPidColdReload**, PendingSaveRace, backgroundSaveSurvivesColdReload, overlappingBackgroundSave, resumeWhileSave, sameProcessResume (два подряд полных прогона **12/12** после fix stop-wait; один прогон под двойной нагрузкой AVD — **10/12**, ListApply/NewPid UI timeout — **причина:** эмулятор/очередь UI после back-to-back suite, не продукт).
 - **Linux/macOS/iOS:** **NOT RUN**
 
-**NEXT:** **P3.T3.L3** — GTK persistence/lifecycle ([PLAN §P3.T3.L](./PLAN.md#p3t3l--linuxgtk-minimalapp)).
+**NEXT (historical):** **P3.T3.L3** — см. §P3.T3.L3.
 
 ---
 
@@ -335,7 +335,31 @@
 - **WASM ×3:** **PASS** (catalog serve **8785**)
 - **Android `connectedDebugAndroidTest` 12/12:** **PASS** (1-й прогон Gradle **FAIL** без детализации теста; повтор **12/12** **PASS**)
 
-**NEXT:** **P3.T3.L3** — DirectoryDomainStorage save/cold-load/lifecycle на GTK.
+**NEXT (historical):** **P3.T3.L3** — выполнено, см. §P3.T3.L3.
+
+---
+
+<a id="p3t3l3--linux-minimalapp-persistence-lifecycle-2026-11-02--pass"></a>
+
+## P3.T3.L3 — Linux MinimalApp persistence / lifecycle (2026-11-02) — PASS
+
+**Base (lease):** **`a1049d41522412f312203f3449258b1debc98b8c`** (P3.T3.L2).
+
+**Scope:** общий `RunApplicationModelSession` + `DirectoryDomainStorage` / `PersistMinimalApplication` (model thread); GTK publication и teardown на UI thread через `LinuxApplicationHost`; **без** отдельного persistence-формата или второй модели.
+
+**Маршрут сохранения:**
+- **Shutdown persist:** `delete-event` → `RequestStop` → drain model queue → `hooks.persist` / `PersistMinimalApplication` на **model thread** (`SavePresentedWindow` + `SaveRoot` в profile `--state-dir`).
+- **Cold load:** `LoadApplication` + `BootstrapMinimalApplicationProfileIfAbsent` (no-op при непустом profile) → initial publication → GTK mirror; маркеры `MINIMAL_APP_PROFILE_BOOTSTRAP` / `MINIMAL_APP_LOADED_FROM_PROFILE`.
+- **UI после reload:** presenter → proxy → Event → publication → `SyncFromMirror` (тот же маршрут, что L2).
+
+**E2E (`wsl -d Ubuntu`, отдельный temp profile, WSLg):** `tools/linux_minimal_app_l3_smoke.py` — фаза **l3_save** (Row B + Apply через presenter API, shutdown persist) → новый процесс **l3_cold_verify** (Applied mirror, Row A selection, `MINIMAL_APP_SHUTDOWN_STOPPED`).
+
+**Регрессии (`apptraverse-wt-web5`, incremental Debug, 2026-11-02):**
+- **Headless + §W2 (12 exe):** **PASS**
+- **WASM ×3 (8766 / 8770 / 8785):** **PASS**
+- **Android `connectedDebugAndroidTest`:** прогоны 1–4 на нагруженном AVD — **11/12**, **11/12**, **9/12**, **7/12** (UI/logcat timeouts, см. историю §P3.T3.A); **cold boot AVD + 5-й прогон — 12/12 PASS**
+
+**NEXT:** **P3.T3.M** — macOS MinimalApp backend.
 
 ---
 

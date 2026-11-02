@@ -18,6 +18,8 @@
 #include "minimal_app_persistence.h"
 #include "minimal_app_prepare.h"
 
+#include <iostream>
+
 #include "apptraverse/ui/ui_presented_window_lifecycle.h"
 #include "apptraverse/ui/ui_presenters.h"
 
@@ -36,10 +38,15 @@ int RunMinimalApplicationModel(
 #if defined(APPTRAVERSE_ENABLE_DISTILLATION) && \
     !defined(APPTRAVERSE_MINIMAL_APP_LOAD_ONLY)
   if (allow_distilled_bootstrap) {
-    (void)BootstrapMinimalApplicationProfileIfAbsent(
+    bool const bootstrapped = BootstrapMinimalApplicationProfileIfAbsent(
         state_dir, [](ae::Domain& domain) {
           return BuildLinuxMinimalApplicationGraph(domain);
         });
+    if (bootstrapped) {
+      std::cerr << "MINIMAL_APP_PROFILE_BOOTSTRAP\n";
+    } else {
+      std::cerr << "MINIMAL_APP_LOADED_FROM_PROFILE\n";
+    }
   }
 #else
   (void)allow_distilled_bootstrap;

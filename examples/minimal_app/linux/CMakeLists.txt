@@ -5,6 +5,7 @@ set(_minimal_app_linux_sources
   minimal_app_main.cpp
   minimal_app_lifecycle.cpp
   minimal_app_graph_linux.cpp
+  minimal_app_linux_session_automation.cpp
 )
 
 add_executable(linux_minimal_app ${_minimal_app_linux_sources})

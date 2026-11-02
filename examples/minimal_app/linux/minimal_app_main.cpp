@@ -1,4 +1,5 @@
 #include <filesystem>
+#include <iostream>
 #include <string_view>
 
 #include "apptraverse/application_model_runtime.h"
@@ -6,6 +7,7 @@
 #include "apptraverse/platform/linux/linux_application_host.h"
 
 #include "minimal_app_lifecycle.h"
+#include "minimal_app_linux_session_automation.h"
 
 namespace {
 
@@ -19,10 +21,16 @@ int main(int argc, char** argv) {
   apptraverse::EnableNoninteractiveCrt();
 
   std::filesystem::path state_dir = DefaultStateDir();
+  apptraverse::example::minimal::LinuxMinimalSessionAutomation automation =
+      apptraverse::example::minimal::LinuxMinimalSessionAutomation::None;
   for (int i = 1; i < argc; ++i) {
     std::string_view arg{argv[i]};
     if (arg == "--state-dir" && i + 1 < argc) {
       state_dir = argv[++i];
+    } else if (arg == "--session-automation" && i + 1 < argc) {
+      automation =
+          apptraverse::example::minimal::ParseLinuxMinimalSessionAutomation(
+              argv[++i]);
     }
   }
 
@@ -30,17 +38,35 @@ int main(int argc, char** argv) {
   int model_exit_status = 1;
 
   apptraverse::linux::LinuxApplicationHostCallbacks callbacks;
+  auto automation_hooks =
+      apptraverse::example::minimal::MakeLinuxMinimalSessionAutomationHooks(
+          automation, [&] { runtime.RequestStop(); });
   callbacks.run_model = [&](apptraverse::ApplicationPublishedCallback on_published) {
     model_exit_status = apptraverse::example::minimal::RunMinimalApplicationModel(
         state_dir, runtime, on_published, true);
+    if (model_exit_status == 0) {
+      std::cerr << "MINIMAL_APP_SHUTDOWN_PERSIST_OK\n";
+    } else {
+      std::cerr << "MINIMAL_APP_SHUTDOWN_PERSIST_FAILED\n";
+    }
+    std::cerr << "MINIMAL_APP_LINUX_MODEL_THREAD_EXIT\n";
   };
   callbacks.request_stop = [&] { runtime.RequestStop(); };
   callbacks.on_desktop_window_close = [&](ae::Obj&, ae::Obj&,
                                           apptraverse::ModelObjectProxy&) {
     runtime.RequestStop();
   };
+  callbacks.after_initial = [&](ae::Obj& root) {
+    automation_hooks.OnAfterInitial(root);
+  };
+  callbacks.after_incremental = [&](ae::Obj& root) {
+    automation_hooks.OnAfterIncremental(root);
+  };
 
   apptraverse::linux::LinuxApplicationHost host(runtime, std::move(callbacks));
   host.Run();
+  if (model_exit_status == 0) {
+    std::cerr << "MINIMAL_APP_SHUTDOWN_STOPPED\n";
+  }
   return model_exit_status;
 }
