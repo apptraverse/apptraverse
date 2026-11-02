@@ -48,7 +48,7 @@
 | **P0** | Импорт канона; синхронизация PLAN/PROGRESS/rules | **DONE** |
 | **P1** | Удалить сеть/replication и ненужные deps; локальный WindowCatalog (Windows) остаётся рабочим | **DONE** |
 | **P2** | Общий application template + минимум persistence/Clone | **IN_PROGRESS** |
-| **P3** | Библиотечный application template + компоненты, E2E на семи backend | **IN_PROGRESS**; **P3.T1–T2 PASS**; **P3.T3.H PASS**; **P3.T3.W1–W2 PASS**; **P3.T3.Web1–Web5 PASS**; **P3.T3.Web5R1 PASS**; **P3.T3.A1–A2R1 PASS**; **P3.T3.A PASS**; **P3.T3.L1–L3 PASS** (§P3.T3.L3); **NEXT:** **P3.T3.M** — macOS backend; полная lifecycle matrix — не начинать |
+| **P3** | Библиотечный application template + компоненты, E2E на семи backend | **IN_PROGRESS**; **P3.T1–T2 PASS**; **P3.T3.H PASS**; **P3.T3.W1–W2 PASS**; **P3.T3.Web1–Web5 PASS**; **P3.T3.Web5R1 PASS**; **P3.T3.A1–A2R1 PASS**; **P3.T3.A PASS**; **P3.T3.L1–L3 PASS** (§P3.T3.L3); **IN_PROGRESS:** WindowCatalog обязательный граф (§PROGRESS); **P3.T3.M macOS — не NEXT**; полная lifecycle matrix — не начинать |
 | **P4** | WindowCatalog — тонкий потребитель готового template и controls, E2E на семи backend | TODO; существующие результаты сохраняются |
 | **A1** | Первый сценарий администрирования на проверенном шаблоне | TODO; только после P3 и P4 на всех семи backend |
 | **P5** | Расширенные обновления, resource-set delivery, replay | DEFERRED; не блокирует P3/P4/A1 |
@@ -168,7 +168,7 @@ P3.T3 выполнять **по одному backend** в порядке H → W
 - Preflight: `tools/runners/run_apptraverse_platform.py` (`LINUX_PROFILE`, опционально `gtk3_available()` / `require_gtk3` для GUI targets).
 - GUI smoke: нужен рабочий **`DISPLAY`/`WAYLAND`** в сессии WSL или отдельный headless-GTK test strategy на этапе реализации; **`xvfb-run`** на probe **не** подтверждён — не предполагать без проверки.
 
-**NEXT:** **P3.T3.M** — macOS AppKit host (не начинать без задания).
+**NEXT:** продолжение **WindowCatalog обязательный граф** ([PROGRESS §WindowCatalog required links](./PROGRESS.md#windowcatalog-required-links-fatal-2026-11-02)); **P3.T3.M macOS — не NEXT**.
 
 **Reference only (не переносить session):** `examples/surfaces_demo/linux`, CTest `apptraverse_surfaces_linux_smoke_test` — GTK idioms; **не** `SurfacesModelSession` / ручное mirror для template.
 

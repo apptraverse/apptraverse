@@ -13,7 +13,7 @@
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-11-02):** **P3.T3.L3 PASS** (§P3.T3.L3). **P3.T3.L2 PASS**, **P3.T3.L1 PASS**, **P3.T3.A PASS**, **P3.T3.Web5R1 PASS**, **P3.T3.MinimalAppR1 PASS**. **NEXT:** **P3.T3.M** — macOS backend ([PLAN §P3.T3.M](./PLAN.md#p3t3m--macos-backend)). Полная Android lifecycle matrix — **не начинать**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
+**Активный порядок (2026-11-02):** **P3.T3.L3 PASS** (§P3.T3.L3). **WindowCatalog обязательный граф** — правки продолжаются (§[WindowCatalog required links](./PROGRESS.md#windowcatalog-required-links-fatal-2026-11-02)). **P3.T3.M (macOS)** — **не NEXT**. Полная Android lifecycle matrix — **не начинать**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 
@@ -386,6 +386,8 @@
 **AddWindow:** `assert(false)+return` заменены на fatal; `LoadRoot` / `CloneCanonicalRoot` вне assert.
 
 **Проверки:** `apptraverse_window_catalog_headless_test`, `apptraverse_window_catalog_win32_acceptance_test`, `apptraverse_window_catalog_model_test` **PASS**; §W2 **PASS**; Linux L3 smoke **PASS**; WASM ×3 **PASS**; Android **12/12 PASS** (1-й прогон).
+
+**Follow-up (2026-11-02):** граница инвариантов — **`PrepareWindowCatalogForRun`** (list/locale/chrome/catalog refs) + **`ApplicationUiSession::InitializePresenters`** (`model_proxy` до UI-команд). Удалены повторные fatal в command path (Open/Language buttons, `CatalogListContainer::HandleListRowActivated`, Win/Headless list presenter `Submit*`); lazy **`Load()`** на list/locale/catalog сохранён. Fatal **AddWindow** Load/Clone — без изменений.
 
 ---
 

@@ -210,10 +210,7 @@ void WindowCatalog::Apply(SetWindowCatalogSelectionEvent const& event) {
   NoteMaterializedChange();
 }
 void CatalogListContainer::HandleListRowActivated(std::size_t row_index) {
-  if (!catalog) {
-    WriteFatalStderr("fatal: CatalogListContainer activation without catalog\n");
-    std::abort();
-  }
+  catalog.Load();
   catalog->OpenRow(row_index);
 }
 namespace {
