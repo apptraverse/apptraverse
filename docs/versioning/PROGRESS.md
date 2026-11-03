@@ -7,6 +7,35 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+## MinimalApp Detail close + embedded USER shutdown (post-`4e1448e`, 2026-11-03) — PASS
+
+**Lease base:** `4e1448e17887ffe7e3292516b923b3a6ab413fd1`.
+
+### Lifetime / ownership (why backing looked «invalid»)
+
+- **`SealAuxiliaryWindowClosed`:** `UnloadPresentedWindow` сбрасывает lazy **window** ref; **`Reset()`** на aux controls/presenters снимает runtime handles, **объекты остаются в `Domain`** (stable ObjIds из graph builder).
+- **`CollectReachableNodes` (scratch):** `SaveObjectGraphToScratch` обходил **все** id, ещё связанные с root через сериализацию, включая **sealed** aux subgraph → **`CompactJournal`** на узлах с **unload** presenter/window → **`RamDomainStorage::Load`** с битым **`this`** (SIGSEGV @ Linux L3 shutdown).
+- **`CollectLiveReachableNodes` alone:** после seal refs на `auxiliary.*` часто **invalid** — finalize не трогал aux, но **`SaveRoot`** без rebind **не писал** materialized aux state в USER → cold load терял «Applied» на Detail.
+- **Fix (layer):** (1) finalize = live reach **минус** aux field subgraph when **`!auxiliary_presented_open`**; (2) **`EnsureMinimalApplicationAuxiliaryLazyRefs`** + **`SaveSealedAuxiliarySubgraphForPersist`** when **`auxiliary_subgraph_materialized_in_session`** (Detail был открыт); (3) session flag **не** в Save/Load bytes.
+
+### Headless: close → USER save → cold load → reopen Detail
+
+**`TestMinimalAppAuxiliaryCloseEmbeddedUserShutdownColdLoad`** in **`minimal_app_headless_test`:** presenter open → aux/main Apply → native close → **`PersistMinimalApplicationEmbeddedUserOverlay`** → **`LoadApplication` + `Normalize…`** → reopen → **main/applied title «Applied»**, Detail title **«Applied»**, aux list selection **-1**, apply disabled — **PASS**.
+
+### Regressions (incremental, `apptraverse-wt-web5`)
+
+| Check | Result |
+| --- | --- |
+| Linux full **`linux_minimal_app_l3_smoke.py`** | **PASS** |
+| **`apptraverse_minimal_app_headless_test`** (incl. new Detail test) | **PASS** |
+| §W2 subset (7 exe, без minimal win32 acceptance) | **PASS** |
+| **`apptraverse_minimal_app_win32_acceptance_test`** | **FAIL** — `fatal: LoadApplication failed id=127991809` (embedded two-cycle; 1-й прогон post-change; повтор не гонялся) |
+| WindowCatalog overlay + headless | **PASS** |
+| WASM ×3 (8766 / 8770 / 8785) | **PASS** |
+| Android **12/12** | **PASS** |
+
+**NEXT:** разобрать **`LoadApplication` 127991809** в win32 embedded acceptance (USER/BACKING merge vs aux persist flush); повтор acceptance после диагностики.
+
 ## MinimalApp Linux L3 detail close SIGSEGV (post-`96c98a6`, 2026-11-03) — PASS
 
 **Lease base:** `96c98a61218c0b94ea98731115a5998ce97df216`.

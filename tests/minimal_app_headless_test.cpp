@@ -65,7 +65,9 @@ using example::minimal::MinimalAuxiliaryOpenerButton;
 using example::minimal::MinimalAuxiliaryOpenerId;
 using example::minimal::MinimalMainWindowId;
 using example::minimal::MinimalPresenterId;
+using example::minimal::NormalizeMinimalApplicationAfterEmbeddedUserLoad;
 using example::minimal::PersistMinimalApplication;
+using example::minimal::PersistMinimalApplicationEmbeddedUserOverlay;
 using example::minimal::PrepareMinimalApplicationForRun;
 
 constexpr std::int32_t kInitialX = 120;
@@ -865,6 +867,82 @@ void TestMinimalAppAuxiliaryCloseOpenHeadless() {
   CHECK(!ui_app.auxiliary.apply_button->enabled());
 }
 
+void TestMinimalAppAuxiliaryCloseEmbeddedUserShutdownColdLoad() {
+  EnsureObjectRegistration();
+  EnsureHeadlessMinimalApplicationGraphRegistration();
+  example::minimal::EnsureMinimalAppWindowEventsRegistration();
+
+  std::filesystem::path const user_dir =
+      std::filesystem::temp_directory_path() /
+      "minimal_app_aux_close_embedded_user_test";
+  std::error_code ec;
+  std::filesystem::remove_all(user_dir, ec);
+
+  DirectoryDomainStorage user_storage{user_dir};
+  ae::Domain model_domain{user_storage};
+  auto model_root = BuildHeadlessMinimalApplicationGraph(model_domain);
+  PrepareMinimalApplicationForRun(*model_root);
+
+  std::deque<ModelObjectProxy::ModelWork> deferred;
+  ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork work) {
+    deferred.push_back(std::move(work));
+  }};
+
+  ByteSink initial;
+  SerializeInitialPublication(*model_root, initial);
+  ApplicationUiSession ui_session(initial.bytes, nullptr, proxy);
+
+  MinimalApplication& ui_app =
+      static_cast<MinimalApplication&>(ui_session.root());
+  MinimalApplication& model_app = *model_root;
+
+  UiAuxiliaryOpenerPresenter(ui_app).NotifyClickedFromUi();
+  PumpModelWorkAndApplyStructural(deferred, model_domain, model_app,
+                                  ui_session);
+  UiAuxiliaryRowListPresenter(ui_app).SubmitListRowSelectionChangedFromUi(1);
+  PumpModelWorkAndApplyStructural(deferred, model_domain, model_app,
+                                  ui_session);
+  UiApplyButtonPresenter(ui_app).SimulateClickForTest();
+  PumpModelWorkAndApplyStructural(deferred, model_domain, model_app,
+                                  ui_session);
+  UiAuxiliaryApplyButtonPresenter(ui_app).NotifyClickedFromUi();
+  PumpModelWorkAndApplyStructural(deferred, model_domain, model_app,
+                                  ui_session);
+  CHECK(AuxiliaryWindowTitleMirror(ui_app).Resolve(0) == "Applied");
+
+  UiAuxiliaryCloserPresenter(ui_app).NotifyClickedFromUi();
+  PumpModelWorkAndApplyStructural(deferred, model_domain, model_app,
+                                  ui_session);
+  CHECK(!model_app.auxiliary_presented_open);
+  CHECK(WindowTitleMirror(ui_app).Resolve(0) == "Applied");
+
+  CHECK(PersistMinimalApplicationEmbeddedUserOverlay(model_app, user_storage) ==
+        0);
+
+  ae::Domain cold_domain{user_storage};
+  auto cold_app =
+      LoadApplication<MinimalApplication>(cold_domain, MinimalApplicationRootId());
+  NormalizeMinimalApplicationAfterEmbeddedUserLoad(*cold_app);
+  PrepareMinimalApplicationForRun(*cold_app);
+  CHECK(!cold_app->auxiliary_presented_open);
+  cold_app->row_list.Load();
+  cold_app->apply_button.Load();
+  cold_app->row_list->window_title.Load();
+  CHECK(cold_app->row_list->window_title->Resolve(0) == "Applied");
+
+  auto reopen = example::minimal::MinimalOpenAuxiliaryWindowEvent::ptr::Create(
+      ae::CreateWith{cold_domain});
+  cold_app->Commit(std::move(reopen));
+  cold_app->auxiliary.window.Load();
+  cold_app->auxiliary.window->presenter.Load();
+  auto& aux_presenter = static_cast<ui::UiDesktopWindowPresenter&>(
+      *cold_app->auxiliary.window->presenter);
+  aux_presenter.title.Load();
+  CHECK(aux_presenter.title->Resolve(0) == "Applied");
+  cold_app->auxiliary.row_list.Load();
+  CHECK(cold_app->auxiliary.row_list->selection_index == -1);
+}
+
 namespace {
 
 constexpr char kOpenerProbeLabel[] = "OpenerLabel-A1R1-probe";
@@ -1186,6 +1264,7 @@ int main() {
   apptraverse::test::TestMinimalAppApplyCheckpointPersistColdLoad();
   apptraverse::test::TestMinimalAppAuxiliaryPersistColdLoad();
   apptraverse::test::TestMinimalAppAuxiliaryCloseOpenHeadless();
+  apptraverse::test::TestMinimalAppAuxiliaryCloseEmbeddedUserShutdownColdLoad();
   std::cout << "minimal_app_headless_test OK\n";
   return 0;
 }
