@@ -264,13 +264,20 @@ void TestHeadlessCatalogChromeE2e() {
 
   ae::Domain cold_domain{model_storage};
   auto cold = LoadApplication<WindowCatalog>(cold_domain, catalog_id);
+  CHECK(cold->selected.is_valid());
+  CHECK(cold->selected.id() == saved_selected_holder_id);
+  bool const cold_selected_unloaded_at_root_load = !cold->selected.is_loaded();
+  cold->RefreshChromeButtonEnabledState();
+  cold->buttons.open_button.Load();
+  cold->buttons.delete_button.Load();
+  CHECK(cold->buttons.open_button->enabled());
+  CHECK(cold->buttons.delete_button->enabled());
   cold->list.Load();
   CHECK(cold->list->rows.size() == 2);
   CHECK(cold->list->selection_index == 1);
-  CHECK(cold->selected.is_valid());
-  CHECK(cold->selected.id() == saved_selected_holder_id);
   bool const cold_selected_unloaded_before_prepare =
       !cold->selected.is_loaded();
+  CHECK(cold_selected_unloaded_at_root_load == cold_selected_unloaded_before_prepare);
   if (cold_selected_unloaded_before_prepare) {
     cold->OpenSelected();
     WindowHolder* sel = AsHolder(cold->list->rows[1]);

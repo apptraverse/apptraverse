@@ -423,6 +423,10 @@
 
 **Проверки (cold selection audit, 2026-11-02 повтор):** headless + model + overlay + win32 **PASS**; §W2 **PASS**; Linux L3 **PASS**; WASM ×3 **PASS** (8766/8770/8765); Android **12/12 PASS** (1-й прогон). **Lease push:** `db8589a509f73a1e2d7128172929c8253f456a61`.
 
+**Cold/replay selection probe (2026-11-02, pass 2):** сразу после **`LoadApplication` / `LoadPersistedWindowCatalog`** (до **`list.Load()`** в headless) — **`selected.is_valid()`**, **`selected.id()`** совпадает с persisted holder; **`!selected.is_loaded()`** **не наблюдался**; **`RefreshChromeButtonEnabledState`** → Open/Delete **enabled** в модели до Prepare. **Replay RAM** после **`TryReplayFromBase`** — то же. **Valid-but-unloaded `selected` естественно не возникает** на disk cold / replay; **`TestCatalogUnloadedSelectedPtrOpenDeleteAndApplyIndex`** (`Reset()`) — только контракт ObjPtr. **Продукт:** без изменений (**base `db8589a`**).
+
+**Проверки (probe pass 2):** headless + model **PASS**; overlay / win32 / §W2 / Linux / WASM / Android — **NOT RUN** (только тесты).
+
 ---
 
 <a id="p3t3l1--linux-minimalapp-initial-gtk-screen-2026-11-02--pass"></a>

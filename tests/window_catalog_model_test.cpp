@@ -1197,11 +1197,18 @@ void TestWindowCatalogOpenCloseEventJournalPersistence() {
     CHECK(list_container->catalog.is_loaded());
     CHECK(list_container->catalog.operator->() == replay_catalog.operator->());
     CheckLiveCatalogChromeLinks(*replay_catalog, catalog_obj_id_before);
-    CHECK(replay_catalog->list->rows.size() == 2);
-    CHECK(replay_catalog->list->selection_index == 1);
     CHECK(replay_catalog->selected.is_valid());
     CHECK(replay_catalog->selected.id() == persisted_holder2_id);
-    if (!replay_catalog->selected.is_loaded()) {
+    bool const replay_selected_unloaded_after_replay =
+        !replay_catalog->selected.is_loaded();
+    replay_catalog->RefreshChromeButtonEnabledState();
+    replay_catalog->buttons.open_button.Load();
+    replay_catalog->buttons.delete_button.Load();
+    CHECK(replay_catalog->buttons.open_button->enabled());
+    CHECK(replay_catalog->buttons.delete_button->enabled());
+    CHECK(replay_catalog->list->rows.size() == 2);
+    CHECK(replay_catalog->list->selection_index == 1);
+    if (replay_selected_unloaded_after_replay) {
       replay_catalog->OpenSelected();
     }
     CHECK(replay_catalog->selected->obj_id == persisted_holder2_id);
@@ -1241,6 +1248,15 @@ void TestWindowCatalogOpenCloseEventJournalPersistence() {
     DirectoryDomainStorage cold_storage{replay_profile_dir};
     ae::Domain cold_domain{cold_storage};
     auto cold_catalog = LoadPersistedWindowCatalog(cold_domain, catalog_id);
+    CHECK(cold_catalog->selected.is_valid());
+    CHECK(cold_catalog->selected.id() == persisted_holder2_id);
+    bool const disk_cold_selected_unloaded_at_root =
+        !cold_catalog->selected.is_loaded();
+    cold_catalog->RefreshChromeButtonEnabledState();
+    cold_catalog->buttons.open_button.Load();
+    cold_catalog->buttons.delete_button.Load();
+    CHECK(cold_catalog->buttons.open_button->enabled());
+    CHECK(cold_catalog->buttons.delete_button->enabled());
 
     CHECK(cold_catalog->obj_id == expected_replay_catalog_id);
     CHECK(cold_catalog->base.is_valid());
