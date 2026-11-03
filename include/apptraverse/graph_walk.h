@@ -29,6 +29,10 @@ template <typename T, typename Fn>
   requires(ae::reflect::Reflectable<T>)
 void ForEachReflectedGraphEdgeObjPtr(T& obj, Fn&& fn);
 
+template <typename T, typename Fn>
+  requires(ae::reflect::Reflectable<T>)
+void ForEachLiveGraphEdgeFieldsOnType(T& obj, Fn&& fn);
+
 template <typename T>
 constexpr bool IsExecutionTarget =
     std::is_same_v<T, Node> || std::is_same_v<T, Event>;
@@ -111,25 +115,14 @@ void ForEachReflectedGraphEdgeObjPtr(T& obj, Fn&& fn) {
   });
 }
 
+// The inheritance chain is walked by reflection itself: AE_OBJECT_REFLECT
+// exposes the base subobject as its first field, which recurses here. The
+// Node layer carries only historical base/journal and is not live topology.
 template <typename T, typename Fn>
   requires(ae::reflect::Reflectable<T>)
 void ForEachLiveGraphEdgeFieldsOnType(T& obj, Fn&& fn) {
-  // Node::base and Node::journal are historical; live topology uses embedded
-  // base_ subobjects on concrete types via WalkLiveGraphEdgeHierarchy.
-  if constexpr (std::is_same_v<std::decay_t<T>, Node>) {
-    return;
-  }
-  ForEachReflectedGraphEdgeObjPtr(obj, std::forward<Fn>(fn));
-}
-
-template <typename T, typename Fn>
-void WalkLiveGraphEdgeHierarchy(ae::Obj& obj, Fn&& fn) {
-  ForEachLiveGraphEdgeFieldsOnType(static_cast<T&>(obj), fn);
-  if constexpr (requires { typename T::Base; }) {
-    if constexpr (!std::is_same_v<typename T::Base, T> &&
-                  !std::is_same_v<typename T::Base, ae::Obj>) {
-      WalkLiveGraphEdgeHierarchy<typename T::Base>(obj, std::forward<Fn>(fn));
-    }
+  if constexpr (!std::is_same_v<std::decay_t<T>, Node>) {
+    ForEachReflectedGraphEdgeObjPtr(obj, std::forward<Fn>(fn));
   }
 }
 
@@ -187,7 +180,7 @@ void ForEachReflectedObjPtrOn(T& obj, Fn&& fn) {
 template <typename T, typename Fn>
 void ForEachGraphEdgeObjPtrOn(T& obj, Fn&& fn) {
   if constexpr (std::is_base_of_v<ae::Obj, std::decay_t<T>>) {
-    detail::WalkLiveGraphEdgeHierarchy<T>(obj, std::forward<Fn>(fn));
+    detail::ForEachLiveGraphEdgeFieldsOnType(obj, std::forward<Fn>(fn));
   } else {
     detail::ForEachReflectedGraphEdgeObjPtr(obj, std::forward<Fn>(fn));
   }
@@ -205,7 +198,7 @@ void WalkRegisteredClassGraphEdges(ae::Obj& obj,
                                    void (*emit)(ae::ObjectPtrBase& edge,
                                                 void* ctx),
                                    void* ctx) {
-  WalkLiveGraphEdgeHierarchy<T>(obj, [emit, ctx](auto& edge) {
+  ForEachLiveGraphEdgeFieldsOnType(static_cast<T&>(obj), [emit, ctx](auto& edge) {
     emit(static_cast<ae::ObjectPtrBase&>(edge), ctx);
   });
 }

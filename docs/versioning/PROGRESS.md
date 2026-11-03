@@ -7,42 +7,54 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
-## Model runtime notifier lifetime + live graph walk (post-`8e1953c`, 2026-11-03) — IN PROGRESS
+## Model runtime notifier lifetime + live graph walk (post-`8e1953c`, 2026-11-03) — PASS
 
-**Lease base:** `8e1953c075ea2c511ea6d644527f2cbb6397dc9c`. Prior attempt: `a23ae44` (incomplete — shutdown/clear narrative did not match code).
+**Lease base:** `8e1953c075ea2c511ea6d644527f2cbb6397dc9c`. Earlier partial commits: `a23ae44` (shutdown/clear narrative did not match code), `453a413` (double inheritance walk, wrong WASM diagnosis).
 
-### Cause (closed in this slice)
+### Cause
 
-- **Live walk:** concrete-class dispatch reflected embedded **`base_`** as plain **`ae::Obj&`** (no edges) → derived-only fields (e.g. **`MinimalAppList::window_title`**) were seen but base **`UiListContainer::rows`** was skipped.
-- **Notifiers:** bind at **`ApplicationModelRuntime::Run`** start did not match clear via live/reachable walks; nodes that received a notifier mid-session ( **`CopyMaterializedChangeNotifierFrom`** / **`InitializeRuntimeNode(..., runtime_source)`** ) could outlive **`Run`** while still holding **`PendingDirtyNodes*`** on a destroyed context.
+- **Live walk, inheritance:** concrete-class dispatch reflected the embedded **`base_`** as plain **`ae::Obj&`** (no edges) → derived fields (e.g. **`MinimalAppList::window_title`**) were visited, base **`UiListContainer::rows`** skipped. `453a413` then walked the base twice (reflected **`AE_REF_BASE`** + explicit **`T::Base`** recursion).
+- **Live walk, unloaded edges:** **`CollectReachableObjectsFromLiveFields`** followed every valid edge via **`Domain::Find(edge.id())`**. **`ObjPtr::Reset()`** drops the cached object but keeps the ObjId, so an object still held by another owner (structural keepalive, external holder) stayed «live».
+- **Live walk, order:** stack DFS pushed edges in field order and popped them reversed → presenters activated in reverse declaration order.
+- **Notifiers:** bind at **`ApplicationModelRuntime::Run`** start did not match the clear at stop; nodes that got a notifier mid-session (**`CopyMaterializedChangeNotifierFrom`**) could outlive **`Run`** with **`PendingDirtyNodes*`** of a destroyed context.
+
+### WASM MinimalApp FAIL (root cause)
+
+- Served files checked: HTML/JS/WASM/worker from **`tools/serve_wasm.py`** byte-identical (SHA-256) to `build/wasm-ninja-debug/examples/minimal_app/web`.
+- **Title is not the failure:** `data-apptraverse-window-title="Minimal App"` is present on the window root after load. The `453a413` note («title never set») came from a probe that queried a descendant element — wrong.
+- **First failure:** `run_dual_window_lifecycle` → Detail **closer** click → wait for aux list DOM removal times out. Probe: after close both windows and controls `7202/7201/7203` stay in DOM, no console error.
+- **First loss on the path:** model is correct (**`SealAuxiliaryWindowClosed`**: `auxiliary_presented_open=false`, aux refs **`Reset()`**), publication/mirror apply correct; **`UpdatePresentersAfterStructuralPublication`** computes the live presenter set with **`CollectLiveReachableObjects`**, which resolved the reset aux refs by ObjId while **`StructuralPresentationKeepalive`** still held those objects → closed-window presenters counted live → never unloaded.
+- After that fix the next failure: cold reload with both windows open mounted **Detail before main** (`.first` window at 280,120, expected 120,80) — reverse DFS order above.
 
 ### Fix (common)
 
-- **`WalkLiveGraphEdgeHierarchy` + `ForEachLiveGraphEdgeFieldsOnType`:** walk reflected fields on **`T`** and **`T::Base`** chain; **`Node`** shell skips historical **`base`/`journal`** (live topology uses embedded **`base_`** only). Restore no-op **`CallIfGraphEdgeObjPtr(ae::Obj&)`** for non-concrete edges.
-- **`PendingDirtyNodes`:** subscription registry (**`Subscribe` / `OnNotifierCopiedTo` / `ClearAllSubscribedNotifiers`**) — shutdown clears every bound id, not a second graph walk.
-- **`ModelRuntime`:** **`notifier_subscribers_`** + **`TrackMaterializedChangeNotifierCopy`** (shared with pending-dirty copy path); destructor clears by registry. **`CollectReachableNodeRefs`** unchanged for save-finalize.
+- **`graph_walk.h`:** one mechanism — **`ForEachLiveGraphEdgeFieldsOnType`** recurses through the base chain only via reflected **`AE_REF_BASE`**; the **`Node`** layer (historical **`base`/`journal`**) is skipped; explicit **`WalkLiveGraphEdgeHierarchy`** removed.
+- **`CollectReachableObjectsFromLiveFields`:** an edge is live only if the reference holds its object (**`is_loaded()` → `cached()`**), no **`Domain::Find`** by id, no Load; preorder in field declaration order.
+- **`PendingDirtyNodes`:** subscription registry (**`Subscribe` / `OnNotifierCopiedTo` / `ClearAllSubscribedNotifiers`**) — stop clears every subscribed instance, no graph walk.
+- **`ModelRuntime`:** **`notifier_subscribers_`** filled by **`AttachNode`**, **`BindAllModelNodeNotifiers`** and **`TrackMaterializedChangeNotifierCopy`**; destructor clears by registry. **`CollectReachableNodeRefs`** unchanged for save-finalize.
 
 ### Tests
 
-- **`application_model_runtime_test`:** **`RuntimeChildBumpEvent`** for child; **`initial_ready`** guarded by mutex; inheritance walk (**row only in base `rows`**, lazy stays unloaded); orphan held after session detach; original / detached / session child notifier cases retained.
-- **`window_catalog_model_test`:** **`TestLiveReachableNodesCoverOpenCatalogWindow`** (unchanged intent).
+- **`application_model_runtime_test`:**
+  - **`TestLiveGraphWalkTraversesBaseClassRowsField`:** row reachable only via base **`rows`**; edge counts per object (**base `rows[0]` + derived `pinned_row` → 2 edges to one row**, list total 2, root total 2 — Node `base`/`journal` not emitted); lazy row unloaded; **`Reset()`** ref to an object still in Domain is not live.
+  - **`TestRuntimeNotifierOrphanHeldAfterDetachFromLiveAndHistory`:** link removed (`ptr{}`, not `Reset()`); on the model thread before stop child absent from live **and** persistent walks while an external owner holds it; after stop no notifier, child Event OK.
+  - Wait predicates (`initial_ready`, `session_linked`, `detached`, coalesce flags) written under the same mutex as the **`condition_variable`** wait.
+  - **`RuntimeChildBumpEvent`** for **`RuntimeTestChild`**; original / detached / session-added child cases retained.
+- Negative control for the edge-count check against the double walk: **NOT RUN** (expected 2 instead of 1 visit by construction).
 
 ### Regressions (incremental, `apptraverse-wt-web5`, 2026-11-03)
 
 | Check | Result |
 | --- | --- |
-| **`apptraverse_application_model_runtime_test`** (Win) | **PASS** |
-| **`apptraverse_application_model_runtime_test`** (Linux) | **NOT RUN** |
-| **`apptraverse_minimal_app_headless_test`** (Win) | **PASS** |
-| **`apptraverse_minimal_app_headless_test`** (Linux) | **NOT RUN** |
-| §W2 + UI session + WindowCatalog model/overlay | **NOT RUN** |
-| Linux L3 | **NOT RUN** |
-| Android **12/12** | **NOT RUN** |
-| WASM **MinimalApp** (`build/wasm-ninja-debug`, `tools/serve_wasm.py` COOP/COEP) | **FAIL** — after **`MINIMAL_APP_INITIAL_RENDER_OK`**, Playwright **`wait_title("Minimal App")`** times out: desktop window mounts (list/apply visible) but **`dataset.apptraverseWindowTitle`** never set (smoke expects title on window root). Plain **`python -m http.server`** → first **`pageerror`:** **`SharedArrayBuffer is not defined`** (no COOP/COEP), 0 desktop windows — not infra timeout. |
-| WASM presenter lifecycle + WindowCatalog smokes | **NOT RUN** (blocked on MinimalApp smoke) |
-| Full CTest | **NOT RUN** |
-
-**NEXT:** Web minimal window title DOM contract vs smoke; rerun agreed matrix after commit; Linux/Android/L3/W2.
+| **`apptraverse_application_model_runtime_test`** + **`apptraverse_minimal_app_headless_test`** (Win) | **PASS** |
+| Same two (Linux, WSL Ubuntu `build/linux-x64-debug`) | **PASS** |
+| Windows 14 exe via `ctest -R` (§W2: command routing, native push button, application host, minimal + catalog win32 acceptance; UI session; WindowCatalog model / headless / embedded overlay; minimal embedded export; overlay user backing; ui control materialization) | **PASS** 14/14 |
+| Linux full **`linux_minimal_app_l3_smoke.py`** | **PASS** (two-cycle embedded USER) |
+| WASM **`wasm_minimal_app_browser_smoke.py`** (`serve_wasm.py` 8811) | **PASS** |
+| WASM **`wasm_web_presenter_lifecycle_test.py`** (8811) | **PASS** |
+| WASM **`wasm_window_catalog_browser_smoke.py`** (8813) | **PASS** |
+| Android **`connectedDebugAndroidTest`** (`Aether_NDK_Smoke_x86_64`, native `buildCMakeDebug` executed) | **PASS** 12/12 |
+| Full CTest / clean rebuild | **NOT RUN** (by instruction) |
 
 ## MinimalApp embedded USER finalize ownership (post-`9f322b2`, 2026-11-03) — PASS
 

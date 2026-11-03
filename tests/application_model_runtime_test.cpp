@@ -206,19 +206,20 @@ class GraphWalkDerivedList
  public:
   explicit GraphWalkDerivedList(ae::ObjProp prop) : NodeFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(list_label))
+  AE_OBJECT_REFLECT(AE_MMBR(list_label), AE_MMBR(pinned_row))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, list_label);
+    dnv(base_, list_label, pinned_row);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, list_label);
+    dnv(base_, list_label, pinned_row);
   }
 
   std::int32_t list_label{0};
+  GraphWalkRow::ptr pinned_row;
 };
 
 class GraphWalkRoot : public NodeFor<GraphWalkRoot> {
@@ -250,6 +251,22 @@ APPTRAVERSE_REGISTER(GraphWalkRow);
 APPTRAVERSE_REGISTER(GraphWalkListBase);
 APPTRAVERSE_REGISTER(GraphWalkDerivedList);
 APPTRAVERSE_REGISTER(GraphWalkRoot);
+
+std::size_t CountLiveEdgesTo(ae::Obj& obj, ae::ObjId target) {
+  std::size_t count = 0;
+  ForEachGraphEdgeObjPtrOnObject(obj, [&](ae::ObjectPtrBase& edge) {
+    if (edge.id() == target) {
+      ++count;
+    }
+  });
+  return count;
+}
+
+std::size_t CountLiveEdges(ae::Obj& obj) {
+  std::size_t count = 0;
+  ForEachGraphEdgeObjPtrOnObject(obj, [&](ae::ObjectPtrBase&) { ++count; });
+  return count;
+}
 
 bool LiveNodesContainId(std::vector<Node*> const& live, ae::ObjId id) {
   for (Node* node : live) {
@@ -844,6 +861,17 @@ void TestLiveGraphWalkTraversesBaseClassRowsField() {
   root->list = list;
   root->lazy_row = lazy_row;
 
+  // Base-class rows[0] and derived pinned_row are two edges to one row; each
+  // field is visited exactly once.
+  CHECK(CountLiveEdgesTo(*list, kGraphWalkRowId) == 1);
+  list->pinned_row = row;
+  CHECK(CountLiveEdgesTo(*list, kGraphWalkRowId) == 2);
+  CHECK(CountLiveEdges(*list) == 2);
+  CHECK(CountLiveEdgesTo(*root, kGraphWalkListId) == 1);
+  CHECK(CountLiveEdgesTo(*root, kGraphWalkLazyRowId) == 1);
+  CHECK(CountLiveEdges(*root) == 2);
+  CHECK(!lazy_row.is_loaded());
+
   std::vector<Node*> live;
   CollectLiveReachableNodes(*root, live);
   CHECK(LiveNodesContainId(live, kGraphWalkRootId));
@@ -851,6 +879,16 @@ void TestLiveGraphWalkTraversesBaseClassRowsField() {
   CHECK(LiveNodesContainId(live, kGraphWalkRowId));
   CHECK(!LiveNodesContainId(live, kGraphWalkLazyRowId));
   CHECK(!lazy_row.is_loaded());
+
+  // An unloaded reference keeps its ObjId while another owner keeps the
+  // object in the Domain; it is still not a live edge.
+  root->list.Reset();
+  CHECK(root->list.is_valid());
+  CHECK(domain.Find(kGraphWalkListId));
+  CollectLiveReachableNodes(*root, live);
+  CHECK(LiveNodesContainId(live, kGraphWalkRootId));
+  CHECK(!LiveNodesContainId(live, kGraphWalkListId));
+  CHECK(!LiveNodesContainId(live, kGraphWalkRowId));
 }
 
 void TestRuntimeNotifierLifetimeOnChildLazyAndDetached() {
@@ -922,7 +960,7 @@ void TestRuntimeNotifierDetachedChildStillInDomain() {
     std::unique_lock<std::mutex> lock{sync.mu};
     sync.cv.wait(lock, [&] { return initial_ready; });
   }
-  runtime.Post([&](ae::Domain&) { root->child.Reset(); });
+  runtime.Post([&](ae::Domain&) { root->child = RuntimeTestChild::ptr{}; });
   runtime.RequestStop();
   model_thread.join();
 
@@ -1008,35 +1046,57 @@ void TestRuntimeNotifierOrphanHeldAfterDetachFromLiveAndHistory() {
     sync.cv.wait(lock, [&] { return initial_ready; });
   }
 
-  std::atomic<bool> session_linked{false};
+  bool session_linked = false;
+  bool child_had_notifier = false;
   runtime.Post([&](ae::Domain& domain) {
     held_child = RuntimeTestChild::ptr::Create(
         ae::CreateWith{domain}.with_id(kSessionChildId));
     InitializeRuntimeNode(*held_child, *root);
     root->child = held_child;
-    session_linked.store(true);
+    bool const had_notifier = held_child->HasMaterializedChangeNotifier();
+    {
+      std::lock_guard<std::mutex> lock{sync.mu};
+      child_had_notifier = had_notifier;
+      session_linked = true;
+    }
     sync.cv.notify_all();
   });
   {
     std::unique_lock<std::mutex> lock{sync.mu};
-    sync.cv.wait(lock, [&] { return session_linked.load(); });
+    sync.cv.wait(lock, [&] { return session_linked; });
   }
-  CHECK(held_child->HasMaterializedChangeNotifier());
+  CHECK(child_had_notifier);
 
-  std::atomic<bool> detached{false};
+  bool detached = false;
+  bool link_cleared = false;
+  bool live_has_child = true;
+  bool persistent_has_child = true;
   runtime.Post([&](ae::Domain&) {
-    root->child.Reset();
-    detached.store(true);
+    root->child = RuntimeTestChild::ptr{};
+    std::vector<Node*> live;
+    CollectLiveReachableNodes(*root, live);
+    std::vector<Node*> persistent;
+    CollectReachableNodes(*root, persistent);
+    bool const cleared = !root->child.is_valid();
+    bool const in_live = LiveNodesContainId(live, kSessionChildId);
+    bool const in_persistent = LiveNodesContainId(persistent, kSessionChildId);
+    {
+      std::lock_guard<std::mutex> lock{sync.mu};
+      link_cleared = cleared;
+      live_has_child = in_live;
+      persistent_has_child = in_persistent;
+      detached = true;
+    }
     sync.cv.notify_all();
   });
   {
     std::unique_lock<std::mutex> lock{sync.mu};
-    sync.cv.wait(lock, [&] { return detached.load(); });
+    sync.cv.wait(lock, [&] { return detached; });
   }
-
-  std::vector<Node*> reachable;
-  CollectReachableNodes(*root, reachable);
-  CHECK(!LiveNodesContainId(reachable, kSessionChildId));
+  CHECK(link_cleared);
+  CHECK(!live_has_child);
+  CHECK(!persistent_has_child);
+  CHECK(held_child.is_loaded());
 
   runtime.RequestStop();
   model_thread.join();

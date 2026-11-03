@@ -464,6 +464,7 @@ void CollectReachableObjectsFromLiveFields(ae::Obj& root,
                                            std::vector<ae::Obj*>& out) {
   std::unordered_set<std::uint32_t> seen;
   std::vector<ae::Obj*> stack;
+  std::vector<ae::Obj*> children;
   stack.push_back(&root);
   out.clear();
   while (!stack.empty()) {
@@ -473,14 +474,19 @@ void CollectReachableObjectsFromLiveFields(ae::Obj& root,
       continue;
     }
     out.push_back(obj);
+    // Only a reference that holds its object is a live edge. An unloaded
+    // reference keeps its ObjId, and the Domain may still hold that object for
+    // another owner (keepalive, external holder); following it by id would
+    // resurrect objects the graph has already let go of.
+    children.clear();
     ForEachGraphEdgeObjPtrOnObject(*obj, [&](ae::ObjectPtrBase& edge) {
-      if (!edge.is_valid()) {
-        return;
-      }
-      if (auto found = root.domain->Find(edge.id())) {
-        stack.push_back(&*found);
+      if (edge.is_valid() && edge.is_loaded()) {
+        children.push_back(&*edge.cached());
       }
     });
+    // Preorder in field declaration order: presenter activation (and thus
+    // native mount order) follows the order fields are declared in.
+    stack.insert(stack.end(), children.rbegin(), children.rend());
     if (g_live_graph_edge_appender != nullptr) {
       g_live_graph_edge_appender(*obj, root, stack);
     }
