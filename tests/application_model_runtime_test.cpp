@@ -39,6 +39,7 @@ namespace {
 ae::ObjId const kRootId{0xA5A50001u};
 
 class RuntimeBumpEvent;
+class RuntimeChildBumpEvent;
 class RuntimeTestChild;
 
 class RuntimeTestChild : public NodeFor<RuntimeTestChild> {
@@ -64,7 +65,7 @@ class RuntimeTestChild : public NodeFor<RuntimeTestChild> {
 
   std::int32_t marker{0};
 
-  void Apply(RuntimeBumpEvent const& event);
+  void Apply(RuntimeChildBumpEvent const& event);
 };
 
 class RuntimeTestRoot : public NodeFor<RuntimeTestRoot> {
@@ -109,11 +110,27 @@ class RuntimeBumpEvent : public EventFor<RuntimeTestRoot, RuntimeBumpEvent> {
   std::int32_t delta{0};
 };
 
+class RuntimeChildBumpEvent
+    : public EventFor<RuntimeTestChild, RuntimeChildBumpEvent> {
+  APPTRAVERSE_OBJECT(RuntimeChildBumpEvent, Event, 0)
+
+ protected:
+  RuntimeChildBumpEvent() = default;
+
+ public:
+  explicit RuntimeChildBumpEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(delta))
+
+  std::int32_t delta{0};
+};
+
 APPTRAVERSE_REGISTER(RuntimeTestChild);
 APPTRAVERSE_REGISTER(RuntimeTestRoot);
 APPTRAVERSE_REGISTER(RuntimeBumpEvent);
+APPTRAVERSE_REGISTER(RuntimeChildBumpEvent);
 
-void RuntimeTestChild::Apply(RuntimeBumpEvent const& event) {
+void RuntimeTestChild::Apply(RuntimeChildBumpEvent const& event) {
   marker += event.delta;
   NoteMaterializedChange();
 }
@@ -126,6 +143,122 @@ void RuntimeTestRoot::Apply(RuntimeBumpEvent const& event) {
 ae::ObjId const kChildId{0xA5A50002u};
 ae::ObjId const kLazyChildId{0xA5A50003u};
 ae::ObjId const kSessionChildId{0xA5A50005u};
+ae::ObjId const kGraphWalkRootId{0xA5A50010u};
+ae::ObjId const kGraphWalkListId{0xA5A50011u};
+ae::ObjId const kGraphWalkRowId{0xA5A50012u};
+ae::ObjId const kGraphWalkLazyRowId{0xA5A50013u};
+
+class GraphWalkRow : public NodeFor<GraphWalkRow> {
+  APPTRAVERSE_OBJECT(GraphWalkRow, Node, 0)
+
+ protected:
+  GraphWalkRow() = default;
+
+ public:
+  explicit GraphWalkRow(ae::ObjProp prop) : NodeFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(payload))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, payload);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, payload);
+  }
+
+  std::int32_t payload{0};
+};
+
+class GraphWalkListBase : public NodeFor<GraphWalkListBase> {
+  APPTRAVERSE_OBJECT(GraphWalkListBase, Node, 0)
+
+ protected:
+  GraphWalkListBase() = default;
+
+ public:
+  explicit GraphWalkListBase(ae::ObjProp prop) : NodeFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(rows))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, rows);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, rows);
+  }
+
+  std::vector<GraphWalkRow::ptr> rows;
+};
+
+class GraphWalkDerivedList
+    : public NodeFor<GraphWalkDerivedList, GraphWalkListBase> {
+  APPTRAVERSE_OBJECT(GraphWalkDerivedList, GraphWalkListBase, 0)
+
+ protected:
+  GraphWalkDerivedList() = default;
+
+ public:
+  explicit GraphWalkDerivedList(ae::ObjProp prop) : NodeFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(list_label))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, list_label);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, list_label);
+  }
+
+  std::int32_t list_label{0};
+};
+
+class GraphWalkRoot : public NodeFor<GraphWalkRoot> {
+  APPTRAVERSE_OBJECT(GraphWalkRoot, Node, 0)
+
+ protected:
+  GraphWalkRoot() = default;
+
+ public:
+  explicit GraphWalkRoot(ae::ObjProp prop) : NodeFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(list), AE_MMBR(lazy_row))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, list, lazy_row);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, list, lazy_row);
+  }
+
+  GraphWalkDerivedList::ptr list;
+  GraphWalkRow::ptr lazy_row;
+};
+
+APPTRAVERSE_REGISTER(GraphWalkRow);
+APPTRAVERSE_REGISTER(GraphWalkListBase);
+APPTRAVERSE_REGISTER(GraphWalkDerivedList);
+APPTRAVERSE_REGISTER(GraphWalkRoot);
+
+bool LiveNodesContainId(std::vector<Node*> const& live, ae::ObjId id) {
+  for (Node* node : live) {
+    if (node->obj_id == id) {
+      return true;
+    }
+  }
+  return false;
+}
 
 struct Sync {
   std::mutex mu;
@@ -140,7 +273,10 @@ void RunModelUntilInitialReady(ApplicationModelRuntime& runtime,
       if (kind == ApplicationPublicationKind::Initial) {
         runtime.TakePublishedCopy();
         runtime.NotifyPublicationConsumed();
-        initial_ready = true;
+        {
+          std::lock_guard<std::mutex> lock{sync.mu};
+          initial_ready = true;
+        }
         sync.cv.notify_all();
       }
     });
@@ -155,7 +291,7 @@ void RunModelUntilInitialReady(ApplicationModelRuntime& runtime,
 
 void BumpChildMarker(RuntimeTestChild& child, ae::Domain& domain,
                      std::int32_t delta) {
-  auto ev = RuntimeBumpEvent::ptr::Create(ae::CreateWith{domain});
+  auto ev = RuntimeChildBumpEvent::ptr::Create(ae::CreateWith{domain});
   ev->delta = delta;
   child.Commit(std::move(ev));
 }
@@ -370,7 +506,15 @@ void TestCoalesceAndBackpressure() {
     runtime.Run(
         model_domain, *root,
         [&](ApplicationPublicationKind kind) {
-          if (kind == ApplicationPublicationKind::Initial) { initial_ready = true; } else if (!incremental_ready) { incremental_ready = true; } else { second_incremental_ready = true; } sync.cv.notify_all();
+          std::lock_guard<std::mutex> lock{sync.mu};
+          if (kind == ApplicationPublicationKind::Initial) {
+            initial_ready = true;
+          } else if (!incremental_ready) {
+            incremental_ready = true;
+          } else {
+            second_incremental_ready = true;
+          }
+          sync.cv.notify_all();
         });
   }};
 
@@ -445,7 +589,10 @@ void TestCallbackCanPostAfterPublication() {
 
         runtime.TakePublishedCopy();
         runtime.NotifyPublicationConsumed();
-        initial_ready = true;
+        {
+          std::lock_guard<std::mutex> lock{sync.mu};
+          initial_ready = true;
+        }
         sync.cv.notify_all();
         runtime.RequestStop();
       }
@@ -676,6 +823,36 @@ void TestNotifierDetachedAfterRun() {
   CHECK(root->value == 1);
 }
 
+void TestLiveGraphWalkTraversesBaseClassRowsField() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto root = GraphWalkRoot::ptr::Create(
+      ae::CreateWith{domain}.with_id(kGraphWalkRootId));
+  auto list = GraphWalkDerivedList::ptr::Create(
+      ae::CreateWith{domain}.with_id(kGraphWalkListId));
+  auto row = GraphWalkRow::ptr::Create(
+      ae::CreateWith{domain}.with_id(kGraphWalkRowId));
+  auto lazy_row = GraphWalkRow::ptr::Declare(
+      ae::CreateWith{domain}
+          .with_id(kGraphWalkLazyRowId)
+          .with_flags(ae::ObjFlags::kUnloaded));
+  InitializeRuntimeNode(*root);
+  InitializeRuntimeNode(*list);
+  InitializeRuntimeNode(*row);
+  list->list_label = 99;
+  list->rows.push_back(row);
+  root->list = list;
+  root->lazy_row = lazy_row;
+
+  std::vector<Node*> live;
+  CollectLiveReachableNodes(*root, live);
+  CHECK(LiveNodesContainId(live, kGraphWalkRootId));
+  CHECK(LiveNodesContainId(live, kGraphWalkListId));
+  CHECK(LiveNodesContainId(live, kGraphWalkRowId));
+  CHECK(!LiveNodesContainId(live, kGraphWalkLazyRowId));
+  CHECK(!lazy_row.is_loaded());
+}
+
 void TestRuntimeNotifierLifetimeOnChildLazyAndDetached() {
   ae::RamDomainStorage model_storage;
   ae::Domain model_domain{model_storage};
@@ -694,7 +871,10 @@ void TestRuntimeNotifierLifetimeOnChildLazyAndDetached() {
 
   std::vector<Node*> live_before;
   CollectLiveReachableNodes(*root, live_before);
-  CHECK(live_before.size() >= 2);
+  CHECK(LiveNodesContainId(live_before, kRootId));
+  CHECK(LiveNodesContainId(live_before, kChildId));
+  CHECK(!LiveNodesContainId(live_before, kLazyChildId));
+  CHECK(!lazy.is_loaded());
 
   ApplicationModelRuntime runtime;
   Sync sync;
@@ -729,7 +909,10 @@ void TestRuntimeNotifierDetachedChildStillInDomain() {
         runtime.TakePublishedCopy();
         runtime.NotifyPublicationConsumed();
         CHECK(child->HasMaterializedChangeNotifier());
-        initial_ready = true;
+        {
+          std::lock_guard<std::mutex> lock{sync.mu};
+          initial_ready = true;
+        }
         sync.cv.notify_all();
       }
     });
@@ -764,7 +947,10 @@ void TestRuntimeNotifierSessionAddedChildLinkedBeforeStop() {
       if (kind == ApplicationPublicationKind::Initial) {
         runtime.TakePublishedCopy();
         runtime.NotifyPublicationConsumed();
-        initial_ready = true;
+        {
+          std::lock_guard<std::mutex> lock{sync.mu};
+          initial_ready = true;
+        }
         sync.cv.notify_all();
       }
     });
@@ -791,6 +977,75 @@ void TestRuntimeNotifierSessionAddedChildLinkedBeforeStop() {
   CHECK(session.marker == 4);
 }
 
+void TestRuntimeNotifierOrphanHeldAfterDetachFromLiveAndHistory() {
+  ae::RamDomainStorage model_storage;
+  ae::Domain model_domain{model_storage};
+  auto root = RuntimeTestRoot::ptr::Create(
+      ae::CreateWith{model_domain}.with_id(kRootId));
+  InitializeRuntimeNode(*root);
+
+  ApplicationModelRuntime runtime;
+  Sync sync;
+  bool initial_ready = false;
+  RuntimeTestChild::ptr held_child;
+
+  std::thread model_thread{[&] {
+    runtime.Run(model_domain, *root, [&](ApplicationPublicationKind kind) {
+      if (kind == ApplicationPublicationKind::Initial) {
+        runtime.TakePublishedCopy();
+        runtime.NotifyPublicationConsumed();
+        {
+          std::lock_guard<std::mutex> lock{sync.mu};
+          initial_ready = true;
+        }
+        sync.cv.notify_all();
+      }
+    });
+  }};
+
+  {
+    std::unique_lock<std::mutex> lock{sync.mu};
+    sync.cv.wait(lock, [&] { return initial_ready; });
+  }
+
+  std::atomic<bool> session_linked{false};
+  runtime.Post([&](ae::Domain& domain) {
+    held_child = RuntimeTestChild::ptr::Create(
+        ae::CreateWith{domain}.with_id(kSessionChildId));
+    InitializeRuntimeNode(*held_child, *root);
+    root->child = held_child;
+    session_linked.store(true);
+    sync.cv.notify_all();
+  });
+  {
+    std::unique_lock<std::mutex> lock{sync.mu};
+    sync.cv.wait(lock, [&] { return session_linked.load(); });
+  }
+  CHECK(held_child->HasMaterializedChangeNotifier());
+
+  std::atomic<bool> detached{false};
+  runtime.Post([&](ae::Domain&) {
+    root->child.Reset();
+    detached.store(true);
+    sync.cv.notify_all();
+  });
+  {
+    std::unique_lock<std::mutex> lock{sync.mu};
+    sync.cv.wait(lock, [&] { return detached.load(); });
+  }
+
+  std::vector<Node*> reachable;
+  CollectReachableNodes(*root, reachable);
+  CHECK(!LiveNodesContainId(reachable, kSessionChildId));
+
+  runtime.RequestStop();
+  model_thread.join();
+
+  CHECK(!held_child->HasMaterializedChangeNotifier());
+  BumpChildMarker(*held_child, model_domain, 6);
+  CHECK(held_child->marker == 6);
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -809,6 +1064,8 @@ int main() {
   apptraverse::test::TestRuntimeNotifierLifetimeOnChildLazyAndDetached();
   apptraverse::test::TestRuntimeNotifierDetachedChildStillInDomain();
   apptraverse::test::TestRuntimeNotifierSessionAddedChildLinkedBeforeStop();
+  apptraverse::test::TestLiveGraphWalkTraversesBaseClassRowsField();
+  apptraverse::test::TestRuntimeNotifierOrphanHeldAfterDetachFromLiveAndHistory();
   std::cout << "application_model_runtime_test OK\n";
   return 0;
 }

@@ -60,6 +60,8 @@ class ModelRuntime {
   // Bound as Node::MaterializedChangeFn context target for this runtime.
   void NotifyMaterializedChange(Node& node) { OnMaterializedChange(node); }
 
+  void TrackNotifierSubscriber(Node& node);
+
  private:
   void ThreadMain();
   void DrainWork();
@@ -81,6 +83,7 @@ class ModelRuntime {
   // DetachNode. Removing a Node without DetachNode is an API-contract
   // violation, not a reachable state.
   std::unordered_map<std::uint32_t, std::unordered_set<Node*>> pending_by_root_;
+  std::unordered_set<std::uint32_t> notifier_subscribers_;
   UpdateObserver update_observer_;
 
   std::mutex mu_;

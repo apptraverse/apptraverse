@@ -7,39 +7,42 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
-## Model runtime notifier lifetime + live graph walk (post-`8e1953c`, 2026-11-03) — PASS
+## Model runtime notifier lifetime + live graph walk (post-`8e1953c`, 2026-11-03) — IN PROGRESS
 
-**Lease base:** `8e1953c075ea2c511ea6d644527f2cbb6397dc9c`.
+**Lease base:** `8e1953c075ea2c511ea6d644527f2cbb6397dc9c`. Prior attempt: `a23ae44` (incomplete — shutdown/clear narrative did not match code).
 
-### Cause
+### Cause (closed in this slice)
 
-- **`ApplicationModelRuntime::Run`:** bind used **`CollectReachableNodes`** (persistent scratch set); shutdown clear used **`ClearLiveReachableNodesMaterializedChangeNotifier`** → **`CollectLiveReachableNodes`** → **`CollectReachableObjectsFromLiveFields`** with **`ForEachGraphEdgeObjPtrOn(ae::Obj&)`** (static `ae::Obj` reflection only). Child **Nodes** kept **`PendingDirtyNodes*`** after **`Run()`** returned.
-- **Detached / journal-held nodes:** live clear missed nodes no longer on live fields but still bound at session start.
+- **Live walk:** concrete-class dispatch reflected embedded **`base_`** as plain **`ae::Obj&`** (no edges) → derived-only fields (e.g. **`MinimalAppList::window_title`**) were seen but base **`UiListContainer::rows`** was skipped.
+- **Notifiers:** bind at **`ApplicationModelRuntime::Run`** start did not match clear via live/reachable walks; nodes that received a notifier mid-session ( **`CopyMaterializedChangeNotifierFrom`** / **`InitializeRuntimeNode(..., runtime_source)`** ) could outlive **`Run`** while still holding **`PendingDirtyNodes*`** on a destroyed context.
 
 ### Fix (common)
 
-- **`ForEachGraphEdgeObjPtrOnObject`:** per-class walkers registered via **`APPTRAVERSE_REGISTER`** → reflection on concrete type.
-- **`CollectReachableObjectsFromLiveFields`** uses object dispatch ( **`LiveGraphEdgeAppender`** unchanged for Surface chrome).
-- **Shutdown:** clear **`notifier_bound_at_start`** (initial persistent bind set) **then** **`ClearLiveReachableNodesMaterializedChangeNotifier`** (session-linked nodes). **`CollectReachableNodeRefs`** unchanged.
+- **`WalkLiveGraphEdgeHierarchy` + `ForEachLiveGraphEdgeFieldsOnType`:** walk reflected fields on **`T`** and **`T::Base`** chain; **`Node`** shell skips historical **`base`/`journal`** (live topology uses embedded **`base_`** only). Restore no-op **`CallIfGraphEdgeObjPtr(ae::Obj&)`** for non-concrete edges.
+- **`PendingDirtyNodes`:** subscription registry (**`Subscribe` / `OnNotifierCopiedTo` / `ClearAllSubscribedNotifiers`**) — shutdown clears every bound id, not a second graph walk.
+- **`ModelRuntime`:** **`notifier_subscribers_`** + **`TrackMaterializedChangeNotifierCopy`** (shared with pending-dirty copy path); destructor clears by registry. **`CollectReachableNodeRefs`** unchanged for save-finalize.
 
-### Tests (pre-fix would fail on `HasMaterializedChangeNotifier` on child)
+### Tests
 
-- **`application_model_runtime_test`:** child + lazy unloaded + detached child still in domain + session-linked child; root notifier check tightened.
-- **`window_catalog_model_test`:** **`TestLiveReachableNodesCoverOpenCatalogWindow`** (catalog **Node** rows + open window **`CollectLiveReachableObjects`**).
+- **`application_model_runtime_test`:** **`RuntimeChildBumpEvent`** for child; **`initial_ready`** guarded by mutex; inheritance walk (**row only in base `rows`**, lazy stays unloaded); orphan held after session detach; original / detached / session child notifier cases retained.
+- **`window_catalog_model_test`:** **`TestLiveReachableNodesCoverOpenCatalogWindow`** (unchanged intent).
 
-### Regressions (incremental, `apptraverse-wt-web5`)
+### Regressions (incremental, `apptraverse-wt-web5`, 2026-11-03)
 
 | Check | Result |
 | --- | --- |
-| **`apptraverse_application_model_runtime_test`** (Win + Linux) | **PASS** |
-| **`apptraverse_application_ui_session_test`** + §W2 (12 exe incl. minimal acceptance) + WindowCatalog overlay/model | **PASS** |
-| **`apptraverse_minimal_app_headless_test`** (Win + Linux) | **PASS** |
-| Linux L3 smoke | **PASS** |
-| Android **12/12** | **PASS** |
-| WASM ×3 (8766/8770/8785) | **FAIL** — Playwright `wait_for_function` timeout on minimal + lifecycle (8767 retry same); catalog **NOT RUN** (blocked on smokes) |
+| **`apptraverse_application_model_runtime_test`** (Win) | **PASS** |
+| **`apptraverse_application_model_runtime_test`** (Linux) | **NOT RUN** |
+| **`apptraverse_minimal_app_headless_test`** (Win) | **PASS** |
+| **`apptraverse_minimal_app_headless_test`** (Linux) | **NOT RUN** |
+| §W2 + UI session + WindowCatalog model/overlay | **NOT RUN** |
+| Linux L3 | **NOT RUN** |
+| Android **12/12** | **NOT RUN** |
+| WASM **MinimalApp** (`build/wasm-ninja-debug`, `tools/serve_wasm.py` COOP/COEP) | **FAIL** — after **`MINIMAL_APP_INITIAL_RENDER_OK`**, Playwright **`wait_title("Minimal App")`** times out: desktop window mounts (list/apply visible) but **`dataset.apptraverseWindowTitle`** never set (smoke expects title on window root). Plain **`python -m http.server`** → first **`pageerror`:** **`SharedArrayBuffer is not defined`** (no COOP/COEP), 0 desktop windows — not infra timeout. |
+| WASM presenter lifecycle + WindowCatalog smokes | **NOT RUN** (blocked on MinimalApp smoke) |
 | Full CTest | **NOT RUN** |
 
-**NEXT:** WASM smoke timeout (serve/port/stale emscripten artifact vs product); optional audit **`ModelRuntime`** shutdown clear vs **`model_nodes_`** list.
+**NEXT:** Web minimal window title DOM contract vs smoke; rerun agreed matrix after commit; Linux/Android/L3/W2.
 
 ## MinimalApp embedded USER finalize ownership (post-`9f322b2`, 2026-11-03) — PASS
 

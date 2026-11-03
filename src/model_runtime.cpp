@@ -14,6 +14,25 @@ void ModelRuntimeMaterializedChange(void* ctx, Node& node) {
 
 }  // namespace
 
+void TrackMaterializedChangeNotifierCopy(Node& target) {
+  Node::MaterializedChangeFn const fn = target.MaterializedChangeCallback();
+  void* const ctx = target.MaterializedChangeContext();
+  if (fn == nullptr || ctx == nullptr) {
+    return;
+  }
+  if (fn == &ModelRuntimeMaterializedChange) {
+    static_cast<ModelRuntime*>(ctx)->TrackNotifierSubscriber(target);
+    return;
+  }
+  if (fn == &PendingDirtyNodesNotify) {
+    static_cast<PendingDirtyNodes*>(ctx)->OnNotifierCopiedTo(target);
+  }
+}
+
+void ModelRuntime::TrackNotifierSubscriber(Node& node) {
+  notifier_subscribers_.insert(node.obj_id.id());
+}
+
 ModelRuntime::ModelRuntime(ae::Obj& application_root, UiMirror& ui_mirror)
     : application_root_{application_root}, ui_mirror_{ui_mirror} {
   BuildExecutionLists();
@@ -22,10 +41,15 @@ ModelRuntime::ModelRuntime(ae::Obj& application_root, UiMirror& ui_mirror)
 ModelRuntime::~ModelRuntime() {
   RequestStop();
   Join();
-  ClearLiveReachableNodesMaterializedChangeNotifier(application_root_);
-  for (Node* node : model_nodes_) {
-    node->ClearMaterializedChangeNotifier();
+  for (std::uint32_t const id : notifier_subscribers_) {
+    if (ae::Ptr<ae::Obj> obj = application_root_.domain->Find(ae::ObjId{id})) {
+      Node& node = static_cast<Node&>(*obj);
+      if (node.MaterializedChangeContext() == this) {
+        node.ClearMaterializedChangeNotifier();
+      }
+    }
   }
+  notifier_subscribers_.clear();
 }
 
 void ModelRuntime::AddPresentationRoot(ae::Obj& root) {
@@ -48,6 +72,7 @@ void ModelRuntime::AttachNode(Node& node, ae::Obj& presentation_root) {
   // CaptureBaseState / CompactJournal replace, so a notifier on it would
   // outlive the object it points at.
   node.BindMaterializedChangeNotifier(this, &ModelRuntimeMaterializedChange);
+  TrackNotifierSubscriber(node);
   if (std::find(model_nodes_.begin(), model_nodes_.end(), &node) ==
       model_nodes_.end()) {
     model_nodes_.push_back(&node);
@@ -131,6 +156,7 @@ void ModelRuntime::SetUpdateObserver(UpdateObserver observer) {
 void ModelRuntime::BindAllModelNodeNotifiers() {
   for (Node* node : model_nodes_) {
     node->BindMaterializedChangeNotifier(this, &ModelRuntimeMaterializedChange);
+    TrackNotifierSubscriber(*node);
   }
 }
 

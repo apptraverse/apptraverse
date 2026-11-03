@@ -155,13 +155,15 @@ class Node : public ae::Obj {
     materialized_change_fn_ = nullptr;
   }
 
-  void CopyMaterializedChangeNotifierFrom(Node const& source) {
-    materialized_change_ctx_ = source.materialized_change_ctx_;
-    materialized_change_fn_ = source.materialized_change_fn_;
-  }
+  void CopyMaterializedChangeNotifierFrom(Node const& source);
 
   bool HasMaterializedChangeNotifier() const {
     return materialized_change_fn_ != nullptr;
+  }
+
+  void* MaterializedChangeContext() const { return materialized_change_ctx_; }
+  MaterializedChangeFn MaterializedChangeCallback() const {
+    return materialized_change_fn_;
   }
 
   virtual void OnLoad() {}
@@ -540,7 +542,35 @@ class Node : public ae::Obj {
 // and skips ids that no longer resolve. First-dirty order is preserved;
 // membership prevents duplicate entries while Events keep coalescing into one
 // pending entry until published.
+void TrackMaterializedChangeNotifierCopy(Node& target);
+void PendingDirtyNodesNotify(void* ctx, Node& node);
+
 struct PendingDirtyNodes {
+  void Subscribe(Node& node) {
+    notifier_subscribed_.insert(node.obj_id.id());
+    node.BindMaterializedChangeNotifier(this, &PendingDirtyNodesNotify);
+  }
+
+  void OnNotifierCopiedTo(Node& node) {
+    if (node.MaterializedChangeCallback() == &PendingDirtyNodesNotify &&
+        node.MaterializedChangeContext() == this) {
+      notifier_subscribed_.insert(node.obj_id.id());
+    }
+  }
+
+  void ClearAllSubscribedNotifiers(ae::Domain& domain) {
+    for (std::uint32_t const id : notifier_subscribed_) {
+      if (ae::Ptr<ae::Obj> obj = domain.Find(ae::ObjId{id})) {
+        Node& node = static_cast<Node&>(*obj);
+        if (node.MaterializedChangeContext() == this) {
+          node.ClearMaterializedChangeNotifier();
+        }
+      }
+    }
+    notifier_subscribed_.clear();
+    Clear();
+  }
+
   void Note(Node& node) {
     auto const id = node.obj_id.id();
     if (membership.insert(id).second) {
@@ -565,10 +595,17 @@ struct PendingDirtyNodes {
 
   std::vector<std::uint32_t> ordered;
   std::unordered_set<std::uint32_t> membership;
+  std::unordered_set<std::uint32_t> notifier_subscribed_;
 };
 
 inline void PendingDirtyNodesNotify(void* ctx, Node& node) {
   static_cast<PendingDirtyNodes*>(ctx)->Note(node);
+}
+
+inline void Node::CopyMaterializedChangeNotifierFrom(Node const& source) {
+  materialized_change_ctx_ = source.materialized_change_ctx_;
+  materialized_change_fn_ = source.materialized_change_fn_;
+  TrackMaterializedChangeNotifierCopy(*this);
 }
 
 }  // namespace apptraverse
