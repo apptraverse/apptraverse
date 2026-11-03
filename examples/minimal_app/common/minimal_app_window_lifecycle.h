@@ -7,8 +7,6 @@ class MinimalApplication;
 
 void SealAuxiliaryWindowClosed(MinimalApplication& application);
 
-void EnsureMinimalApplicationAuxiliaryLazyRefs(MinimalApplication& application);
-
 }  // namespace apptraverse::example::minimal
 
 #endif  // APPTRAVERSE_EXAMPLE_MINIMAL_MINIMAL_APP_WINDOW_LIFECYCLE_H_

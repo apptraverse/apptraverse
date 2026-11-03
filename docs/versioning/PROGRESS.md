@@ -7,9 +7,39 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
-## MinimalApp Detail close + embedded USER shutdown (post-`4e1448e`, 2026-11-03) — PASS
+## MinimalApp embedded USER finalize ownership (post-`9f322b2`, 2026-11-03) — PASS
 
-**Lease base:** `4e1448e17887ffe7e3292516b923b3a6ab413fd1`.
+**Lease base:** `1acb0b8451d2512ca68e4461d01b161668f21e6c` (fast-forward from `9f322b2`, docs-only).
+
+### Root cause (first wrong layer)
+
+- **Win32 acceptance `LoadApplication failed id=127991809`:** cycle 1 (resize only, Detail not opened) USER held main window **`127991810`** with **uncompacted journal** (2 Events, one Event layer absent) → probe load failed after root.
+- **4e1448e** switched finalize to **`CollectLiveReachableNodes`**: its walk calls `ForEachGraphEdgeObjPtrOn(ae::Obj&)` → **static** reflection of `ae::Obj` only; without a registered `LiveGraphEdgeAppender` (MinimalApp has none) it returns **root only** (headless probe: reachable=24, live=1). Finalize compacted only root; every other Node was saved with journal. Linux L3 did not exercise that load path.
+- **Original Linux SIGSEGV (79b65cb):** finalize iterated raw `Node*` from **`CollectReachableNodes`**. After Detail close, aux Nodes (`127991818/820/822/824/827`) are owned only by root's historical **base/journal**; compacting root first released them (probe: alive=0 after root compact) → `CompactJournal` on freed Nodes (`domain_storage()` garbage). **Ownership defect in the collection contract**, not "invalid backing".
+- **9f322b2** masked the consequences: session flag + `EnsureMinimalApplicationAuxiliaryLazyRefs` (Declare by known ID) + separate sealed aux flush + aux field filter; its headless test used plain `DirectoryDomainStorage` (no BACKING), unlike the real embedded topology.
+
+### Fix (common layer)
+
+- **`CollectReachableNodeRefs`** (`object_serialization`): same Node set as `CollectReachableNodes`, entries hold `ae::Ptr` so Nodes survive owner compaction.
+- MinimalApp finalize uses it; **removed** 9f322b2 lazy-ref rebind, session flag, aux flush and filter (`examples/minimal_app` = 4e1448e except finalize collection).
+- Headless Detail test now uses **BACKING (distilled RAM) + USER overlay**; checks cold-loaded root / main window / aux window / aux list / aux title journals empty and Detail title «Applied» after reopen. Negative control (4e1448e live collect) → **FAIL** at `main_window->journal.empty()`.
+
+### Regressions (incremental, `apptraverse-wt-web5`)
+
+| Check | Result |
+| --- | --- |
+| **`apptraverse_minimal_app_headless_test`** (Win + Linux) | **PASS** |
+| Windows §W2: 10 exe incl. **`apptraverse_minimal_app_win32_acceptance_test`** + WindowCatalog overlay | **PASS** |
+| Linux full **`linux_minimal_app_l3_smoke.py`** (WSL Ubuntu) | **PASS** |
+| WASM ×3 (minimal 8766 / lifecycle 8770 / catalog 8786) | **PASS** |
+| Android **12/12** | **PASS** |
+| Full CTest | **NOT RUN** (by instruction) |
+
+**NEXT:** `CollectLiveReachableNodes` / `CollectReachableObjectsFromLiveFields` still walk static `ae::Obj` reflection (only appenders see derived edges); remaining callers (`ClearLiveReachableNodesMaterializedChangeNotifier`, WindowCatalog) should be audited against the persistent walk.
+
+## MinimalApp Detail close + embedded USER shutdown (post-`4e1448e`, 2026-11-03) — superseded
+
+**Lease base:** `4e1448e17887ffe7e3292516b923b3a6ab413fd1`. Ownership analysis and fix in this section are **superseded** by «embedded USER finalize ownership» above.
 
 ### Lifetime / ownership (why backing looked «invalid»)
 

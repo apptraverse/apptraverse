@@ -80,7 +80,6 @@ class MinimalApplication : public NodeFor<MinimalApplication> {
   MinimalAuxiliaryOpenerButton::ptr auxiliary_opener;
   MinimalAuxiliaryWindowState auxiliary;
   bool auxiliary_presented_open;
-  bool auxiliary_subgraph_materialized_in_session{false};
 
   void Apply(MinimalOpenAuxiliaryWindowEvent const& event);
   void Apply(MinimalCloseAuxiliaryWindowEvent const& event);

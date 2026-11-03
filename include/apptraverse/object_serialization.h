@@ -124,6 +124,10 @@ void CollectMaterializedReachableObjects(ae::Obj& root,
 void CollectReachableObjectsFromLiveFields(ae::Obj& root,
                                            std::vector<ae::Obj*>& out);
 void CollectReachableNodes(ae::Obj& root, std::vector<Node*>& out);
+// Same Nodes as CollectReachableNodes, but each entry owns its Node: a Node
+// reachable only through another Node's base/journal is released when that
+// owner compacts, so callers that compact while iterating need this.
+void CollectReachableNodeRefs(ae::Obj& root, std::vector<ae::Ptr<ae::Obj>>& out);
 // Live ObjPtr topology only (no Save walk); Node::base/journal excluded via
 // RemoveDistilledBaseObjects on the object walk.
 void CollectLiveReachableNodes(ae::Obj& root, std::vector<Node*>& out);

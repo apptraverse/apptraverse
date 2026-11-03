@@ -878,9 +878,20 @@ void TestMinimalAppAuxiliaryCloseEmbeddedUserShutdownColdLoad() {
   std::error_code ec;
   std::filesystem::remove_all(user_dir, ec);
 
+  ae::RamDomainStorage backing;
+  {
+    ae::Domain distill_domain{backing};
+    auto distilled = BuildHeadlessMinimalApplicationGraph(distill_domain);
+    PrepareMinimalApplicationForRun(*distilled);
+    FinalizeDistilledGraph(*distilled);
+    SaveDistilledRoot(*distilled);
+  }
+
   DirectoryDomainStorage user_storage{user_dir};
-  ae::Domain model_domain{user_storage};
-  auto model_root = BuildHeadlessMinimalApplicationGraph(model_domain);
+  OverlayDomainStorage model_overlay{user_storage, backing, {}};
+  ae::Domain model_domain{model_overlay};
+  auto model_root = LoadApplication<MinimalApplication>(
+      model_domain, MinimalApplicationRootId());
   PrepareMinimalApplicationForRun(*model_root);
 
   std::deque<ModelObjectProxy::ModelWork> deferred;
@@ -919,9 +930,13 @@ void TestMinimalAppAuxiliaryCloseEmbeddedUserShutdownColdLoad() {
   CHECK(PersistMinimalApplicationEmbeddedUserOverlay(model_app, user_storage) ==
         0);
 
-  ae::Domain cold_domain{user_storage};
+  OverlayDomainStorage cold_overlay{user_storage, backing, {}};
+  ae::Domain cold_domain{cold_overlay};
   auto cold_app =
       LoadApplication<MinimalApplication>(cold_domain, MinimalApplicationRootId());
+  CHECK(cold_app->journal.empty());
+  cold_app->main_window.Load();
+  CHECK(cold_app->main_window->journal.empty());
   NormalizeMinimalApplicationAfterEmbeddedUserLoad(*cold_app);
   PrepareMinimalApplicationForRun(*cold_app);
   CHECK(!cold_app->auxiliary_presented_open);
@@ -939,8 +954,13 @@ void TestMinimalAppAuxiliaryCloseEmbeddedUserShutdownColdLoad() {
       *cold_app->auxiliary.window->presenter);
   aux_presenter.title.Load();
   CHECK(aux_presenter.title->Resolve(0) == "Applied");
+  CHECK(cold_app->auxiliary.window->journal.empty());
   cold_app->auxiliary.row_list.Load();
+  CHECK(cold_app->auxiliary.row_list->journal.empty());
   CHECK(cold_app->auxiliary.row_list->selection_index == -1);
+  cold_app->auxiliary.row_list->window_title.Load();
+  CHECK(cold_app->auxiliary.row_list->window_title->journal.empty());
+  CHECK(cold_app->auxiliary.row_list->window_title->Resolve(0) == "Applied");
 }
 
 namespace {

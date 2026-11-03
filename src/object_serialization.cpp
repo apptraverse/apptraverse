@@ -515,6 +515,17 @@ void CollectReachableNodes(ae::Obj& root, std::vector<Node*>& out) {
   }
 }
 
+void CollectReachableNodeRefs(ae::Obj& root,
+                              std::vector<ae::Ptr<ae::Obj>>& out) {
+  std::vector<Node*> nodes;
+  CollectReachableNodes(root, nodes);
+  out.clear();
+  out.reserve(nodes.size());
+  for (Node* node : nodes) {
+    out.push_back(root.domain->Find(node->obj_id));
+  }
+}
+
 void CollectLiveReachableNodes(ae::Obj& root, std::vector<Node*>& out) {
   std::vector<ae::Obj*> objects;
   CollectReachableObjectsFromLiveFields(root, objects);
