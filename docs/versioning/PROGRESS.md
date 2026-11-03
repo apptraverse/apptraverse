@@ -17,7 +17,12 @@
 
 **Exporter:** уникальный temp dir per output header (fix parallel embed race).
 
-**Regressions (win64-ninja-msvc-debug, 2026-11-02):** `apptraverse_minimal_app_embedded_export_test` **PASS**; `apptraverse_minimal_app_win32_acceptance_test` **PASS**; `apptraverse_minimal_app_headless_test` **PASS**; §W2 восемь Win/Headless **PASS**; Linux L3 / WASM×3 / Android 12/12 — **NOT RUN** (этот прогон).
+**Regressions (SHA `02b9626`, worktree `apptraverse-wt-web5`, 2026-11-02):**
+- **Win (incremental `win64-ninja-msvc-debug`, ранее на этом SHA):** `apptraverse_minimal_app_embedded_export_test` **PASS**; `apptraverse_minimal_app_win32_acceptance_test` **PASS**; `apptraverse_minimal_app_headless_test` **PASS**; §W2 восемь Win/Headless **PASS**.
+- **Linux L3:** `tools/linux_minimal_app_l3_smoke.py` на `build/linux-x64-debug/.../linux_minimal_app` (WSL **Ubuntu**, incremental build) — **PASS** (1-й прогон).
+- **WASM ×3 (`wasm-ninja-debug`, incremental):** `wasm_minimal_app_browser_smoke.py` serve **8766** **PASS**; `wasm_web_presenter_lifecycle_test.py` serve **8770** **PASS**; `wasm_window_catalog_browser_smoke.py` serve **8785** **PASS**.
+- **Android:** `examples/minimal_app/android` `connectedDebugAndroidTest` **12/12** на **Aether_NDK_Smoke_x86_64** (Android 14) — **PASS** (1-й прогон, 0 failed).
+- **FAIL / BLOCKED / повторы:** нет.
 
 **Подтверждённый HEAD (unified, U1):** **`8835d26`**. **Object Core срез до merge:** **`df536e6`** (C0.2.2); docs C0.3 — **`9e91f4d`**. Application docs — [application-versioning.md](../integration/application-versioning.md), [window_catalog_demo.md](../window_catalog_demo.md).
 
