@@ -8,9 +8,9 @@
 
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
+#include "apptraverse/journal_retention_policy.h"
 #include "apptraverse/node.h"
 #include "apptraverse/noninteractive_crt.h"
-#include "apptraverse/object_serialization.h"
 #include "apptraverse/ui/ui_presented_window_lifecycle.h"
 
 namespace apptraverse::example::minimal {
@@ -19,11 +19,22 @@ void FinalizeMinimalApplicationNodesForEmbeddedUserOverlay(
     MinimalApplication& application) {
   std::vector<Node*> nodes;
   CollectReachableNodes(application, nodes);
+  std::uint64_t const now_us = SystemUtcMicros();
+  JournalRetentionPolicy const persist_retention{.max_events = 0};
   for (Node* node : nodes) {
     if (node->journal.empty()) {
       continue;
     }
-    FinalizeUiNodeState(*node, node->Generation());
+    JournalRetentionPolicy const saved_retention =
+        node->GetJournalRetentionPolicy();
+    node->SetJournalRetentionPolicy(persist_retention);
+    node->CompactJournal(now_us);
+    node->SetJournalRetentionPolicy(saved_retention);
+    if (!node->journal.empty()) {
+      WriteFatalStderr(
+          "fatal: embedded USER overlay save requires compacted journal\n");
+      std::abort();
+    }
   }
 }
 

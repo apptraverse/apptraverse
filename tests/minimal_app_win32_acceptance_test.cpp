@@ -583,7 +583,8 @@ void CloseGracefully(HWND main, PROCESS_INFORMATION& pi) {
 }
 
 void ProbePersistedGraph(std::filesystem::path const& state_dir,
-                         Frame const& expected_frame) {
+                         Frame const& expected_frame,
+                         char const* expected_title_utf8 = "Minimal App") {
   EnsureObjectRegistration();
   ui::EnsureUiPresenterRegistration();
   ui::windows::EnsureWinUiPresenterRegistration();
@@ -607,7 +608,7 @@ void ProbePersistedGraph(std::filesystem::path const& state_dir,
   }
   CHECK(window.presenter->title.is_valid());
   CHECK(window.presenter->locale.is_valid());
-  CHECK(window.presenter->title->Resolve(0) == "Minimal App");
+  CHECK(window.presenter->title->Resolve(0) == expected_title_utf8);
   CHECK(window.presenter->window.id() == example::minimal::MinimalMainWindowId());
 
   CHECK(application->base.is_valid());
@@ -711,31 +712,37 @@ std::filesystem::path RunAcceptanceEmbeddedTwoCycle() {
   ExpectEmbeddedBackingUnchanged();
   ProbePersistedGraph(state_dir, cycle1_frame);
 
-  // Cycle 2: USER profile — second frame UI command, persist.
-  Frame const cycle2_frame{100, 110, 800, 520};
+  // Cycle 2: USER profile — list row B + Apply (journal-bearing UI commands).
   pi = StartDemo(demo, state_dir);
   main = WaitMainWindow(pi.dwProcessId, std::chrono::seconds{30});
   CHECK(main != nullptr);
   CHECK(WaitForMainWindowNamedControls(main, std::chrono::seconds{15}));
   CHECK(FramesNear(ReadFrame(main), cycle1_frame));
-  ApplyFrame(main, cycle2_frame.x, cycle2_frame.y, cycle2_frame.client_width,
-             cycle2_frame.client_height);
+  SelectListRow(main, 1);
   CHECK(WaitUntil(std::chrono::seconds{15}, [&] {
-    return FramesNear(ReadFrame(main), cycle2_frame);
+    return ListSelection(main) == 1;
   }));
+  ClickApplyButton(main);
+  WaitMainWindowAppliedState(main);
   CloseGracefully(main, pi);
   ExpectEmbeddedBackingUnchanged();
-  ProbePersistedGraph(state_dir, cycle2_frame);
+  ProbePersistedGraph(state_dir, cycle1_frame, "Applied");
+  ProbePersistedEmbeddedUserState(state_dir, -1, "Applied");
 
-  // Cold load 3: verify USER; in-process list Commit after normalize.
+  // Cold load 3: Applied mirror; new list UI command (row A).
   pi = StartDemo(load_only, state_dir);
   main = WaitMainWindow(pi.dwProcessId, std::chrono::seconds{30});
   CHECK(main != nullptr);
   CHECK(WaitForMainWindowNamedControls(main, std::chrono::seconds{15}));
-  CHECK(FramesNear(ReadFrame(main), cycle2_frame));
+  CHECK(FramesNear(ReadFrame(main), cycle1_frame));
+  CHECK(MainWindowShowsAppliedState(main));
+  SelectListRow(main, 0);
+  CHECK(WaitUntil(std::chrono::seconds{15}, [&] {
+    return ListSelection(main) == 0;
+  }));
   CloseGracefully(main, pi);
   ExpectEmbeddedBackingUnchanged();
-  ProbePersistedEmbeddedUserCommitReady(state_dir, -1, "Minimal App", 0);
+  ProbePersistedEmbeddedUserCommitReady(state_dir, 0, "Applied", 1);
   return state_dir;
 }
 

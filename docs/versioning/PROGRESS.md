@@ -7,26 +7,26 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
-## MinimalApp Win32 embedded two-cycle acceptance (post-`7450392`, 2026-11-02) — PASS (partial UI)
+## MinimalApp Win32 embedded list/Apply cold load (post-`05d5a12`, 2026-11-03) — PASS
 
-**Fix (product):** `minimal_app_lifecycle.cpp` (Windows) — при embedded USER profile вызывается **`NormalizeMinimalApplicationAfterEmbeddedUserLoad`** в `prepare` (parity с Linux).
+**Первая причина (load, не DirectoryDomainStorage):** embedded USER save вызывал **`FinalizeUiNodeState`** — снимал **`Node::base`** без **`CaptureBaseStateInto`**. На диск уходили materialized слои с пустым base в wire, а loader при **`LoadApplication`** искал **Node `2178182515` version=1** для historical base / root chain → **`Unable to find object id=127991809`** (MinimalApplication root). **Операция:** persist (save), cold load ломался до normalize.
 
-**`apptraverse_minimal_app_win32_acceptance_test` (embedded):** три процесса на одном `--state-dir`:
-1. **`win32_minimal_app`**, пустой USER — **frame** resize **220×140 / 720×460** → shutdown persist; **`ProbePersistedGraph`**; **`ExpectEmbeddedBackingUnchanged`**.
-2. **`win32_minimal_app`**, USER — **другой frame** **100×110 / 800×520** → persist; graph probe; BACKING unchanged.
-3. **`win32_minimal_app_load_only`** — cold HWND frame match; затем **`ProbePersistedEmbeddedUserCommitReady`**: overlay load + normalize + **`HandleListRowSelectionChanged(0)`** (Commit/base).
+**Исправление (shared `minimal_app_persistence.cpp`):** для journal-bearing nodes — **`CompactJournal`** с временной **`JournalRetentionPolicy{.max_events = 0}`** (default unlimited retention иначе даёт **`CollapsiblePrefixCount == 0`** и no-op compact), затем abort если journal не пуст; **`SavePresentedWindow` + `SaveRoot`** без изменения BACKING. Load по-прежнему **`NormalizeMinimalApplicationAfterEmbeddedUserLoad` → `FinalizeDistilledGraph`**.
 
-**Journal / checkpoint canon:** save-time **`FinalizeUiNodeState`** сжимает **journal → materialized USER layers**; история Events на диске **не хранится** — допустимо для embedded USER overlay (динамика = materialized state, не replay journal). Cold **`FinalizeDistilledGraph`** восстанавливает **Node::base** для новых Events. **Не** `persistent_model_checkpoint.bin`.
+**Cold-load E2E (`apptraverse_minimal_app_win32_acceptance_test`, embedded):**
+1. Пустой USER — frame **220×140 / 720×460** → persist.
+2. USER — **list row B + Apply** → persist; **`ProbePersistedEmbeddedUserState(-1, Applied)`**.
+3. **`win32_minimal_app_load_only`** — Applied mirror; **list row A**; **`ProbePersistedEmbeddedUserCommitReady(0, Applied, commit→1)`**.
 
-**Доказано тестом:** multi-session embedded USER + BACKING constant; frame dynamics roundtrip; post-cold **Commit** на list Node после normalize.
+**Regressions (incremental `win64-ninja-msvc-debug` / `wasm-ninja-debug`, worktree `apptraverse-wt-web5`):** §W2 восемь + **`apptraverse_minimal_app_win32_acceptance_test`** **PASS**; **WASM ×3** **PASS**; **Android `connectedDebugAndroidTest` 12/12** (`Aether_NDK_Smoke_x86_64`) **PASS**. **Linux L3 two-cycle:** **NOT RUN** (WSL недоступен в сессии; код тот же overlay persist path).
 
-**Открыто:** Win32 **HWND list + Apply → persist → `LoadApplication` root fail** (Node `2178182515` **version=1** missing in storage) — воспроизведено в acceptance; **Linux L3 list two-cycle PASS** на том же overlay persist. Требует общий save/load слой (не MinimalApp feature work).
+**Lease push base:** `05d5a12a331914bc38b9915e7d4e2e6a7a2c55f7`.
 
-**Regressions (incremental):** §W2 + Headless + overlay **PASS**; **Linux L3 two-cycle PASS**; **WASM ×3 PASS**; **Android 12/12 FAIL** (APK install-write on AVD, infra — не product regression).
+**NEXT:** Linux L3 smoke re-run после восстановления WSL; опционально headless overlay two-cycle fixture без dangling domain refs.
 
-**Lease push:** `74503927436a4213083de7b58e8e3d167466a360`.
+## MinimalApp Win32 embedded two-cycle acceptance (post-`7450392`, 2026-11-02) — superseded
 
-**NEXT:** root-cause Win list/apply USER reload vs Linux (Node base layer version in `DirectoryDomainStorage` after journal finalize).
+**Fix (product):** `minimal_app_lifecycle.cpp` (Windows) — **`NormalizeMinimalApplicationAfterEmbeddedUserLoad`** в `prepare` (parity с Linux). **List/Apply cold load** — см. секцию выше (post-`05d5a12`).
 
 ## MinimalApp embedded USER overlay — finalize audit (post-`fc75e7e`, 2026-11-02) — PASS (contract OK)
 
@@ -34,11 +34,7 @@
 
 ### Save — `PersistMinimalApplicationEmbeddedUserOverlay`
 
-1. **`FinalizeMinimalApplicationNodesForEmbeddedUserOverlay`** — обходит все достижимые **`Node*`** (`CollectReachableNodes`); для узлов с **непустым `journal`** вызывает **`FinalizeUiNodeState(*node, node->Generation())`**, что:
-   - **`AdoptPublishedGeneration(generation)`**;
-   - **`base = {}`**;
-   - **`journal.clear()`**  
-   Материализованные поля узла (list `selection_index`, title slots, window frame, enabled, …) остаются в live-объекте и попадают в USER через последующий **`SaveRoot`** / presented-window save.
+1. **`FinalizeMinimalApplicationNodesForEmbeddedUserOverlay`** — обходит все достижимые **`Node*`**; для узлов с **непустым `journal`** — **`CompactJournal`** с **`max_events = 0`** (full collapse when guards allow): **`CaptureBaseStateInto`** + persist owner layers; journal cleared. **Не** **`FinalizeUiNodeState`** (UI publication only; clears base without storage snapshot).
 2. **`SavePresentedWindow(main_window)`** (+ auxiliary при open) — flush unloaded/lazy presented state в storage.
 3. **`SaveRoot`** — пишет динамику в **USER-only** `DirectoryDomainStorage`; **BACKING** (exe / RAM embed) не трогается.
 
