@@ -419,6 +419,10 @@
 
 **Проверки:** WindowCatalog model + headless + win32 + embedded overlay **PASS**; §W2 **PASS**; Linux L3 **PASS**; WASM ×3 **PASS**; Android **12/12 PASS** (1-й прогон).
 
+**Cold/replay selection (2026-11-02):** **Headless E2E** — list presenter **`SubmitListRowSelectionChangedFromUi(1)`** → proxy → **`SubmitSelectionFromUi`** → save → **`LoadApplication` + Prepare**: **`selection_index == 1`**, **`selected.id()`** согласован с row[1], Open/Delete **enabled**; пустой selection после **`SelectHolder({})`** → **-1**, кнопки disabled. **Model** — disk cold + **`TryReplayFromBase`**: **`selection_index` / `selected.id()`** до dereference; **`OpenSelected`** если **`!selected.is_loaded()`** (ветка на прогоне **не срабатывала**). **Вывод:** после **`LoadApplication`** **`selected` уже loaded** (`cold_selected_unloaded_before_prepare=0`); valid-but-unloaded в этом cold path **не воспроизведён** — контракт **`Reset()`**-теста остаётся отдельным. **Код продукта:** без изменений (db8589a достаточен).
+
+**Проверки (cold selection audit, 2026-11-02 повтор):** headless + model + overlay + win32 **PASS**; §W2 **PASS**; Linux L3 **PASS**; WASM ×3 **PASS** (8766/8770/8765); Android **12/12 PASS** (1-й прогон). **Lease push:** `db8589a509f73a1e2d7128172929c8253f456a61`.
+
 ---
 
 <a id="p3t3l1--linux-minimalapp-initial-gtk-screen-2026-11-02--pass"></a>

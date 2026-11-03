@@ -1200,6 +1200,10 @@ void TestWindowCatalogOpenCloseEventJournalPersistence() {
     CHECK(replay_catalog->list->rows.size() == 2);
     CHECK(replay_catalog->list->selection_index == 1);
     CHECK(replay_catalog->selected.is_valid());
+    CHECK(replay_catalog->selected.id() == persisted_holder2_id);
+    if (!replay_catalog->selected.is_loaded()) {
+      replay_catalog->OpenSelected();
+    }
     CHECK(replay_catalog->selected->obj_id == persisted_holder2_id);
     WindowHolder* r1 = AsHolder(replay_catalog->list->rows[0]);
     WindowHolder* r2 = AsHolder(replay_catalog->list->rows[1]);
@@ -1255,6 +1259,10 @@ void TestWindowCatalogOpenCloseEventJournalPersistence() {
     CHECK(cold_catalog->list->rows.size() == 2);
     CHECK(cold_catalog->list->selection_index == 1);
     CHECK(cold_catalog->selected.is_valid());
+    CHECK(cold_catalog->selected.id() == persisted_holder2_id);
+    if (!cold_catalog->selected.is_loaded()) {
+      cold_catalog->OpenSelected();
+    }
     CHECK(cold_catalog->selected->obj_id == persisted_holder2_id);
     CHECK(cold_catalog->next_window_number == 3);
     CHECK(cold_catalog->journal.size() == saved_journal_size);

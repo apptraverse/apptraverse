@@ -118,6 +118,7 @@ void TestHeadlessCatalogChromeE2e() {
   std::unique_ptr<ApplicationUiSession> ui_session;
   ae::ObjId saved_holder_id;
   ae::ObjId saved_window_id;
+  ae::ObjId saved_selected_holder_id;
   int session_result = 1;
 
   ModelObjectProxy model_proxy{[&runtime](ModelObjectProxy::ModelWork work) {
@@ -128,23 +129,29 @@ void TestHeadlessCatalogChromeE2e() {
   hooks.prepare = PrepareWindowCatalogForRun;
   hooks.persist = [&](WindowCatalog& catalog) -> int {
     catalog.list.Load();
-    WindowHolder* remaining = AsHolder(catalog.list->rows[0]);
-    remaining->window.Load();
-    if (remaining->window->origin_id() != kWindowPrefabId) {
+    CHECK(catalog.list->selection_index == 1);
+    CHECK(catalog.selected.is_valid());
+    CHECK(catalog.selected.id() == catalog.list->rows[1].id());
+    WindowHolder* row0 = AsHolder(catalog.list->rows[0]);
+    WindowHolder* row1 = AsHolder(catalog.list->rows[1]);
+    row1->window.Load();
+    if (row1->window->origin_id() != kWindowPrefabId) {
       return 1;
     }
-    CatalogWindowPresented(*remaining->window).presenter.Load();
-    if (CatalogWindowPresenter(*remaining->window).origin_id() !=
+    CatalogWindowPresented(*row1->window).presenter.Load();
+    if (CatalogWindowPresenter(*row1->window).origin_id() !=
         kWindowPrefabPresenterId) {
       return 1;
     }
+    (void)row0;
     model_storage.BeginSaveSession();
     SaveWindowCatalogPersistentSnapshot(catalog);
     if (model_storage.SaveSessionHadFailure()) {
       return 1;
     }
-    saved_holder_id = remaining->obj_id;
-    saved_window_id = remaining->window.id();
+    saved_holder_id = row1->obj_id;
+    saved_window_id = row1->window.id();
+    saved_selected_holder_id = catalog.selected.id();
     return 0;
   };
 
@@ -172,6 +179,12 @@ void TestHeadlessCatalogChromeE2e() {
   WindowCatalog& ui_catalog =
       static_cast<WindowCatalog&>(ui_session->root());
   CHECK(!ui_catalog.window_prefab.is_loaded());
+  ui_catalog.list.Load();
+  CHECK(ui_catalog.list->selection_index == -1);
+  ui_catalog.buttons.open_button.Load();
+  ui_catalog.buttons.delete_button.Load();
+  CHECK(!ui_catalog.buttons.open_button->enabled());
+  CHECK(!ui_catalog.buttons.delete_button->enabled());
 
   auto apply_incremental = [&] {
     WaitPublication(waiter);
@@ -221,19 +234,16 @@ void TestHeadlessCatalogChromeE2e() {
   CHECK(!ui_catalog.texts.label_add->strings[0]->utf8.empty());
   CHECK(!ui_catalog.texts.label_add->strings[1]->utf8.empty());
 
-  ListPresenter(ui_catalog).SubmitListRowSelectionChangedFromUi(0);
+  ListPresenter(ui_catalog).SubmitListRowSelectionChangedFromUi(1);
   apply_incremental();
   ui_catalog.list.Load();
-  CHECK(ui_catalog.list->selection_index == 0);
-
-  ChromeButtonPresenter(ui_catalog,
-                        ui_catalog.presenters.delete_button_presenter)
-      .NotifyClickedFromUi();
-  apply_incremental();
-  ui_catalog.list.Load();
-  CHECK(ui_catalog.list->rows.size() == 1);
-  CHECK(AsHolder(ui_catalog.list->rows[0])->window.id() == window1_id);
-  CHECK(!ui_catalog.window_prefab.is_loaded());
+  CHECK(ui_catalog.list->selection_index == 1);
+  CHECK(ui_catalog.selected.is_valid());
+  CHECK(ui_catalog.selected.id() == ui_catalog.list->rows[1].id());
+  ui_catalog.buttons.open_button.Load();
+  ui_catalog.buttons.delete_button.Load();
+  CHECK(ui_catalog.buttons.open_button->enabled());
+  CHECK(ui_catalog.buttons.delete_button->enabled());
 
   runtime.RequestStop();
   model_thread.join();
@@ -241,6 +251,7 @@ void TestHeadlessCatalogChromeE2e() {
 
   CHECK(session_result == 0);
   CHECK(saved_window_id == window1_id);
+  CHECK(saved_selected_holder_id == saved_holder_id);
 
   {
     ae::DomainQuery const schema0{catalog_id, WindowCatalog::kClassId, 0};
@@ -253,11 +264,36 @@ void TestHeadlessCatalogChromeE2e() {
 
   ae::Domain cold_domain{model_storage};
   auto cold = LoadApplication<WindowCatalog>(cold_domain, catalog_id);
-  PrepareWindowCatalogForRun(*cold);
   cold->list.Load();
-  CHECK(cold->list->rows.size() == 1);
-  CHECK(AsHolder(cold->list->rows[0])->obj_id == saved_holder_id);
-  CHECK(AsHolder(cold->list->rows[0])->window.id() == saved_window_id);
+  CHECK(cold->list->rows.size() == 2);
+  CHECK(cold->list->selection_index == 1);
+  CHECK(cold->selected.is_valid());
+  CHECK(cold->selected.id() == saved_selected_holder_id);
+  bool const cold_selected_unloaded_before_prepare =
+      !cold->selected.is_loaded();
+  if (cold_selected_unloaded_before_prepare) {
+    cold->OpenSelected();
+    WindowHolder* sel = AsHolder(cold->list->rows[1]);
+    CHECK(sel->window.is_loaded());
+  }
+  PrepareWindowCatalogForRun(*cold);
+  CHECK(cold->list->selection_index == 1);
+  CHECK(cold->selected.is_valid());
+  CHECK(cold->selected.id() == saved_selected_holder_id);
+  cold->buttons.open_button.Load();
+  cold->buttons.delete_button.Load();
+  CHECK(cold->buttons.open_button->enabled());
+  CHECK(cold->buttons.delete_button->enabled());
+  cold->SelectHolder({});
+  CHECK(cold->list->selection_index == -1);
+  CHECK(!cold->selected.is_valid());
+  cold->RefreshChromeButtonEnabledState();
+  CHECK(!cold->buttons.open_button->enabled());
+  CHECK(!cold->buttons.delete_button->enabled());
+  cold->list.Load();
+  CHECK(cold->list->rows.size() == 2);
+  CHECK(AsHolder(cold->list->rows[1])->obj_id == saved_holder_id);
+  CHECK(AsHolder(cold->list->rows[1])->window.id() == saved_window_id);
   CHECK(cold->locale->language_index() == 1);
   AsHolder(cold->list->rows[0])->window.Load();
   CHECK(AsHolder(cold->list->rows[0])->window->origin_id() == kWindowPrefabId);
