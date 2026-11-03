@@ -3,8 +3,11 @@
 #include <iostream>
 
 #include "minimal_application.h"
+#include "minimal_app_controls.h"
 
+#include "apptraverse/application_model_runtime.h"
 #include "apptraverse/noninteractive_crt.h"
+#include "apptraverse/ui/ui_list_container.h"
 #include "apptraverse/platform/linux/linux_ui_list_presenter.h"
 #include "apptraverse/platform/linux/linux_ui_push_button_presenter.h"
 #include "apptraverse/platform/linux/linux_ui_window_presenter.h"
@@ -154,6 +157,7 @@ enum class AutomationStep {
 struct AutomationState {
   LinuxMinimalSessionAutomation mode = LinuxMinimalSessionAutomation::None;
   AutomationStep step = AutomationStep::Idle;
+  ApplicationModelRuntime* runtime = nullptr;
 };
 
 AutomationState& State() {
@@ -179,9 +183,11 @@ LinuxMinimalSessionAutomation ParseLinuxMinimalSessionAutomation(
 }
 
 LinuxMinimalSessionAutomationHooks MakeLinuxMinimalSessionAutomationHooks(
-    LinuxMinimalSessionAutomation mode, std::function<void()> /*request_stop*/) {
+    LinuxMinimalSessionAutomation mode, std::function<void()> /*request_stop*/,
+    ApplicationModelRuntime* runtime) {
   State().mode = mode;
   State().step = AutomationStep::Idle;
+  State().runtime = runtime;
   return LinuxMinimalSessionAutomationHooks{};
 }
 

@@ -14,11 +14,11 @@
 #include "apptraverse/ui/ui_presented_window_lifecycle.h"
 
 namespace apptraverse::example::minimal {
-namespace {
 
-void FinalizeReachableNodesForEmbeddedUserSave(ae::Obj& root) {
+void FinalizeMinimalApplicationNodesForEmbeddedUserOverlay(
+    MinimalApplication& application) {
   std::vector<Node*> nodes;
-  CollectReachableNodes(root, nodes);
+  CollectReachableNodes(application, nodes);
   for (Node* node : nodes) {
     if (node->journal.empty()) {
       continue;
@@ -27,7 +27,16 @@ void FinalizeReachableNodesForEmbeddedUserSave(ae::Obj& root) {
   }
 }
 
-}  // namespace
+void NormalizeMinimalApplicationAfterEmbeddedUserLoad(
+    MinimalApplication& application) {
+#if defined(APPTRAVERSE_ENABLE_DISTILLATION)
+  // Embedded USER save finalizes journals (clears base). Reload leaves nodes
+  // materialized but without base until runtime nodes are initialized.
+  FinalizeDistilledGraph(application);
+#else
+  (void)application;
+#endif
+}
 
 bool BootstrapMinimalApplicationProfileIfAbsent(
     std::filesystem::path const& state_dir,
@@ -93,7 +102,7 @@ int PersistMinimalApplication(MinimalApplication& application,
 int PersistMinimalApplicationEmbeddedUserOverlay(
     MinimalApplication& application, DirectoryDomainStorage& storage) {
   storage.BeginSaveSession();
-  FinalizeReachableNodesForEmbeddedUserSave(application);
+  FinalizeMinimalApplicationNodesForEmbeddedUserOverlay(application);
   ui::SavePresentedWindow(application.main_window);
   if (application.auxiliary_presented_open) {
     application.auxiliary.window.Load();

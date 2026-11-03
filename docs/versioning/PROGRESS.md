@@ -7,6 +7,28 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+## MinimalApp Linux build-time embedded BACKING/USER (2026-11-02) — PASS
+
+**Supply:** `apptraverse_export_minimal_distilled_graph_linux` → per-target `embedded_distilled_minimal_app_supply.h` (Linux presenter **ClassId** layers; bytes ≠ Win32 header). Shared builder: `BuildLinuxMinimalApplicationGraph` → `BuildMinimalApplicationGraph` + Linux presenter factories (`minimal_app_graph_linux.cpp`).
+
+**Load:** `linux_minimal_app` with `APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL` — `RunEmbeddedApplicationModelSession` + `embedded_distilled::minimal::kEmbeddedGraph`; пустой `--state-dir` → **`MINIMAL_APP_LOADED_FROM_EMBEDDED_BACKING`**, geometry из BACKING, **без** runtime distill bootstrap в USER.
+
+**Save:** `PersistMinimalApplicationEmbeddedUserOverlay` — journal finalize перед USER `SaveRoot`; BACKING в exe не меняется.
+
+**Cold reload (USER overlay):** `NormalizeMinimalApplicationAfterEmbeddedUserLoad` → **`FinalizeDistilledGraph`** (восстановление **Node::base** после journal-finalize save; не `FinalizeUiNodeState` на load). **`tools/linux_minimal_app_l3_smoke.py`** (WSL Ubuntu, incremental `linux-x64-debug`) — empty USER → UI (Row B + Apply) → shutdown persist → новый процесс → **`MINIMAL_APP_LOADED_FROM_PROFILE`** + Applied mirror + Row A GTK selection → **`MINIMAL_APP_L3_POST_COMMAND_OK`** — **PASS** (1-й прогон).
+
+**Regressions (lease `20b46b9…`, worktree `apptraverse-wt-web5`, incremental, без clean/full CTest):**
+- **Linux L3:** **PASS**
+- **§W2 + Headless + WindowCatalog overlay (9 CTest exe):** **PASS**
+- **WASM ×3 (8766 / 8770 / 8785):** **PASS**
+- **Android `connectedDebugAndroidTest` 12/12** (`Aether_NDK_Smoke_x86_64`) — **PASS** (1-й прогон)
+- **`apptraverse_minimal_app_embedded_export_test`:** **PASS**
+- **NOT RUN:** Web/Android product migration; profile migration; MinSizeRel embedded exes
+
+**Lease push:** `20b46b945fa67de49f61609c22553d7c90fe6606`.
+
+**NEXT:** Win32 cold L3 parity smoke (optional) или embedded **MinSizeRel** acceptance для WindowCatalog/MinimalApp без Debug runtime-distill footnote.
+
 ## MinimalApp Windows build-time embedded BACKING/USER (2026-11-02) — PASS
 
 **Load:** `RunEmbeddedApplicationModelSession` + `embedded_distilled_minimal_app_supply.h` (cmake `apptraverse_embed_distilled_supply` / `apptraverse_export_minimal_distilled_graph`); пустой `--state-dir` → cold geometry **120/80/640/480** из BACKING, без bootstrap distill в USER.

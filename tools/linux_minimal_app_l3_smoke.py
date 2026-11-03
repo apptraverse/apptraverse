@@ -76,7 +76,7 @@ def main() -> int:
         require_markers(
             out1,
             [
-                "MINIMAL_APP_PROFILE_BOOTSTRAP",
+                "MINIMAL_APP_LOADED_FROM_EMBEDDED_BACKING",
                 "MINIMAL_APP_INITIAL_RENDER_OK",
                 "MINIMAL_APP_L3_SAVE_READY",
                 "MINIMAL_APP_SHUTDOWN_PERSIST_OK",

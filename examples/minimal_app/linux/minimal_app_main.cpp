@@ -41,7 +41,7 @@ int main(int argc, char** argv) {
   apptraverse::linux::LinuxApplicationHostCallbacks callbacks;
   auto automation_hooks =
       apptraverse::example::minimal::MakeLinuxMinimalSessionAutomationHooks(
-          automation, [&] { runtime.RequestStop(); });
+          automation, [&] { runtime.RequestStop(); }, &runtime);
   callbacks.run_model = [&](apptraverse::ApplicationPublishedCallback on_published) {
     model_exit_status = apptraverse::example::minimal::RunMinimalApplicationModel(
         state_dir, runtime, on_published, true);

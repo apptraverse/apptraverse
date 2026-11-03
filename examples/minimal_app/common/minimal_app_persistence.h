@@ -29,6 +29,14 @@ int PersistMinimalApplication(MinimalApplication& application,
 int PersistMinimalApplicationEmbeddedUserOverlay(
     MinimalApplication& application, DirectoryDomainStorage& storage);
 
+// Journal-bearing nodes: adopt generation/base before embedded USER save.
+void FinalizeMinimalApplicationNodesForEmbeddedUserOverlay(
+    MinimalApplication& application);
+
+// After embedded USER reload: restore Node base bindings before UI commands.
+void NormalizeMinimalApplicationAfterEmbeddedUserLoad(
+    MinimalApplication& application);
+
 // Model-thread checkpoint persist for the live session root in |domain|.
 int PersistMinimalApplicationFromDomain(
     ae::Domain& domain, std::filesystem::path const& state_dir);

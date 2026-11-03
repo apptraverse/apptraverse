@@ -6,6 +6,10 @@
 
 #include "aether-objects/obj/obj.h"
 
+namespace apptraverse {
+class ApplicationModelRuntime;
+}
+
 namespace apptraverse::example::minimal {
 
 enum class LinuxMinimalSessionAutomation {
@@ -26,7 +30,8 @@ struct LinuxMinimalSessionAutomationHooks {
 
 LinuxMinimalSessionAutomationHooks MakeLinuxMinimalSessionAutomationHooks(
     LinuxMinimalSessionAutomation mode,
-    std::function<void()> request_stop);
+    std::function<void()> request_stop,
+    ApplicationModelRuntime* runtime = nullptr);
 
 }  // namespace apptraverse::example::minimal
 
