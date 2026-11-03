@@ -24,6 +24,19 @@
 - **Android:** `examples/minimal_app/android` `connectedDebugAndroidTest` **12/12** на **Aether_NDK_Smoke_x86_64** (Android 14) — **PASS** (1-й прогон, 0 failed).
 - **FAIL / BLOCKED / повторы:** нет.
 
+## WindowCatalog Windows build-time embedded — audit (SHA `5b2bb90`, 2026-11-02) — PASS (scope)
+
+**Кто использует embedded BACKING (без runtime distill bootstrap):** только **`win32_window_catalog_demo`** и **`win32_window_catalog_demo_load_only`** при сборке **`MinSizeRel`** (`APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL` в `examples/surfaces_demo/windows/CMakeLists.txt`). **`RunEmbeddedApplicationModelSession`** + **`generated/window_catalog_distilled.h`** (`embedded_distilled::window_catalog::kEmbeddedGraph`; supply constants **ObjId 15/16** = WindowPrefab / WindowPrefabPresenter). Exporter: **`apptraverse_export_window_catalog_distilled_graph`** → target **`apptraverse_generate_window_catalog_distilled_header`**.
+
+**Debug `win64-ninja-msvc-debug` exe (текущий preset):** **`win32_window_catalog_demo`** — **`APPTRAVERSE_ENABLE_DISTILLATION`** (runtime distill в USER при пустом profile); **`win32_window_catalog_demo_load_only`** — без embedded и без distill (только существующий USER). Это **не** build-time embedded path.
+
+**Покрытие (существующие тесты, incremental Debug @ `5b2bb90`, без дублирования):**
+- **`apptraverse_window_catalog_embedded_overlay_test`** — cold load пустой USER; **`AddWindow`** (Clone) → USER persist → cold replay; **origin W/V**; **lazy `window_prefab`**; **`RunEmbeddedApplicationModelSession`** roundtrip (2 sessions). **PASS**.
+- **`apptraverse_window_catalog_model_test`** — prefab Clone / disk layers (directory graph). **PASS**.
+- **`apptraverse_window_catalog_win32_acceptance_test`** — Win32 UI E2E на **Debug** demo (runtime distill), не MinSizeRel embedded exe. **PASS**.
+
+**Изменения product-кода:** нет. **Linux L3 / WASM×3 / Android 12/12:** **NOT RUN** (нет изменений кода; последний полный прогон — **`5b2bb90`** PROGRESS выше).
+
 **Подтверждённый HEAD (unified, U1):** **`8835d26`**. **Object Core срез до merge:** **`df536e6`** (C0.2.2); docs C0.3 — **`9e91f4d`**. Application docs — [application-versioning.md](../integration/application-versioning.md), [window_catalog_demo.md](../window_catalog_demo.md).
 
 **Baseline SHA (старт tracking fixtures):** `19d7da61954ddbab02ef098eec540ac17e936fcf`
