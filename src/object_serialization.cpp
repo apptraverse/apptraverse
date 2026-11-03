@@ -473,7 +473,7 @@ void CollectReachableObjectsFromLiveFields(ae::Obj& root,
       continue;
     }
     out.push_back(obj);
-    ForEachGraphEdgeObjPtrOn(*obj, [&](auto& edge) {
+    ForEachGraphEdgeObjPtrOnObject(*obj, [&](ae::ObjectPtrBase& edge) {
       if (!edge.is_valid()) {
         return;
       }

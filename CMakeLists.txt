@@ -103,6 +103,7 @@ add_library(apptraverse STATIC
   src/partitioned_model_domain_storage.cpp
   src/model_object_proxy.cpp
   src/object_serialization.cpp
+  src/graph_walk_registry.cpp
   src/object_clone.cpp
   src/publication_serialization_scope.cpp
   src/ui_mirror.cpp

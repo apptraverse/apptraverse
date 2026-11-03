@@ -10,7 +10,11 @@
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/graph_walk.h"
+#include "apptraverse/node.h"
+#include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
+#include "apptraverse/ui/ui_presented_window_lifecycle.h"
+#include "apptraverse/ui/ui_presenters.h"
 
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 
@@ -1893,6 +1897,35 @@ void TestCatalogDeleteUnloadedWindowDoesNotLoad() {
   CHECK(catalog->list->rows.empty());
 }
 
+void TestLiveReachableNodesCoverOpenCatalogWindow() {
+  EnsureObjectRegistration();
+  EnsureWindowCatalogModelRegistration();
+  EnsureWindowCatalogGraphRegistration();
+
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto catalog = BuildWindowCatalogGraph(domain);
+  FinalizeDistilledGraph(*catalog);
+  catalog->AddWindow();
+  WindowHolder* holder = AsHolder(catalog->list->rows[0]);
+  ui::LoadPresentedWindow(holder->window);
+
+  std::vector<Node*> live;
+  CollectLiveReachableNodes(*catalog, live);
+  CHECK(live.size() >= 2);
+  bool saw_holder = false;
+  for (Node* node : live) {
+    if (node->GetClassId() == WindowHolder::kClassId) {
+      saw_holder = true;
+    }
+  }
+  CHECK(saw_holder);
+
+  std::vector<ae::Obj*> live_objects;
+  CollectLiveReachableObjects(*holder->window, live_objects);
+  CHECK(live_objects.size() >= 2);
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -1914,6 +1947,7 @@ int main() {
   apptraverse::test::TestWindowCatalogOpenCloseEventJournalPersistence();
   apptraverse::test::TestWindowCatalogChromeButtonDistilledBaseReplay();
   apptraverse::test::TestManyHoldersClosedGraphsAbsentFromDomain();
+  apptraverse::test::TestLiveReachableNodesCoverOpenCatalogWindow();
   std::cout << "window_catalog_model_test OK\n";
   return 0;
 }

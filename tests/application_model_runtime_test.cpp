@@ -18,6 +18,7 @@
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/node_for.h"
 #include "apptraverse/noninteractive_crt.h"
+#include "apptraverse/graph_walk.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
@@ -38,6 +39,33 @@ namespace {
 ae::ObjId const kRootId{0xA5A50001u};
 
 class RuntimeBumpEvent;
+class RuntimeTestChild;
+
+class RuntimeTestChild : public NodeFor<RuntimeTestChild> {
+  APPTRAVERSE_OBJECT(RuntimeTestChild, Node, 0)
+
+ protected:
+  RuntimeTestChild() = default;
+
+ public:
+  explicit RuntimeTestChild(ae::ObjProp prop) : NodeFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(marker))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, marker);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, marker);
+  }
+
+  std::int32_t marker{0};
+
+  void Apply(RuntimeBumpEvent const& event);
+};
 
 class RuntimeTestRoot : public NodeFor<RuntimeTestRoot> {
   APPTRAVERSE_OBJECT(RuntimeTestRoot, Node, 0)
@@ -48,19 +76,21 @@ class RuntimeTestRoot : public NodeFor<RuntimeTestRoot> {
  public:
   explicit RuntimeTestRoot(ae::ObjProp prop) : NodeFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(value))
+  AE_OBJECT_REFLECT(AE_MMBR(value), AE_MMBR(child), AE_MMBR(lazy_child))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, value);
+    dnv(base_, value, child, lazy_child);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, value);
+    dnv(base_, value, child, lazy_child);
   }
 
   std::int32_t value{0};
+  RuntimeTestChild::ptr child;
+  RuntimeTestChild::ptr lazy_child;
 
   void Apply(RuntimeBumpEvent const& event);
 };
@@ -79,18 +109,56 @@ class RuntimeBumpEvent : public EventFor<RuntimeTestRoot, RuntimeBumpEvent> {
   std::int32_t delta{0};
 };
 
+APPTRAVERSE_REGISTER(RuntimeTestChild);
 APPTRAVERSE_REGISTER(RuntimeTestRoot);
 APPTRAVERSE_REGISTER(RuntimeBumpEvent);
+
+void RuntimeTestChild::Apply(RuntimeBumpEvent const& event) {
+  marker += event.delta;
+  NoteMaterializedChange();
+}
 
 void RuntimeTestRoot::Apply(RuntimeBumpEvent const& event) {
   value += event.delta;
   NoteMaterializedChange();
 }
 
+ae::ObjId const kChildId{0xA5A50002u};
+ae::ObjId const kLazyChildId{0xA5A50003u};
+ae::ObjId const kSessionChildId{0xA5A50005u};
+
 struct Sync {
   std::mutex mu;
   std::condition_variable cv;
 };
+
+void RunModelUntilInitialReady(ApplicationModelRuntime& runtime,
+                               ae::Domain& model_domain, Node& root,
+                               Sync& sync, bool& initial_ready) {
+  std::thread model_thread{[&] {
+    runtime.Run(model_domain, root, [&](ApplicationPublicationKind kind) {
+      if (kind == ApplicationPublicationKind::Initial) {
+        runtime.TakePublishedCopy();
+        runtime.NotifyPublicationConsumed();
+        initial_ready = true;
+        sync.cv.notify_all();
+      }
+    });
+  }};
+  {
+    std::unique_lock<std::mutex> lock{sync.mu};
+    sync.cv.wait(lock, [&] { return initial_ready; });
+  }
+  runtime.RequestStop();
+  model_thread.join();
+}
+
+void BumpChildMarker(RuntimeTestChild& child, ae::Domain& domain,
+                     std::int32_t delta) {
+  auto ev = RuntimeBumpEvent::ptr::Create(ae::CreateWith{domain});
+  ev->delta = delta;
+  child.Commit(std::move(ev));
+}
 
 void CommitBump(RuntimeTestRoot& root, ae::Domain& domain, std::int32_t delta) {
   auto ev = RuntimeBumpEvent::ptr::Create(ae::CreateWith{domain});
@@ -601,13 +669,66 @@ void TestNotifierDetachedAfterRun() {
   ApplicationModelRuntime runtime;
   Sync sync;
   bool initial_ready = false;
+  RunModelUntilInitialReady(runtime, model_domain, *root, sync, initial_ready);
+
+  CHECK(!root->HasMaterializedChangeNotifier());
+  CommitBump(*root, model_domain, 1);
+  CHECK(root->value == 1);
+}
+
+void TestRuntimeNotifierLifetimeOnChildLazyAndDetached() {
+  ae::RamDomainStorage model_storage;
+  ae::Domain model_domain{model_storage};
+  auto root = RuntimeTestRoot::ptr::Create(
+      ae::CreateWith{model_domain}.with_id(kRootId));
+  auto child = RuntimeTestChild::ptr::Create(
+      ae::CreateWith{model_domain}.with_id(kChildId));
+  auto lazy = RuntimeTestChild::ptr::Declare(
+      ae::CreateWith{model_domain}
+          .with_id(kLazyChildId)
+          .with_flags(ae::ObjFlags::kUnloaded));
+  InitializeRuntimeNode(*root);
+  InitializeRuntimeNode(*child);
+  root->child = child;
+  root->lazy_child = lazy;
+
+  std::vector<Node*> live_before;
+  CollectLiveReachableNodes(*root, live_before);
+  CHECK(live_before.size() >= 2);
+
+  ApplicationModelRuntime runtime;
+  Sync sync;
+  bool initial_ready = false;
+  RunModelUntilInitialReady(runtime, model_domain, *root, sync, initial_ready);
+
+  CHECK(!root->HasMaterializedChangeNotifier());
+  CHECK(!child->HasMaterializedChangeNotifier());
+  CHECK(!lazy.is_loaded());
+  BumpChildMarker(*child, model_domain, 3);
+  CHECK(child->marker == 3);
+}
+
+void TestRuntimeNotifierDetachedChildStillInDomain() {
+  ae::RamDomainStorage model_storage;
+  ae::Domain model_domain{model_storage};
+  auto root = RuntimeTestRoot::ptr::Create(
+      ae::CreateWith{model_domain}.with_id(kRootId));
+  auto child = RuntimeTestChild::ptr::Create(
+      ae::CreateWith{model_domain}.with_id(kChildId));
+  InitializeRuntimeNode(*root);
+  InitializeRuntimeNode(*child);
+  root->child = child;
+
+  ApplicationModelRuntime runtime;
+  Sync sync;
+  bool initial_ready = false;
 
   std::thread model_thread{[&] {
     runtime.Run(model_domain, *root, [&](ApplicationPublicationKind kind) {
       if (kind == ApplicationPublicationKind::Initial) {
         runtime.TakePublishedCopy();
         runtime.NotifyPublicationConsumed();
-
+        CHECK(child->HasMaterializedChangeNotifier());
         initial_ready = true;
         sync.cv.notify_all();
       }
@@ -618,11 +739,56 @@ void TestNotifierDetachedAfterRun() {
     std::unique_lock<std::mutex> lock{sync.mu};
     sync.cv.wait(lock, [&] { return initial_ready; });
   }
+  runtime.Post([&](ae::Domain&) { root->child.Reset(); });
   runtime.RequestStop();
   model_thread.join();
 
-  CommitBump(*root, model_domain, 1);
-  CHECK(root->value == 1);
+  CHECK(!child->HasMaterializedChangeNotifier());
+  BumpChildMarker(*child, model_domain, 2);
+  CHECK(child->marker == 2);
+}
+
+void TestRuntimeNotifierSessionAddedChildLinkedBeforeStop() {
+  ae::RamDomainStorage model_storage;
+  ae::Domain model_domain{model_storage};
+  auto root = RuntimeTestRoot::ptr::Create(
+      ae::CreateWith{model_domain}.with_id(kRootId));
+  InitializeRuntimeNode(*root);
+
+  ApplicationModelRuntime runtime;
+  Sync sync;
+  bool initial_ready = false;
+
+  std::thread model_thread{[&] {
+    runtime.Run(model_domain, *root, [&](ApplicationPublicationKind kind) {
+      if (kind == ApplicationPublicationKind::Initial) {
+        runtime.TakePublishedCopy();
+        runtime.NotifyPublicationConsumed();
+        initial_ready = true;
+        sync.cv.notify_all();
+      }
+    });
+  }};
+
+  {
+    std::unique_lock<std::mutex> lock{sync.mu};
+    sync.cv.wait(lock, [&] { return initial_ready; });
+  }
+  runtime.Post([&](ae::Domain& domain) {
+    auto session_child = RuntimeTestChild::ptr::Create(
+        ae::CreateWith{domain}.with_id(kSessionChildId));
+    InitializeRuntimeNode(*session_child, *root);
+    root->child = session_child;
+  });
+  runtime.RequestStop();
+  model_thread.join();
+
+  ae::Ptr<ae::Obj> const held = model_domain.Find(kSessionChildId);
+  CHECK(held);
+  auto& session = static_cast<RuntimeTestChild&>(*held);
+  CHECK(!session.HasMaterializedChangeNotifier());
+  BumpChildMarker(session, model_domain, 4);
+  CHECK(session.marker == 4);
 }
 
 }  // namespace
@@ -640,6 +806,9 @@ int main() {
   apptraverse::test::TestBeforeIncrementalSidecarAtTake();
   apptraverse::test::TestModelSessionLoadRunPersist();
   apptraverse::test::TestNotifierDetachedAfterRun();
+  apptraverse::test::TestRuntimeNotifierLifetimeOnChildLazyAndDetached();
+  apptraverse::test::TestRuntimeNotifierDetachedChildStillInDomain();
+  apptraverse::test::TestRuntimeNotifierSessionAddedChildLinkedBeforeStop();
   std::cout << "application_model_runtime_test OK\n";
   return 0;
 }

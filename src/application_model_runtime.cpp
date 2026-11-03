@@ -32,8 +32,17 @@ void ApplicationModelRuntime::Run(
     ApplicationPublishedCallback on_published,
     BeforeIncrementalPublicationCallback before_incremental) {
   PendingDirtyNodes pending_dirty;
-  BindReachableNodesMaterializedChangeNotifier(
-      application_root, &pending_dirty, &PendingDirtyNodesNotify);
+  std::vector<ae::ObjId> notifier_bound_at_start;
+  {
+    std::vector<Node*> nodes;
+    CollectReachableNodes(application_root, nodes);
+    notifier_bound_at_start.reserve(nodes.size());
+    for (Node* node : nodes) {
+      node->BindMaterializedChangeNotifier(&pending_dirty,
+                                           &PendingDirtyNodesNotify);
+      notifier_bound_at_start.push_back(node->obj_id);
+    }
+  }
 
   auto* buffer = channel_.AcquireProducer();
   SerializeInitialPublication(application_root, buffer->sink);
@@ -110,7 +119,14 @@ void ApplicationModelRuntime::Run(
     }
   }
 
-  ClearLiveReachableNodesMaterializedChangeNotifier(application_root);
+  for (ae::ObjId const& id : notifier_bound_at_start) {
+    if (ae::Ptr<ae::Obj> obj = domain.Find(id)) {
+      if (auto* node = static_cast<Node*>(obj.get())) {
+        node->ClearMaterializedChangeNotifier();
+      }
+    }
+  }
+  ClearReachableNodesMaterializedChangeNotifier(application_root);
 }
 
 std::vector<std::uint8_t> ApplicationModelRuntime::TakePublishedCopy(

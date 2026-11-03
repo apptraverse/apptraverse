@@ -7,6 +7,40 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+## Model runtime notifier lifetime + live graph walk (post-`8e1953c`, 2026-11-03) — PASS
+
+**Lease base:** `8e1953c075ea2c511ea6d644527f2cbb6397dc9c`.
+
+### Cause
+
+- **`ApplicationModelRuntime::Run`:** bind used **`CollectReachableNodes`** (persistent scratch set); shutdown clear used **`ClearLiveReachableNodesMaterializedChangeNotifier`** → **`CollectLiveReachableNodes`** → **`CollectReachableObjectsFromLiveFields`** with **`ForEachGraphEdgeObjPtrOn(ae::Obj&)`** (static `ae::Obj` reflection only). Child **Nodes** kept **`PendingDirtyNodes*`** after **`Run()`** returned.
+- **Detached / journal-held nodes:** live clear missed nodes no longer on live fields but still bound at session start.
+
+### Fix (common)
+
+- **`ForEachGraphEdgeObjPtrOnObject`:** per-class walkers registered via **`APPTRAVERSE_REGISTER`** → reflection on concrete type.
+- **`CollectReachableObjectsFromLiveFields`** uses object dispatch ( **`LiveGraphEdgeAppender`** unchanged for Surface chrome).
+- **Shutdown:** clear **`notifier_bound_at_start`** (initial persistent bind set) **then** **`ClearLiveReachableNodesMaterializedChangeNotifier`** (session-linked nodes). **`CollectReachableNodeRefs`** unchanged.
+
+### Tests (pre-fix would fail on `HasMaterializedChangeNotifier` on child)
+
+- **`application_model_runtime_test`:** child + lazy unloaded + detached child still in domain + session-linked child; root notifier check tightened.
+- **`window_catalog_model_test`:** **`TestLiveReachableNodesCoverOpenCatalogWindow`** (catalog **Node** rows + open window **`CollectLiveReachableObjects`**).
+
+### Regressions (incremental, `apptraverse-wt-web5`)
+
+| Check | Result |
+| --- | --- |
+| **`apptraverse_application_model_runtime_test`** (Win + Linux) | **PASS** |
+| **`apptraverse_application_ui_session_test`** + §W2 (12 exe incl. minimal acceptance) + WindowCatalog overlay/model | **PASS** |
+| **`apptraverse_minimal_app_headless_test`** (Win + Linux) | **PASS** |
+| Linux L3 smoke | **PASS** |
+| Android **12/12** | **PASS** |
+| WASM ×3 (8766/8770/8785) | **FAIL** — Playwright `wait_for_function` timeout on minimal + lifecycle (8767 retry same); catalog **NOT RUN** (blocked on smokes) |
+| Full CTest | **NOT RUN** |
+
+**NEXT:** WASM smoke timeout (serve/port/stale emscripten artifact vs product); optional audit **`ModelRuntime`** shutdown clear vs **`model_nodes_`** list.
+
 ## MinimalApp embedded USER finalize ownership (post-`9f322b2`, 2026-11-03) — PASS
 
 **Lease base:** `1acb0b8451d2512ca68e4461d01b161668f21e6c` (fast-forward from `9f322b2`, docs-only).

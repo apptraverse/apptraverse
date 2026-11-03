@@ -38,7 +38,9 @@
 
 #define APPTRAVERSE_REGISTER(DERIVED)                                    \
   static ::ae::Registrar<DERIVED> g_apptraverse_registrar_##DERIVED{     \
-      DERIVED::kClassId, DERIVED::kBaseClassId}
+      DERIVED::kClassId, DERIVED::kBaseClassId};                       \
+  static bool g_apptraverse_graph_walk_##DERIVED =                     \
+      ::apptraverse::RegisterGraphEdgeWalker<DERIVED>()
 
 namespace apptraverse {
 
@@ -47,5 +49,7 @@ namespace apptraverse {
 void EnsureObjectRegistration();
 
 }  // namespace apptraverse
+
+#include "apptraverse/graph_walk.h"
 
 #endif  // APPTRAVERSE_OBJECT_MACROS_H_

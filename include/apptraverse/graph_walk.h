@@ -9,12 +9,21 @@
 #include "aether-objects/obj/obj.h"
 #include "aether-objects/obj/obj_ptr.h"
 
-#include "apptraverse/event.h"
-#include "apptraverse/node.h"
+#include "aether-objects/obj/obj_ptr_base.h"
+
 #include "apptraverse/object_link.h"
 
 namespace apptraverse {
+
+class Event;
+class Node;
+
 namespace detail {
+
+void RegisterClassGraphEdgeWalk(
+    std::uint32_t class_id,
+    void (*walk)(ae::Obj& obj,
+                 void (*emit)(ae::ObjectPtrBase& edge, void* ctx), void* ctx));
 
 template <typename T, typename Fn>
   requires(ae::reflect::Reflectable<T>)
@@ -153,6 +162,49 @@ void ForEachGraphEdgeObjPtrOn(T& obj, Fn&& fn) {
 template <typename T, typename Fn>
 void ForEachReflectedObjPtrOn(T& obj, Fn&& fn) {
   detail::ForEachReflectedObjPtrOn(obj, std::forward<Fn>(fn));
+}
+
+namespace detail {
+
+template <typename T>
+void WalkRegisteredClassGraphEdges(ae::Obj& obj,
+                                   void (*emit)(ae::ObjectPtrBase& edge,
+                                                void* ctx),
+                                   void* ctx) {
+  ForEachGraphEdgeObjPtrOn(static_cast<T&>(obj), [emit, ctx](auto& edge) {
+    emit(static_cast<ae::ObjectPtrBase&>(edge), ctx);
+  });
+}
+
+template <typename T>
+bool RegisterGraphEdgeWalkerImpl() {
+  RegisterClassGraphEdgeWalk(T::kClassId, &WalkRegisteredClassGraphEdges<T>);
+  return true;
+}
+
+}  // namespace detail
+
+template <typename T>
+bool RegisterGraphEdgeWalker() {
+  return detail::RegisterGraphEdgeWalkerImpl<T>();
+}
+
+// Live graph walks call this so reflection uses the object's concrete type.
+void ForEachGraphEdgeObjPtrOnObject(
+    ae::Obj& obj, void (*emit)(ae::ObjectPtrBase& edge, void* ctx), void* ctx);
+
+template <typename Fn>
+void ForEachGraphEdgeObjPtrOnObject(ae::Obj& obj, Fn&& fn) {
+  struct Ctx {
+    Fn* fn;
+  };
+  Ctx ctx{&fn};
+  ForEachGraphEdgeObjPtrOnObject(
+      obj,
+      +[](ae::ObjectPtrBase& edge, void* raw) {
+        (*static_cast<Ctx*>(raw)->fn)(edge);
+      },
+      &ctx);
 }
 
 }  // namespace apptraverse
