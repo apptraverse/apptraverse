@@ -25,6 +25,10 @@ bool BootstrapMinimalApplicationProfileIfAbsent(
 int PersistMinimalApplication(MinimalApplication& application,
                               DirectoryDomainStorage& storage);
 
+// USER overlay persist for build-time embedded BACKING sessions (no full-graph SaveRoot).
+int PersistMinimalApplicationEmbeddedUserOverlay(
+    MinimalApplication& application, DirectoryDomainStorage& storage);
+
 // Model-thread checkpoint persist for the live session root in |domain|.
 int PersistMinimalApplicationFromDomain(
     ae::Domain& domain, std::filesystem::path const& state_dir);

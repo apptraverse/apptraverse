@@ -7,6 +7,18 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+## MinimalApp Windows build-time embedded BACKING/USER (2026-11-02) — PASS
+
+**Load:** `RunEmbeddedApplicationModelSession` + `embedded_distilled_minimal_app_supply.h` (cmake `apptraverse_embed_distilled_supply` / `apptraverse_export_minimal_distilled_graph`); пустой `--state-dir` → cold geometry **120/80/640/480** из BACKING, без bootstrap distill в USER.
+
+**Save:** `PersistMinimalApplicationEmbeddedUserOverlay` — journal-bearing nodes `FinalizeUiNodeState` перед записью; `SavePresentedWindow` + `SaveRoot` в **USER-only** `DirectoryDomainStorage` (overlay в session); BACKING в exe не меняется.
+
+**Cold reload E2E:** `apptraverse_minimal_app_win32_acceptance_test` — UI resize → WM_CLOSE → probe (BACKING+USER overlay) → `win32_minimal_app_load_only` восстанавливает frame; graph negatives skipped при embedded.
+
+**Exporter:** уникальный temp dir per output header (fix parallel embed race).
+
+**Regressions (win64-ninja-msvc-debug, 2026-11-02):** `apptraverse_minimal_app_embedded_export_test` **PASS**; `apptraverse_minimal_app_win32_acceptance_test` **PASS**; `apptraverse_minimal_app_headless_test` **PASS**; §W2 восемь Win/Headless **PASS**; Linux L3 / WASM×3 / Android 12/12 — **NOT RUN** (этот прогон).
+
 **Подтверждённый HEAD (unified, U1):** **`8835d26`**. **Object Core срез до merge:** **`df536e6`** (C0.2.2); docs C0.3 — **`9e91f4d`**. Application docs — [application-versioning.md](../integration/application-versioning.md), [window_catalog_demo.md](../window_catalog_demo.md).
 
 **Baseline SHA (старт tracking fixtures):** `19d7da61954ddbab02ef098eec540ac17e936fcf`

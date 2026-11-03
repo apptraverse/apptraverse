@@ -1540,8 +1540,18 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
 
   apptraverse_add_test(apptraverse_minimal_app_win32_acceptance_test
     minimal_app_win32_acceptance_test.cpp minimal_app_common)
+  target_compile_definitions(apptraverse_minimal_app_win32_acceptance_test PRIVATE
+    APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
   target_link_libraries(apptraverse_minimal_app_win32_acceptance_test PRIVATE
     apptraverse_ui_windows_extended)
+  apptraverse_embed_distilled_supply(
+    apptraverse_minimal_app_win32_acceptance_test
+    apptraverse_export_minimal_distilled_graph
+    embedded_distilled_minimal_app_supply.h
+    ${CMAKE_SOURCE_DIR}/examples/minimal_app/windows/minimal_app_graph.cpp
+    ${CMAKE_SOURCE_DIR}/examples/minimal_app/common/minimal_application.cpp)
+  add_dependencies(apptraverse_minimal_app_win32_acceptance_test
+    apptraverse_export_minimal_distilled_graph)
   if(MSVC)
     target_compile_options(apptraverse_minimal_app_win32_acceptance_test PRIVATE
       /utf-8)

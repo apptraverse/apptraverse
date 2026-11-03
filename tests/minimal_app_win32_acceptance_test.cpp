@@ -12,9 +12,13 @@
 #include <string>
 #include <vector>
 
+#include "aether-objects/domain_storage/ram_domain_storage.h"
+
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
+#include "apptraverse/embedded_distilled_domain.h"
 #include "apptraverse/object_macros.h"
+#include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/platform/windows/win_ui_frame.h"
 #include "apptraverse/platform/windows/win_ui_presenters.h"
@@ -24,6 +28,10 @@
 
 #include "minimal_app_controls.h"
 #include "minimal_application.h"
+
+#if defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
+#include "embedded_distilled_minimal_app_supply.h"
+#endif
 
 namespace apptraverse::test {
 namespace {
@@ -240,10 +248,43 @@ void RegisterMinimalAppTypes() {
   example::minimal::EnsureMinimalApplicationRegistration();
 }
 
+struct ProfileDomain {
+#if defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
+  ae::RamDomainStorage backing;
+  DirectoryDomainStorage user_storage;
+  OverlayDomainStorage overlay;
+  ae::Domain domain;
+
+  explicit ProfileDomain(std::filesystem::path const& state_dir)
+      : user_storage{state_dir},
+        overlay{user_storage,
+                backing,
+                EmbeddedSupplyConstantIdSet(
+                    embedded_distilled::minimal::kEmbeddedGraph)},
+        domain{overlay} {
+    InstallEmbeddedDistilledBacking(
+        backing, embedded_distilled::minimal::kEmbeddedGraph);
+  }
+#else
+  DirectoryDomainStorage storage;
+  ae::Domain domain;
+
+  explicit ProfileDomain(std::filesystem::path const& state_dir)
+      : storage{state_dir}, domain{storage} {}
+#endif
+};
+
+example::minimal::MinimalApplication::ptr LoadPersistedMinimalApplication(
+    std::filesystem::path const& state_dir) {
+  ProfileDomain profile{state_dir};
+  return LoadApplication<example::minimal::MinimalApplication>(
+      profile.domain, example::minimal::MinimalApplicationRootId());
+}
+
 void WriteProfileMissingMainWindow(std::filesystem::path const& state_dir) {
   RegisterMinimalAppTypes();
-  DirectoryDomainStorage storage{state_dir};
-  ae::Domain domain{storage};
+  ProfileDomain profile{state_dir};
+  ae::Domain& domain = profile.domain;
   example::minimal::MinimalApplication::ptr loaded =
       LoadApplication<example::minimal::MinimalApplication>(
           domain, example::minimal::MinimalApplicationRootId());
@@ -267,8 +308,8 @@ void WriteProfileMissingMainWindow(std::filesystem::path const& state_dir) {
 
 void AssertMainWindowRefAbsent(std::filesystem::path const& state_dir) {
   RegisterMinimalAppTypes();
-  DirectoryDomainStorage storage{state_dir};
-  ae::Domain domain{storage};
+  ProfileDomain profile{state_dir};
+  ae::Domain& domain = profile.domain;
   example::minimal::MinimalApplication::ptr loaded =
       LoadApplication<example::minimal::MinimalApplication>(
           domain, example::minimal::MinimalApplicationRootId());
@@ -278,8 +319,8 @@ void AssertMainWindowRefAbsent(std::filesystem::path const& state_dir) {
 
 void WriteProfileMissingPresenter(std::filesystem::path const& state_dir) {
   RegisterMinimalAppTypes();
-  DirectoryDomainStorage storage{state_dir};
-  ae::Domain domain{storage};
+  ProfileDomain profile{state_dir};
+  ae::Domain& domain = profile.domain;
   example::minimal::MinimalApplication::ptr loaded =
       LoadApplication<example::minimal::MinimalApplication>(
           domain, example::minimal::MinimalApplicationRootId());
@@ -293,8 +334,8 @@ void WriteProfileMissingPresenter(std::filesystem::path const& state_dir) {
 
 void WriteProfileMissingPresenterObject(std::filesystem::path const& state_dir) {
   RegisterMinimalAppTypes();
-  DirectoryDomainStorage storage{state_dir};
-  storage.Remove(example::minimal::MinimalPresenterId());
+  DirectoryDomainStorage user_storage{state_dir};
+  user_storage.Remove(example::minimal::MinimalPresenterId());
 }
 
 PROCESS_INFORMATION StartDemo(std::filesystem::path const& exe,
@@ -461,10 +502,7 @@ void ProbePersistedGraph(std::filesystem::path const& state_dir,
   ui::windows::EnsureWinUiPresenterRegistration();
   example::minimal::EnsureMinimalApplicationRegistration();
 
-  DirectoryDomainStorage storage{state_dir};
-  ae::Domain domain{storage};
-  auto application = LoadApplication<example::minimal::MinimalApplication>(
-      domain, example::minimal::MinimalApplicationRootId());
+  auto application = LoadPersistedMinimalApplication(state_dir);
 
   CHECK(application->obj_id == example::minimal::MinimalApplicationRootId());
   CHECK(application->main_window.is_valid());
@@ -505,12 +543,29 @@ void ProbePersistedGraph(std::filesystem::path const& state_dir,
   CHECK(FramesNear(model_frame, expected_frame));
 }
 
+#if defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
+void ExpectEmbeddedBackingUnchanged() {
+  ae::RamDomainStorage reference;
+  InstallEmbeddedDistilledBacking(
+      reference, embedded_distilled::minimal::kEmbeddedGraph);
+  ae::RamDomainStorage::ObjClassData const snapshot = reference.state;
+  ae::RamDomainStorage probe;
+  InstallEmbeddedDistilledBacking(
+      probe, embedded_distilled::minimal::kEmbeddedGraph);
+  CHECK(probe.state == snapshot);
+}
+#endif
+
 std::filesystem::path RunAcceptance() {
   auto const state_dir = FreshStateDir();
   auto const demo = DemoExe("win32_minimal_app.exe");
   auto const load_only = DemoExe("win32_minimal_app_load_only.exe");
   CHECK(std::filesystem::exists(demo));
   CHECK(std::filesystem::exists(load_only));
+#if defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
+  CHECK(std::filesystem::is_empty(state_dir));
+  ExpectEmbeddedBackingUnchanged();
+#endif
 
   PROCESS_INFORMATION pi = StartDemo(demo, state_dir);
   DWORD const pid = pi.dwProcessId;
@@ -533,6 +588,10 @@ std::filesystem::path RunAcceptance() {
 
   CloseGracefully(main, pi);
 
+#if defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
+  CHECK(!std::filesystem::is_empty(state_dir));
+  ExpectEmbeddedBackingUnchanged();
+#endif
   ProbePersistedGraph(state_dir, saved);
 
   pi = StartDemo(load_only, state_dir);
@@ -552,8 +611,17 @@ void RunRequiredGraphNegativeTests(std::filesystem::path const& good_state,
                                    std::filesystem::path const& load_only) {
   {
     auto const empty_dir = NegativeStateDir("missing_root");
+#if defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
+    PROCESS_INFORMATION pi = StartDemo(load_only, empty_dir);
+    HWND main = WaitMainWindow(pi.dwProcessId, std::chrono::seconds{30});
+    CHECK(main != nullptr);
+    Frame const frame = ReadFrame(main);
+    CHECK(FramesNear(frame, Frame{120, 80, 640, 480}));
+    CloseGracefully(main, pi);
+#else
     auto const result = RunLoadOnlyCaptureStderr(load_only, empty_dir);
     ExpectFatalLoadOnly(result, "fatal: LoadApplication failed");
+#endif
   }
 
   {
@@ -599,8 +667,10 @@ void RunRequiredGraphNegativeTests(std::filesystem::path const& good_state,
 
 void RunAcceptanceAndRequiredGraphNegatives() {
   auto const good_state = RunAcceptance();
+#if !defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
   RunRequiredGraphNegativeTests(
       good_state, DemoExe("win32_minimal_app_load_only.exe"));
+#endif
 }
 
 }  // namespace

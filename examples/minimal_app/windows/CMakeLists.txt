@@ -1,3 +1,9 @@
+include(${CMAKE_SOURCE_DIR}/cmake/apptraverse_embed_distilled_supply.cmake)
+
+set(_minimal_embed_graph_sources
+  ${CMAKE_CURRENT_SOURCE_DIR}/minimal_app_graph.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common/minimal_application.cpp)
+
 set(_minimal_app_win_sources
   minimal_app_main.cpp
   minimal_app_lifecycle.cpp
@@ -25,17 +31,25 @@ add_executable(win32_minimal_app
   minimal_app_graph.cpp
 )
 target_compile_definitions(win32_minimal_app PRIVATE
-  APPTRAVERSE_ENABLE_DISTILLATION
+  APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL
 )
 
 add_executable(win32_minimal_app_load_only ${_minimal_app_win_sources})
 target_compile_definitions(win32_minimal_app_load_only PRIVATE
   APPTRAVERSE_MINIMAL_APP_LOAD_ONLY
+  APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL
 )
 
 foreach(_minimal_demo win32_minimal_app win32_minimal_app_load_only)
+  apptraverse_embed_distilled_supply(
+    ${_minimal_demo}
+    apptraverse_export_minimal_distilled_graph
+    embedded_distilled_minimal_app_supply.h
+    ${_minimal_embed_graph_sources})
+  add_dependencies(${_minimal_demo} apptraverse_export_minimal_distilled_graph)
   target_link_libraries(${_minimal_demo} PRIVATE
     minimal_app_common
+    apptraverse
     apptraverse_ui_windows
     user32
     gdi32

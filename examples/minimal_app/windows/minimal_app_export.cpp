@@ -1,5 +1,6 @@
 #include <cstdlib>
 #include <filesystem>
+#include <functional>
 #include <iostream>
 #include <set>
 
@@ -36,9 +37,13 @@ int main(int argc, char** argv) {
   apptraverse::ui::windows::EnsureWinUiPresenterRegistration();
   apptraverse::example::minimal::EnsureMinimalApplicationRegistration();
 
-  std::filesystem::path const export_dir =
-      std::filesystem::temp_directory_path() /
-      "apptraverse_export_minimal_distilled_graph";
+  std::filesystem::path const export_dir = [&]() {
+    std::hash<std::string> const hash;
+    std::size_t const tag = hash(std::filesystem::absolute(argv[1]).string());
+    return std::filesystem::temp_directory_path() /
+           ("apptraverse_export_minimal_distilled_graph_" +
+            std::to_string(tag));
+  }();
   std::error_code remove_ec;
   std::filesystem::remove_all(export_dir, remove_ec);
 

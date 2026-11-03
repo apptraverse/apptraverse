@@ -2,10 +2,9 @@
 
 #include "minimal_application.h"
 
-#include <vector>
-
 #if defined(APPTRAVERSE_ENABLE_DISTILLATION) && \
-    !defined(APPTRAVERSE_MINIMAL_APP_LOAD_ONLY)
+    !defined(APPTRAVERSE_MINIMAL_APP_LOAD_ONLY) && \
+    !defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
 #include "minimal_app_graph.h"
 #endif
 
@@ -15,6 +14,11 @@
 #include "apptraverse/object_macros.h"
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 
+#if defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
+#include "apptraverse/embedded_application_model_session.h"
+#include "embedded_distilled_minimal_app_supply.h"
+#endif
+
 #include "minimal_app_persistence.h"
 #include "minimal_app_prepare.h"
 
@@ -22,6 +26,22 @@
 #include "apptraverse/ui/ui_presenters.h"
 
 namespace apptraverse::example::minimal {
+namespace {
+
+ApplicationModelSessionHooks<MinimalApplication> MakeSessionHooks(
+    DirectoryDomainStorage& durable_storage) {
+  ApplicationModelSessionHooks<MinimalApplication> hooks;
+  hooks.prepare = [](MinimalApplication& application) {
+    PrepareMinimalApplicationForRun(application);
+  };
+  hooks.persist = [&durable_storage](MinimalApplication& application) -> int {
+    return PersistMinimalApplicationEmbeddedUserOverlay(application,
+                                                        durable_storage);
+  };
+  return hooks;
+}
+
+}  // namespace
 
 int RunMinimalApplicationModel(
     std::filesystem::path const& state_dir,
@@ -33,6 +53,16 @@ int RunMinimalApplicationModel(
   ui::windows::EnsureWinUiPresenterRegistration();
   EnsureMinimalApplicationRegistration();
 
+  DirectoryDomainStorage durable_storage{state_dir};
+  ApplicationModelSessionHooks<MinimalApplication> hooks =
+      MakeSessionHooks(durable_storage);
+
+#if defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
+  (void)allow_distilled_bootstrap;
+  return RunEmbeddedApplicationModelSession(
+      durable_storage, embedded_distilled::minimal::kEmbeddedGraph, runtime,
+      std::move(on_published), hooks);
+#else
 #if defined(APPTRAVERSE_ENABLE_DISTILLATION) && \
     !defined(APPTRAVERSE_MINIMAL_APP_LOAD_ONLY)
   if (allow_distilled_bootstrap) {
@@ -44,19 +74,10 @@ int RunMinimalApplicationModel(
 #else
   (void)allow_distilled_bootstrap;
 #endif
-
-  DirectoryDomainStorage durable_storage{state_dir};
-  ApplicationModelSessionHooks<MinimalApplication> hooks;
-  hooks.prepare = [](MinimalApplication& application) {
-    PrepareMinimalApplicationForRun(application);
-  };
-  hooks.persist = [&durable_storage](MinimalApplication& application) -> int {
-    return PersistMinimalApplication(application, durable_storage);
-  };
-
   return RunApplicationModelSession(
       durable_storage, MinimalApplicationRootId(), runtime,
       std::move(on_published), hooks);
+#endif
 }
 
 }  // namespace apptraverse::example::minimal
