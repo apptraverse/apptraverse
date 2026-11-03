@@ -1,12 +1,15 @@
+#include <algorithm>
 #include <condition_variable>
 #include <cstdlib>
 #include <deque>
 #include <filesystem>
 #include <iostream>
 #include <mutex>
+#include <set>
 #include <thread>
 #include <vector>
 
+#include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
 
 #include "apptraverse/application_model_runtime.h"
@@ -14,6 +17,8 @@
 #include "apptraverse/application_ui_session.h"
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
+#include "apptraverse/embedded_application_model_session.h"
+#include "apptraverse/embedded_distilled_domain.h"
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/node.h"
 #include "apptraverse/noninteractive_crt.h"
@@ -60,6 +65,7 @@ using example::minimal::MinimalAuxiliaryOpenerButton;
 using example::minimal::MinimalAuxiliaryOpenerId;
 using example::minimal::MinimalMainWindowId;
 using example::minimal::MinimalPresenterId;
+using example::minimal::PersistMinimalApplication;
 using example::minimal::PrepareMinimalApplicationForRun;
 
 constexpr std::int32_t kInitialX = 120;
@@ -179,6 +185,253 @@ std::filesystem::path TestProfileDir() {
   std::filesystem::remove_all(dir, ec);
   std::filesystem::create_directories(dir, ec);
   return dir;
+}
+
+std::filesystem::path EmbeddedUserProfileDir() {
+  auto const dir = std::filesystem::temp_directory_path() /
+                   "apptraverse_test" / "minimal_app_embedded_user_only";
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir, ec);
+  return dir;
+}
+
+struct LayerKey {
+  ae::ObjId::Type object_id{};
+  std::uint32_t class_id{};
+  std::uint8_t version{};
+};
+
+bool LayerKeyLess(LayerKey const& a, LayerKey const& b) {
+  if (a.object_id != b.object_id) {
+    return a.object_id < b.object_id;
+  }
+  if (a.class_id != b.class_id) {
+    return a.class_id < b.class_id;
+  }
+  return a.version < b.version;
+}
+
+void PersistDistilledMinimalGraphForEmbed(
+    ae::Domain& domain, example::minimal::MinimalApplication::ptr application) {
+  ae::Ptr<example::minimal::MinimalApplication> root = application.Load();
+  SaveDistilledRoot(*root);
+  std::vector<Node*> nodes;
+  CollectReachableNodes(*root, nodes);
+  for (Node* node : nodes) {
+    if (node->base.is_valid()) {
+      node->base.Save();
+    }
+  }
+  root->main_window.Save();
+  if (root->main_window.is_valid()) {
+    ae::Ptr<ui::UiDesktopWindow> window = root->main_window.Load();
+    if (window->presenter.is_valid()) {
+      window->presenter.Save();
+    }
+  }
+  ae::DomainGraph graph{&domain};
+  (void)graph.SaveRoot(root, example::minimal::MinimalApplicationRootId());
+}
+
+struct OwnedEmbeddedMinimalGraph {
+  std::vector<std::vector<std::uint8_t>> owned_bytes;
+  std::vector<EmbeddedDistilledLayerRecord> layer_records;
+  EmbeddedDistilledGraph graph{};
+};
+
+OwnedEmbeddedMinimalGraph BuildEmbeddedMinimalGraphFromDistillStorage(
+    ae::RamDomainStorage const& storage) {
+  struct Row {
+    LayerKey key;
+    ae::ObjectData const* bytes{};
+  };
+  std::vector<Row> rows;
+  for (auto const& [obj_id, class_map_opt] : storage.state) {
+    if (!class_map_opt) {
+      continue;
+    }
+    for (auto const& [class_id, version_map] : *class_map_opt) {
+      for (auto const& [version, bytes] : version_map) {
+        rows.push_back(Row{.key = {.object_id = obj_id.id(),
+                                   .class_id = class_id,
+                                   .version = version},
+                           .bytes = &bytes});
+      }
+    }
+  }
+  std::sort(rows.begin(), rows.end(),
+            [](Row const& a, Row const& b) { return LayerKeyLess(a.key, b.key); });
+
+  OwnedEmbeddedMinimalGraph out;
+  out.layer_records.reserve(rows.size());
+  out.owned_bytes.reserve(rows.size());
+  for (Row const& row : rows) {
+    out.owned_bytes.push_back(*row.bytes);
+    std::vector<std::uint8_t> const& copy = out.owned_bytes.back();
+    out.layer_records.push_back(
+        EmbeddedDistilledLayerRecord{.object_id = row.key.object_id,
+                                     .class_id = row.key.class_id,
+                                     .version = row.key.version,
+                                     .bytes = copy.data(),
+                                     .size = copy.size()});
+  }
+  out.graph.root_object_id = example::minimal::MinimalApplicationRootId().id();
+  out.graph.supply_constant_ids = {nullptr, 0};
+  out.graph.layers = out.layer_records.data();
+  out.graph.layer_count = out.layer_records.size();
+  return out;
+}
+
+OwnedEmbeddedMinimalGraph DistillHeadlessMinimalAppEmbeddedGraph() {
+  ae::RamDomainStorage distill_storage;
+  ae::Domain domain{distill_storage};
+  auto application = BuildHeadlessMinimalApplicationGraph(domain);
+  FinalizeDistilledGraph(*application);
+  PersistDistilledMinimalGraphForEmbed(domain, application);
+  return BuildEmbeddedMinimalGraphFromDistillStorage(distill_storage);
+}
+
+ae::RamDomainStorage::ObjClassData ReferenceEmbeddedBackingSnapshot(
+    EmbeddedDistilledGraph const& graph) {
+  ae::RamDomainStorage reference;
+  InstallEmbeddedDistilledBacking(reference, graph);
+  return reference.state;
+}
+
+void ExpectEmbeddedBackingUnchanged(
+    EmbeddedDistilledGraph const& graph,
+    ae::RamDomainStorage::ObjClassData const& reference) {
+  ae::RamDomainStorage probe;
+  InstallEmbeddedDistilledBacking(probe, graph);
+  CHECK(probe.state == reference);
+}
+
+void TestMinimalAppEmbeddedBackingUserHeadlessE2e() {
+  OwnedEmbeddedMinimalGraph owned = DistillHeadlessMinimalAppEmbeddedGraph();
+  EmbeddedDistilledGraph const& graph = owned.graph;
+  ae::RamDomainStorage::ObjClassData const reference_backing =
+      ReferenceEmbeddedBackingSnapshot(graph);
+
+  std::filesystem::path const user_dir = EmbeddedUserProfileDir();
+  CHECK(std::filesystem::is_empty(user_dir));
+
+  {
+    DirectoryDomainStorage user_storage{user_dir};
+    ApplicationModelRuntime runtime;
+    PublicationWaiter waiter;
+    std::unique_ptr<ApplicationUiSession> ui_session;
+    int session_result = 1;
+
+    ModelObjectProxy model_proxy{[&runtime](ModelObjectProxy::ModelWork work) {
+      runtime.Post(std::move(work));
+    }};
+
+    ApplicationModelSessionHooks<MinimalApplication> hooks;
+    hooks.prepare = [](MinimalApplication& application) {
+      PrepareMinimalApplicationForRun(application);
+      ui::UiDesktopWindow& window = UiMainWindow(application);
+      CHECK(window.x() == kInitialX);
+      CHECK(window.y() == kInitialY);
+      CHECK(window.client_width() == kInitialW);
+      CHECK(window.client_height() == kInitialH);
+    };
+    hooks.persist = [&](MinimalApplication& application) -> int {
+      return PersistMinimalApplication(application, user_storage);
+    };
+
+    std::thread model_thread{[&] {
+      session_result = RunEmbeddedApplicationModelSession(
+          user_storage, graph, runtime,
+          [&](ApplicationPublicationKind kind) {
+            {
+              std::lock_guard<std::mutex> lock{waiter.mu};
+              waiter.kind = kind;
+              ++waiter.pending;
+            }
+            waiter.cv.notify_one();
+          },
+          hooks);
+    }};
+
+    CHECK(WaitPublication(waiter) == ApplicationPublicationKind::Initial);
+    std::vector<std::uint8_t> initial_bytes = runtime.TakePublishedCopy();
+    runtime.NotifyPublicationConsumed();
+    ui_session = std::make_unique<ApplicationUiSession>(initial_bytes, nullptr,
+                                                        model_proxy);
+    MinimalApplication& ui_app =
+        static_cast<MinimalApplication&>(ui_session->root());
+    ui::UiDesktopWindow& ui_window = UiMainWindow(ui_app);
+    CHECK(ui_window.obj_id == MinimalMainWindowId());
+    CHECK(ui_window.presenter.id() == MinimalPresenterId());
+
+    UiMainPresenter(ui_app).SubmitFrameFromNative(kReportedX, kReportedY,
+                                                  kReportedW, kReportedH);
+
+    CHECK(WaitPublication(waiter) == ApplicationPublicationKind::Incremental);
+    std::vector<std::uint8_t> incremental_bytes = runtime.TakePublishedCopy();
+    runtime.NotifyPublicationConsumed();
+    ui_session->ApplyStructural(incremental_bytes);
+    CHECK(ui_window.x() == kReportedX);
+    CHECK(ui_window.y() == kReportedY);
+    CHECK(ui_window.client_width() == kReportedW);
+    CHECK(ui_window.client_height() == kReportedH);
+
+    runtime.RequestStop();
+    model_thread.join();
+    ui_session.reset();
+
+    CHECK(session_result == 0);
+    CHECK(!std::filesystem::is_empty(user_dir));
+    ExpectEmbeddedBackingUnchanged(graph, reference_backing);
+  }
+
+  {
+    DirectoryDomainStorage user_storage{user_dir};
+    ApplicationModelRuntime runtime;
+    PublicationWaiter waiter;
+    int session_result = 1;
+    bool prepare_ran = false;
+
+    ApplicationModelSessionHooks<MinimalApplication> hooks;
+    hooks.prepare = [&](MinimalApplication& application) {
+      prepare_ran = true;
+      PrepareMinimalApplicationForRun(application);
+      ui::UiDesktopWindow& window = UiMainWindow(application);
+      CHECK(window.x() == kReportedX);
+      CHECK(window.y() == kReportedY);
+      CHECK(window.client_width() == kReportedW);
+      CHECK(window.client_height() == kReportedH);
+    };
+    hooks.persist = [&](MinimalApplication& application) -> int {
+      return PersistMinimalApplication(application, user_storage);
+    };
+
+    std::thread model_thread{[&] {
+      session_result = RunEmbeddedApplicationModelSession(
+          user_storage, graph, runtime,
+          [&](ApplicationPublicationKind kind) {
+            if (kind == ApplicationPublicationKind::Initial) {
+              {
+                std::lock_guard<std::mutex> lock{waiter.mu};
+                waiter.kind = kind;
+                ++waiter.pending;
+              }
+              waiter.cv.notify_one();
+              runtime.TakePublishedCopy();
+              runtime.NotifyPublicationConsumed();
+              runtime.RequestStop();
+            }
+          },
+          hooks);
+    }};
+
+    CHECK(WaitPublication(waiter) == ApplicationPublicationKind::Initial);
+    model_thread.join();
+    CHECK(session_result == 0);
+    CHECK(prepare_ran);
+    ExpectEmbeddedBackingUnchanged(graph, reference_backing);
+  }
 }
 
 void TestMinimalAppHeadlessSessionE2e() {
@@ -927,6 +1180,7 @@ int main() {
   apptraverse::test::TestMinimalAppProductionOpenerInitialPublication();
   apptraverse::test::TestMinimalAppProductionOpenerColdLoadBeforePrepare();
   apptraverse::test::TestMinimalAppOpenerLabelInInitialPublication();
+  apptraverse::test::TestMinimalAppEmbeddedBackingUserHeadlessE2e();
   apptraverse::test::TestMinimalAppHeadlessSessionE2e();
   apptraverse::test::TestMinimalAppHeadlessUiCommandE2e();
   apptraverse::test::TestMinimalAppApplyCheckpointPersistColdLoad();

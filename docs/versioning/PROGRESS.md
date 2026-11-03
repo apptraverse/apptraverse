@@ -431,6 +431,10 @@
 
 **Проверки (lifecycle):** headless + model + overlay + win32 **PASS**; §W2 **PASS**; Linux L3 **PASS**; WASM ×3 **PASS**; Android **12/12 PASS** (1-й прогон). **Lease push:** `dd755544a8c761a457bef3ffbd10d13d4fa4f35a`.
 
+**MinimalApp embedded BACKING/USER (2026-11-02):** **Bootstrap prod** — `BootstrapMinimalApplicationProfileIfAbsent` пишет distill в **USER** (`RunApplicationModelSession` + `DirectoryDomainStorage`). **Embedded slice** — `TestMinimalAppEmbeddedBackingUserHeadlessE2e` в **`apptraverse_minimal_app_headless_test`**: runtime distill **`BuildHeadlessMinimalApplicationGraph`** → **`EmbeddedDistilledGraph`** (тот же SaveRoot/bases pipeline, что build-time exporter) → **`RunEmbeddedApplicationModelSession`**: session 1 — presenter **`SubmitFrameFromNative`** → proxy → publication → **`PersistMinimalApplication`** в **USER-only** dir; **BACKING** snapshot неизменен; session 2 — тот же USER, fresh embedded BACKING, **без** bootstrap distill — geometry **140/90/800/600** в prepare. **USER** = динамика; **BACKING** = константные слои. Продукт/backends не менялись.
+
+**Проверки (MinimalApp embedded E2E):** `apptraverse_minimal_app_headless_test` **PASS**; WindowCatalog headless/model/overlay/win32 **PASS**; §W2 **PASS**; Linux L3 **PASS**; WASM ×3 **PASS**; Android **12/12 PASS** (1-й прогон). **`apptraverse_minimal_app_embedded_export_test`** — **NOT RUN** (Win CTest; compile-time header exporter). **Lease push:** `a7534415875f18ef6f3ab9eb5a8a8650c6908d3c`.
+
 ---
 
 <a id="p3t3l1--linux-minimalapp-initial-gtk-screen-2026-11-02--pass"></a>
