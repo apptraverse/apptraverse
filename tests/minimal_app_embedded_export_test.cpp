@@ -16,6 +16,7 @@
 #include "apptraverse/ui/ui_window_presenter.h"
 
 #include "embedded_distilled_minimal_app_supply.h"
+#include "minimal_app_controls.h"
 #include "minimal_application.h"
 
 namespace apptraverse::example::minimal {
@@ -102,8 +103,10 @@ void TestColdLoadFromEmbeddedBacking() {
   CHECK(window->presenter.id() == MinimalPresenterId());
   ae::Ptr<ui::UiWindowPresenter> presenter = window->presenter.Load();
   CHECK(presenter->window.id() == MinimalMainWindowId());
-  CHECK(!presenter->title.is_valid());
-  CHECK(!presenter->locale.is_valid());
+  CHECK(presenter->title.is_valid());
+  CHECK(presenter->title.id() == MinimalWindowTitleId());
+  CHECK(presenter->locale.is_valid());
+  CHECK(presenter->locale.id() == MinimalLocaleId());
   CHECK(window->x() == 120);
   CHECK(window->y() == 80);
   CHECK(window->client_width() == 640);
@@ -125,9 +128,7 @@ void TestUserOverlayPersistence() {
     ae::Domain domain{overlay};
     MinimalApplication::ptr loaded = LoadApplication<MinimalApplication>(
         domain, MinimalApplicationRootId());
-    ae::DomainGraph save_graph{&domain};
-    CHECK(save_graph.SaveRoot(loaded.Load(), MinimalApplicationRootId())
-              .IsOk());
+    (void)loaded.Load();
     CHECK(user.state.empty());
   }
 

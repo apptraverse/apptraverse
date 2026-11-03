@@ -435,6 +435,10 @@
 
 **Проверки (MinimalApp embedded E2E):** `apptraverse_minimal_app_headless_test` **PASS**; WindowCatalog headless/model/overlay/win32 **PASS**; §W2 **PASS**; Linux L3 **PASS**; WASM ×3 **PASS**; Android **12/12 PASS** (1-й прогон). **`apptraverse_minimal_app_embedded_export_test`** — **NOT RUN** (Win CTest; compile-time header exporter). **Lease push:** `a7534415875f18ef6f3ab9eb5a8a8650c6908d3c`.
 
+**MinimalApp build-time embedded supply (2026-11-02):** **Первый отказ:** `apptraverse_export_minimal_distilled_graph` **exit -1073741819** (access violation) при **`StabilizeDistilledPersistentSnapshot` → `SaveDistilledRoot`** на **`BuildMinimalApplicationGraph`** (воспроизводится и с RAM-only, и с directory roundtrip); **без Stabilize** export **exit 0**. **Не** подтверждено, что Stabilize сам по себе «ломает» surfaces (surfaces export **PASS**); для MinimalApp export граница как у **`export_window_catalog_distilled_graph`**: **`FinalizeDistilledGraph` + `SaveDistilledRoot`**, temp **`DirectoryDomainStorage` → `LoadDirectoryDomainStorageIntoRam` → `WriteEmbeddedDistilledSupplyHeader`**. **Header:** CMake `embedded_distilled_minimal_app_supply.h` (~38 KB) из **`BuildMinimalApplicationGraph`**; consumer **`apptraverse_minimal_app_embedded_export_test`** — cold load **`embedded_distilled::minimal::kEmbeddedGraph`**, title/locale refs, USER overlay persist. **Тест:** ожидания cold load + noop USER при load-only.
+
+**Проверки (build-time supply):** exporter + **`apptraverse_minimal_app_embedded_export_test`** **PASS**; headless + WindowCatalog + §W2 + Linux L3 + WASM ×3 + Android **12/12 PASS** (1-й прогон). **Lease push:** `4ab24722396b83ab1f090d17916f179900f65e8b`.
+
 ---
 
 <a id="p3t3l1--linux-minimalapp-initial-gtk-screen-2026-11-02--pass"></a>
