@@ -22,7 +22,7 @@
 
 **Открыто:** Win32 **HWND list + Apply → persist → `LoadApplication` root fail** (Node `2178182515` **version=1** missing in storage) — воспроизведено в acceptance; **Linux L3 list two-cycle PASS** на том же overlay persist. Требует общий save/load слой (не MinimalApp feature work).
 
-**Regressions (incremental):** §W2 + Headless + overlay **PASS**; **Linux L3 two-cycle PASS**; **WASM ×3 PASS**; **Android 12/12 PASS**.
+**Regressions (incremental):** §W2 + Headless + overlay **PASS**; **Linux L3 two-cycle PASS**; **WASM ×3 PASS**; **Android 12/12 FAIL** (APK install-write on AVD, infra — не product regression).
 
 **Lease push:** `74503927436a4213083de7b58e8e3d167466a360`.
 
