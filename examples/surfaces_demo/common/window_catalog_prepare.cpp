@@ -78,13 +78,6 @@ void PrepareWindowCatalogForRun(WindowCatalog& catalog) {
   }
   int const language = catalog.locale->language_index();
   catalog.MaterializeCatalogStrings(language);
-  for (auto const& row : catalog.list->rows) {
-    auto* holder = static_cast<WindowHolder*>(&*row);
-    if (!holder->primary_text.is_loaded()) {
-      holder->primary_text.Load();
-    }
-    catalog.MaterializeHolderListText(*holder, language);
-  }
   catalog.RefreshChromeButtonEnabledState();
   RestoreLoadedCatalogWindows(catalog);
 }

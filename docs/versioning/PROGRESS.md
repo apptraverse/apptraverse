@@ -427,6 +427,10 @@
 
 **Проверки (probe pass 2):** headless + model **PASS**; overlay / win32 / §W2 / Linux / WASM / Android — **NOT RUN** (только тесты).
 
+**Lifecycle / prepare audit (2026-11-02):** **`RunApplicationModelSession`**: **`LoadApplication`** → **`PrepareWindowCatalogForRun`** → **`runtime.Run`** (initial + incremental publication) → shutdown **`SaveWindowCatalogPersistentSnapshot`**. **Prepare:** `LoadPresentedWindow(main)` → chrome **`Load()`** (cache no-op if loaded) → **`MaterializeCatalogStrings`** (chrome + все holder list text через **`row.Load()`**) → **`RefreshChromeButtonEnabledState`** → **`RestoreLoadedCatalogWindows`** (только **`holder.window.is_loaded()`**: `LoadPresentedWindow` + title materialize + notifiers; **закрытые** окна **skip** — lazy prefab link сохранён). **Save:** primary_text Save/Reset per row; **`SavePresentedWindow`** только для loaded child; catalog **`Save()`**. **Fix:** убран второй обход **`list->rows`** с повторным **`MaterializeHolderListText`** после **`MaterializeCatalogStrings`** (дублирование работы, не повторный Load). **Restore**-второй проход по **открытым** окнам — нужен (presentation после cold).
+
+**Проверки (lifecycle):** headless + model + overlay + win32 **PASS**; §W2 **PASS**; Linux L3 **PASS**; WASM ×3 **PASS**; Android **12/12 PASS** (1-й прогон). **Lease push:** `dd755544a8c761a457bef3ffbd10d13d4fa4f35a`.
+
 ---
 
 <a id="p3t3l1--linux-minimalapp-initial-gtk-screen-2026-11-02--pass"></a>
