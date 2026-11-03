@@ -110,6 +110,28 @@ ui::linux::LinuxDesktopWindowPresenter* LinuxAuxiliaryWindowPresenter(
       *app.auxiliary.window->presenter.operator->());
 }
 
+bool MirrorShowsRowBSelectedAppliedTitle(MinimalApplication& application) {
+  application.main_window.Load();
+  application.row_list.Load();
+  if (!application.main_window || !application.row_list) {
+    return false;
+  }
+  ui::UiDesktopWindow& window =
+      static_cast<ui::UiDesktopWindow&>(*application.main_window.operator->());
+  window.presenter.Load();
+  if (!window.presenter || !window.presenter->title) {
+    return false;
+  }
+  window.presenter->title.Load();
+  if (!window.presenter->title) {
+    return false;
+  }
+  if (window.presenter->title->Resolve(0) != "Applied") {
+    return false;
+  }
+  return application.row_list->selection_index == 1;
+}
+
 void SelectListRowNative(ui::linux::LinuxListContainerPresenter& list,
                          int index) {
   GtkWidget* widget = list.ListWidget();
@@ -149,6 +171,8 @@ enum class AutomationStep {
   L3SaveAwaitApplyClick,
   L3SaveAwaitAppliedMirror,
   L3ColdAwaitRowSelection,
+  L3Cycle2AwaitRowBSelection,
+  L3Cycle3ColdAwaitRowSelection,
   L3DetailAwaitOpen,
   L3DetailAwaitNativeClose,
   L3DetailAwaitClosedMirror,
@@ -174,6 +198,12 @@ LinuxMinimalSessionAutomation ParseLinuxMinimalSessionAutomation(
   }
   if (value == "l3_cold_verify") {
     return LinuxMinimalSessionAutomation::L3ColdVerify;
+  }
+  if (value == "l3_cycle2_select_row_b") {
+    return LinuxMinimalSessionAutomation::L3Cycle2SelectRowB;
+  }
+  if (value == "l3_cycle3_cold_select_row_a") {
+    return LinuxMinimalSessionAutomation::L3Cycle3ColdSelectRowA;
   }
   if (value == "l3_detail_close") {
     return LinuxMinimalSessionAutomation::L3DetailClose;
@@ -215,6 +245,28 @@ void LinuxMinimalSessionAutomationHooks::OnAfterInitial(ae::Obj& ui_root) {
     return;
   }
 
+  if (State().mode == LinuxMinimalSessionAutomation::L3Cycle2SelectRowB) {
+    application.row_list.Load();
+    if (!application.row_list || application.row_list->selection_index != 0) {
+      WriteFatalStderr("fatal: cycle2 expected row A selected from prior USER\n");
+      std::abort();
+    }
+    SelectListRowNative(LinuxRowList(application), 1);
+    State().step = AutomationStep::L3Cycle2AwaitRowBSelection;
+    return;
+  }
+
+  if (State().mode == LinuxMinimalSessionAutomation::L3Cycle3ColdSelectRowA) {
+    if (!MirrorShowsRowBSelectedAppliedTitle(application)) {
+      WriteFatalStderr("fatal: cycle3 cold missing row B selection state\n");
+      std::abort();
+    }
+    LogMarker("MINIMAL_APP_L3_CYCLE3_COLD_STATE_OK");
+    SelectListRowNative(LinuxRowList(application), 0);
+    State().step = AutomationStep::L3Cycle3ColdAwaitRowSelection;
+    return;
+  }
+
   if (State().mode == LinuxMinimalSessionAutomation::L3DetailClose) {
     ClickButtonNative(LinuxAuxiliaryOpener(application));
     State().step = AutomationStep::L3DetailAwaitOpen;
@@ -252,6 +304,32 @@ void LinuxMinimalSessionAutomationHooks::OnAfterIncremental(ae::Obj& ui_root) {
       return;
     }
     LogMarker("MINIMAL_APP_L3_POST_COMMAND_OK");
+    CloseWindowNative(LinuxMainWindowPresenter(application));
+    State().step = AutomationStep::Idle;
+    return;
+  }
+
+  if (State().mode == LinuxMinimalSessionAutomation::L3Cycle2SelectRowB &&
+      State().step == AutomationStep::L3Cycle2AwaitRowBSelection) {
+    application.row_list.Load();
+    if (!application.row_list ||
+        application.row_list->selection_index != 1) {
+      return;
+    }
+    LogMarker("MINIMAL_APP_L3_CYCLE2_SELECT_OK");
+    CloseWindowNative(LinuxMainWindowPresenter(application));
+    State().step = AutomationStep::Idle;
+    return;
+  }
+
+  if (State().mode == LinuxMinimalSessionAutomation::L3Cycle3ColdSelectRowA &&
+      State().step == AutomationStep::L3Cycle3ColdAwaitRowSelection) {
+    application.row_list.Load();
+    if (!application.row_list ||
+        application.row_list->selection_index != 0) {
+      return;
+    }
+    LogMarker("MINIMAL_APP_L3_CYCLE3_POST_COMMAND_OK");
     CloseWindowNative(LinuxMainWindowPresenter(application));
     State().step = AutomationStep::Idle;
     return;

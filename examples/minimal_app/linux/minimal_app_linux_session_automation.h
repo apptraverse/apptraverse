@@ -16,6 +16,8 @@ enum class LinuxMinimalSessionAutomation {
   None,
   L3Save,
   L3ColdVerify,
+  L3Cycle2SelectRowB,
+  L3Cycle3ColdSelectRowA,
   L3DetailClose,
 };
 

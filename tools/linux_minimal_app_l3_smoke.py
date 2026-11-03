@@ -101,11 +101,48 @@ def main() -> int:
                 "MINIMAL_APP_SHUTDOWN_STOPPED",
             ],
         )
+
+        code, out3 = run_phase(
+            exe, profile, "l3_cycle2_select_row_b", args.timeout_s
+        )
+        if code != 0:
+            print(f"FAIL: l3_cycle2_select_row_b exit {code}", file=sys.stderr)
+            print(out3, file=sys.stderr)
+            return 1
+        require_markers(
+            out3,
+            [
+                "MINIMAL_APP_LOADED_FROM_PROFILE",
+                "MINIMAL_APP_INITIAL_RENDER_OK",
+                "MINIMAL_APP_L3_CYCLE2_SELECT_OK",
+                "MINIMAL_APP_SHUTDOWN_PERSIST_OK",
+                "MINIMAL_APP_SHUTDOWN_STOPPED",
+            ],
+        )
+
+        code, out4 = run_phase(
+            exe, profile, "l3_cycle3_cold_select_row_a", args.timeout_s
+        )
+        if code != 0:
+            print(f"FAIL: l3_cycle3_cold_select_row_a exit {code}", file=sys.stderr)
+            print(out4, file=sys.stderr)
+            return 1
+        require_markers(
+            out4,
+            [
+                "MINIMAL_APP_LOADED_FROM_PROFILE",
+                "MINIMAL_APP_INITIAL_RENDER_OK",
+                "MINIMAL_APP_L3_CYCLE3_COLD_STATE_OK",
+                "MINIMAL_APP_L3_CYCLE3_POST_COMMAND_OK",
+                "MINIMAL_APP_SHUTDOWN_PERSIST_OK",
+                "MINIMAL_APP_SHUTDOWN_STOPPED",
+            ],
+        )
     finally:
         shutil.rmtree(profile, ignore_errors=True)
         shutil.rmtree(detail_profile, ignore_errors=True)
 
-    print("PASS: linux_minimal_app L3 cold reload smoke")
+    print("PASS: linux_minimal_app L3 two-cycle embedded USER smoke")
     return 0
 
 

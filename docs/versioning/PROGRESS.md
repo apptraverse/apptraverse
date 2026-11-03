@@ -7,6 +7,43 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+## MinimalApp embedded USER overlay — finalize audit (post-`fc75e7e`, 2026-11-02) — PASS (contract OK)
+
+**Lease review base:** `fc75e7e787364fc59d5a7f82ae9d6b8cb91f942d`. Product persist/normalize **без изменений** (нарушения контракта не найдено).
+
+### Save — `PersistMinimalApplicationEmbeddedUserOverlay`
+
+1. **`FinalizeMinimalApplicationNodesForEmbeddedUserOverlay`** — обходит все достижимые **`Node*`** (`CollectReachableNodes`); для узлов с **непустым `journal`** вызывает **`FinalizeUiNodeState(*node, node->Generation())`**, что:
+   - **`AdoptPublishedGeneration(generation)`**;
+   - **`base = {}`**;
+   - **`journal.clear()`**  
+   Материализованные поля узла (list `selection_index`, title slots, window frame, enabled, …) остаются в live-объекте и попадают в USER через последующий **`SaveRoot`** / presented-window save.
+2. **`SavePresentedWindow(main_window)`** (+ auxiliary при open) — flush unloaded/lazy presented state в storage.
+3. **`SaveRoot`** — пишет динамику в **USER-only** `DirectoryDomainStorage`; **BACKING** (exe / RAM embed) не трогается.
+
+### Load — `NormalizeMinimalApplicationAfterEmbeddedUserLoad`
+
+**`FinalizeDistilledGraph(application)`** — для каждого достижимого **`Node`**: если **`base` уже есть** или **`journal` не пуст** — skip; иначе **`InitializeRuntimeNode`**: новый same-class **base `ObjId`**, **`CaptureBaseState()`** из текущего materialized, пустой journal. Это восстанавливает инвариант **`TryInsertEvent`** (требует valid **`base`**) после save-time finalize, **без** повторного **`FinalizeUiNodeState`** на load (который снова снял бы base).
+
+### Events / journal после cold restart
+
+- После save journal на затронутых узлах **пуст**; динамика — в persistent слоях USER.
+- После load + normalize **`Commit` / GTK→presenter→Event** снова работает (Linux L3: **`InsertEvent`** не падает).
+- Новые Events после reload снова журналируются до следующего shutdown finalize.
+
+### Two-cycle verification
+
+| Platform | Cycle 1 | Cycle 2 (другая UI-команда) | Cold load 3 + Commit | BACKING |
+| --- | --- | --- | --- | --- |
+| **Linux** (`linux_minimal_app_l3_smoke.py`) | empty USER → Row B + Apply → save | profile → Row A selected → **select Row B** → save | profile → Applied title + sel B → **select Row A** → `MINIMAL_APP_L3_CYCLE3_POST_COMMAND_OK` | unchanged (embedded supply) |
+| **Windows** | `apptraverse_minimal_app_win32_acceptance_test`: resize → save → `load_only` reload (1 cycle) | **NOT RUN** (авто 2-й UI-кадр); тот же **`PersistMinimalApplicationEmbeddedUserOverlay`** + **`Normalize…`** в `minimal_app_lifecycle` | §W2 + headless **PASS** (shared hooks не менялись) | **`ExpectEmbeddedBackingUnchanged`** in acceptance |
+
+**Regressions (incremental, post-audit commit):** §W2 + Headless + overlay **PASS**; **Linux L3 two-cycle smoke PASS**; **WASM ×3 PASS**; **Android 12/12 PASS**. **Product code:** NOT CHANGED.
+
+**Lease push:** `fc75e7e787364fc59d5a7f82ae9d6b8cb91f942d`.
+
+**NEXT:** Win32 **session-automation** two-cycle (frame или list) в parity с Linux smoke; опционально headless overlay two-cycle test через стабильный overlay load fixture (без полного `ApplicationModelRuntime` thread в одном процессе с distill export).
+
 ## MinimalApp Linux build-time embedded BACKING/USER (2026-11-02) — PASS
 
 **Supply:** `apptraverse_export_minimal_distilled_graph_linux` → per-target `embedded_distilled_minimal_app_supply.h` (Linux presenter **ClassId** layers; bytes ≠ Win32 header). Shared builder: `BuildLinuxMinimalApplicationGraph` → `BuildMinimalApplicationGraph` + Linux presenter factories (`minimal_app_graph_linux.cpp`).
