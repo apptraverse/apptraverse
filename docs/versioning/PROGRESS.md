@@ -7,22 +7,39 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
-## MinimalApp Win32 embedded list/Apply cold load (post-`05d5a12`, 2026-11-03) — PASS
+## MinimalApp embedded USER overlay — verification (post-`79b65cb`, 2026-11-03) — PASS
 
-**Первая причина (load, не DirectoryDomainStorage):** embedded USER save вызывал **`FinalizeUiNodeState`** — снимал **`Node::base`** без **`CaptureBaseStateInto`**. На диск уходили materialized слои с пустым base в wire, а loader при **`LoadApplication`** искал **Node `2178182515` version=1** для historical base / root chain → **`Unable to find object id=127991809`** (MinimalApplication root). **Операция:** persist (save), cold load ломался до normalize.
+**Product SHA:** `79b65cb9d5d9aa8f9cdfc2297d35dbe3694525ea` (`integration/unified-application`).
 
-**Исправление (shared `minimal_app_persistence.cpp`):** для journal-bearing nodes — **`CompactJournal`** с временной **`JournalRetentionPolicy{.max_events = 0}`** (default unlimited retention иначе даёт **`CollapsiblePrefixCount == 0`** и no-op compact), затем abort если journal не пуст; **`SavePresentedWindow` + `SaveRoot`** без изменения BACKING. Load по-прежнему **`NormalizeMinimalApplicationAfterEmbeddedUserLoad` → `FinalizeDistilledGraph`**.
+### Root cause (Win cold load, save-side bug)
 
-**Cold-load E2E (`apptraverse_minimal_app_win32_acceptance_test`, embedded):**
-1. Пустой USER — frame **220×140 / 720×460** → persist.
-2. USER — **list row B + Apply** → persist; **`ProbePersistedEmbeddedUserState(-1, Applied)`**.
-3. **`win32_minimal_app_load_only`** — Applied mirror; **list row A**; **`ProbePersistedEmbeddedUserCommitReady(0, Applied, commit→1)`**.
+Embedded USER save вызывал **`FinalizeUiNodeState`** (UI publication): снимал **`Node::base`** без **`CaptureBaseStateInto`**. **`SaveRoot`** записывал materialized слои с неконсистентной base-цепочкой; **`LoadApplication` / `LoadRoot`** падал **до normalize**.
 
-**Regressions (incremental `win64-ninja-msvc-debug` / `wasm-ninja-debug`, worktree `apptraverse-wt-web5`):** §W2 восемь + **`apptraverse_minimal_app_win32_acceptance_test`** **PASS**; **WASM ×3** **PASS**; **Android `connectedDebugAndroidTest` 12/12** (`Aether_NDK_Smoke_x86_64`) **PASS**. **Linux L3 two-cycle:** **NOT RUN** (WSL недоступен в сессии; код тот же overlay persist path).
+**ClassId `2178182515`:** **`apptraverse::Node`** — `Node::kClassId` из **`APPTRAVERSE_OBJECT(Node, …)`** (`crc32::from_literal("apptraverse::Node")` в `object_macros.h`; тот же id в embedded supply headers).
 
-**Lease push base:** `05d5a12a331914bc38b9915e7d4e2e6a7a2c55f7`.
+**Первый отказ при Win cold load:** слой **`Node` (`2178182515`) version=1** — loader не находит historical Node v1 в USER/BACKING overlay (типично на **`MinimalApplicationRootId` `127991809`** или base id из wire после save); v0 часто есть, v1 — нет → **`Unable to find object … version=1`**, затем **`fatal: LoadApplication failed`**. Не первичный баг **`DirectoryDomainStorage`**.
 
-**NEXT:** Linux L3 smoke re-run после восстановления WSL; опционально headless overlay two-cycle fixture без dangling domain refs.
+**Fix (`minimal_app_persistence.cpp`, `79b65cb`):** **`CompactJournal`** + временная **`JournalRetentionPolicy{.max_events = 0}`** (иначе default unlimited → compact no-op); abort если journal остался; load без изменений (**`Normalize…` → `FinalizeDistilledGraph`**).
+
+### Journal / replay (embedded USER overlay)
+
+**`CompactJournal` с `max_events = 0`** перед USER save **сворачивает journal в base/materialized слои и не пишет Events на диск** — **replay сохранённой event-истории из USER после cold load не поддерживается** (by design для этого path). После reload: materialized state + **новые** Events до следующего shutdown compact. **Не** заявлять полную journal replay semantics на embedded USER overlay.
+
+**Канон (отдельно, без расширения scope):** audit § «Events / journal после cold restart» согласован с materialized-only USER; полный **historical journal replay** как у directory checkpoint — **out of scope** для embedded overlay save.
+
+### Cold-load E2E
+
+| Platform | Result | Notes |
+| --- | --- | --- |
+| **Win** `apptraverse_minimal_app_win32_acceptance_test` | **PASS** @ `79b65cb` | frame → list B+Apply → `load_only` + list A + commit probe |
+| **Linux** L3 two-cycle cold | **PASS** | `wsl -d Ubuntu`; incremental `linux-x64-debug` rebuild `linux_minimal_app`; phases **`l3_save` → `l3_cold_verify` → `l3_cycle2_select_row_b` → `l3_cycle3_cold_select_row_a`** (markers OK, exit 0). **`tools/linux_minimal_app_l3_smoke.py` целиком:** **FAIL** `l3_detail_close exit -11` (SIGSEGV после `MINIMAL_APP_L3_DETAIL_NATIVE_CLOSE_OK`; preamble auxiliary, не overlay two-cycle). |
+| **WSL default** | **BLOCKED** | `wsl -e …` без `-d Ubuntu`: `getpwuid(0) failed 2`, `Failed to mount C:\`, `execvpe(…) failed` (default distro `docker-desktop-data` Stopped). **Настройки WSL не менялись.** |
+
+**Regressions @ `79b65cb` (без повторного product diff):** §W2 + Headless **PASS**; **WASM ×3 PASS**; **Android 12/12 PASS** (см. push `79b65cb`).
+
+**Lease push base:** `79b65cb9d5d9aa8f9cdfc2297d35dbe3694525ea`.
+
+**NEXT:** разобрать **`l3_detail_close` exit -11** в `linux_minimal_app_l3_smoke.py` (shutdown/auxiliary); опционально headless overlay two-cycle fixture.
 
 ## MinimalApp Win32 embedded two-cycle acceptance (post-`7450392`, 2026-11-02) — superseded
 
@@ -34,7 +51,7 @@
 
 ### Save — `PersistMinimalApplicationEmbeddedUserOverlay`
 
-1. **`FinalizeMinimalApplicationNodesForEmbeddedUserOverlay`** — обходит все достижимые **`Node*`**; для узлов с **непустым `journal`** — **`CompactJournal`** с **`max_events = 0`** (full collapse when guards allow): **`CaptureBaseStateInto`** + persist owner layers; journal cleared. **Не** **`FinalizeUiNodeState`** (UI publication only; clears base without storage snapshot).
+1. **`FinalizeMinimalApplicationNodesForEmbeddedUserOverlay`** — обходит все достижимые **`Node*`**; для узлов с **непустым `journal`** — **`CompactJournal`** с **`max_events = 0`** (full collapse when guards allow): **`CaptureBaseStateInto`** + persist owner layers; **journal cleared — event history not stored in USER**. **Не** **`FinalizeUiNodeState`** (UI publication only; clears base without storage snapshot).
 2. **`SavePresentedWindow(main_window)`** (+ auxiliary при open) — flush unloaded/lazy presented state в storage.
 3. **`SaveRoot`** — пишет динамику в **USER-only** `DirectoryDomainStorage`; **BACKING** (exe / RAM embed) не трогается.
 
@@ -44,9 +61,9 @@
 
 ### Events / journal после cold restart
 
-- После save journal на затронутых узлах **пуст**; динамика — в persistent слоях USER.
-- После load + normalize **`Commit` / GTK→presenter→Event** снова работает (Linux L3: **`InsertEvent`** не падает).
-- Новые Events после reload снова журналируются до следующего shutdown finalize.
+- После save journal на затронутых узлах **пуст**; динамика — в **materialized persistent слоях USER**, не в event log на диске (**нет replay** сохранённой journal history).
+- После load + normalize **`Commit` / presenter→Event** снова работает (Linux L3: **`InsertEvent`** не падает).
+- **Новые** Events после reload журналируются in-memory до следующего shutdown **`CompactJournal`** finalize.
 
 ### Two-cycle verification
 
