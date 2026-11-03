@@ -7,6 +7,36 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+## MinimalApp Linux L3 detail close SIGSEGV (post-`96c98a6`, 2026-11-03) — PASS
+
+**Lease base:** `96c98a61218c0b94ea98731115a5998ce97df216`.
+
+### Symptom / stack (WSL Ubuntu, GDB)
+
+`tools/linux_minimal_app_l3_smoke.py` — **`l3_detail_close exit -11`** (SIGSEGV) after **`MINIMAL_APP_L3_DETAIL_NATIVE_CLOSE_OK`**, during shutdown persist (not during native close).
+
+**First fault (model thread):** `PersistMinimalApplicationEmbeddedUserOverlay` → `FinalizeMinimalApplicationNodesForEmbeddedUserOverlay` → `Node::CompactJournal` → `RamDomainStorage::Load` with invalid **`this`** on backing storage (corrupt map / use-after-teardown on detached auxiliary subgraph still visited by finalize).
+
+**Trigger:** auxiliary open/close in smoke preamble, then embedded USER finalize at exit.
+
+### Fix (product)
+
+1. **`FinalizeMinimalApplicationNodesForEmbeddedUserOverlay`:** **`CollectLiveReachableNodes`** instead of **`CollectReachableNodes`** — skip sealed/detached auxiliary nodes still visible to scratch-graph collect after **`SealAuxiliaryWindowClosed`**.
+2. **Publication lifecycle:** UI hosts apply structural from **`TakePublishedCopyForUiApply`** (hold **`in_ui`** through apply); **`NotifyPublicationConsumed`** → **`ReleaseConsumer`**; model **`Run`** waits on **`stop_`** until **`!is_publication_busy()`**.
+3. **Auxiliary mid-session:** removed redundant **`Save()`** from open/close impl ( **`NoteMaterializedChange`** only).
+4. **Android join (probes):** **`AbandonUnconsumedPublicationsForTeardown`** when **`!ui_session_`** so empty-bridge instrumentation can **`JoinModelThreadForRelease`** without JNI UI.
+
+### Verification (incremental Debug, `apptraverse-wt-web5`)
+
+| Check | Result |
+| --- | --- |
+| **Linux** full `linux_minimal_app_l3_smoke.py` (WSL **Ubuntu**, `linux-x64-debug`) | **PASS** — detail close + two embedded USER cold-load cycles |
+| **§W2 + Headless + WindowCatalog overlay** (9 exe) | **PASS** |
+| **WASM ×3** (8766 / 8770 / 8785) | **PASS** |
+| **Android** `connectedDebugAndroidTest` **12/12** (`Aether_NDK_Smoke_x86_64`) | **PASS** (1-й прогон после Android join fix) |
+
+**NEXT:** headless fixture — auxiliary close + embedded USER shutdown finalize (parity with Linux L3 preamble).
+
 ## MinimalApp embedded USER overlay — verification (post-`79b65cb`, 2026-11-03) — PASS
 
 **Product SHA:** `79b65cb9d5d9aa8f9cdfc2297d35dbe3694525ea` (`integration/unified-application`).

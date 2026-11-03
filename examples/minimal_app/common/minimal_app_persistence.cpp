@@ -18,7 +18,7 @@ namespace apptraverse::example::minimal {
 void FinalizeMinimalApplicationNodesForEmbeddedUserOverlay(
     MinimalApplication& application) {
   std::vector<Node*> nodes;
-  CollectReachableNodes(application, nodes);
+  CollectLiveReachableNodes(application, nodes);
   std::uint64_t const now_us = SystemUtcMicros();
   JournalRetentionPolicy const persist_retention{.max_events = 0};
   for (Node* node : nodes) {

@@ -35,22 +35,22 @@ WinApplicationHost::WinApplicationHost(ApplicationModelRuntime& runtime,
 WinApplicationHost::~WinApplicationHost() = default;
 
 void WinApplicationHost::OnInitialPublished() {
-  std::vector<std::uint8_t> bytes = runtime_.TakePublishedCopy();
-  runtime_.NotifyPublicationConsumed();
+  std::vector<std::uint8_t> bytes = runtime_.TakePublishedCopyForUiApply();
   ui_session_.emplace(bytes, &presentation_host_, model_proxy_);
   if (callbacks_.after_initial) {
     callbacks_.after_initial(ui_session_->root());
   }
+  runtime_.NotifyPublicationConsumed();
 }
 
 void WinApplicationHost::OnIncrementalPublished() {
-  std::vector<std::uint8_t> bytes =
-      runtime_.TakePublishedCopy(callbacks_.take_incremental_sidecar);
-  runtime_.NotifyPublicationConsumed();
+  std::vector<std::uint8_t> bytes = runtime_.TakePublishedCopyForUiApply(
+      callbacks_.take_incremental_sidecar);
   ui_session_->ApplyStructural(bytes);
   if (callbacks_.after_incremental) {
     callbacks_.after_incremental(ui_session_->root());
   }
+  runtime_.NotifyPublicationConsumed();
 }
 
 void WinApplicationHost::OnDesktopWindowUserClose(void* opaque,

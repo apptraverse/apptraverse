@@ -43,7 +43,6 @@ void MinimalApplication::CloseAuxiliaryWindowImpl() {
     return;
   }
   SealAuxiliaryWindowClosed(*this);
-  MinimalApplication::ptr::MakeFromThis(this).Save();
   NoteMaterializedChange();
 }
 
@@ -53,7 +52,6 @@ void MinimalApplication::OpenAuxiliaryWindowImpl() {
   }
   LoadAuxiliaryPresentation();
   auxiliary_presented_open = true;
-  MinimalApplication::ptr::MakeFromThis(this).Save();
   NoteMaterializedChange();
 }
 

@@ -153,24 +153,24 @@ void AndroidApplicationHost::StartModelThread() {
 void AndroidApplicationHost::HandlePublicationOnMainThread(
     ApplicationPublicationKind kind) {
   if (kind == ApplicationPublicationKind::Initial) {
-    std::vector<std::uint8_t> bytes = runtime_.TakePublishedCopy();
-    runtime_.NotifyPublicationConsumed();
+    std::vector<std::uint8_t> bytes = runtime_.TakePublishedCopyForUiApply();
     ui_session_.emplace(bytes, &presentation_host_, model_proxy_);
     if (callbacks_.after_initial) {
       callbacks_.after_initial(ui_session_->root());
     }
+    runtime_.NotifyPublicationConsumed();
     return;
   }
   if (!ui_session_) {
     WriteFatalStderr("fatal: incremental publication before initial\n");
     std::abort();
   }
-  std::vector<std::uint8_t> bytes = runtime_.TakePublishedCopy();
-  runtime_.NotifyPublicationConsumed();
+  std::vector<std::uint8_t> bytes = runtime_.TakePublishedCopyForUiApply();
   ui_session_->ApplyStructural(bytes);
   if (callbacks_.after_incremental) {
     callbacks_.after_incremental(ui_session_->root());
   }
+  runtime_.NotifyPublicationConsumed();
 }
 
 void AndroidApplicationHost::ConsumePublication(ApplicationPublicationKind kind) {
@@ -189,6 +189,13 @@ void AndroidApplicationHost::JoinModelThreadForRelease() {
   model_start_cv_.notify_all();
   if (callbacks_.before_model_thread_join) {
     callbacks_.before_model_thread_join();
+  }
+  if (!ui_session_) {
+    runtime_.AbandonUnconsumedPublicationsForTeardown();
+  } else {
+    while (runtime_.IsPublicationBusy()) {
+      ConsumePublication(ApplicationPublicationKind::Incremental);
+    }
   }
   runtime_.RequestStop();
   JoinModelThreadIfJoinable(model_thread_, model_thread_joinable_);

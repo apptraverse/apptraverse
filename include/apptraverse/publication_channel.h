@@ -113,7 +113,22 @@ class PublicationChannel {
     return copy;
   }
 
+  // Copy bytes but keep in_ui_ held until ReleaseConsumer (ApplyStructural window).
+  std::vector<std::uint8_t> TakePublishedCopyHoldUiSlot() {
+    PublicationBuffer* buffer = TakePublished();
+    if (buffer == nullptr) {
+      return {};
+    }
+    return buffer->sink.bytes;
+  }
+
   void ReleaseConsumer() { in_ui_.store(-1, std::memory_order_release); }
+
+  // Teardown when no UI consumer will apply (native probes with empty bridge).
+  void AbandonUnconsumedSnapshots() {
+    ReleaseConsumer();
+    published_.store(-1, std::memory_order_release);
+  }
 
   std::uint64_t publish_count() const {
     return publish_count_.load(std::memory_order_relaxed);

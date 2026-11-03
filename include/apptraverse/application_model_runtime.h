@@ -50,13 +50,21 @@ class ApplicationModelRuntime {
   std::vector<std::uint8_t> TakePublishedCopy(
       TakePublishedSidecarCallback sidecar = {});
 
+  // Holds the publication UI slot until NotifyPublicationConsumed.
+  std::vector<std::uint8_t> TakePublishedCopyForUiApply(
+      TakePublishedSidecarCallback sidecar = {});
+
   void NotifyPublicationConsumed();
+
+  [[nodiscard]] bool IsPublicationBusy() const;
+
+  void AbandonUnconsumedPublicationsForTeardown();
 
   [[nodiscard]] std::uint64_t publish_count() const;
 
  private:
   PublicationChannel<3> channel_;
-  std::mutex mu_;
+  mutable std::mutex mu_;
   std::condition_variable cv_;
   bool stop_{false};
   std::deque<ModelWork> pending_work_;

@@ -51,16 +51,22 @@ void ApplicationModelRuntime::Run(
     {
       std::unique_lock<std::mutex> lock{mu_};
       cv_.wait(lock, [&] {
-        if (stop_) {
-          return true;
-        }
         if (!pending_work_.empty()) {
           return true;
         }
-        return !pending_dirty.empty() && !channel_.is_publication_busy();
+        if (stop_ && !channel_.is_publication_busy()) {
+          return true;
+        }
+        if (!stop_ && !pending_dirty.empty() && !channel_.is_publication_busy()) {
+          return true;
+        }
+        return false;
       });
       if (stop_) {
         if (pending_work_.empty()) {
+          if (channel_.is_publication_busy()) {
+            continue;
+          }
           break;
         }
         work = std::move(pending_work_.front());
@@ -116,7 +122,31 @@ std::vector<std::uint8_t> ApplicationModelRuntime::TakePublishedCopy(
   return channel_.TakePublishedCopy();
 }
 
+std::vector<std::uint8_t> ApplicationModelRuntime::TakePublishedCopyForUiApply(
+    TakePublishedSidecarCallback sidecar) {
+  std::lock_guard<std::mutex> lock{mu_};
+  if (sidecar) {
+    sidecar();
+  }
+  return channel_.TakePublishedCopyHoldUiSlot();
+}
+
 void ApplicationModelRuntime::NotifyPublicationConsumed() {
+  {
+    std::lock_guard<std::mutex> lock{mu_};
+    channel_.ReleaseConsumer();
+  }
+  cv_.notify_all();
+}
+
+bool ApplicationModelRuntime::IsPublicationBusy() const {
+  std::lock_guard<std::mutex> lock{mu_};
+  return channel_.is_publication_busy();
+}
+
+void ApplicationModelRuntime::AbandonUnconsumedPublicationsForTeardown() {
+  std::lock_guard<std::mutex> lock{mu_};
+  channel_.AbandonUnconsumedSnapshots();
   cv_.notify_all();
 }
 
