@@ -7,6 +7,27 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+## MinimalApp Win32 embedded two-cycle acceptance (post-`7450392`, 2026-11-02) — PASS (partial UI)
+
+**Fix (product):** `minimal_app_lifecycle.cpp` (Windows) — при embedded USER profile вызывается **`NormalizeMinimalApplicationAfterEmbeddedUserLoad`** в `prepare` (parity с Linux).
+
+**`apptraverse_minimal_app_win32_acceptance_test` (embedded):** три процесса на одном `--state-dir`:
+1. **`win32_minimal_app`**, пустой USER — **frame** resize **220×140 / 720×460** → shutdown persist; **`ProbePersistedGraph`**; **`ExpectEmbeddedBackingUnchanged`**.
+2. **`win32_minimal_app`**, USER — **другой frame** **100×110 / 800×520** → persist; graph probe; BACKING unchanged.
+3. **`win32_minimal_app_load_only`** — cold HWND frame match; затем **`ProbePersistedEmbeddedUserCommitReady`**: overlay load + normalize + **`HandleListRowSelectionChanged(0)`** (Commit/base).
+
+**Journal / checkpoint canon:** save-time **`FinalizeUiNodeState`** сжимает **journal → materialized USER layers**; история Events на диске **не хранится** — допустимо для embedded USER overlay (динамика = materialized state, не replay journal). Cold **`FinalizeDistilledGraph`** восстанавливает **Node::base** для новых Events. **Не** `persistent_model_checkpoint.bin`.
+
+**Доказано тестом:** multi-session embedded USER + BACKING constant; frame dynamics roundtrip; post-cold **Commit** на list Node после normalize.
+
+**Открыто:** Win32 **HWND list + Apply → persist → `LoadApplication` root fail** (Node `2178182515` **version=1** missing in storage) — воспроизведено в acceptance; **Linux L3 list two-cycle PASS** на том же overlay persist. Требует общий save/load слой (не MinimalApp feature work).
+
+**Regressions (incremental):** §W2 + Headless + overlay **PASS**; **Linux L3 two-cycle PASS**; **WASM ×3 PASS**; **Android 12/12 PASS**.
+
+**Lease push:** `74503927436a4213083de7b58e8e3d167466a360`.
+
+**NEXT:** root-cause Win list/apply USER reload vs Linux (Node base layer version in `DirectoryDomainStorage` after journal finalize).
+
 ## MinimalApp embedded USER overlay — finalize audit (post-`fc75e7e`, 2026-11-02) — PASS (contract OK)
 
 **Lease review base:** `fc75e7e787364fc59d5a7f82ae9d6b8cb91f942d`. Product persist/normalize **без изменений** (нарушения контракта не найдено).

@@ -27,6 +27,8 @@
 #include "apptraverse/ui/ui_presenters.h"
 
 #include "minimal_app_controls.h"
+#include "minimal_app_persistence.h"
+#include "minimal_app_prepare.h"
 #include "minimal_application.h"
 
 #if defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
@@ -357,6 +359,91 @@ std::uint32_t HwndControlId(HWND hwnd) {
   return static_cast<std::uint32_t>(GetDlgCtrlID(hwnd));
 }
 
+HWND FindMainChildControl(HWND main, std::uint32_t control_id) {
+  HWND found = nullptr;
+  struct Ctx {
+    HWND main;
+    std::uint32_t control_id;
+    HWND* out;
+  } ctx{main, control_id, &found};
+  EnumChildWindows(
+      main,
+      [](HWND hwnd, LPARAM lparam) -> BOOL {
+        auto* c = reinterpret_cast<Ctx*>(lparam);
+        if (GetParent(hwnd) != c->main) {
+          return TRUE;
+        }
+        if (HwndControlId(hwnd) == c->control_id) {
+          *c->out = hwnd;
+          return FALSE;
+        }
+        return TRUE;
+      },
+      reinterpret_cast<LPARAM>(&ctx));
+  return found;
+}
+
+std::wstring ReadWindowTitle(HWND hwnd) {
+  int const len = GetWindowTextLengthW(hwnd);
+  if (len <= 0) {
+    return {};
+  }
+  std::wstring title(static_cast<std::size_t>(len), L'\0');
+  GetWindowTextW(hwnd, title.data(), len + 1);
+  title.resize(static_cast<std::size_t>(len));
+  return title;
+}
+
+void SelectListRow(HWND main, int index) {
+  HWND const list =
+      FindMainChildControl(main, example::minimal::kMinimalRowListControlId);
+  CHECK(list != nullptr);
+  SendMessageW(list, LB_SETCURSEL, static_cast<WPARAM>(index), 0);
+  SendMessageW(main, WM_COMMAND,
+               MAKEWPARAM(example::minimal::kMinimalRowListControlId,
+                          LBN_SELCHANGE),
+               reinterpret_cast<LPARAM>(list));
+}
+
+int ListSelection(HWND main) {
+  HWND const list =
+      FindMainChildControl(main, example::minimal::kMinimalRowListControlId);
+  if (list == nullptr) {
+    return LB_ERR;
+  }
+  return static_cast<int>(SendMessageW(list, LB_GETCURSEL, 0, 0));
+}
+
+void ClickApplyButton(HWND main) {
+  HWND const button =
+      FindMainChildControl(main, example::minimal::kMinimalApplyButtonControlId);
+  CHECK(button != nullptr);
+  SendMessageW(main, WM_COMMAND,
+               MAKEWPARAM(example::minimal::kMinimalApplyButtonControlId,
+                          BN_CLICKED),
+               reinterpret_cast<LPARAM>(button));
+}
+
+bool MainWindowShowsAppliedState(HWND main) {
+  std::wstring const title = ReadWindowTitle(main);
+  if (title.find(L"Applied") == std::wstring::npos) {
+    return false;
+  }
+  HWND const button =
+      FindMainChildControl(main, example::minimal::kMinimalApplyButtonControlId);
+  if (button == nullptr || IsWindowEnabled(button)) {
+    return false;
+  }
+  int const sel = ListSelection(main);
+  return sel == LB_ERR || sel < 0;
+}
+
+void WaitMainWindowAppliedState(HWND main) {
+  CHECK(WaitUntil(std::chrono::seconds{30}, [&] {
+    return MainWindowShowsAppliedState(main);
+  }));
+}
+
 struct MainWindowControlCounts {
   int apply = 0;
   int row_list = 0;
@@ -544,6 +631,48 @@ void ProbePersistedGraph(std::filesystem::path const& state_dir,
 }
 
 #if defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
+void ProbePersistedEmbeddedUserState(std::filesystem::path const& state_dir,
+                                     int expected_selection,
+                                     char const* expected_title_utf8) {
+  RegisterMinimalAppTypes();
+  ProfileDomain profile{state_dir};
+  example::minimal::MinimalApplication::ptr loaded =
+      LoadApplication<example::minimal::MinimalApplication>(
+          profile.domain, example::minimal::MinimalApplicationRootId());
+  example::minimal::PrepareMinimalApplicationForRun(*loaded);
+  example::minimal::NormalizeMinimalApplicationAfterEmbeddedUserLoad(*loaded);
+  loaded->row_list.Load();
+  loaded->apply_button.Load();
+  loaded->row_list->window_title.Load();
+  CHECK(loaded->row_list);
+  CHECK(loaded->row_list->window_title);
+  CHECK(loaded->row_list->selection_index == expected_selection);
+  CHECK(loaded->row_list->window_title->Resolve(0) == expected_title_utf8);
+  CHECK(loaded->row_list->base.is_valid());
+  CHECK(loaded->row_list->base.is_loaded());
+}
+
+void ProbePersistedEmbeddedUserCommitReady(
+    std::filesystem::path const& state_dir, int expected_selection,
+    char const* expected_title_utf8, int commit_selection) {
+  RegisterMinimalAppTypes();
+  ProfileDomain profile{state_dir};
+  example::minimal::MinimalApplication::ptr loaded =
+      LoadApplication<example::minimal::MinimalApplication>(
+          profile.domain, example::minimal::MinimalApplicationRootId());
+  example::minimal::PrepareMinimalApplicationForRun(*loaded);
+  example::minimal::NormalizeMinimalApplicationAfterEmbeddedUserLoad(*loaded);
+  loaded->row_list.Load();
+  loaded->row_list->window_title.Load();
+  CHECK(loaded->row_list->selection_index == expected_selection);
+  CHECK(loaded->row_list->window_title->Resolve(0) == expected_title_utf8);
+  CHECK(loaded->row_list->base.is_valid());
+  example::minimal::MinimalAppList& list =
+      static_cast<example::minimal::MinimalAppList&>(*loaded->row_list);
+  list.HandleListRowSelectionChanged(static_cast<std::size_t>(commit_selection));
+  CHECK(list.selection_index == commit_selection);
+}
+
 void ExpectEmbeddedBackingUnchanged() {
   ae::RamDomainStorage reference;
   InstallEmbeddedDistilledBacking(
@@ -556,16 +685,66 @@ void ExpectEmbeddedBackingUnchanged() {
 }
 #endif
 
-std::filesystem::path RunAcceptance() {
+std::filesystem::path RunAcceptanceEmbeddedTwoCycle() {
+  auto const state_dir = FreshStateDir();
+  auto const demo = DemoExe("win32_minimal_app.exe");
+  auto const load_only = DemoExe("win32_minimal_app_load_only.exe");
+  CHECK(std::filesystem::is_empty(state_dir));
+  ExpectEmbeddedBackingUnchanged();
+
+  // Cycle 1: empty USER — frame UI command (resize), shutdown persist.
+  PROCESS_INFORMATION pi = StartDemo(demo, state_dir);
+  CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
+    return FindWindowW(kLoadingClass, nullptr) == nullptr;
+  }));
+  HWND main = WaitMainWindow(pi.dwProcessId, std::chrono::seconds{30});
+  CHECK(main != nullptr);
+  CHECK(WaitForMainWindowNamedControls(main, std::chrono::seconds{15}));
+  Frame const cycle1_frame{220, 140, 720, 460};
+  ApplyFrame(main, cycle1_frame.x, cycle1_frame.y, cycle1_frame.client_width,
+             cycle1_frame.client_height);
+  CHECK(WaitUntil(std::chrono::seconds{15}, [&] {
+    return FramesNear(ReadFrame(main), cycle1_frame);
+  }));
+  CloseGracefully(main, pi);
+  CHECK(!std::filesystem::is_empty(state_dir));
+  ExpectEmbeddedBackingUnchanged();
+  ProbePersistedGraph(state_dir, cycle1_frame);
+
+  // Cycle 2: USER profile — second frame UI command, persist.
+  Frame const cycle2_frame{100, 110, 800, 520};
+  pi = StartDemo(demo, state_dir);
+  main = WaitMainWindow(pi.dwProcessId, std::chrono::seconds{30});
+  CHECK(main != nullptr);
+  CHECK(WaitForMainWindowNamedControls(main, std::chrono::seconds{15}));
+  CHECK(FramesNear(ReadFrame(main), cycle1_frame));
+  ApplyFrame(main, cycle2_frame.x, cycle2_frame.y, cycle2_frame.client_width,
+             cycle2_frame.client_height);
+  CHECK(WaitUntil(std::chrono::seconds{15}, [&] {
+    return FramesNear(ReadFrame(main), cycle2_frame);
+  }));
+  CloseGracefully(main, pi);
+  ExpectEmbeddedBackingUnchanged();
+  ProbePersistedGraph(state_dir, cycle2_frame);
+
+  // Cold load 3: verify USER; in-process list Commit after normalize.
+  pi = StartDemo(load_only, state_dir);
+  main = WaitMainWindow(pi.dwProcessId, std::chrono::seconds{30});
+  CHECK(main != nullptr);
+  CHECK(WaitForMainWindowNamedControls(main, std::chrono::seconds{15}));
+  CHECK(FramesNear(ReadFrame(main), cycle2_frame));
+  CloseGracefully(main, pi);
+  ExpectEmbeddedBackingUnchanged();
+  ProbePersistedEmbeddedUserCommitReady(state_dir, -1, "Minimal App", 0);
+  return state_dir;
+}
+
+std::filesystem::path RunAcceptanceFrameColdLoad() {
   auto const state_dir = FreshStateDir();
   auto const demo = DemoExe("win32_minimal_app.exe");
   auto const load_only = DemoExe("win32_minimal_app_load_only.exe");
   CHECK(std::filesystem::exists(demo));
   CHECK(std::filesystem::exists(load_only));
-#if defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
-  CHECK(std::filesystem::is_empty(state_dir));
-  ExpectEmbeddedBackingUnchanged();
-#endif
 
   PROCESS_INFORMATION pi = StartDemo(demo, state_dir);
   DWORD const pid = pi.dwProcessId;
@@ -587,11 +766,6 @@ std::filesystem::path RunAcceptance() {
   }));
 
   CloseGracefully(main, pi);
-
-#if defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
-  CHECK(!std::filesystem::is_empty(state_dir));
-  ExpectEmbeddedBackingUnchanged();
-#endif
   ProbePersistedGraph(state_dir, saved);
 
   pi = StartDemo(load_only, state_dir);
@@ -605,6 +779,18 @@ std::filesystem::path RunAcceptance() {
 
   CloseGracefully(main, pi);
   return state_dir;
+}
+
+std::filesystem::path RunAcceptance() {
+  auto const demo = DemoExe("win32_minimal_app.exe");
+  auto const load_only = DemoExe("win32_minimal_app_load_only.exe");
+  CHECK(std::filesystem::exists(demo));
+  CHECK(std::filesystem::exists(load_only));
+#if defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
+  return RunAcceptanceEmbeddedTwoCycle();
+#else
+  return RunAcceptanceFrameColdLoad();
+#endif
 }
 
 void RunRequiredGraphNegativeTests(std::filesystem::path const& good_state,
