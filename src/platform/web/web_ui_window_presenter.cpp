@@ -76,11 +76,6 @@ void WebDesktopWindowPresenter::OnLoad() {
         "mount\n");
     std::abort();
   }
-  if (!desktop_window().is_valid()) {
-    WriteFatalStderr(
-        "fatal: WebDesktopWindowPresenter::OnLoad missing desktop window\n");
-    std::abort();
-  }
 
   dom_refs_ = new WebDesktopWindowDomRefs();
   dom_refs_->window_element = ApptraverseCreateDesktopWindowElement();
@@ -93,12 +88,8 @@ void WebDesktopWindowPresenter::OnLoad() {
 
 void WebDesktopWindowPresenter::SyncTitleFromMirror() {
   std::string title_text;
-  if (title && title->strings.size() > 0) {
-    int language_index = 0;
-    if (locale) {
-      language_index = locale->language_index();
-    }
-    title_text = title->Resolve(language_index);
+  if (title.is_valid()) {
+    title_text = title->Resolve(locale->language_index());
   }
   ApptraverseSetDesktopWindowTitleDataset(dom_refs_->window_element,
                                           title_text.c_str());
@@ -117,25 +108,16 @@ void WebDesktopWindowPresenter::OnModelChanged() {
 }
 
 void WebDesktopWindowPresenter::OnUnload() {
-  if (dom_refs_ == nullptr) {
-    return;
-  }
   ReleaseDomRefs(*dom_refs_);
   delete dom_refs_;
   dom_refs_ = nullptr;
 }
 
 void* WebDesktopWindowPresenter::NativeChildParentHandle() const {
-  if (dom_refs_ == nullptr || dom_refs_->client_element == nullptr) {
-    return nullptr;
-  }
   return reinterpret_cast<void*>(dom_refs_->client_element);
 }
 
 emscripten::EM_VAL WebDesktopWindowPresenter::ClientMountHandle() const {
-  if (dom_refs_ == nullptr) {
-    return nullptr;
-  }
   return dom_refs_->client_element;
 }
 

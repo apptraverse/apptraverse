@@ -21,12 +21,7 @@ std::string LinuxDesktopWindowPresenter::ResolveTitleText() const {
   if (!title.is_valid()) {
     return {};
   }
-  title.Load();
-  if (locale.is_valid()) {
-    locale.Load();
-  }
-  int const language_index = locale ? locale->language_index() : 0;
-  return title->Resolve(language_index);
+  return title->Resolve(locale->language_index());
 }
 
 gboolean LinuxDesktopWindowPresenter::OnDeleteEvent(GtkWidget* widget,
@@ -46,9 +41,6 @@ gboolean LinuxDesktopWindowPresenter::OnDeleteEvent(GtkWidget* widget,
 
 void LinuxDesktopWindowPresenter::OnLoad() {
   auto const desktop = desktop_window();
-  if (!desktop) {
-    return;
-  }
 
   window_ = gtk_window_new(GTK_WINDOW_TOPLEVEL);
   if (window_ == nullptr) {
@@ -78,9 +70,6 @@ void LinuxDesktopWindowPresenter::OnLoad() {
 }
 
 void LinuxDesktopWindowPresenter::SyncTitleFromMirror() {
-  if (window_ == nullptr) {
-    return;
-  }
   std::string const title_text = ResolveTitleText();
   gtk_window_set_title(GTK_WINDOW(window_), title_text.c_str());
 }
@@ -88,13 +77,8 @@ void LinuxDesktopWindowPresenter::SyncTitleFromMirror() {
 void LinuxDesktopWindowPresenter::OnModelChanged() { SyncTitleFromMirror(); }
 
 void LinuxDesktopWindowPresenter::OnUnload() {
-  if (window_ == nullptr) {
-    return;
-  }
-  if (delete_handler_ != 0) {
-    g_signal_handler_disconnect(window_, delete_handler_);
-    delete_handler_ = 0;
-  }
+  g_signal_handler_disconnect(window_, delete_handler_);
+  delete_handler_ = 0;
   if (GTK_IS_WIDGET(window_)) {
     gtk_widget_destroy(window_);
   }

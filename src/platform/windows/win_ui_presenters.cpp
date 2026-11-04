@@ -150,9 +150,6 @@ std::wstring WinDesktopWindowPresenter::ResolveTitleText() const {
 
 void WinDesktopWindowPresenter::OnLoad() {
   auto const desktop = desktop_window();
-  if (!desktop) {
-    return;
-  }
   HINSTANCE const instance = GetModuleHandleW(nullptr);
   WNDCLASSW wc{};
   wc.lpfnWndProc = &WinDesktopWindowPresenter::WndProc;

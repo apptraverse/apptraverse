@@ -14,9 +14,6 @@ struct AndroidDesktopWindowViewRefs {
 };
 
 jobject AndroidDesktopWindowPresenter::ClientMount() const {
-  if (view_refs_ == nullptr) {
-    return nullptr;
-  }
   return view_refs_->client_mount;
 }
 
@@ -50,18 +47,13 @@ void AndroidDesktopWindowPresenter::OnLoad() {
 
 void AndroidDesktopWindowPresenter::SyncTitleFromMirror() {
   auto* host = static_cast<AndroidPresentationHost*>(presentation_host);
-  if (host == nullptr || host->activity == nullptr || view_refs_ == nullptr) {
+  if (host->activity == nullptr) {
     return;
   }
   JNIEnv* env = RequireUiThreadEnv(*host);
   std::string title_text;
   if (title.is_valid()) {
-    title.Load();
-    if (locale.is_valid()) {
-      locale.Load();
-    }
-    int language_index = locale ? locale->language_index() : 0;
-    title_text = title->Resolve(language_index);
+    title_text = title->Resolve(locale->language_index());
   }
   jclass ui_class = env->FindClass("com/apptraverse/ui/android/AppTraverseAndroidUi");
   jmethodID set_title = env->GetStaticMethodID(
@@ -75,19 +67,14 @@ void AndroidDesktopWindowPresenter::SyncTitleFromMirror() {
 void AndroidDesktopWindowPresenter::OnModelChanged() { SyncTitleFromMirror(); }
 
 void AndroidDesktopWindowPresenter::OnUnload() {
-  if (view_refs_ == nullptr) {
-    return;
-  }
   auto* host = static_cast<AndroidPresentationHost*>(presentation_host);
-  if (view_refs_->client_mount != nullptr) {
-    JNIEnv* env = RequireUiThreadEnv(*host);
-    jclass ui_class =
-        env->FindClass("com/apptraverse/ui/android/AppTraverseAndroidUi");
-    jmethodID release = env->GetStaticMethodID(
-        ui_class, "releaseClientMount", "(Landroid/widget/FrameLayout;)V");
-    env->CallStaticVoidMethod(ui_class, release, view_refs_->client_mount);
-    env->DeleteLocalRef(ui_class);
-  }
+  JNIEnv* env = RequireUiThreadEnv(*host);
+  jclass ui_class =
+      env->FindClass("com/apptraverse/ui/android/AppTraverseAndroidUi");
+  jmethodID release = env->GetStaticMethodID(
+      ui_class, "releaseClientMount", "(Landroid/widget/FrameLayout;)V");
+  env->CallStaticVoidMethod(ui_class, release, view_refs_->client_mount);
+  env->DeleteLocalRef(ui_class);
   ClearGlobalRef(*host, view_refs_->client_mount);
   delete view_refs_;
   view_refs_ = nullptr;

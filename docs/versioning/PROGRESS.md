@@ -7,6 +7,43 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+## Window presenter lifecycle: OnLoad / Sync / OnUnload (post-`c08f03a`, 2026-11-03)
+
+**Base:** `c08f03a`. Scope: **`src/platform/{linux/linux_ui_window_presenter,android/android_ui_window_presenter,web/web_ui_window_presenter,windows/win_ui_presenters}.cpp`**. Geometry, localization, serialization не менялись.
+
+### Подтверждённые гарантии (`InitializeNewPresenters` / `ApplicationUiSession`)
+
+- До **`OnLoad`** назначены **`presentation_host`** и **`model_proxy`**, presenter прошёл **`ReadyForPresentation`**; **`ComposePresentedWindow`** всегда задаёт **`window`**, **`title`**, **`locale`**; обход live-графа идёт только по загруженным рёбрам → закрытое окно (ref сброшен) не загружается и **`OnLoad`** не получает.
+- **`OnModelChanged`** вызывается только для **`presentation_loaded`** presenter, т.е. после успешного **`OnLoad`** (native view создан).
+- **`OnUnload`** вызывается **`UnloadPresenter`** только при **`presentation_loaded`** (assert там), ровно один раз, затем флаг сбрасывается.
+
+### Удалённые проверки
+
+- **Linux:** `if (!desktop) return` в **`OnLoad`**; `window_ == nullptr` в **`SyncTitleFromMirror`** / **`OnUnload`**; `delete_handler_ != 0`; повторные **`title.Load()`** / **`locale.Load()`** и fallback **`language_index = 0`**.
+- **Android:** `view_refs_ == nullptr` в **`ClientMount`** / **`SyncTitleFromMirror`** / **`OnUnload`**; `host == nullptr`; `client_mount != nullptr` перед **`releaseClientMount`**; повторные **`Load()`** и fallback **`language_index = 0`**.
+- **Web:** fatal `!desktop_window().is_valid()` в **`OnLoad`**; `dom_refs_ == nullptr` в **`OnUnload`** / **`NativeChildParentHandle`** / **`ClientMountHandle`**; `strings.size() > 0` и fallback **`language_index = 0`** в title sync.
+- **Windows:** `if (!desktop) return` в **`WinDesktopWindowPresenter::OnLoad`**.
+- Ни одна проверка не заменена fatal/assert/Ensure/fallback.
+
+### Сохранённые условия (реальные состояния)
+
+- **Отсутствующий title допустим:** `title.is_valid()` (Linux/Android/Web) → пустой заголовок.
+- **Android root-only:** `host->activity == nullptr` в **`SyncTitleFromMirror`** — **`PresenterLifecycleInstrumentedTest`** работает без Activity.
+- **Linux teardown:** `GTK_IS_WIDGET(window_)` перед **`gtk_widget_destroy`** (GTK мог уничтожить окно сам); `host != nullptr && callback` в **`OnDeleteEvent`**.
+- **Web/Android env fatals:** main thread / host mount / JNI env в **`OnLoad`** — проверки окружения, не графа.
+- **Windows:** **`ResolveTitleText`** `!title || !locale` и WM_CLOSE `host != nullptr` — frame-sync/drag/HWND-persistence и command-routing тесты строят presenter без title/locale и с `InitializePresenters(root, nullptr, …)` / прямым **`OnLoad()`**; `hwnd_ == nullptr` в **`OnModelChanged`** / **`OnUnload`** — путь **`CreateFailed`** в **`OnLoad`** возвращается молча и оставляет загруженный presenter без HWND (**найденный разрыв контракта, не менялся**: исправление требует fatal).
+
+### Регрессии (incremental Debug, `apptraverse-wt-web5`, 2026-11-03)
+
+| Check | Result |
+| --- | --- |
+| Windows 14 ctest (`-j 4`) incl. minimal headless + embedded export | 1-й прогон: **FAIL** 13/14 — **`window_catalog_win32_acceptance_test`** `:908` `FindTopLevelWithTitle(pid, L"Window 2") == child2` (после второго закрытия reopened Window 1; 3.59 s). Retry: отдельно **3×** **PASS**, полный набор `-j 4` **2×** **PASS** 14/14. **Причина первого FAIL не установлена** |
+| Linux materialization + model runtime + minimal headless | **PASS** 3/3 |
+| Linux **`linux_minimal_app`** L3 two-cycle | **PASS** |
+| WASM minimal + lifecycle (**8931**) | **PASS** |
+| WASM catalog (**8933**) | 1-й: **FAIL** — `OSError: [Errno 28] No space left on device` (диск C: 0 байт free, затем освободился до ~36 GB); retry **PASS** (binary не линкует `apptraverse_ui_web`) |
+| Android **`connectedDebugAndroidTest`** incl. **`PresenterLifecycleInstrumentedTest`** | **PASS** 13/13 |
+
 ## WASM WindowCatalog initial smoke — «Loading…» investigation (post-`371c92e`, 2026-11-03)
 
 **Base:** `371c92e`. Scope: **`tools/wasm_window_catalog_browser_smoke.py`** (+ PROGRESS); **production не менялся**.
