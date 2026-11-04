@@ -7,6 +7,36 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+## UiListContainer row removal by reference identity (post-`51844e0`, 2026-11-03) — PASS
+
+**Base:** `51844e0` (`integration/unified-application`). Scope: **`src/ui/ui_list_container.cpp`** + existing tests.
+
+### Reproduction before the fix (same tests, unfixed component)
+
+- **`ui_control_materialization_test`** → `CHECK failed: RowIds(*list) == {row0,row2,row3}` (`:524`): removing a valid-but-unloaded row (`ObjPtr::Reset()`) left it in **`rows`** — the predicate used **`operator bool`** (valid **and** loaded).
+- **`application_model_runtime_test`** → `CHECK failed: incremental_at_marker == 1` (`:1191`): a lone Remove command for a loaded row changed **`rows`** but did not call **`NoteMaterializedChange`** → no incremental publication.
+
+### Fix
+
+- **`UiListContainer::Apply(RemoveUiListRowEvent)`:** match on **`row.id() == event.row_id`** (reference identity; no Load / Declare / Domain lookup / Ensure); **`NoteMaterializedChange()`** only if **`rows`** actually shrank. Selection and **`RemoveUiListRowEvent`** (S0, `row_id`) unchanged; no selection auto-correction, no new presenter API.
+
+### Tests
+
+- **`TestListRemoveRowByReferenceIdentity`** (`ui_control_materialization_test`): 4 rows, `rows[1]`/`rows[3]` made unloaded via **`Reset()`** (reference-contract check, **not** a natural cold-load scenario). Unloaded row removed without materializing (`rows[2]` stays unloaded), loaded row removed, remaining order preserved, notify count +1 per actual removal, repeat Remove of a missing id → no notify; selection stays `-1`. UI mirror unchanged before publication, equal to model after **`ApplyStructuralPublication`**.
+- **`TestListRowRemoveCommandPublishesIncremental`** (`application_model_runtime_test`): Remove is the only command (proxy → `Commit` → Event, no selection/title event); marker work queued after it observes exactly one incremental publication; UI list rows match model after **`ApplyStructuralPublication`**; proxy enqueue count stays 1 (no reverse model command from the mirror).
+
+### Regressions (incremental Debug, `apptraverse-wt-web5`, 2026-11-03)
+
+| Check | Result |
+| --- | --- |
+| Windows 14 exe via `ctest -R` (headless, §W2, WindowCatalog model / headless / win32 / embedded overlay, runtime, materialization, …) | **PASS** 14/14 |
+| Linux runtime + materialization + minimal headless (WSL `build/linux-x64-debug`) | **PASS** |
+| Linux full **`linux_minimal_app_l3_smoke.py`** | **PASS** (two-cycle embedded USER) |
+| WASM **`wasm_minimal_app_browser_smoke.py`** / **`wasm_web_presenter_lifecycle_test.py`** (`serve_wasm.py` 8821) | **PASS** / **PASS** |
+| WASM **`wasm_window_catalog_browser_smoke.py`** (8823) | **PASS** |
+| Android **`connectedDebugAndroidTest`** (`Aether_NDK_Smoke_x86_64`, `buildCMakeDebug` executed) | **PASS** 12/12 |
+| Full CTest / clean rebuild | **NOT RUN** (by instruction) |
+
 ## Model runtime notifier lifetime + live graph walk (post-`8e1953c`, 2026-11-03) — PASS
 
 **Lease base:** `8e1953c075ea2c511ea6d644527f2cbb6397dc9c`. Earlier partial commits: `a23ae44` (shutdown/clear narrative did not match code), `453a413` (double inheritance walk, wrong WASM diagnosis).

@@ -77,12 +77,17 @@ void UiListContainer::Apply(SetUiListSelectionEvent const& event) {
 }
 
 void UiListContainer::Apply(RemoveUiListRowEvent const& event) {
-  rows.erase(
-      std::remove_if(rows.begin(), rows.end(),
-                     [&](UiListRow::ptr const& row) {
-                       return row && row->obj_id == event.row_id;
-                     }),
-      rows.end());
+  // Row identity is the reference id; an unloaded row is removed without
+  // materializing its body.
+  auto const removed_begin =
+      std::remove_if(rows.begin(), rows.end(), [&](UiListRow::ptr const& row) {
+        return row.id() == event.row_id;
+      });
+  if (removed_begin == rows.end()) {
+    return;
+  }
+  rows.erase(removed_begin, rows.end());
+  NoteMaterializedChange();
 }
 
 }  // namespace apptraverse::ui

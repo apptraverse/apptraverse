@@ -22,6 +22,8 @@
 #include "apptraverse/object_macros.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
+#include "apptraverse/ui/ui_list_container.h"
+#include "apptraverse/ui/ui_presenters.h"
 #include "apptraverse/ui_mirror.h"
 
 namespace apptraverse::test {
@@ -1106,12 +1108,113 @@ void TestRuntimeNotifierOrphanHeldAfterDetachFromLiveAndHistory() {
   CHECK(held_child->marker == 6);
 }
 
+void TestListRowRemoveCommandPublishesIncremental() {
+  ae::RamDomainStorage model_storage;
+  ae::RamDomainStorage ui_storage;
+  ae::Domain model_domain{model_storage};
+  ae::Domain ui_domain{ui_storage};
+
+  auto list = ui::UiListContainer::ptr::Create(ae::CreateWith{model_domain});
+  list->selection_index = -1;
+  InitializeRuntimeNode(*list);
+  std::vector<ui::UiListRow::ptr> held;
+  for (int i = 0; i < 3; ++i) {
+    auto row = ui::UiListRow::ptr::Create(ae::CreateWith{model_domain});
+    InitializeRuntimeNode(*row, *list);
+    held.push_back(row);
+  }
+  list->rows = {held[0], held[1], held[2]};
+  ae::ObjId const list_id = list->obj_id;
+  ae::ObjId const removed_id = held[1]->obj_id;
+
+  ApplicationModelRuntime runtime;
+  Sync sync;
+  bool initial_ready = false;
+  int incremental_count = 0;
+  std::vector<std::uint8_t> initial_bytes;
+  std::vector<std::uint8_t> incremental_bytes;
+  int enqueued = 0;
+  ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork work) {
+    ++enqueued;
+    runtime.Post(std::move(work));
+  }};
+
+  std::thread model_thread{[&] {
+    runtime.Run(model_domain, *list, [&](ApplicationPublicationKind kind) {
+      std::vector<std::uint8_t> bytes = runtime.TakePublishedCopy();
+      runtime.NotifyPublicationConsumed();
+      std::lock_guard<std::mutex> lock{sync.mu};
+      if (kind == ApplicationPublicationKind::Initial) {
+        initial_bytes = std::move(bytes);
+        initial_ready = true;
+      } else {
+        incremental_bytes = std::move(bytes);
+        ++incremental_count;
+      }
+      sync.cv.notify_all();
+    });
+  }};
+
+  {
+    std::unique_lock<std::mutex> lock{sync.mu};
+    sync.cv.wait(lock, [&] { return initial_ready; });
+  }
+  ByteSource initial_in;
+  initial_in.data = initial_bytes.data();
+  initial_in.size = initial_bytes.size();
+  auto ui_obj = LoadInitialPublication(initial_in, ui_domain, ui_storage);
+  CHECK(ui_obj);
+  auto ui_list = ui::UiListContainer::ptr::MakeFromThis(
+      static_cast<ui::UiListContainer*>(ui_obj.get()));
+  CHECK(ui_list->rows.size() == 3);
+
+  proxy.EnqueueModelWork([list_id, removed_id](ae::Domain& domain) {
+    auto remove =
+        ui::RemoveUiListRowEvent::ptr::Create(ae::CreateWith{domain});
+    remove->row_id = removed_id;
+    domain.Find(list_id).as<ui::UiListContainer>()->Commit(std::move(remove));
+  });
+  // The runtime publishes pending changes before it takes the next work item,
+  // so this marker observes whether the remove command alone published.
+  bool marker_ran = false;
+  int incremental_at_marker = -1;
+  runtime.Post([&](ae::Domain&) {
+    std::lock_guard<std::mutex> lock{sync.mu};
+    incremental_at_marker = incremental_count;
+    marker_ran = true;
+    sync.cv.notify_all();
+  });
+  {
+    std::unique_lock<std::mutex> lock{sync.mu};
+    sync.cv.wait(lock, [&] { return marker_ran; });
+  }
+  CHECK(incremental_at_marker == 1);
+
+  runtime.RequestStop();
+  model_thread.join();
+  CHECK((std::vector<ae::ObjId>{list->rows[0].id(), list->rows[1].id()} ==
+         std::vector<ae::ObjId>{held[0]->obj_id, held[2]->obj_id}));
+  CHECK(list->rows.size() == 2);
+
+  CHECK(ui_list->rows.size() == 3);
+  ByteSource incremental_in;
+  incremental_in.data = incremental_bytes.data();
+  incremental_in.size = incremental_bytes.size();
+  ApplyStructuralPublication(incremental_in, ui_domain, ui_storage);
+  CHECK(ui_list->rows.size() == 2);
+  CHECK(ui_list->rows[0].id() == held[0]->obj_id);
+  CHECK(ui_list->rows[1].id() == held[2]->obj_id);
+  CHECK(ui_list->selection_index == -1);
+  CHECK(enqueued == 1);
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
 int main() {
   apptraverse::EnableNoninteractiveCrt();
   apptraverse::EnsureObjectRegistration();
+  apptraverse::ui::EnsureUiPresenterRegistration();
   apptraverse::test::TestUiMirrorBatchPublication();
   apptraverse::test::TestDirectIncrementalPublicationApply();
   apptraverse::test::TestInitialAndIncrementalPublication();
@@ -1126,6 +1229,7 @@ int main() {
   apptraverse::test::TestRuntimeNotifierSessionAddedChildLinkedBeforeStop();
   apptraverse::test::TestLiveGraphWalkTraversesBaseClassRowsField();
   apptraverse::test::TestRuntimeNotifierOrphanHeldAfterDetachFromLiveAndHistory();
+  apptraverse::test::TestListRowRemoveCommandPublishesIncremental();
   std::cout << "application_model_runtime_test OK\n";
   return 0;
 }

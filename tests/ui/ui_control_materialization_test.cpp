@@ -460,6 +460,99 @@ void TestListSelectionViaPresenterProxy() {
   list->ClearMaterializedChangeNotifier();
 }
 
+std::vector<ae::ObjId> RowIds(UiListContainer const& list) {
+  std::vector<ae::ObjId> ids;
+  for (auto const& row : list.rows) {
+    ids.push_back(row.id());
+  }
+  return ids;
+}
+
+void EnqueueRemoveRow(ModelObjectProxy& proxy, ae::ObjId list_id,
+                      ae::ObjId row_id) {
+  proxy.EnqueueModelWork([list_id, row_id](ae::Domain& domain) {
+    auto remove = RemoveUiListRowEvent::ptr::Create(ae::CreateWith{domain});
+    remove->row_id = row_id;
+    domain.Find(list_id).as<UiListContainer>()->Commit(std::move(remove));
+  });
+}
+
+void TestListRemoveRowByReferenceIdentity() {
+  ae::RamDomainStorage model_storage;
+  ae::RamDomainStorage ui_storage;
+  ae::Domain model_domain{model_storage};
+  ae::Domain ui_domain{ui_storage};
+
+  auto list = UiListContainer::ptr::Create(ae::CreateWith{model_domain});
+  list->selection_index = -1;
+  InitializeRuntimeNode(*list);
+  std::vector<UiListRow::ptr> held;
+  for (int i = 0; i < 4; ++i) {
+    auto row = UiListRow::ptr::Create(ae::CreateWith{model_domain});
+    InitializeRuntimeNode(*row, *list);
+    held.push_back(row);
+  }
+  list->rows = {held[0], held[1], held[2], held[3]};
+
+  ByteSink initial;
+  SerializeInitialPublication(*list, initial);
+  ByteSource initial_in;
+  initial_in.data = initial.bytes.data();
+  initial_in.size = initial.bytes.size();
+  auto ui_obj = LoadInitialPublication(initial_in, ui_domain, ui_storage);
+  CHECK(ui_obj);
+  auto ui_list = UiListContainer::ptr::MakeFromThis(
+      static_cast<UiListContainer*>(ui_obj.get()));
+  CHECK(RowIds(*ui_list) == RowIds(*list));
+
+  std::deque<ModelObjectProxy::ModelWork> deferred;
+  ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork work) {
+    deferred.push_back(std::move(work));
+  }};
+  int materialize_notify = 0;
+  list->BindMaterializedChangeNotifier(&materialize_notify, &PendingNotify);
+
+  // Reset() drops the cached body and keeps the ObjId: this checks the
+  // reference-identity contract, not a natural cold-load path.
+  list->rows[1].Reset();
+  list->rows[3].Reset();
+  CHECK(list->rows[1].is_valid() && !list->rows[1].is_loaded());
+  EnqueueRemoveRow(proxy, list->obj_id, held[1]->obj_id);
+  PumpModelWork(deferred, model_domain);
+  CHECK((RowIds(*list) ==
+         std::vector<ae::ObjId>{held[0]->obj_id, held[2]->obj_id,
+                                held[3]->obj_id}));
+  CHECK(!list->rows[2].is_loaded());
+  CHECK(materialize_notify == 1);
+
+  EnqueueRemoveRow(proxy, list->obj_id, held[2]->obj_id);
+  PumpModelWork(deferred, model_domain);
+  CHECK((RowIds(*list) ==
+         std::vector<ae::ObjId>{held[0]->obj_id, held[3]->obj_id}));
+  CHECK(list->rows[0].is_loaded());
+  CHECK(!list->rows[1].is_loaded());
+  CHECK(materialize_notify == 2);
+
+  EnqueueRemoveRow(proxy, list->obj_id, held[2]->obj_id);
+  PumpModelWork(deferred, model_domain);
+  CHECK(list->rows.size() == 2);
+  CHECK(materialize_notify == 2);
+  CHECK(list->selection_index == -1);
+
+  CHECK(ui_list->rows.size() == 4);
+  ByteSink structural;
+  SerializeStructuralNodePublication(*list, structural);
+  ByteSource structural_in;
+  structural_in.data = structural.bytes.data();
+  structural_in.size = structural.bytes.size();
+  ApplyStructuralPublication(structural_in, ui_domain, ui_storage);
+  CHECK(RowIds(*ui_list) == RowIds(*list));
+  CHECK(ui_list->selection_index == -1);
+  CHECK(deferred.empty());
+
+  list->ClearMaterializedChangeNotifier();
+}
+
 ui::UiLocalizationString::ptr MakeRowLabel(ae::Domain& domain,
                                            char const* utf8) {
   auto label = ui::UiLocalizationString::ptr::Create(ae::CreateWith{domain});
@@ -642,6 +735,7 @@ int main(int argc, char** argv) {
   TestLocalizationLazyInitialPublication();
   TestPushButtonClickViaPresenter();
   TestListSelectionViaPresenterProxy();
+  TestListRemoveRowByReferenceIdentity();
   TestPresentedListRowPrimaryTextsMatchRowIndices();
   TestPresentedListRowMissingPrimaryTextRefusesPartialList();
   return 0;
