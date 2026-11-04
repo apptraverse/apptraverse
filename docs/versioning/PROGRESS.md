@@ -7,6 +7,26 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+## Linux/Android ListContainer SyncFromMirror aligned with Web (post-`c9afeb3`, 2026-11-03) — PASS
+
+**Base:** `c9afeb3`. Scope: **`SyncFromMirror` only** in `linux_ui_list_presenter.cpp` and `android_ui_list_presenter.cpp`.
+
+### Change
+
+- Removed silent return on missing **`list_box_`** / **`view_refs_`** / falsy **`container`**; removed redundant **`Load()`** and Linux fallback **`language_index = 0`** / conditional locale.
+- Active language via **`window_presenter->locale->language_index()`**; row text via **`ResolvePresentedListRowPrimaryTexts`**; selection / **`applying_mirror_sync_`** / **`notify_list_selection_change`** / row rebuild order unchanged.
+
+### Regressions (incremental Debug, `apptraverse-wt-web5`, 2026-11-03)
+
+| Check | Result |
+| --- | --- |
+| **`apptraverse_minimal_app_headless_test`** + **`apptraverse_minimal_app_embedded_export_test`** (Win) | **PASS** (§W2) |
+| Windows §W2 (14 ctest) | **PASS** 14/14 |
+| Linux **`linux_ui_list_presenter.cpp`** rebuild + materialization + headless + L3 | **PASS** |
+| WASM ×3 (`serve_wasm.py` **8891**, **8893**; lifecycle **`apptraverse_web_presenter_lifecycle_test.html`**) | **PASS** |
+| Android **`connectedDebugAndroidTest`** (rebuilt **`android_ui_list_presenter.cpp`**) | **PASS** 13/13 |
+| Full CTest / clean rebuild | **NOT RUN** (by instruction) |
+
 ## WindowCatalog Win32 acceptance: drop LoadPresentedWindow consumer fatals (post-`2d79624`, 2026-11-03) — PASS
 
 **Base:** `2d79624`. Scope: **`tests/window_catalog_win32_acceptance_test.cpp`** only.

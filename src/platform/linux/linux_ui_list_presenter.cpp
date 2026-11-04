@@ -58,16 +58,8 @@ void LinuxListContainerPresenter::OnLoad() {
 }
 
 void LinuxListContainerPresenter::SyncFromMirror() {
-  if (list_box_ == nullptr || !container) {
-    return;
-  }
   applying_mirror_sync_ = true;
-  container.Load();
-  int language_index = 0;
-  if (window_presenter && window_presenter->locale) {
-    window_presenter->locale.Load();
-    language_index = window_presenter->locale->language_index();
-  }
+  int const language_index = window_presenter->locale->language_index();
   std::vector<std::string> const labels =
       ResolvePresentedListRowPrimaryTexts(*container, language_index);
 

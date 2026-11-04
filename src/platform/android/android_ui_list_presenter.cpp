@@ -57,15 +57,9 @@ void AndroidListContainerPresenter::OnLoad() {
 }
 
 void AndroidListContainerPresenter::SyncFromMirror() {
-  if (view_refs_ == nullptr || view_refs_->list == nullptr || !container) {
-    return;
-  }
   applying_mirror_sync_ = true;
   auto* host = static_cast<AndroidPresentationHost*>(presentation_host);
   JNIEnv* env = RequireUiThreadEnv(*host);
-  container.Load();
-  window_presenter.Load();
-  window_presenter->locale.Load();
   jclass ui_class = env->FindClass("com/apptraverse/ui/android/AppTraverseAndroidUi");
   jmethodID bind_row = env->GetStaticMethodID(
       ui_class, "bindListRow",
