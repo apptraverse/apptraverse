@@ -1275,6 +1275,18 @@ if(WIN32)
     COMMAND apptraverse_presenter_win_hwnd_persistence_test
   )
 
+  add_executable(apptraverse_presenter_win_desktop_title_test
+    presenter_win_desktop_title_test.cpp
+  )
+  target_link_libraries(apptraverse_presenter_win_desktop_title_test PRIVATE
+    apptraverse
+    apptraverse_ui_windows
+  )
+  add_test(
+    NAME apptraverse_presenter_win_desktop_title_test
+    COMMAND apptraverse_presenter_win_desktop_title_test
+  )
+
   target_compile_definitions(apptraverse_ui_windows PUBLIC
     APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST=1)
   add_executable(apptraverse_presenter_win_desktop_frame_sync_test

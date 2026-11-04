@@ -829,6 +829,78 @@ void RunRequiredMainWindowNegativeTests(
   }
 }
 
+unsigned long long ReadFocusApplyCount(
+    std::filesystem::path const& path) {
+  std::ifstream in(path);
+  unsigned long long count = 0;
+  in >> count;
+  return count;
+}
+
+std::filesystem::path ResetFocusApplyCountFile(char const* name) {
+  auto const file =
+      std::filesystem::temp_directory_path() / "apptraverse_test" / name;
+  std::error_code ec;
+  std::filesystem::create_directories(file.parent_path(), ec);
+  std::ofstream out(file);
+  out << "0\n";
+  return file;
+}
+
+std::string Utf8FromWide(std::wstring const& text) {
+  if (text.empty()) {
+    return {};
+  }
+  int const size = WideCharToMultiByte(CP_UTF8, 0, text.data(),
+                                       static_cast<int>(text.size()), nullptr,
+                                       0, nullptr, nullptr);
+  std::string out(static_cast<std::size_t>(size), '\0');
+  WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()),
+                      out.data(), size, nullptr, nullptr);
+  return out;
+}
+
+char const* ClassifyTopLevelIdentity(HWND expected, HWND found,
+                                     std::wstring const& title) {
+  if (!IsWindow(expected)) {
+    return "original_destroyed";
+  }
+  if (!IsWindowVisible(expected)) {
+    return "original_hidden";
+  }
+  if (GetWindowTextHwnd(expected).find(title) == std::wstring::npos) {
+    return "original_retitled";
+  }
+  if (found != nullptr) {
+    return "other_hwnd_found";
+  }
+  return "original_not_enumerated";
+}
+
+void ExpectSameTopLevelWithTitle(DWORD pid, HWND expected,
+                                 std::wstring const& title, char const* step) {
+  HWND const found = FindTopLevelWithTitle(pid, title);
+  if (found == expected) {
+    return;
+  }
+  std::cerr << "top_level_identity step=" << step << " title=\""
+            << Utf8FromWide(title) << "\" outcome="
+            << ClassifyTopLevelIdentity(expected, found, title)
+            << " expected=" << expected
+            << " expected_is_window=" << (IsWindow(expected) != FALSE)
+            << " expected_visible=" << (IsWindowVisible(expected) != FALSE)
+            << " expected_text=\"" << Utf8FromWide(GetWindowTextHwnd(expected))
+            << "\" found=" << found << " found_text=\""
+            << (found != nullptr ? Utf8FromWide(GetWindowTextHwnd(found))
+                                 : std::string{})
+            << "\"\n";
+  for (HWND hwnd : TopLevelWindowsForPid(pid)) {
+    std::cerr << "  top_level hwnd=" << hwnd << " text=\""
+              << Utf8FromWide(GetWindowTextHwnd(hwnd)) << "\"\n";
+  }
+  CHECK(found == expected);
+}
+
 std::filesystem::path RunRestartPersistenceAcceptance() {
   auto const state_dir = FreshStateDir("window_catalog_win32_acceptance");
   auto const demo = DemoExe("win32_window_catalog_demo.exe");
@@ -836,7 +908,12 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
   CHECK(std::filesystem::exists(demo));
   CHECK(std::filesystem::exists(load_only));
 
+  auto const focus_count_file = ResetFocusApplyCountFile(
+      "window_catalog_win32_acceptance_focus_apply_count.txt");
+  SetEnvironmentVariableW(L"APPTRAVERSE_WC_FOCUS_APPLY_COUNT_FILE",
+                          focus_count_file.wstring().c_str());
   ActiveDemoProcess session{StartDemo(demo, state_dir)};
+  SetEnvironmentVariableW(L"APPTRAVERSE_WC_FOCUS_APPLY_COUNT_FILE", nullptr);
   DWORD const pid = session.pi.dwProcessId;
   HWND main = WaitCatalogMainWindow(pid, std::chrono::seconds{30});
   CHECK(main != nullptr);
@@ -879,7 +956,7 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
     return FindTopLevelWithTitle(pid, L"Window 1") == nullptr;
   }));
   ExpectListRows(main, {L"Window 1", L"Window 2"});
-  CHECK(FindTopLevelWithTitle(pid, L"Window 2") == child2);
+  ExpectSameTopLevelWithTitle(pid, child2, L"Window 2", "after_close_window1");
 
   SelectListIndex(main, 0);
   CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
@@ -895,17 +972,27 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
     return FramesNearEqual(ReadCatalogFrame(child1_reopened), saved_frame);
   }));
 
+  // Window 1 is already open, so HWND identity holds before the second Open;
+  // the pending-focus apply count confirms that Open itself completed.
+  CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
+    return ReadFocusApplyCount(focus_count_file) >= 1;
+  }));
+  CHECK(ReadFocusApplyCount(focus_count_file) == 1);
   ClickControl(main, kOpenControlId);
   CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
-    return FindTopLevelWithTitle(pid, L"Window 1") == child1_reopened;
+    return ReadFocusApplyCount(focus_count_file) >= 2;
   }));
+  CHECK(ReadFocusApplyCount(focus_count_file) == 2);
+  ExpectSameTopLevelWithTitle(pid, child1_reopened, L"Window 1",
+                              "after_second_open_window1");
   CHECK(FramesNearEqual(ReadCatalogFrame(child1_reopened), saved_frame));
 
   SendMessageW(child1_reopened, WM_CLOSE, 0, 0);
   CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
     return FindTopLevelWithTitle(pid, L"Window 1") == nullptr;
   }));
-  CHECK(FindTopLevelWithTitle(pid, L"Window 2") == child2);
+  ExpectSameTopLevelWithTitle(pid, child2, L"Window 2",
+                              "after_close_reopened_window1");
 
   CloseProcessGracefully(main, session.pi);
   session.Release();
@@ -978,14 +1065,6 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
     restart_session.Release();
   }
   return state_dir;
-}
-
-unsigned long long ReadFocusApplyCount(
-    std::filesystem::path const& path) {
-  std::ifstream in(path);
-  unsigned long long count = 0;
-  in >> count;
-  return count;
 }
 
 void RunLanguageAndFocusAcceptance() {

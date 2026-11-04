@@ -7,6 +7,43 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+## Windows window title: valid-but-unloaded title/locale + acceptance Window 2 diagnostics (post-`03cd5ef`, 2026-11-03) — PASS
+
+**Base:** `03cd5ef`. Scope: **`src/platform/windows/win_ui_presenters.cpp`**, **`tests/presenter_win_desktop_title_test.cpp`** (new), **`tests/CMakeLists.txt`**, **`tests/window_catalog_win32_acceptance_test.cpp`**.
+
+### Title defect (воспроизведён до исправления)
+
+- **`WinDesktopWindowPresenter::ResolveTitleText`** проверял `!title || !locale`; `ObjPtr::operator bool` = valid **и** loaded → для существующих, но выгруженных title/locale заголовок становился пустым.
+- **`apptraverse_presenter_win_desktop_title_test`:** title (EN/RU `UiString`) и locale (`language_index` 1) сохранены в `RamDomainStorage` через `SaveRoot`, ссылки presenter сброшены **`Reset()`** (`is_valid`, `!is_loaded`, id сохранён). До исправления: **FAIL** `:142` — после `InitializePresenters` текст HWND пустой вместо RU. Отсутствующие title/locale → пустой заголовок (**PASS** и до, и после).
+- **Исправление:** `!title.is_valid() || !locale.is_valid()` → `{}`; иначе штатное разыменование (`title->`, `locale->` загружают тело). Без fallback языка, Declare, Ensure, fatal/assert. Допустимое отсутствие сохранено (fixtures без title/locale и с одним locale). После: **PASS** (cold **`OnLoad`** и **`OnModelChanged`** после повторного `Reset()`).
+
+### Acceptance `RunRestartPersistenceAcceptance` (бывший FAIL `:908`)
+
+- Проверки Window 2 (после закрытия Window 1 и после закрытия reopened Window 1) заменены **`ExpectSameTopLevelWithTitle`**: при несовпадении печатает `outcome` = `original_destroyed` / `original_hidden` / `original_retitled` / `other_hwnd_found` / `original_not_enumerated`, оба HWND, их заголовки и все top-level окна pid; только данные Win32 самого теста.
+- **Второй Open перед Close:** прежнее ожидание `FindTopLevelWithTitle(Window 1) == child1_reopened` было истинно ещё до команды. Сценарий теперь включает существующий test-only счётчик **`APPTRAVERSE_WC_FOCUS_APPLY_COUNT_FILE`** (только для первого процесса demo, переменная снимается после `StartDemo`): после reopen требуется count **1**, после второго Open — count **2**, затем identity Window 1. Без Sleep / увеличения timeout / повтора. Проверено: файл счётчика сценария = **2**.
+- **Прежний FAIL `:908` в этом срезе не повторился; причина остаётся неизвестной.** Title-дефект причиной **не** объявляется (не воспроизведено).
+
+### Build tree note
+
+- Первый reconfigure после правки `tests/CMakeLists.txt` был запущен без MSVC env → `CMAKE_LINKER`/`CMAKE_AR` в кэше `win64-ninja-msvc-debug` указали на msys `ld.exe`/`ar.exe`. Восстановлены на `link.exe`/`lib.exe` toolset **14.44.35207** (`cmake -D… .` под `vcvars64`); без clean, далее incremental.
+
+### Целевые Windows тесты
+
+| Check | Result |
+| --- | --- |
+| `presenter_win_desktop_title_test` до исправления | **FAIL** `:142` (ожидаемое воспроизведение) |
+| title, hwnd_persistence, frame_sync, frame_publication_e2e, interactive_drag_e2e, native_push_button, command_routing, window_catalog_win32_acceptance | **PASS** 8/8 |
+
+### Регрессии (incremental Debug, один прогон, без повторов)
+
+| Check | Result |
+| --- | --- |
+| Windows 14 ctest (`-j 4`) incl. minimal headless + embedded export | **PASS** 14/14 (1-й прогон) |
+| Linux materialization + model runtime + minimal headless | **PASS** 3/3 |
+| Linux **`linux_minimal_app`** L3 two-cycle | **PASS** |
+| WASM minimal + lifecycle (**8941**), catalog (**8943**) | **PASS** ×3 |
+| Android **`connectedDebugAndroidTest`** incl. **`PresenterLifecycleInstrumentedTest`** | **PASS** 13/13 |
+
 ## Window presenter lifecycle: OnLoad / Sync / OnUnload (post-`c08f03a`, 2026-11-03)
 
 **Base:** `c08f03a`. Scope: **`src/platform/{linux/linux_ui_window_presenter,android/android_ui_window_presenter,web/web_ui_window_presenter,windows/win_ui_presenters}.cpp`**. Geometry, localization, serialization не менялись.
@@ -14,7 +51,7 @@
 ### Подтверждённые гарантии (`InitializeNewPresenters` / `ApplicationUiSession`)
 
 - До **`OnLoad`** назначены **`presentation_host`** и **`model_proxy`**, presenter прошёл **`ReadyForPresentation`**; **`ComposePresentedWindow`** всегда задаёт **`window`**, **`title`**, **`locale`**; обход live-графа идёт только по загруженным рёбрам → закрытое окно (ref сброшен) не загружается и **`OnLoad`** не получает.
-- **`OnModelChanged`** вызывается только для **`presentation_loaded`** presenter, т.е. после успешного **`OnLoad`** (native view создан).
+- **`OnModelChanged`** вызывается только для **`presentation_loaded`** presenter, т.е. после возврата из **`OnLoad`**. Сам **`presentation_loaded`** не доказывает наличие native окна (Windows **`CreateFailed`** возвращается молча).
 - **`OnUnload`** вызывается **`UnloadPresenter`** только при **`presentation_loaded`** (assert там), ровно один раз, затем флаг сбрасывается.
 
 ### Удалённые проверки

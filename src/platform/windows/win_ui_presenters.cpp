@@ -142,7 +142,7 @@ LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
 }
 
 std::wstring WinDesktopWindowPresenter::ResolveTitleText() const {
-  if (!title || !locale) {
+  if (!title.is_valid() || !locale.is_valid()) {
     return {};
   }
   return Utf8ToWide(title->Resolve(locale->language_index()));
