@@ -7,6 +7,33 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+## WindowCatalog Prepare: drop redundant required-graph fatals (post-`e5543a0`, 2026-11-03) — PASS
+
+**Base:** `e5543a0`. Scope: **`examples/surfaces_demo/common/window_catalog_prepare.cpp`**, **`tests/window_catalog_win32_acceptance_test.cpp`**.
+
+### Production
+
+- Removed Prepare fatals for list/locale/chrome presenters/buttons/localized texts and button→catalog casts; removed **`window_catalog_actions.h`** / **`noninteractive_crt.h`** includes.
+- **Preserved order:** **`LoadPresentedWindow(main_window)`** → all **`Load()`** (list, locale, five presenters, four buttons, five texts) → **`MaterializeCatalogStrings`** → **`RefreshChromeButtonEnabledState`** → **`RestoreLoadedCatalogWindows`**.
+
+### Tests
+
+- Removed **`*_ref`** scenarios and ref-only helpers in list/locale, chrome presenter/button, localized text groups.
+- **Kept `*_object`** cases + **`missing_root` / `missing_presenter_object` / schema / ClassId**; object negatives expect **`fatal: LoadApplication failed`** only (no Prepare-fatal alternate).
+
+### Regressions (incremental Debug, `apptraverse-wt-web5`, 2026-11-03)
+
+| Check | Result |
+| --- | --- |
+| Rebuilt **`win32_window_catalog_demo`**, **`win32_window_catalog_demo_load_only`**, acceptance | **PASS** |
+| **`apptraverse_window_catalog_win32_acceptance_test`** (full) | **PASS** (~20s) |
+| Windows §W2 (14 ctest) incl. catalog model/headless/overlay | **PASS** 14/14 |
+| minimal headless + embedded export | **PASS** |
+| Linux materialization + headless + L3 | **PASS** |
+| WASM minimal + lifecycle (**8901**) | **PASS** |
+| WASM catalog smoke (**8903**): 1st **FAIL** (`#catalog-title` stuck **Loading…**); **retry** (**8905**) **PASS** |
+| Android **`connectedDebugAndroidTest`** | **PASS** 13/13 |
+
 ## Linux/Android ListContainer SyncFromMirror aligned with Web (post-`c9afeb3`, 2026-11-03) — PASS
 
 **Base:** `c9afeb3`. Scope: **`SyncFromMirror` only** in `linux_ui_list_presenter.cpp` and `android_ui_list_presenter.cpp`.

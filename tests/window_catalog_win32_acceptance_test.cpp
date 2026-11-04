@@ -649,40 +649,6 @@ void WriteProfileMissingPresenterObject(std::filesystem::path const& state_dir) 
   storage.Remove(CatalogMainWindowPresenterObjId());
 }
 
-void WriteProfileMissingListRef(std::filesystem::path const& state_dir) {
-  RegisterCatalogTypes();
-  DirectoryDomainStorage storage{state_dir};
-  ae::Domain domain{storage};
-  WindowCatalog::ptr loaded =
-      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
-  ae::Ptr<WindowCatalog> catalog = loaded.Load();
-  catalog->list = CatalogListContainer::ptr::Declare(
-      ae::CreateWith{domain}.with_id(ae::ObjId{}));
-  if (catalog->base.is_valid()) {
-    if (!catalog->base.is_loaded()) {
-      catalog->base.Load();
-    }
-    auto& base_catalog = static_cast<WindowCatalog&>(*catalog->base.operator->());
-    base_catalog.list = CatalogListContainer::ptr::Declare(
-        ae::CreateWith{domain}.with_id(ae::ObjId{}));
-    catalog->base.Save();
-  }
-  ae::DomainGraph graph{&domain};
-  CHECK(graph.SaveRoot(catalog, CatalogRootObjId()).IsOk());
-}
-
-void AssertListRefAbsent(std::filesystem::path const& state_dir) {
-  RegisterCatalogTypes();
-  DirectoryDomainStorage storage{state_dir};
-  ae::Domain domain{storage};
-  WindowCatalog::ptr loaded =
-      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
-  ae::Ptr<WindowCatalog> catalog = loaded.Load();
-  catalog->list.Load();
-  CHECK(!catalog->list.is_valid());
-  CHECK(!catalog->list);
-}
-
 void WriteProfileMissingListObject(std::filesystem::path const& state_dir) {
   RegisterCatalogTypes();
   DirectoryDomainStorage storage{state_dir};
@@ -693,40 +659,6 @@ void AssertListObjectAbsent(std::filesystem::path const& state_dir) {
   RegisterCatalogTypes();
   DirectoryDomainStorage storage{state_dir};
   CHECK(storage.Enumerate(CatalogListObjId()).empty());
-}
-
-void WriteProfileMissingLocaleRef(std::filesystem::path const& state_dir) {
-  RegisterCatalogTypes();
-  DirectoryDomainStorage storage{state_dir};
-  ae::Domain domain{storage};
-  WindowCatalog::ptr loaded =
-      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
-  ae::Ptr<WindowCatalog> catalog = loaded.Load();
-  catalog->locale = ui::UiLocaleSettings::ptr::Declare(
-      ae::CreateWith{domain}.with_id(ae::ObjId{}));
-  if (catalog->base.is_valid()) {
-    if (!catalog->base.is_loaded()) {
-      catalog->base.Load();
-    }
-    auto& base_catalog = static_cast<WindowCatalog&>(*catalog->base.operator->());
-    base_catalog.locale = ui::UiLocaleSettings::ptr::Declare(
-        ae::CreateWith{domain}.with_id(ae::ObjId{}));
-    catalog->base.Save();
-  }
-  ae::DomainGraph graph{&domain};
-  CHECK(graph.SaveRoot(catalog, CatalogRootObjId()).IsOk());
-}
-
-void AssertLocaleRefAbsent(std::filesystem::path const& state_dir) {
-  RegisterCatalogTypes();
-  DirectoryDomainStorage storage{state_dir};
-  ae::Domain domain{storage};
-  WindowCatalog::ptr loaded =
-      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
-  ae::Ptr<WindowCatalog> catalog = loaded.Load();
-  catalog->locale.Load();
-  CHECK(!catalog->locale.is_valid());
-  CHECK(!catalog->locale);
 }
 
 ae::ObjId LoadCatalogLocaleObjId(std::filesystem::path const& state_dir) {
@@ -756,64 +688,6 @@ void AssertLocaleObjectAbsent(std::filesystem::path const& state_dir,
   CHECK(storage.Enumerate(locale_id).empty());
 }
 
-using ChromePresenterMember = Presenter::ptr WindowCatalogPresenters::*;
-
-ChromePresenterMember ChromePresenterMemberForSuffix(char const* suffix) {
-  if (std::string{suffix} == "list_presenter") {
-    return &WindowCatalogPresenters::list_presenter;
-  }
-  if (std::string{suffix} == "add_button_presenter") {
-    return &WindowCatalogPresenters::add_button_presenter;
-  }
-  if (std::string{suffix} == "open_button_presenter") {
-    return &WindowCatalogPresenters::open_button_presenter;
-  }
-  if (std::string{suffix} == "delete_button_presenter") {
-    return &WindowCatalogPresenters::delete_button_presenter;
-  }
-  if (std::string{suffix} == "language_button_presenter") {
-    return &WindowCatalogPresenters::language_button_presenter;
-  }
-  CHECK(false);
-  return &WindowCatalogPresenters::list_presenter;
-}
-
-void WriteProfileMissingChromePresenterRef(
-    std::filesystem::path const& state_dir, ChromePresenterMember member) {
-  RegisterCatalogTypes();
-  DirectoryDomainStorage storage{state_dir};
-  ae::Domain domain{storage};
-  WindowCatalog::ptr loaded =
-      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
-  ae::Ptr<WindowCatalog> catalog = loaded.Load();
-  Presenter::ptr const empty = Presenter::ptr::Declare(
-      ae::CreateWith{domain}.with_id(ae::ObjId{}));
-  catalog->presenters.*member = empty;
-  if (catalog->base.is_valid()) {
-    if (!catalog->base.is_loaded()) {
-      catalog->base.Load();
-    }
-    auto& base_catalog = static_cast<WindowCatalog&>(*catalog->base.operator->());
-    base_catalog.presenters.*member = empty;
-    catalog->base.Save();
-  }
-  ae::DomainGraph graph{&domain};
-  CHECK(graph.SaveRoot(catalog, CatalogRootObjId()).IsOk());
-}
-
-void AssertChromePresenterRefAbsent(std::filesystem::path const& state_dir,
-                                    ChromePresenterMember member) {
-  RegisterCatalogTypes();
-  DirectoryDomainStorage storage{state_dir};
-  ae::Domain domain{storage};
-  WindowCatalog::ptr loaded =
-      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
-  ae::Ptr<WindowCatalog> catalog = loaded.Load();
-  (catalog->presenters.*member).Load();
-  CHECK(!(catalog->presenters.*member).is_valid());
-  CHECK(!(catalog->presenters.*member));
-}
-
 ae::ObjId LoadAddButtonPresenterObjId(std::filesystem::path const& state_dir) {
   RegisterCatalogTypes();
   DirectoryDomainStorage storage{state_dir};
@@ -841,76 +715,6 @@ void AssertPresenterObjectAbsent(std::filesystem::path const& state_dir,
   CHECK(storage.Enumerate(presenter_id).empty());
 }
 
-void ExpectFatalLoadOnlyOrLoadApplication(ChildRunResult const& result,
-                                          char const* primary_needle) {
-  bool const primary =
-      result.stderr_text.find(primary_needle) != std::string::npos;
-  bool const load_failed =
-      result.stderr_text.find("fatal: LoadApplication failed") !=
-      std::string::npos;
-  CHECK(result.exit_code != 0);
-  CHECK(primary || load_failed);
-  if (!primary && !load_failed) {
-    std::cerr << "load-only stderr was:\n" << result.stderr_text << '\n';
-    std::exit(1);
-  }
-}
-
-using ChromeButtonMember = ae::ObjPtr<ui::UiPushButton> WindowCatalogButtons::*;
-
-ChromeButtonMember ChromeButtonMemberForSuffix(char const* suffix) {
-  if (std::string{suffix} == "add_button") {
-    return &WindowCatalogButtons::add_button;
-  }
-  if (std::string{suffix} == "open_button") {
-    return &WindowCatalogButtons::open_button;
-  }
-  if (std::string{suffix} == "delete_button") {
-    return &WindowCatalogButtons::delete_button;
-  }
-  if (std::string{suffix} == "language_button") {
-    return &WindowCatalogButtons::language_button;
-  }
-  CHECK(false);
-  return &WindowCatalogButtons::add_button;
-}
-
-void WriteProfileMissingChromeButtonRef(std::filesystem::path const& state_dir,
-                                        ChromeButtonMember member) {
-  RegisterCatalogTypes();
-  DirectoryDomainStorage storage{state_dir};
-  ae::Domain domain{storage};
-  WindowCatalog::ptr loaded =
-      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
-  ae::Ptr<WindowCatalog> catalog = loaded.Load();
-  ui::UiPushButton::ptr const empty = ui::UiPushButton::ptr::Declare(
-      ae::CreateWith{domain}.with_id(ae::ObjId{}));
-  catalog->buttons.*member = empty;
-  if (catalog->base.is_valid()) {
-    if (!catalog->base.is_loaded()) {
-      catalog->base.Load();
-    }
-    auto& base_catalog = static_cast<WindowCatalog&>(*catalog->base.operator->());
-    base_catalog.buttons.*member = empty;
-    catalog->base.Save();
-  }
-  ae::DomainGraph graph{&domain};
-  CHECK(graph.SaveRoot(catalog, CatalogRootObjId()).IsOk());
-}
-
-void AssertChromeButtonRefAbsent(std::filesystem::path const& state_dir,
-                                 ChromeButtonMember member) {
-  RegisterCatalogTypes();
-  DirectoryDomainStorage storage{state_dir};
-  ae::Domain domain{storage};
-  WindowCatalog::ptr loaded =
-      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
-  ae::Ptr<WindowCatalog> catalog = loaded.Load();
-  (catalog->buttons.*member).Load();
-  CHECK(!(catalog->buttons.*member).is_valid());
-  CHECK(!(catalog->buttons.*member));
-}
-
 ae::ObjId LoadAddButtonObjId(std::filesystem::path const& state_dir) {
   RegisterCatalogTypes();
   DirectoryDomainStorage storage{state_dir};
@@ -934,90 +738,12 @@ ae::ObjId WriteProfileMissingAddButtonObject(
 void RunRequiredChromeButtonNegativeTests(
     std::filesystem::path const& good_state,
     std::filesystem::path const& load_only) {
-  char const* const kRefSuffixes[] = {"add_button", "open_button", "delete_button",
-                                      "language_button"};
-  for (char const* suffix : kRefSuffixes) {
-    std::string const dir_name =
-        std::string{"missing_chrome_"} + suffix + "_ref";
-    auto const dir = NegativeStateDir(dir_name.c_str());
-    CopyStateDir(good_state, dir);
-    ChromeButtonMember const member = ChromeButtonMemberForSuffix(suffix);
-    WriteProfileMissingChromeButtonRef(dir, member);
-    AssertChromeButtonRefAbsent(dir, member);
-    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
-    ExpectFatalLoadOnly(result,
-                        "fatal: WindowCatalog required chrome button missing");
-  }
-
-  {
-    auto const dir = NegativeStateDir("missing_chrome_add_button_object");
-    CopyStateDir(good_state, dir);
-    ae::ObjId const button_id = WriteProfileMissingAddButtonObject(dir);
-    AssertPresenterObjectAbsent(dir, button_id);
-    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
-    ExpectFatalLoadOnlyOrLoadApplication(
-        result, "fatal: WindowCatalog required chrome button missing");
-  }
-}
-
-using LocalizedTextMember =
-    ae::ObjPtr<ui::UiLocalizationString> WindowCatalogTexts::*;
-
-LocalizedTextMember LocalizedTextMemberForSuffix(char const* suffix) {
-  if (std::string{suffix} == "label_add") {
-    return &WindowCatalogTexts::label_add;
-  }
-  if (std::string{suffix} == "label_open") {
-    return &WindowCatalogTexts::label_open;
-  }
-  if (std::string{suffix} == "label_delete") {
-    return &WindowCatalogTexts::label_delete;
-  }
-  if (std::string{suffix} == "label_language") {
-    return &WindowCatalogTexts::label_language;
-  }
-  if (std::string{suffix} == "window_title_prefix") {
-    return &WindowCatalogTexts::window_title_prefix;
-  }
-  CHECK(false);
-  return &WindowCatalogTexts::label_add;
-}
-
-void WriteProfileMissingLocalizedTextRef(std::filesystem::path const& state_dir,
-                                         LocalizedTextMember member) {
-  RegisterCatalogTypes();
-  DirectoryDomainStorage storage{state_dir};
-  ae::Domain domain{storage};
-  WindowCatalog::ptr loaded =
-      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
-  ae::Ptr<WindowCatalog> catalog = loaded.Load();
-  ui::UiLocalizationString::ptr const empty =
-      ui::UiLocalizationString::ptr::Declare(
-          ae::CreateWith{domain}.with_id(ae::ObjId{}));
-  catalog->texts.*member = empty;
-  if (catalog->base.is_valid()) {
-    if (!catalog->base.is_loaded()) {
-      catalog->base.Load();
-    }
-    auto& base_catalog = static_cast<WindowCatalog&>(*catalog->base.operator->());
-    base_catalog.texts.*member = empty;
-    catalog->base.Save();
-  }
-  ae::DomainGraph graph{&domain};
-  CHECK(graph.SaveRoot(catalog, CatalogRootObjId()).IsOk());
-}
-
-void AssertLocalizedTextRefAbsent(std::filesystem::path const& state_dir,
-                                  LocalizedTextMember member) {
-  RegisterCatalogTypes();
-  DirectoryDomainStorage storage{state_dir};
-  ae::Domain domain{storage};
-  WindowCatalog::ptr loaded =
-      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
-  ae::Ptr<WindowCatalog> catalog = loaded.Load();
-  (catalog->texts.*member).Load();
-  CHECK(!(catalog->texts.*member).is_valid());
-  CHECK(!(catalog->texts.*member));
+  auto const dir = NegativeStateDir("missing_chrome_add_button_object");
+  CopyStateDir(good_state, dir);
+  ae::ObjId const button_id = WriteProfileMissingAddButtonObject(dir);
+  AssertPresenterObjectAbsent(dir, button_id);
+  auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+  ExpectFatalLoadOnly(result, "fatal: LoadApplication failed");
 }
 
 ae::ObjId LoadLabelAddObjId(std::filesystem::path const& state_dir) {
@@ -1043,95 +769,36 @@ ae::ObjId WriteProfileMissingLabelAddObject(
 void RunRequiredLocalizedTextNegativeTests(
     std::filesystem::path const& good_state,
     std::filesystem::path const& load_only) {
-  char const* const kRefSuffixes[] = {
-      "label_add",  "label_open",         "label_delete",
-      "label_language", "window_title_prefix",
-  };
-  for (char const* suffix : kRefSuffixes) {
-    std::string const dir_name =
-        std::string{"missing_localized_text_"} + suffix + "_ref";
-    auto const dir = NegativeStateDir(dir_name.c_str());
-    CopyStateDir(good_state, dir);
-    LocalizedTextMember const member = LocalizedTextMemberForSuffix(suffix);
-    WriteProfileMissingLocalizedTextRef(dir, member);
-    AssertLocalizedTextRefAbsent(dir, member);
-    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
-    ExpectFatalLoadOnly(result,
-                        "fatal: WindowCatalog required localized text missing");
-  }
-
-  {
-    auto const dir = NegativeStateDir("missing_localized_text_label_add_object");
-    CopyStateDir(good_state, dir);
-    ae::ObjId const text_id = WriteProfileMissingLabelAddObject(dir);
-    AssertPresenterObjectAbsent(dir, text_id);
-    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
-    ExpectFatalLoadOnlyOrLoadApplication(
-        result, "fatal: WindowCatalog required localized text missing");
-  }
+  auto const dir = NegativeStateDir("missing_localized_text_label_add_object");
+  CopyStateDir(good_state, dir);
+  ae::ObjId const text_id = WriteProfileMissingLabelAddObject(dir);
+  AssertPresenterObjectAbsent(dir, text_id);
+  auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+  ExpectFatalLoadOnly(result, "fatal: LoadApplication failed");
 }
 
 void RunRequiredChromePresenterNegativeTests(
     std::filesystem::path const& good_state,
     std::filesystem::path const& load_only) {
-  char const* const kRefSuffixes[] = {
-      "list_presenter",          "add_button_presenter",
-      "open_button_presenter",   "delete_button_presenter",
-      "language_button_presenter",
-  };
-  for (char const* suffix : kRefSuffixes) {
-    std::string const dir_name = std::string{"missing_chrome_"} + suffix + "_ref";
-    auto const dir = NegativeStateDir(dir_name.c_str());
-    CopyStateDir(good_state, dir);
-    ChromePresenterMember const member = ChromePresenterMemberForSuffix(suffix);
-    WriteProfileMissingChromePresenterRef(dir, member);
-    AssertChromePresenterRefAbsent(dir, member);
-    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
-    ExpectFatalLoadOnly(result,
-                        "fatal: WindowCatalog required chrome presenter missing");
-  }
-
-  {
-    auto const dir = NegativeStateDir("missing_chrome_add_button_presenter_object");
-    CopyStateDir(good_state, dir);
-    ae::ObjId const presenter_id =
-        WriteProfileMissingAddButtonPresenterObject(dir);
-    AssertPresenterObjectAbsent(dir, presenter_id);
-    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
-    ExpectFatalLoadOnlyOrLoadApplication(
-        result, "fatal: WindowCatalog required chrome presenter missing");
-  }
+  auto const dir = NegativeStateDir("missing_chrome_add_button_presenter_object");
+  CopyStateDir(good_state, dir);
+  ae::ObjId const presenter_id =
+      WriteProfileMissingAddButtonPresenterObject(dir);
+  AssertPresenterObjectAbsent(dir, presenter_id);
+  auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+  ExpectFatalLoadOnly(result, "fatal: LoadApplication failed");
 }
 
 void RunRequiredListLocaleNegativeTests(
     std::filesystem::path const& good_state,
     std::filesystem::path const& load_only) {
   {
-    auto const dir = NegativeStateDir("missing_list_ref");
-    CopyStateDir(good_state, dir);
-    WriteProfileMissingListRef(dir);
-    AssertListRefAbsent(dir);
-    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
-    ExpectFatalLoadOnly(result, "fatal: WindowCatalog required list missing");
-  }
-
-  {
     auto const dir = NegativeStateDir("missing_list_object");
     CopyStateDir(good_state, dir);
     WriteProfileMissingListObject(dir);
     AssertListObjectAbsent(dir);
     auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
-    ExpectFatalLoadOnlyOrLoadApplication(
-        result, "fatal: WindowCatalog required list missing");
-  }
-
-  {
-    auto const dir = NegativeStateDir("missing_locale_ref");
-    CopyStateDir(good_state, dir);
-    WriteProfileMissingLocaleRef(dir);
-    AssertLocaleRefAbsent(dir);
-    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
-    ExpectFatalLoadOnly(result, "fatal: WindowCatalog required locale missing");
+    ExpectFatalLoadOnly(result, "fatal: LoadApplication failed");
   }
 
   {
@@ -1140,8 +807,7 @@ void RunRequiredListLocaleNegativeTests(
     ae::ObjId const locale_id = WriteProfileMissingLocaleObject(dir);
     AssertLocaleObjectAbsent(dir, locale_id);
     auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
-    ExpectFatalLoadOnlyOrLoadApplication(
-        result, "fatal: WindowCatalog required locale missing");
+    ExpectFatalLoadOnly(result, "fatal: LoadApplication failed");
   }
 }
 
