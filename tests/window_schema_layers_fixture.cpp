@@ -209,6 +209,14 @@ APPTRAVERSE_REGISTER(Window);
 #if APPTRAVERSE_WINDOW_EXE_REVISION == 0 || APPTRAVERSE_WINDOW_EXE_REVISION == 1 || \
     APPTRAVERSE_WINDOW_EXE_REVISION == 2
 
+// Obj/S0 without an origin, as the standard save writes it: null ObjPtr
+// (ObjId 0, ObjFlags kUnloaded).
+constexpr std::uint8_t kEmbeddedObjV0Layer[] = {
+
+    0x00, 0x00, 0x00, 0x00, 0x02,
+
+};
+
 constexpr std::uint8_t kEmbeddedWindowV0Layer[] = {
 
     0x0A, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00,
@@ -515,7 +523,8 @@ int Run(int argc, char** argv) {
 
     ae::DomainQuery const obj_v0_query{ae::ObjId{kWindowId}, ae::Obj::kClassId, 0};
 
-    WriteEmbeddedLayer(*embedded_storage, obj_v0_query, nullptr, 0);
+    WriteEmbeddedLayer(*embedded_storage, obj_v0_query, kEmbeddedObjV0Layer,
+                       sizeof(kEmbeddedObjV0Layer));
 
     WriteEmbeddedLayer(*embedded_storage, v0_query, kEmbeddedWindowV0Layer,
 
@@ -697,7 +706,8 @@ int Run(int argc, char** argv) {
 
             user_storage.Store(obj_v0_query);
 
-        if (!obj_writer->Write(ae::seri::DataWriteTag{nullptr, 0})) {
+        if (!obj_writer->Write(ae::seri::DataWriteTag{
+                kEmbeddedObjV0Layer, sizeof(kEmbeddedObjV0Layer)})) {
 
           throw std::runtime_error("obj v0 seed write failed");
 

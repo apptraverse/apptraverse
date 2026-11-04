@@ -1,0 +1,46 @@
+diff --git a/src/aether-objects/obj/obj.cpp b/src/aether-objects/obj/obj.cpp
+index 3279321..569b50b 100644
+--- a/src/aether-objects/obj/obj.cpp
++++ b/src/aether-objects/obj/obj.cpp
+@@ -31,6 +31,18 @@ Obj::~Obj() {
+ 
+ uint32_t Obj::GetClassId() const { return kClassId; }
+ 
++void Obj::SetOriginId(ObjId origin_id) {
++  if (!origin_id.is_valid() || domain == nullptr) {
++    origin_.Reset();
++    return;
++  }
++  origin_ = Obj::ptr::Declare(
++      CreateWith{domain}.with_id(origin_id).with_flags(
++          ObjFlags::kUnloadedByDefault | ObjFlags::kUnloaded));
++}
++
++ObjId Obj::origin_id() const { return origin_.id(); }
++
+ namespace domain_visitor {
+ std::size_t GetObjIndexImpl(Obj const* obj, std::uint32_t class_id) {
+   auto res = crc32::from_buffer(
+diff --git a/src/aether-objects/obj/obj.h b/src/aether-objects/obj/obj.h
+index 94a3b04..774cb62 100644
+--- a/src/aether-objects/obj/obj.h
++++ b/src/aether-objects/obj/obj.h
+@@ -64,10 +64,17 @@ class Obj {
+ 
+   virtual std::uint32_t GetClassId() const;
+ 
+-  AE_REFLECT();
++  void SetOriginId(ObjId origin_id);
++  ObjId origin_id() const;
++
++  // Obj/S0: the lazy origin reference is part of the base object schema.
++  AE_REFLECT(AE_MMBR(origin_));
+ 
+   Domain* domain{};
+   ObjId obj_id;
++
++ private:
++  ObjPtr<Obj> origin_{};
+ };
+ 
+ namespace domain_visitor {

@@ -1,0 +1,14 @@
+diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
+index 3622e23..2c2d58b 100644
+--- a/src/aether-objects/obj/domain.h
++++ b/src/aether-objects/obj/domain.h
+@@ -121,6 +121,9 @@ enum class GraphSerializationScope : std::uint8_t {
+   // UI structural/incremental publication: materialized fields only; Node
+   // historical base/journal must not expand the Save walk.
+   MaterializedPublication = 2,
++  // Canonical Clone snapshot: current fields and local refs; omit Node
++  // historical base/journal.
++  CanonicalClone = 3,
+ };
+ 
+ /**

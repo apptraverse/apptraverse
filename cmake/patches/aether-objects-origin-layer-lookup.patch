@@ -1,0 +1,21 @@
+diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
+index 8733bb0..dd430f8 100644
+--- a/src/aether-objects/obj/domain.h
++++ b/src/aether-objects/obj/domain.h
+@@ -262,6 +262,16 @@ template <typename T, auto V>
+ seri::SeriResult DomainGraph::LoadVersion(Version<V> version, T& obj,
+                                           ObjId obj_id) {
+   auto load = GetReader({obj_id, T::kClassId, V});
++  if constexpr (!std::is_same_v<std::decay_t<T>, Obj>) {
++    // A layer the node does not store is taken from its origin (one hop);
++    // Obj/S0 carrying the origin is loaded before derived layers.
++    if (load.result == DomainLoadResult::kEmpty) {
++      ObjId const origin_id = obj.Obj::origin_id();
++      if (origin_id.is_valid() && origin_id != obj_id) {
++        load = GetReader({origin_id, T::kClassId, V});
++      }
++    }
++  }
+   if (load.result == DomainLoadResult::kEmpty) {
+     return Error{domain_internal::missing_version};
+   }

@@ -1,5 +1,5 @@
 diff --git a/src/aether-objects/obj/domain.cpp b/src/aether-objects/obj/domain.cpp
-index f5648f1..6dcefdd 100644
+index f5648f1..8a9b817 100644
 --- a/src/aether-objects/obj/domain.cpp
 +++ b/src/aether-objects/obj/domain.cpp
 @@ -14,11 +14,11 @@
@@ -16,31 +16,8 @@ index f5648f1..6dcefdd 100644
  
  #include "aether-objects/log.h"
  
-@@ -112,6 +112,22 @@ seri::SeriResult DomainGraph::SaveRoot(Ptr<Obj> const& ptr, ObjId obj_id) {
-   return Error{seri::write_error};
- }
- 
-+seri::SeriResult DomainGraph::TryAppendOriginFacetLayer(
-+    Obj const& obj, ObjId obj_id, std::uint32_t concrete_class_id) {
-+  if (concrete_class_id != obj.GetClassId()) {
-+    return Ok{seri::good};
-+  }
-+  if (serialization_scope != GraphSerializationScope::LocalPersistent &&
-+      serialization_scope != GraphSerializationScope::CanonicalClone) {
-+    return Ok{seri::good};
-+  }
-+  if (!obj.origin_id().is_valid() ||
-+      !obj.ShouldSaveOriginFacet(ae::Version<1>{})) {
-+    return Ok{seri::good};
-+  }
-+  return SaveVersion(Version<1>{}, obj, obj_id);
-+}
-+
- ObjId DomainGraph::CloneSaveRemapId(ObjId id) const {
-   if (clone_save_remap_ == nullptr || !id.is_valid()) {
-     return id;
 diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
-index 1032488..8f0fbc6 100644
+index 8b9b724..21d56b2 100644
 --- a/src/aether-objects/obj/domain.h
 +++ b/src/aether-objects/obj/domain.h
 @@ -37,6 +37,7 @@
@@ -91,39 +68,6 @@ index 1032488..8f0fbc6 100644
  // Serialization intent for one DomainGraph Save/Load walk. Owned by the
  // DomainGraph instance (no process-global / thread_local policy registry).
  enum class GraphSerializationScope : std::uint8_t {
-@@ -187,6 +155,9 @@ class DomainGraph {
-   bool force_materialize{false};
- 
-  private:
-+  seri::SeriResult TryAppendOriginFacetLayer(Obj const& obj, ObjId obj_id,
-+                                             std::uint32_t concrete_class_id);
-+
-   void LoadStoredLayers(Ptr<Obj>& obj, ObjId storage_id);
- 
-   DomainLoad GetReader(DomainQuery const& query);
-@@ -350,17 +321,11 @@ std::optional<seri::SeriResult> DomainGraph::Save(T const& obj, ObjId obj_id) {
- 
-   if constexpr (std::is_base_of_v<Obj, std::decay_t<T>> &&
-                 !std::is_same_v<std::decay_t<T>, Obj>) {
--    if ((serialization_scope == GraphSerializationScope::LocalPersistent ||
--         serialization_scope == GraphSerializationScope::CanonicalClone) &&
--        T::kClassId == obj.GetClassId()) {
--      Obj const& as_obj = static_cast<Obj const&>(obj);
--      if (as_obj.origin_id().is_valid() &&
--          as_obj.ShouldSaveOriginFacet(ae::Version<1>{})) {
--        seri::SeriResult const facet_result =
--            SaveVersion(Version<1>{}, as_obj, obj_id);
--        if (facet_result.IsErr()) {
--          return facet_result;
--        }
-+    if (T::kClassId == obj.GetClassId()) {
-+      seri::SeriResult const facet_result = TryAppendOriginFacetLayer(
-+          static_cast<Obj const&>(obj), obj_id, T::kClassId);
-+      if (facet_result.IsErr()) {
-+        return facet_result;
-       }
-     }
-   }
 diff --git a/src/aether-objects/obj/domain_buffer.h b/src/aether-objects/obj/domain_buffer.h
 new file mode 100644
 index 0000000..a0a9588
@@ -180,10 +124,10 @@ index 0000000..a0a9588
 +
 +#endif  // AETHER_OBJECTS_OBJ_DOMAIN_BUFFER_H_
 diff --git a/src/aether-objects/obj/obj.h b/src/aether-objects/obj/obj.h
-index 329adcc..d1620a6 100644
+index df7f216..653fd4b 100644
 --- a/src/aether-objects/obj/obj.h
 +++ b/src/aether-objects/obj/obj.h
-@@ -36,13 +36,15 @@
+@@ -35,13 +35,15 @@
  #include "aether-miscpp/crc.h"
  #include "aether-miscpp/reflect/reflect.h"
  
@@ -200,7 +144,7 @@ index 329adcc..d1620a6 100644
  /**
   * \brief Base class for all objects.
   */
-@@ -95,6 +97,45 @@ class Obj {
+@@ -78,6 +80,45 @@ class Obj {
    ObjPtr<Obj> origin_{};
  };
  

@@ -1402,6 +1402,28 @@ set_tests_properties(apptraverse_object_origin_disk_matrix
   LABELS "serialization;origin;disk;lifecycle"
 )
 
+foreach(revision IN ITEMS 0 1)
+  add_executable(apptraverse_origin_evolution_r${revision}
+    origin_evolution_fixture.cpp)
+  target_link_libraries(apptraverse_origin_evolution_r${revision} PRIVATE
+    apptraverse)
+  target_compile_definitions(apptraverse_origin_evolution_r${revision} PRIVATE
+    APPTRAVERSE_ORIGIN_EVOLUTION_EXE_REVISION=${revision})
+endforeach()
+
+add_test(
+  NAME apptraverse_origin_evolution_matrix
+  COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_LIST_DIR}/origin_evolution_matrix.py"
+    --rev0 "$<TARGET_FILE:apptraverse_origin_evolution_r0>"
+    --rev1 "$<TARGET_FILE:apptraverse_origin_evolution_r1>"
+    --work-root "${CMAKE_CURRENT_BINARY_DIR}/origin_evolution_states"
+)
+set_tests_properties(apptraverse_origin_evolution_matrix
+  PROPERTIES TIMEOUT 120
+  LABELS "serialization;origin;evolution;disk"
+)
+
 add_executable(apptraverse_model_persistence_test
   model_persistence_test.cpp
 )

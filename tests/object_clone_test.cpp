@@ -417,7 +417,7 @@ void ExpectCloneUserLayers(StoredLayerSet const& layers) {
       StoredLayerSet::mapped_type{0, 1}) {
     Fail("USER/A unexpected Derived S layers");
   }
-  if (layers.at(ae::Obj::kClassId) != std::set<std::uint8_t>{0, 1}) {
+  if (layers.at(ae::Obj::kClassId) != std::set<std::uint8_t>{0}) {
     Fail("USER/A unexpected Obj S layers");
   }
 }

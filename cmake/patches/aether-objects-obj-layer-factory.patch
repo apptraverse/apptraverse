@@ -34,10 +34,10 @@ index 7031556..d033fba 100644
    for (auto& f : registry_->factories) {
      if (IsLast(f.first)) {
 diff --git a/src/aether-objects/obj/obj.cpp b/src/aether-objects/obj/obj.cpp
-index aaca824..cb60a41 100644
+index 569b50b..2bc0a85 100644
 --- a/src/aether-objects/obj/obj.cpp
 +++ b/src/aether-objects/obj/obj.cpp
-@@ -18,7 +18,46 @@
+@@ -18,7 +18,39 @@
  
  #include "aether-miscpp/crc.h"
  
@@ -46,33 +46,26 @@ index aaca824..cb60a41 100644
 +
  namespace ae {
 +
-+Ptr<Obj> ObjFacetFactoryCreateMustNotRun() { return {}; }
++Ptr<Obj> ObjLayerFactoryCreateMustNotRun() { return {}; }
 +
-+std::optional<seri::SeriResult> LoadObjOriginFacet(DomainGraph* domain_graph,
-+                                                   Ptr<Obj>& obj,
-+                                                   ObjId storage_id) {
-+  auto result = domain_graph->LoadVersion(
-+      Version<1>{}, static_cast<Obj&>(*obj.get()), storage_id);
-+  if (IsMissingVersion(result)) {
-+    return Ok{seri::good};
-+  }
-+  return result;
++std::optional<seri::SeriResult> LoadObjLayer(DomainGraph* domain_graph,
++                                             Ptr<Obj>& obj, ObjId storage_id) {
++  return domain_graph->Load(static_cast<Obj&>(*obj.get()), storage_id);
 +}
 +
-+std::optional<seri::SeriResult> SaveObjOriginFacetUnused(DomainGraph*,
-+                                                         Ptr<Obj> const&,
-+                                                         ObjId) {
++std::optional<seri::SeriResult> SaveObjLayerUnused(DomainGraph*,
++                                                   Ptr<Obj> const&, ObjId) {
 +  return Ok{seri::good};
 +}
 +
-+void RegisterObjOriginFacetFactory(Registry& registry) {
++void RegisterObjLayerFactory(Registry& registry) {
 +  if (registry.IsExisting(Obj::kClassId)) {
 +    return;
 +  }
 +  registry.RegisterClass(
 +      Obj::kClassId, Obj::kClassId,
-+      Factory{ObjFacetFactoryCreateMustNotRun, LoadObjOriginFacet,
-+              SaveObjOriginFacetUnused,
++      Factory{ObjLayerFactoryCreateMustNotRun, LoadObjLayer,
++              SaveObjLayerUnused,
 +#ifndef NDEBUG
 +              std::string{"ae::Obj"},
 +              Obj::kClassId,
@@ -85,7 +78,7 @@ index aaca824..cb60a41 100644
  
  Obj::Obj(ObjProp prop) : domain{prop.domain}, obj_id{prop.id} {}
 diff --git a/src/aether-objects/obj/registry.cpp b/src/aether-objects/obj/registry.cpp
-index 3fb1465..738f7a1 100644
+index 3fb1465..23b0763 100644
 --- a/src/aether-objects/obj/registry.cpp
 +++ b/src/aether-objects/obj/registry.cpp
 @@ -23,8 +23,12 @@
@@ -93,11 +86,11 @@ index 3fb1465..738f7a1 100644
  
  namespace ae {
 +
-+void RegisterObjOriginFacetFactory(Registry& registry);
++void RegisterObjLayerFactory(Registry& registry);
 +
  Registry& Registry::GetRegistry() {
    static Registry registry;
-+  RegisterObjOriginFacetFactory(registry);
++  RegisterObjLayerFactory(registry);
    return registry;
  }
  

@@ -64,7 +64,7 @@ index d033fba..4f69641 100644
  std::vector<std::uint32_t> Domain::KnownStoredClasses(ObjId id) {
    auto classes = storage_->Enumerate(id);
 diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
-index 77b4af5..03449ff 100644
+index 31431b1..95c1986 100644
 --- a/src/aether-objects/obj/domain.h
 +++ b/src/aether-objects/obj/domain.h
 @@ -20,6 +20,7 @@
@@ -100,10 +100,10 @@ index 77b4af5..03449ff 100644
  
  template <typename T>
 diff --git a/src/aether-objects/obj/obj.cpp b/src/aether-objects/obj/obj.cpp
-index cb60a41..4445f6c 100644
+index 2bc0a85..e4d0b5c 100644
 --- a/src/aether-objects/obj/obj.cpp
 +++ b/src/aether-objects/obj/obj.cpp
-@@ -63,8 +63,8 @@ Obj::Obj() = default;
+@@ -56,8 +56,8 @@ Obj::Obj() = default;
  Obj::Obj(ObjProp prop) : domain{prop.domain}, obj_id{prop.id} {}
  
  Obj::~Obj() {
@@ -115,14 +115,14 @@ index cb60a41..4445f6c 100644
  }
  
 diff --git a/src/aether-objects/obj/obj.h b/src/aether-objects/obj/obj.h
-index a2aa433..685ed50 100644
+index 774cb62..df7f216 100644
 --- a/src/aether-objects/obj/obj.h
 +++ b/src/aether-objects/obj/obj.h
-@@ -75,6 +75,7 @@ class Obj {
+@@ -72,6 +72,7 @@ class Obj {
  
    Domain* domain{};
    ObjId obj_id;
 +  std::shared_ptr<DomainRegisteredObjects> registered_objects_;
  
-  protected:
-   template <typename Dnv>
+  private:
+   ObjPtr<Obj> origin_{};

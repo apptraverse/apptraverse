@@ -1,4 +1,4 @@
-﻿diff --git a/src/aether-objects/obj/domain.cpp b/src/aether-objects/obj/domain.cpp
+diff --git a/src/aether-objects/obj/domain.cpp b/src/aether-objects/obj/domain.cpp
 index 4f69641..f5648f1 100644
 --- a/src/aether-objects/obj/domain.cpp
 +++ b/src/aether-objects/obj/domain.cpp
@@ -47,7 +47,7 @@ index 4f69641..f5648f1 100644
    assert(writer && "Writer must be created!");
    return writer;
 diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
-index 92fd99a..59ba43c 100644
+index 95c1986..3622e23 100644
 --- a/src/aether-objects/obj/domain.h
 +++ b/src/aether-objects/obj/domain.h
 @@ -24,6 +24,7 @@

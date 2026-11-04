@@ -16,16 +16,16 @@ set(APPTRAVERSE_AETHER_OBJECTS_PATCH_NAMES
   objptr-reset-flags
   force-materialize
   should-save-version
-  origin-facet
-  obj-facet-factory
+  origin-s0
+  obj-layer-factory
   domain-registered-objects
   clone-save-remap
-  clone-canonical-state
+  clone-canonical-scope
   clone-reference-visitor
-  emscripten-domain-include
+  emscripten-domain-buffer-split
   nested-obj-archive-deseri
   graph-load-instance-identity
-  origin-facet-overload-set
+  origin-layer-lookup
 )
 set(APPTRAVERSE_AETHER_OBJECTS_PATCHES)
 foreach(patch_name IN LISTS APPTRAVERSE_AETHER_OBJECTS_PATCH_NAMES)

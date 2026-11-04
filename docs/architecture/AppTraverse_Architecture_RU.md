@@ -75,7 +75,7 @@ AppTraverse — библиотечная основа для приложени�
 
 Численное значение ObjId не задаёт порядок создания UI, родительские отношения или место объекта в памяти. ClassId не является заменой C++ RTTI во всех произвольных типах: это идентичность зарегистрированного типа объектной системы. Типизация проходит через её ссылки, регистрацию и существующие отношения классов.
 
-Унаследованные части сериализуются своими слоями. У объекта могут одновременно существовать Derived/S0, Derived/S1 и Obj/S1. Совпадение номера S не делает эти слои одним и тем же: их ClassId различаются. Изменение общей системной метаинформации не требует добавлять поле во все прикладные классы.
+Унаследованные части сериализуются своими слоями. У объекта могут одновременно существовать Obj/S0, Derived/S0 и Derived/S1. Совпадение номера S не делает эти слои одним и тем же: их ClassId различаются. Общая системная метаинформация (в том числе ссылка на origin) принадлежит исходной схеме Obj/S0 и не требует добавлять поле во все прикладные классы.
 
 **В исходниках.** `APPTRAVERSE_NAMED_OBJECT` использует явно заданное serialization-имя для идентичности класса. Поэтому общий `String` может иметь другое C++-имя и расположение заголовка, сохраняя опубликованную identity прежнего строкового типа. Автоматическое изменение идентичности при косметическом rename противоречит контракту. [C07, C15]
 
@@ -135,7 +135,7 @@ UI mirror не является переносимым пользователь�
 | Набор состояний поставки | Точные объектные слои и метаданные их принадлежности | USER и runtime-кеши |
 | Replay-пакет | Исходное состояние, Events и закреплённые зависимости | Оконные ресурсы и повторное выполнение внешних операций |
 
-Смысл S задаётся классом. Сохранение известного слоя не удаляет другие слоты только потому, что текущий код их не читает. `ShouldSaveVersion` относится к прикладной политике конкретного класса; системный origin-фильтр не должен неожиданно подавлять Derived/S1 у всех наследников.
+Смысл S задаётся классом. Сохранение известного слоя не удаляет другие слоты только потому, что текущий код их не читает. `ShouldSaveVersion` относится к прикладной политике конкретного класса; системная ссылка origin не участвует в выборе versioned/reflection пути наследников и не должна неожиданно подавлять или подменять их Derived/S.
 
 **В исходниках.** Поля классов сериализуются штатно, но `ByteSink`/`ByteSource` в `publication_channel.h` и `object_serialization.cpp` вручную упаковывают envelopes публикаций и checkpoint: идентификаторы, длины, поколения и base bindings. Это наблюдаемая реализация, а не исключение из принятого требования к единой сериализации. Семантика этих данных необходима, конкретная ручная упаковка не является архитектурным обязательством. [C06, C11]
 
@@ -161,7 +161,7 @@ Host-exporter работает на машине сборки. При cross-comp
 
 Storage предоставляет локальные операции над точным ключом слоя: читать, записывать, перечислять классы/доступные данные и обозначать удаление. Внешний путь файла — реализация этого контракта, не часть прикладной identity. RAM, файловый каталог и браузерное хранилище могут реализовывать одну логическую модель без одинаковых путей на диске.
 
-Долговременное состояние приложения сохраняется **только** штатной объектной сериализацией **ObjId / ClassId / S → bytes** через `DomainGraph` и `IDomainStorage`. Физическое размещение (один файл, каталог слоёв, база) — ответственность backend storage, не модели. Отдельный persistent sidecar с поколениями, таблицами base bindings или typed blob-контейнер поверх обычного storage не является целевой архитектурой. Поля `Node::base` и `Node::journal` — сериализуемые слои Node; origin — системный объектный слой.
+Долговременное состояние приложения сохраняется **только** штатной объектной сериализацией **ObjId / ClassId / S → bytes** через `DomainGraph` и `IDomainStorage`. Физическое размещение (один файл, каталог слоёв, база) — ответственность backend storage, не модели. Отдельный persistent sidecar с поколениями, таблицами base bindings или typed blob-контейнер поверх обычного storage не является целевой архитектурой. Поля `Node::base` и `Node::journal` — сериализуемые слои Node; origin — lazy-ссылка в исходной схеме Obj/S0.
 
 Для динамического экземпляра его собственный USER-слой имеет приоритет. Если слой отсутствует, встроенный initial-объект получает начальные данные из своей базы, а созданный через Clone экземпляр — из допустимого origin для соответствующего отсутствующего слоя. Простое наложение двух storage с одинаковыми ObjId не решает задачу origin: ObjId экземпляра и исходного prefab различаются.
 
@@ -255,7 +255,7 @@ Origin — системная lazy-ссылка. Она не делает экз
 
 **История при Clone.** Копия начинает **собственную** историю от перенесённого текущего канонического состояния. Журнал, historical base и события источника в копию не переносятся; для каждого клонированного Node создаётся новая согласованная base с тем же stable origin, что у владельца. Последующие Commit, Replay и cold LoadRoot опираются на эту новую базу. Источник, его base, journal и storage не изменяются.
 
-**В исходниках.** `Obj::SetOriginId` создаёт unloaded `ObjPtr`; origin хранится отдельным `Obj/S1` и автоматически сохраняется в `LocalPersistent` (и при scope **`CanonicalClone`**). `CloneCanonicalRoot` для загруженного графа берёт RAM-снимок штатным Save с **`GraphSerializationScope::CanonicalClone`** (без base/journal источника), remap, staging/load, **`InitializeRuntimeNode`** на копиях и финальный `LocalPersistent` Save; однообъектный путь без Node-history сохранён. Lazy dynamic closure многоузлового Clone не доказан. [C09, C10]
+**В исходниках.** `Obj::SetOriginId` создаёт unloaded `ObjPtr`; ссылка — reflected-поле `Obj` (`AE_REFLECT(AE_MMBR(origin_))`) и сохраняется штатной сериализацией в **Obj/S0** одинаково во всех scope. Отдельного служебного слоя, наследуемых `Load/Save` у `Obj` и save-hook нет; Obj/S0 при Load читает фабрика класса `Obj` до производных слоёв. Хранение ссылки — часть исходной схемы S0 и само по себе не доставляет экземпляру новых слоёв (см. §13). `CloneCanonicalRoot` для загруженного графа берёт RAM-снимок штатным Save с **`GraphSerializationScope::CanonicalClone`** (без base/journal источника), remap, staging/load, **`InitializeRuntimeNode`** на копиях и финальный `LocalPersistent` Save; однообъектный путь без Node-history сохранён. Lazy dynamic closure многоузлового Clone не доказан. [C09, C10]
 
 ## 13. Эволюция экземпляра без live inheritance
 
@@ -266,6 +266,10 @@ Clone — снимок, а не постоянное наследование в
 Пример: исходный P имеет S0 с value=150. Экземпляр A изменён Event до 1601. Новая поставка добавляет S1 с tag=252. A получает отсутствующий S1, но его value остаётся 1601. Если пользователь уже сохранил собственный S1, именно он имеет приоритет. Смена defaults поля value в P не означает, что A должен вернуться к новому default.
 
 Historical base эволюционирует отдельно. Он получает только недостающий слой по собственному закреплённому происхождению; старые исторические значения не заменяются текущими значениями владельца. Только тогда replay старых Events остаётся воспроизводимым. Источник новых слоёв base может совпадать по логическому origin с владельцем, но входные исторические данные различаются.
+
+Это отдельный механизм от хранения ссылки origin (§12, Obj/S0): ссылка — часть исходной схемы объекта, а появление нового S1 у исходного prefab — эволюция его состояния, которую существующие экземпляры получают, только пока у них нет собственного соответствующего USER-слоя.
+
+**В исходниках.** Штатный `DomainGraph::LoadVersion<T, V>` (patch `origin-layer-lookup`): если у узла нет слоя `T/V` (`kEmpty`, не `kRemoved`) и Obj/S0 узла содержит origin, байты `T/V` читаются по ObjId origin через тот же storage. Один шаг, без материализации P в Domain и без записи в USER; при Save слой остаётся у P, пока класс не сохранит собственный S1 (`ShouldSaveVersion`). Historical base получает недостающий слой по своему origin тем же путём. Не решено: многошаговые цепочки origin, источник новых слоёв base, отличный от origin владельца, и слои Node/Event/Presenter (сейчас только S0). [C09]
 
 Read-only Load не должен превращаться в скрытую запись миграции. Материализация нового S и создание пользовательского override — разные действия. Повторное обновление не запускает инициализацию заново поверх существующего USER-слоя.
 
@@ -577,9 +581,10 @@ Headless-представление может вообще не создава�
 | UI mirror | Отдельный Domain/RAM storage, ApplyStructural, lifecycle presenters | Не общий с моделью mutable graph |
 | Native presentation | WinApplicationHost и Windows-компоненты; платформенные исходники Surfaces | Не подтверждает единый WindowCatalog на всех шести системах |
 | Node/history | base, journal, Commit, replay и compaction guard | Полная эволюция arbitrary history не доказана |
-| Origin | Lazy ObjPtr и отдельный Obj/S1, auto-save hook | Не тождественен готовому graph Clone или S-evolution |
+| Origin | Lazy ObjPtr в исходной схеме Obj/S0, штатная сериализация | Ссылка не тождественна graph Clone или S-evolution |
+| Новые слои prefab | Штатный LoadVersion: отсутствующий T/V узла читается по origin (один шаг) | Многошаговый origin и Node/Event-слои не покрыты |
 | CloneCanonicalRoot | Один объект из актуального RAM-состояния; перенос слоёв; origin | Нет общего remap многоузлового графа и доказанной lazy-closure |
-| Overlay storage | USER-приоритет, supply discard, compare-on-close, force_materialize | Не resolver новых слоёв по origin сам по себе |
+| Overlay storage | USER-приоритет, supply discard, compare-on-close, force_materialize | Сам не разрешает новые слои по origin (это делает LoadVersion) |
 | Checkpoint | Слои, generations, Node→base bindings; ручной envelope | Смысл необходим, упаковка не соответствует целевому единому serializer |
 | WindowCatalog | Add/Open/Delete, Events, сохранение, локальная EN/RU-композиция | Создание экземпляров пока вручную; Win32 типы встречаются в общей логике |
 | MinimalApp | Runtime/host consumer, exporter и свой lifecycle | Не независимый завершённый публичный template |
@@ -594,7 +599,7 @@ Headless-представление может вообще не создава�
 
 Из сообщённых пользователем результатов известно, что Windows WindowCatalog на unified был собран и проверен вручную: каталог, открытие/закрытие, язык, геометрия и повторный запуск. Это подтверждение конкретного Windows-сценария, не всех портов, режимов сборки или версий. Настоящий документ не добавляет к нему новых экспериментальных утверждений.
 
-Технические детали, не определённые окончательно кодом, должны сохраняться как открытые границы знания: способ выбора native реализации из нейтральной composition; полный формат штатной публикации/checkpoint; lazy graph Clone и его собственная история; resolver отсутствующих S каждого узла; общий механизм активации полученного набора состояний. Их нельзя незаметно заменить временными схемами и затем считать согласованным контрактом.
+Технические детали, не определённые окончательно кодом, должны сохраняться как открытые границы знания: способ выбора native реализации из нейтральной composition; полный формат штатной публикации/checkpoint; lazy graph Clone и его собственная история; разрешение отсутствующих S за пределами одного шага origin; общий механизм активации полученного набора состояний. Их нельзя незаметно заменить временными схемами и затем считать согласованным контрактом.
 
 ## 27. Опорные сценарии для понимания системы
 
@@ -668,7 +673,7 @@ A уже имеет собственный S0 и origin=P. Новый код п�
 
 **[C08] Инициализация истории Node.** `include/apptraverse/runtime_node.h`: создание same-class base, владение через Domain, перенос notifier только живым узлам. [Открыть заголовок][C08].
 
-**[C09] Системное origin и lifetime объектной библиотеки.** `cmake/patches/aether-objects-origin-facet.patch`, `aether-objects-obj-facet-factory.patch`, `aether-objects-domain-registered-objects.patch`: Obj/S1, lazy origin, отдельная base-facet загрузка и регистрация объектов. [Открыть origin patch][C09].
+**[C09] Системное origin и lifetime объектной библиотеки.** `cmake/patches/aether-objects-origin-s0.patch`, `aether-objects-obj-layer-factory.patch`, `aether-objects-origin-layer-lookup.patch`, `aether-objects-domain-registered-objects.patch`: lazy origin в Obj/S0, загрузка Obj/S0 фабрикой `Obj`, получение отсутствующих слоёв по origin в штатном LoadVersion, регистрация объектов. [Открыть origin patch][C09].
 
 **[C10] Реализованный Clone.** `include/apptraverse/object_clone.h`, `src/object_clone.cpp`: single-object snapshot, инъекция слоёв под новый ID, отдельные load/save обходы. [Открыть реализацию][C10].
 
@@ -711,7 +716,7 @@ A уже имеет собственный S0 и origin=P. Новый код п�
 [C06]: https://github.com/apptraverse/apptraverse/blob/8c863bcd2904f2d918255b57cdf5d4c8bde1cbbf/src/object_serialization.cpp
 [C07]: https://github.com/apptraverse/apptraverse/blob/8c863bcd2904f2d918255b57cdf5d4c8bde1cbbf/include/apptraverse/object_macros.h
 [C08]: https://github.com/apptraverse/apptraverse/blob/8c863bcd2904f2d918255b57cdf5d4c8bde1cbbf/include/apptraverse/runtime_node.h
-[C09]: https://github.com/apptraverse/apptraverse/blob/8c863bcd2904f2d918255b57cdf5d4c8bde1cbbf/cmake/patches/aether-objects-origin-facet.patch
+[C09]: https://github.com/apptraverse/apptraverse/blob/integration/unified-application/cmake/patches/aether-objects-origin-s0.patch
 [C10]: https://github.com/apptraverse/apptraverse/blob/8c863bcd2904f2d918255b57cdf5d4c8bde1cbbf/src/object_clone.cpp
 [C11]: https://github.com/apptraverse/apptraverse/blob/8c863bcd2904f2d918255b57cdf5d4c8bde1cbbf/include/apptraverse/publication_channel.h
 [C12]: https://github.com/apptraverse/apptraverse/blob/8c863bcd2904f2d918255b57cdf5d4c8bde1cbbf/include/apptraverse/distill.h

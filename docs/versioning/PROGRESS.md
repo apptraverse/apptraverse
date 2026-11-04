@@ -7,6 +7,52 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+<a id="p3t3o1--origin-objs0--prefab-layers-2026-11-04--pass"></a>
+
+## P3.T3.O1 — origin в Obj/S0 + слои prefab по origin (post-`6e39ef2`, 2026-11-04) — PASS (срез); regression: 2 открытых pre-existing FAIL
+
+**Base:** `6e39ef2`. **NEXT:** Android embedded (без изменений); Apple — не начинать.
+
+### Два механизма (разделены)
+
+- **Ссылка на origin — часть исходной схемы Obj/S0.** Patch **`origin-s0`**: `Obj` получает `AE_REFLECT(AE_MMBR(origin_))` (private lazy `ObjPtr<Obj>`), `SetOriginId`/`origin_id()`. Обычный обход базовых классов пишет `Obj/0` у каждого объекта (5 байт: ObjId + flags); у `Obj` нет Load/Save, поэтому `HasAnyVersioned*` для `Obj` и reflection-only потомков = false на всех toolchain. Patch **`obj-layer-factory`**: фабрика `Obj` загружает Obj/S0 до производных слоёв.
+- **Новый слой S1 у prefab для существующих экземпляров.** Patch **`origin-layer-lookup`**: в штатном `DomainGraph::LoadVersion<T,V>` (`T != Obj`) при `kEmpty` у узла и валидном origin ≠ собственный id слой `T/V` читается по ObjId origin из того же storage. Один шаг; `kRemoved` не подменяется; P не материализуется, в USER ничего не пишется. Собственный USER-слой экземпляра приоритетен (читается первым). Сохранение S1 экземпляром — существующий `ShouldSaveVersion` (по образцу `PrefabWindow` user-owned S1).
+- **Удалено:** служебный Obj/S1, auto Save hook, наследуемые/private facet Load/Save, patches `origin-facet`, `obj-facet-factory`, `clone-canonical-state`, `emscripten-domain-include`, `origin-facet-overload-set`. Новые: `origin-s0`, `obj-layer-factory`, `clone-canonical-scope`, `emscripten-domain-buffer-split`, `origin-layer-lookup`; context-only перегенерация `domain-registered-objects`, `clone-save-remap`, `clone-reference-visitor`, `nested-obj-archive-deseri`, `graph-load-instance-identity`. Цепочка на чистом clone pin `79283b6`: **full patch chain OK (16 patches)**. Новые CPM source dirs по имени списка: `75d2` (win64/WASM/Android), `5ec7` (Linux); cache вручную не правился.
+- **Профили прежнего формата (Obj/S1)** не загружаются как origin; миграция/fallback не добавлялись (по заданию). Проверки — на новых тестовых профилях.
+
+### Воспроизведение до исправления
+
+- Unit `TestMissingLayerResolvedFromOrigin` без `origin-layer-lookup`: **FAIL** «A: own S0 kept, missing S1 resolved from origin».
+- Сценарий `origin_evolution_matrix` без lookup: **FAIL** «inspect rev1: a.tag expected 252, got 0». С lookup — **PASS**.
+- Первая версия lookup (`static_cast<Obj const&>(obj).origin_id()`) не компилировалась под **em++**: non-dependent выражение с неполным `Obj` в `domain.h` (MSVC/gcc откладывают проверку). Исправлено на `obj.Obj::origin_id()`; patch переименован (`origin-layer-resolution` → `origin-layer-lookup`), т.к. hash CPM следует именам.
+
+### Сценарий эволюции (`apptraverse_origin_evolution_matrix`, два EXE: rev0 / rev1)
+
+prefab P (S0) в BACKING → два экземпляра A, B (`CloneCanonicalRoot`, origin = P) → индивидуальное изменение S0 экземпляра → save → cold load; доставка rev1 (BACKING P с новым S1 tag=252) → оба экземпляра получают недостающий S1, прежние USER S0 сохранены; Event на B задаёт собственный S1 (priority над P); повторный cold load и новый Event. Штатный load, без ручной правки экземпляров; P не материализован, обычный save экземпляра не копирует слои P в USER. Регрессии reflection-only / EventFor / собственный versioned Load/Save, lazy origin — `apptraverse_object_origin_facet_test` (ожидаемые слои `Obj` {0}).
+
+### Найдено в regression и исправлено в срезе
+
+- **`apptraverse_window_schema_layers_roundtrip`** (win64) — первый прогон **FAIL** (embedded-first-install, rollback-to-a/b: «LoadRoot failed»). Причина: fixture писал embedded `Obj/0` и seed USER `Obj/0` пустыми байтами (валидно, пока у `Obj` не было полей). Исправлено: константа `kEmbeddedObjV0Layer` = байты штатного save null-origin `00 00 00 00 02` (сверено с файлами `Obj/0` из того же прогона). Повтор — **PASS**.
+- Web `UserProfilePresent`: удалены новые ветки file-error; профиль = USER существует и не пуст.
+
+### Incremental regression (без clean, без полного CTest; финальная цепочка `75d2`/`5ec7`)
+
+| Контур | Результат |
+| --- | --- |
+| win64 origin/clone/evolution (facet, clone, disk roundtrip, disk matrix, evolution matrix) | **5/5 PASS** |
+| Windows 14 + embedded export | **14/14 PASS** |
+| win64 prefab/evolution/persistence (prefab ×10, application evolution, window schema, event downgrade ×2, lazy/surfaces distilled, checkpoint ×2, persistence ×4, directory/overlay storage, embedded distilled + origin 5) | **30/31**: FAIL `apptraverse_surfaces_distilled_embedded_matrix` («LABEL_ADD_EN expected Add, got »). **Pre-existing:** тот же вывод consumer, собранного в отдельном worktree на `6e39ef2` (исходная цепочка patches) |
+| `apptraverse_event_version_matrix` win64 | **FAIL** (первый прогон и повтор на финальной цепочке): «known-prefix A compact-zero journal_len expected 2, got 3». **Pre-existing:** тот же FAIL на `6e39ef2` (worktree). Ожидание не менялось |
+| win64 полный incremental build | все targets, кроме legacy `win32_surfaces_demo`, `_v1`, `_load_only` — LNK2019 `EnsureSurfacesDemoWin32Registration`/`AttachSurfacesDemoWin32SurfacePresenters` (определяющие `.cpp` не входят ни в один CMakeLists). **Pre-existing:** тот же LNK2019 на `6e39ef2` |
+| Linux ctest (materialization, model runtime, minimal headless, Object Core 9 + origin evolution) | **13/13 PASS** |
+| Linux L3 `linux_minimal_app_l3_smoke.py` | **PASS** |
+| Linux `window_schema_layers` fixtures | **NOT BUILT** (pre-existing: `throw` при `-fno-exceptions`); вне Linux scope |
+| WASM `apptraverse_object_origin_facet_test` | **PASS** |
+| WASM ×3 (minimal, presenter lifecycle, catalog) | **PASS** ×3; серверы `serve_wasm.py` PID 22752 / 49684 запущены и остановлены по PID |
+| Android `connectedDebugAndroidTest` (`C:/cpm-cache/aether-objects/75d2`) | **13/13 PASS** (первый прогон) |
+
+**Открыто (вне среза):** event-version matrix FAIL и surfaces distilled label FAIL — pre-existing, не исправлялись. Обход для origin не многошаговый; новые слои Node/Event/Presenter (сейчас только S0) и отдельный источник слоёв для historical base не реализованы.
+
 <a id="p3t3web6--web-embedded-backing--idbfs-user-2026-11-04--pass"></a>
 
 ## P3.T3.Web6 — Web MinimalApp embedded BACKING + IDBFS USER (post-`8f2b7e5`, 2026-11-04) — PASS (Web slice); regression: 1 открытый pre-existing FAIL

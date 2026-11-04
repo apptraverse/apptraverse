@@ -2,7 +2,6 @@
 
 #include <filesystem>
 #include <memory>
-#include <system_error>
 
 #include <emscripten.h>
 #include <emscripten/em_js.h>
@@ -124,19 +123,8 @@ int PersistMinimalApplicationFromDomain(ae::Domain& domain) {
 }
 
 bool UserProfilePresent(std::filesystem::path const& state_dir) {
-  std::error_code profile_error;
-  bool const profile_exists = std::filesystem::exists(state_dir, profile_error);
-  if (profile_error) {
-    WriteFatalStderr("fatal: cannot inspect minimal app profile\n");
-    std::abort();
-  }
-  bool const profile_absent =
-      !profile_exists || std::filesystem::is_empty(state_dir, profile_error);
-  if (profile_error) {
-    WriteFatalStderr("fatal: cannot inspect minimal app profile contents\n");
-    std::abort();
-  }
-  return !profile_absent;
+  return std::filesystem::exists(state_dir) &&
+         !std::filesystem::is_empty(state_dir);
 }
 
 }  // namespace

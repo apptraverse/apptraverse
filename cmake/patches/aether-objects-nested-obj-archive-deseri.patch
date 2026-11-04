@@ -1,9 +1,8 @@
 diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
-index dbeab19..579ff7e 100644
+index 21d56b2..dd32d7b 100644
 --- a/src/aether-objects/obj/domain.h
 +++ b/src/aether-objects/obj/domain.h
-@@ -382,6 +382,11 @@ struct Serializer<BinaryArchive<DomainBuffer>, T> {
-     return result.value_or(Ok{good});
+@@ -353,6 +353,11 @@ struct Serializer<BinaryArchive<DomainBuffer>, T> {
    }
  
    SeriResult Deseri(Archive& arch, Meta<T> meta_val) const {

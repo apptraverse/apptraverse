@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cross-process origin facet roundtrip on disk USER/BACKING (12B.2)."""
+"""Cross-process origin (Obj/S0) roundtrip on disk USER/BACKING (12B.2)."""
 
 import argparse
 import hashlib
@@ -78,14 +78,14 @@ def assert_user_layers(user_root: Path, derived_class_id: int, obj_class_id: int
     layers = user_layer_map(user_root)
     keys = set(layers)
     need_s0 = layer_key(A_ID, derived_class_id, 0)
-    need_obj_s1 = layer_key(A_ID, obj_class_id, 1)
+    need_obj_s0 = layer_key(A_ID, obj_class_id, 0)
     if need_s0 not in keys:
         raise CheckFailed(f"missing USER layer {need_s0}")
-    if need_obj_s1 not in keys:
-        raise CheckFailed(f"missing USER layer {need_obj_s1}")
-    bad_derived_s1 = layer_key(A_ID, derived_class_id, 1)
-    if bad_derived_s1 in keys:
-        raise CheckFailed(f"unexpected USER layer {bad_derived_s1}")
+    if need_obj_s0 not in keys:
+        raise CheckFailed(f"missing USER layer {need_obj_s0}")
+    for bad in (layer_key(A_ID, derived_class_id, 1), layer_key(A_ID, obj_class_id, 1)):
+        if bad in keys:
+            raise CheckFailed(f"unexpected USER layer {bad}")
     prefix = f"{P_ID}/"
     for key in keys:
         if key.startswith(prefix):
