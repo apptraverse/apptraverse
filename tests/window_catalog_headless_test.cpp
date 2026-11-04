@@ -96,6 +96,163 @@ void WaitPublication(PublicationWaiter& waiter) {
   --waiter.pending;
 }
 
+ui::UiPresentedWindow& MainWindowPresented(WindowCatalog& catalog) {
+  catalog.main_window.Load();
+  return static_cast<ui::UiPresentedWindow&>(*catalog.main_window);
+}
+
+struct LocalizationSlotIds {
+  ae::ObjId en;
+  ae::ObjId ru;
+};
+
+LocalizationSlotIds CaptureLocalizationSlotIds(
+    ui::UiLocalizationString const& localized) {
+  LocalizationSlotIds ids{};
+  CHECK(localized.strings.size() >= 2);
+  ids.en = localized.strings[0].id();
+  ids.ru = localized.strings[1].id();
+  return ids;
+}
+
+void ExpectActiveSlotOnly(ui::UiLocalizationString const& localized,
+                          int active_index, LocalizationSlotIds const& ids) {
+  int const inactive_index = active_index == 0 ? 1 : 0;
+  CHECK(localized.strings[static_cast<std::size_t>(active_index)].is_loaded());
+  CHECK(localized.strings[static_cast<std::size_t>(inactive_index)].is_valid());
+  CHECK(!localized.strings[static_cast<std::size_t>(inactive_index)]
+             .is_loaded());
+  CHECK(localized.strings[0].id() == ids.en);
+  CHECK(localized.strings[1].id() == ids.ru);
+}
+
+struct CatalogLocalizationExpectation {
+  int language_index;
+  char const* label_add;
+  char const* label_open;
+  char const* label_delete;
+  char const* label_language;
+  char const* main_title;
+  char const* row1;
+  char const* row2;
+  char const* open_child_title;
+};
+
+CatalogLocalizationExpectation const kCatalogEn{
+    0, "Add", "Open", "Delete", "RU", "Window Catalog", "Window 1", "Window 2",
+    "Window 1"};
+CatalogLocalizationExpectation const kCatalogRu{
+    1,     "\xD0\x94\xD0\xBE\xD0\xB1\xD0\xB0\xD0\xB2\xD0\xB8\xD1\x82\xD1\x8C",
+    "\xD0\x9E\xD1\x82\xD0\xBA\xD1\x80\xD1\x8B\xD1\x82\xD1\x8C",
+    "\xD0\xA3\xD0\xB4\xD0\xB0\xD0\xBB\xD0\xB8\xD1\x82\xD1\x8C", "EN",
+    "\xD0\x9A\xD0\xB0\xD1\x82\xD0\xB0\xD0\xBB\xD0\xBE\xD0\xB3 \xD0\xBE\xD0\xBA\xD0\xBE\xD0\xBD",
+    "\xD0\x9E\xD0\xBA\xD0\xBD\xD0\xBE 1", "\xD0\x9E\xD0\xBA\xD0\xBD\xD0\xBE 2",
+    "\xD0\x9E\xD0\xBA\xD0\xBD\xD0\xBE 1"};
+
+void ExpectModelLocalization(WindowCatalog& catalog,
+                             CatalogLocalizationExpectation const& expect,
+                             LocalizationSlotIds const& label_add_ids,
+                             LocalizationSlotIds const& label_open_ids,
+                             LocalizationSlotIds const& label_delete_ids,
+                             LocalizationSlotIds const& label_language_ids,
+                             LocalizationSlotIds const& main_title_ids,
+                             LocalizationSlotIds const& open_row_ids,
+                             LocalizationSlotIds const& closed_row_ids) {
+  catalog.locale.Load();
+  CHECK(catalog.locale->language_index() == expect.language_index);
+  catalog.texts.label_add.Load();
+  catalog.texts.label_open.Load();
+  catalog.texts.label_delete.Load();
+  catalog.texts.label_language.Load();
+  CHECK(catalog.texts.label_add->Resolve(expect.language_index) ==
+        expect.label_add);
+  CHECK(catalog.texts.label_open->Resolve(expect.language_index) ==
+        expect.label_open);
+  CHECK(catalog.texts.label_delete->Resolve(expect.language_index) ==
+        expect.label_delete);
+  CHECK(catalog.texts.label_language->Resolve(expect.language_index) ==
+        expect.label_language);
+  ExpectActiveSlotOnly(*catalog.texts.label_add, expect.language_index,
+                       label_add_ids);
+  ExpectActiveSlotOnly(*catalog.texts.label_open, expect.language_index,
+                       label_open_ids);
+  ExpectActiveSlotOnly(*catalog.texts.label_delete, expect.language_index,
+                       label_delete_ids);
+  ExpectActiveSlotOnly(*catalog.texts.label_language, expect.language_index,
+                       label_language_ids);
+
+  MainWindowPresented(catalog).presenter.Load();
+  MainWindowPresented(catalog).presenter->title.Load();
+  CHECK(MainWindowPresented(catalog).presenter->title->Resolve(
+            expect.language_index) == expect.main_title);
+  ExpectActiveSlotOnly(*MainWindowPresented(catalog).presenter->title,
+                       expect.language_index, main_title_ids);
+
+  catalog.list.Load();
+  CHECK(catalog.list->rows.size() >= 2);
+  WindowHolder* row0 = AsHolder(catalog.list->rows[0]);
+  WindowHolder* row1 = AsHolder(catalog.list->rows[1]);
+  row0->primary_text.Load();
+  row1->primary_text.Load();
+  CHECK(row0->primary_text->Resolve(expect.language_index) == expect.row1);
+  CHECK(row1->primary_text->Resolve(expect.language_index) == expect.row2);
+  ExpectActiveSlotOnly(*row0->primary_text, expect.language_index,
+                       open_row_ids);
+  ExpectActiveSlotOnly(*row1->primary_text, expect.language_index,
+                       closed_row_ids);
+
+  row0->window.Load();
+  CatalogWindowPresented(*row0->window).presenter.Load();
+  CatalogWindowPresented(*row0->window).presenter->title.Load();
+  CHECK(CatalogWindowPresented(*row0->window).presenter->title->Resolve(
+            expect.language_index) == expect.open_child_title);
+
+  CHECK(row1->window.is_valid());
+  CHECK(!row1->window.is_loaded());
+  CHECK(!catalog.window_prefab.is_loaded());
+}
+
+void ExpectUiMirrorLocalization(WindowCatalog& ui_catalog,
+                                CatalogLocalizationExpectation const& expect) {
+  ui_catalog.locale.Load();
+  CHECK(ui_catalog.locale->language_index() == expect.language_index);
+  ui_catalog.texts.label_add.Load();
+  ui_catalog.texts.label_open.Load();
+  ui_catalog.texts.label_delete.Load();
+  ui_catalog.texts.label_language.Load();
+  CHECK(ui_catalog.texts.label_add->Resolve(expect.language_index) ==
+        expect.label_add);
+  CHECK(ui_catalog.texts.label_open->Resolve(expect.language_index) ==
+        expect.label_open);
+  CHECK(ui_catalog.texts.label_delete->Resolve(expect.language_index) ==
+        expect.label_delete);
+  CHECK(ui_catalog.texts.label_language->Resolve(expect.language_index) ==
+        expect.label_language);
+
+  MainWindowPresented(ui_catalog).presenter.Load();
+  MainWindowPresented(ui_catalog).presenter->title.Load();
+  CHECK(MainWindowPresented(ui_catalog).presenter->title->Resolve(
+            expect.language_index) == expect.main_title);
+
+  ui_catalog.list.Load();
+  WindowHolder* row0 = AsHolder(ui_catalog.list->rows[0]);
+  WindowHolder* row1 = AsHolder(ui_catalog.list->rows[1]);
+  row0->primary_text.Load();
+  row1->primary_text.Load();
+  CHECK(row0->primary_text->Resolve(expect.language_index) == expect.row1);
+  CHECK(row1->primary_text->Resolve(expect.language_index) == expect.row2);
+
+  row0->window.Load();
+  CatalogWindowPresented(*row0->window).presenter.Load();
+  CatalogWindowPresented(*row0->window).presenter->title.Load();
+  CHECK(CatalogWindowPresented(*row0->window).presenter->title->Resolve(
+            expect.language_index) == expect.open_child_title);
+
+  CHECK(row1->window.is_valid());
+  CHECK(!row1->window.is_loaded());
+  CHECK(!ui_catalog.window_prefab.is_loaded());
+}
+
 void TestHeadlessCatalogChromeE2e() {
   EnsureObjectRegistration();
   EnsureHeadlessWindowCatalogGraphRegistration();
@@ -104,11 +261,29 @@ void TestHeadlessCatalogChromeE2e() {
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
   auto const profile_dir = TestDir("window_catalog_headless_e2e");
 
+  LocalizationSlotIds label_add_ids;
+  LocalizationSlotIds label_open_ids;
+  LocalizationSlotIds label_delete_ids;
+  LocalizationSlotIds label_language_ids;
+  LocalizationSlotIds main_title_ids;
+  LocalizationSlotIds open_row_ids;
+  LocalizationSlotIds closed_row_ids;
+
   {
     DirectoryDomainStorage bootstrap{profile_dir};
     ae::Domain bootstrap_domain{bootstrap};
     auto catalog = BuildHeadlessWindowCatalogGraph(bootstrap_domain);
     FinalizeDistilledGraph(*catalog);
+    label_add_ids = CaptureLocalizationSlotIds(*catalog->texts.label_add);
+    label_open_ids = CaptureLocalizationSlotIds(*catalog->texts.label_open);
+    label_delete_ids = CaptureLocalizationSlotIds(*catalog->texts.label_delete);
+    label_language_ids =
+        CaptureLocalizationSlotIds(*catalog->texts.label_language);
+    catalog->main_window.Load();
+    MainWindowPresented(*catalog).presenter.Load();
+    MainWindowPresented(*catalog).presenter->title.Load();
+    main_title_ids = CaptureLocalizationSlotIds(
+        *MainWindowPresented(*catalog).presenter->title);
     SaveDistilledRoot(*catalog);
   }
 
@@ -120,6 +295,7 @@ void TestHeadlessCatalogChromeE2e() {
   ae::ObjId saved_window_id;
   ae::ObjId saved_selected_holder_id;
   int session_result = 1;
+  CatalogLocalizationExpectation const* expect_model_localization = nullptr;
 
   ModelObjectProxy model_proxy{[&runtime](ModelObjectProxy::ModelWork work) {
     runtime.Post(std::move(work));
@@ -127,6 +303,16 @@ void TestHeadlessCatalogChromeE2e() {
 
   ApplicationModelSessionHooks<WindowCatalog> hooks;
   hooks.prepare = PrepareWindowCatalogForRun;
+  hooks.before_incremental = [&](WindowCatalog& catalog) {
+    if (expect_model_localization == nullptr) {
+      return;
+    }
+    ExpectModelLocalization(catalog, *expect_model_localization, label_add_ids,
+                            label_open_ids, label_delete_ids,
+                            label_language_ids, main_title_ids, open_row_ids,
+                            closed_row_ids);
+    expect_model_localization = nullptr;
+  };
   hooks.persist = [&](WindowCatalog& catalog) -> int {
     catalog.list.Load();
     CHECK(catalog.list->selection_index == 1);
@@ -134,16 +320,14 @@ void TestHeadlessCatalogChromeE2e() {
     CHECK(catalog.selected.id() == catalog.list->rows[1].id());
     WindowHolder* row0 = AsHolder(catalog.list->rows[0]);
     WindowHolder* row1 = AsHolder(catalog.list->rows[1]);
-    row1->window.Load();
-    if (row1->window->origin_id() != kWindowPrefabId) {
+    row0->window.Load();
+    if (row0->window->origin_id() != kWindowPrefabId) {
       return 1;
     }
-    CatalogWindowPresented(*row1->window).presenter.Load();
-    if (CatalogWindowPresenter(*row1->window).origin_id() !=
-        kWindowPrefabPresenterId) {
-      return 1;
-    }
-    (void)row0;
+    CHECK(!row1->window.is_loaded());
+    CHECK(row1->window.is_valid());
+    catalog.locale.Load();
+    CHECK(catalog.locale->language_index() == 0);
     model_storage.BeginSaveSession();
     SaveWindowCatalogPersistentSnapshot(catalog);
     if (model_storage.SaveSessionHadFailure()) {
@@ -185,7 +369,6 @@ void TestHeadlessCatalogChromeE2e() {
   ui_catalog.buttons.delete_button.Load();
   CHECK(!ui_catalog.buttons.open_button->enabled());
   CHECK(!ui_catalog.buttons.delete_button->enabled());
-
   auto apply_incremental = [&] {
     WaitPublication(waiter);
     CHECK(waiter.kind == ApplicationPublicationKind::Incremental);
@@ -221,18 +404,50 @@ void TestHeadlessCatalogChromeE2e() {
   CHECK(CatalogWindowPresenter(*holder1->window).obj_id != presenter0_id);
   CHECK(CatalogWindowPresenter(*holder1->window).window.id() ==
         holder1->window.id());
+  holder0->primary_text.Load();
+  holder1->primary_text.Load();
+  open_row_ids = CaptureLocalizationSlotIds(*holder0->primary_text);
+  closed_row_ids = CaptureLocalizationSlotIds(*holder1->primary_text);
 
-  ChromeButtonPresenter(ui_catalog,
-                        ui_catalog.presenters.language_button_presenter)
-      .NotifyClickedFromUi();
+  model_proxy.Invoke(ui_catalog.obj_id, &WindowCatalog::UserCloseWindow,
+                     window1_id);
   apply_incremental();
-  ui_catalog.locale.Load();
-  CHECK(ui_catalog.locale->language_index() == 1);
-  ui_catalog.texts.label_add.Load();
-  ui_catalog.texts.label_add->strings[0].Load();
-  ui_catalog.texts.label_add->strings[1].Load();
-  CHECK(!ui_catalog.texts.label_add->strings[0]->utf8.empty());
-  CHECK(!ui_catalog.texts.label_add->strings[1]->utf8.empty());
+  CHECK(holder0->window.is_loaded());
+  CHECK(CatalogWindowPresenter(*holder0->window).presentation_loaded);
+  CHECK(holder1->window.is_valid());
+  CHECK(!holder1->window.is_loaded());
+
+  ExpectUiMirrorLocalization(ui_catalog, kCatalogEn);
+  ExpectActiveSlotOnly(*ui_catalog.texts.label_add, 0, label_add_ids);
+
+  auto toggle_language = [&](CatalogLocalizationExpectation const& next,
+                             CatalogLocalizationExpectation const& stale) {
+    ExpectUiMirrorLocalization(ui_catalog, stale);
+    expect_model_localization = &next;
+    ChromeButtonPresenter(ui_catalog,
+                          ui_catalog.presenters.language_button_presenter)
+        .NotifyClickedFromUi();
+    WaitPublication(waiter);
+    CHECK(waiter.kind == ApplicationPublicationKind::Incremental);
+    ExpectUiMirrorLocalization(ui_catalog, stale);
+    ui_session->ApplyStructural(waiter.bytes);
+    ExpectUiMirrorLocalization(ui_catalog, next);
+    ui_catalog.texts.label_add.Load();
+    ui_catalog.texts.label_open.Load();
+    ui_catalog.texts.label_language.Load();
+    ExpectActiveSlotOnly(*ui_catalog.texts.label_add, next.language_index,
+                         label_add_ids);
+    ExpectActiveSlotOnly(*ui_catalog.texts.label_open, next.language_index,
+                         label_open_ids);
+    ExpectActiveSlotOnly(*ui_catalog.texts.label_language, next.language_index,
+                         label_language_ids);
+    CHECK(holder1->window.is_valid());
+    CHECK(!holder1->window.is_loaded());
+    CHECK(!ui_catalog.window_prefab.is_loaded());
+  };
+
+  toggle_language(kCatalogRu, kCatalogEn);
+  toggle_language(kCatalogEn, kCatalogRu);
 
   ListPresenter(ui_catalog).SubmitListRowSelectionChangedFromUi(1);
   apply_incremental();
@@ -301,7 +516,7 @@ void TestHeadlessCatalogChromeE2e() {
   CHECK(cold->list->rows.size() == 2);
   CHECK(AsHolder(cold->list->rows[1])->obj_id == saved_holder_id);
   CHECK(AsHolder(cold->list->rows[1])->window.id() == saved_window_id);
-  CHECK(cold->locale->language_index() == 1);
+  CHECK(cold->locale->language_index() == 0);
   AsHolder(cold->list->rows[0])->window.Load();
   CHECK(AsHolder(cold->list->rows[0])->window->origin_id() == kWindowPrefabId);
   CatalogWindowPresented(*AsHolder(cold->list->rows[0])->window)

@@ -7,6 +7,41 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+## WindowCatalog headless active-only localization EN→RU→EN (post-`760dfc0`, 2026-11-03) — PASS (tests/docs)
+
+**Base:** `760dfc0`. Scope: **`tests/window_catalog_headless_test.cpp`** only; **production не менялся** (тест на текущем продукте **PASS**, дефект **не** выявлен — **не** оформлялся как исправление).
+
+### Доказанный маршрут (E2E в `TestHeadlessCatalogChromeE2e`)
+
+- **`BuildHeadlessWindowCatalogGraph`** + **`RunApplicationModelSession`** + **`ApplicationUiSession`** + **`ModelObjectProxy`** (model thread / UI mirror разделены).
+- Переключение: **`UiPushButtonPresenter::NotifyClickedFromUi`** (language chrome) → proxy → **`CatalogLanguageButton::HandlePushButtonClicked`** → **`MaterializeCatalogStrings(next)`** + **`UiLocaleSettings::SubmitLanguageIndexFromUi(next)`** → incremental publication; **`before_incremental`** на model thread проверяет model **до** UI apply; UI mirror **не** меняется до **`ApplyStructural`** (проверка stale mirror между publication и apply).
+- Подготовка: два child window (Add×2); второе закрыто **`UserCloseWindow`** через тот же proxy (штатный catalog API, как Win host callback); первое остаётся open с **`presentation_loaded`**.
+
+### Проверки после каждого переключения (RU и обратно EN)
+
+- Точные тексты chrome (**Add/Добавить**, Open, Delete, language switch **RU/EN**), main **Window Catalog/Каталог окон**, list rows **Window 1/2**, title open child.
+- Active slot **loaded**, inactive **unloaded**; **ObjId** слотов EN/RU сохранены (**без** удержания inactive loaded и **без** диагностического Load неактивных до проверки loaded-состояний).
+- Закрытое окно: ref valid, body **unloaded**, prefab **unloaded**; language toggle **не** reopen.
+- EN return восстанавливает исходные EN-строки.
+
+### Удалено из теста
+
+- Явные **`strings[0].Load()` / `strings[1].Load()`** после language switch (маскировали active-only).
+
+### Ограничения / вне среза
+
+- Не дублирует **`TestLocalizationLazyInitialPublication`** (`ui_control_materialization_test` — publication/materialize контракт на изолированном `UiLocalizationString`).
+- Без MinimalApp language UI, framework-обёрток, debug-полей, sidecar, счётчиков.
+- **CreateFailed**, GTK ownership, loader/publication refactor, Apple — не включались.
+
+### Регрессии (incremental Debug, tests/docs-only)
+
+| Check | Result |
+| --- | --- |
+| **`apptraverse_window_catalog_headless_test`** | **PASS** |
+| **`apptraverse_window_catalog_model_test`** | **PASS** |
+| **`apptraverse_ui_control_materialization_test`** | **PASS** |
+
 ## Windows window title: valid-but-unloaded title/locale + acceptance Window 2 diagnostics (post-`03cd5ef`, 2026-11-03) — PASS
 
 **Base:** `03cd5ef`. Scope: **`src/platform/windows/win_ui_presenters.cpp`**, **`tests/presenter_win_desktop_title_test.cpp`** (new), **`tests/CMakeLists.txt`**, **`tests/window_catalog_win32_acceptance_test.cpp`**.
