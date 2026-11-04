@@ -1,12 +1,15 @@
 #include "minimal_app_web_app.h"
 
+#include <filesystem>
 #include <memory>
+#include <system_error>
 
 #include <emscripten.h>
 #include <emscripten/em_js.h>
 
 #include "apptraverse/application_model_session.h"
 #include "apptraverse/directory_domain_storage.h"
+#include "apptraverse/embedded_application_model_session.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/application_model_runtime.h"
 #include "apptraverse/noninteractive_crt.h"
@@ -15,16 +18,16 @@
 #include "apptraverse/platform/web/web_ui_dom_em.h"
 #include "apptraverse/platform/web/web_ui_window_presenter.h"
 
+#include "embedded_distilled_minimal_app_supply.h"
 #include "minimal_app_persistence.h"
 #include "minimal_app_prepare.h"
-#include "minimal_app_web_graph.h"
 #include "minimal_application.h"
 
 namespace apptraverse::example::minimal {
 namespace {
 
 constexpr char kIdbfsMountPath[] = "/persistent";
-constexpr char kProfilePath[] = "/persistent/minimal_app_web_s1_dual_window_state";
+constexpr char kProfilePath[] = "/persistent/minimal_app_web_embedded_user";
 
 std::unique_ptr<web::WebApplicationHost> g_host;
 std::unique_ptr<DirectoryDomainStorage> g_durable_storage;
@@ -116,7 +119,24 @@ int PersistMinimalApplicationFromDomain(ae::Domain& domain) {
     std::abort();
   }
   auto& application = static_cast<MinimalApplication&>(*held);
-  return PersistMinimalApplication(application, *g_durable_storage);
+  return PersistMinimalApplicationEmbeddedUserOverlay(application,
+                                                      *g_durable_storage);
+}
+
+bool UserProfilePresent(std::filesystem::path const& state_dir) {
+  std::error_code profile_error;
+  bool const profile_exists = std::filesystem::exists(state_dir, profile_error);
+  if (profile_error) {
+    WriteFatalStderr("fatal: cannot inspect minimal app profile\n");
+    std::abort();
+  }
+  bool const profile_absent =
+      !profile_exists || std::filesystem::is_empty(state_dir, profile_error);
+  if (profile_error) {
+    WriteFatalStderr("fatal: cannot inspect minimal app profile contents\n");
+    std::abort();
+  }
+  return !profile_absent;
 }
 
 }  // namespace
@@ -152,27 +172,28 @@ void StartWebMinimalApplication() {
       g_durable_storage =
           std::make_unique<DirectoryDomainStorage>(kProfilePath);
     }
-    bool const bootstrapped = BootstrapMinimalApplicationProfileIfAbsent(
-        g_durable_storage->root(), [](ae::Domain& domain) {
-          return BuildWebMinimalApplicationGraph(domain);
-        });
-    if (bootstrapped) {
-      EM_ASM({ console.log('MINIMAL_APP_DEV_BOOTSTRAP'); });
-    } else {
+    bool const user_profile_present = UserProfilePresent(kProfilePath);
+    if (user_profile_present) {
       EM_ASM({ console.log('MINIMAL_APP_LOADED_FROM_PROFILE'); });
+    } else {
+      EM_ASM({ console.log('MINIMAL_APP_LOADED_FROM_EMBEDDED_BACKING'); });
     }
 
     ApplicationModelSessionHooks<MinimalApplication> hooks;
-    hooks.prepare = [](MinimalApplication& application) {
+    hooks.prepare = [user_profile_present](MinimalApplication& application) {
       PrepareMinimalApplicationForRun(application);
+      if (user_profile_present) {
+        NormalizeMinimalApplicationAfterEmbeddedUserLoad(application);
+      }
     };
     hooks.persist = [](MinimalApplication& application) -> int {
-      return PersistMinimalApplication(application, *g_durable_storage);
+      return PersistMinimalApplicationEmbeddedUserOverlay(application,
+                                                          *g_durable_storage);
     };
 
-    int const session_result = RunApplicationModelSession(
-        *g_durable_storage, MinimalApplicationRootId(), g_runtime,
-        std::move(on_published), hooks);
+    int const session_result = RunEmbeddedApplicationModelSession(
+        *g_durable_storage, embedded_distilled::minimal::kEmbeddedGraph,
+        g_runtime, std::move(on_published), hooks);
     g_durable_storage.reset();
     return session_result;
   };

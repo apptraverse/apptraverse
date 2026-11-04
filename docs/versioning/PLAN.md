@@ -48,7 +48,7 @@
 | **P0** | Импорт канона; синхронизация PLAN/PROGRESS/rules | **DONE** |
 | **P1** | Удалить сеть/replication и ненужные deps; локальный WindowCatalog (Windows) остаётся рабочим | **DONE** |
 | **P2** | Общий application template + минимум persistence/Clone | **IN_PROGRESS** |
-| **P3** | Библиотечный application template + компоненты, E2E на семи backend | **IN_PROGRESS**; **P3.T1–T2 PASS**; **P3.T3.H PASS**; **P3.T3.W1–W2 PASS**; **P3.T3.Web1–Web5 PASS**; **P3.T3.Web5R1 PASS**; **P3.T3.A1–A2R1 PASS**; **P3.T3.A PASS**; **P3.T3.L1–L3 PASS** (§P3.T3.L3); **IN_PROGRESS:** WindowCatalog обязательный граф — pass 7 audit save/restore (no code); **NEXT slice:** lifecycle/graph row guards или закрытие model-path audit (§PROGRESS); **P3.T3.M macOS — не NEXT**; полная lifecycle matrix — не начинать |
+| **P3** | Библиотечный application template + компоненты, E2E на семи backend | **IN_PROGRESS**; **P3.T1–T2 PASS**; **P3.T3.H PASS**; **P3.T3.W1–W2 PASS**; **P3.T3.Web1–Web5 PASS**; **P3.T3.Web5R1 PASS**; **P3.T3.A1–A2R1 PASS**; **P3.T3.A PASS**; **P3.T3.L1–L3 PASS** (§P3.T3.L3); **P3.T3.Web6 PASS** — Web embedded BACKING + IDBFS USER + aether patch `origin-facet-overload-set` ([PROGRESS §P3.T3.Web6](./PROGRESS.md#p3t3web6--web-embedded-backing--idbfs-user-2026-11-04--pass)); **NEXT:** Android embedded (BACKING + USER); **P3.T3.M macOS / Apple — не NEXT**; полная lifecycle matrix — не начинать |
 | **P4** | WindowCatalog — тонкий потребитель готового template и controls, E2E на семи backend | TODO; существующие результаты сохраняются |
 | **A1** | Первый сценарий администрирования на проверенном шаблоне | TODO; только после P3 и P4 на всех семи backend |
 | **P5** | Расширенные обновления, resource-set delivery, replay | DEFERRED; не блокирует P3/P4/A1 |
@@ -135,6 +135,8 @@
 | **P3.T3.W2 — PASS** | Windows list selection sync из mirror | `ApplyPublishedListSelection` в `SyncFromMirror` при `notify_list_selection_change`; E2E в `win_ui_command_routing_test`; [PROGRESS §P3.T3.W2](./PROGRESS.md#p3t3w2--windows-list-selection-sync-from-mirror-2026-10-29-pass) |
 | **P3.T3.W** | Windows backend и общие Window/List/Button | MinimalApp через публичные library targets; native host/controls без зависимости от WindowCatalog |
 | **P3.T3.Web** | Web backend и общие Window/List/Button | Та же сессия и компоненты; UI delivery, DOM lifecycle, несколько представлений, сохранение и подтверждение записи browser storage |
+| **P3.T3.Web6 — PASS** | Web MinimalApp: build-time embedded BACKING + IDBFS USER | Node exporter → `embedded_distilled_minimal_app_supply.h`; `RunEmbeddedApplicationModelSession`; пустой USER → BACKING без bootstrap; Save/shutdown → `PersistMinimalApplicationEmbeddedUserOverlay`; aether patch `origin-facet-overload-set` (versioned/reflection selection под em++); [PROGRESS §P3.T3.Web6](./PROGRESS.md#p3t3web6--web-embedded-backing--idbfs-user-2026-11-04--pass) |
+| **P3.T3.AE** | Android embedded BACKING + USER | **NEXT** (не начат) |
 | **P3.T3.A** | Android backend | **P3.T3.A1–A2R1 PASS**; **P3.T3.A PASS**; **NEW_PID** + **`connectedDebugAndroidTest` 12/12 PASS** (§P3.T3.A); Headless+§W2+WASM×3 **PASS** |
 | **P3.T3.L** | Linux backend | **P3.T3.L1–L3 PASS**; §[P3.T3.L3](#p3t3l3--linux-minimalapp-persistence-lifecycle); **NEXT P3.T3.M** — macOS |
 | **P3.T3.M** | macOS backend | AppKit/ObjC++ host/controls на общей сессии |
@@ -168,7 +170,7 @@ P3.T3 выполнять **по одному backend** в порядке H → W
 - Preflight: `tools/runners/run_apptraverse_platform.py` (`LINUX_PROFILE`, опционально `gtk3_available()` / `require_gtk3` для GUI targets).
 - GUI smoke: нужен рабочий **`DISPLAY`/`WAYLAND`** в сессии WSL или отдельный headless-GTK test strategy на этапе реализации; **`xvfb-run`** на probe **не** подтверждён — не предполагать без проверки.
 
-**NEXT:** продолжение **WindowCatalog обязательный граф** ([PROGRESS §WindowCatalog required links](./PROGRESS.md#windowcatalog-required-links-fatal-2026-11-02)); **P3.T3.M macOS — не NEXT**.
+**NEXT:** **Android embedded** (BACKING + USER) — единственный NEXT после **P3.T3.Web6 PASS** ([PROGRESS §P3.T3.Web6](./PROGRESS.md#p3t3web6--web-embedded-backing--idbfs-user-2026-11-04--pass)); история WindowCatalog обязательного графа (pass 1–7) — [PROGRESS §WindowCatalog required links](./PROGRESS.md#windowcatalog-required-links-fatal-2026-11-02); **P3.T3.M macOS / Apple — не NEXT**.
 
 **Reference only (не переносить session):** `examples/surfaces_demo/linux`, CTest `apptraverse_surfaces_linux_smoke_test` — GTK idioms; **не** `SurfacesModelSession` / ручное mirror для template.
 

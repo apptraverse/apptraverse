@@ -34,6 +34,7 @@ def main() -> int:
     saw_idbfs_saved = False
     saw_shutdown_stopped = False
     reload_profile_loads: list[bool] = []
+    load_markers: list[str] = []
     emval_baseline: int | None = None
     emval_startup_baseline: int | None = None
     emval_after_stop: int | None = None
@@ -55,6 +56,11 @@ def main() -> int:
             page.evaluate("() => { window.__minimalLoadedFromProfile = true; }")
         if "MINIMAL_APP_DEV_BOOTSTRAP" in text:
             page.evaluate("() => { window.__minimalDevBootstrap = true; }")
+        if "MINIMAL_APP_LOADED_FROM_EMBEDDED_BACKING" in text:
+            load_markers.append("backing")
+            page.evaluate("() => { window.__minimalLoadedFromBacking = true; }")
+        if "MINIMAL_APP_LOADED_FROM_PROFILE" in text:
+            load_markers.append("profile")
         if msg.type == "error":
             if "Failed to load resource:" in text or "favicon.ico" in text:
                 return
@@ -125,6 +131,8 @@ def main() -> int:
         )
         if page.evaluate("() => window.__minimalDevBootstrap === true"):
             raise AssertionError("DEV_BOOTSTRAP after reload")
+        if page.evaluate("() => window.__minimalLoadedFromBacking === true"):
+            raise AssertionError("empty-USER embedded load after reload")
 
     def wait_shutdown_stopped(page) -> None:
         expect(page.locator("#shutdown-status")).to_have_text(
@@ -340,6 +348,13 @@ def main() -> int:
             if not saw_render_ok:
                 print(
                     "FAIL: missing MINIMAL_APP_INITIAL_RENDER_OK",
+                    file=sys.stderr,
+                )
+                return 1
+            if load_markers != ["backing"]:
+                print(
+                    "FAIL: empty USER first load markers "
+                    f"{load_markers} != ['backing']",
                     file=sys.stderr,
                 )
                 return 1
@@ -609,6 +624,9 @@ def main() -> int:
         return 1
     if len(reload_profile_loads) != 3:
         print("FAIL: expected three profile reloads", file=sys.stderr)
+        return 1
+    if load_markers != ["backing", "profile", "profile", "profile"]:
+        print(f"FAIL: load markers {load_markers}", file=sys.stderr)
         return 1
     return 0
 

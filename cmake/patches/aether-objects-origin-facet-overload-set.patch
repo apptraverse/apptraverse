@@ -1,0 +1,78 @@
+diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
+index c3e7dff..b4773b1 100644
+--- a/src/aether-objects/obj/domain.h
++++ b/src/aether-objects/obj/domain.h
+@@ -280,9 +280,11 @@ seri::SeriResult DomainGraph::LoadVersion(Version<V> version, T& obj,
+ 
+   auto load_visitor = LoadVisitor{bin_archive};
+ 
+-  // if T has any versioned, it also must have Load for this version
+-  if constexpr (HasAnyVersionedLoad<T>::value ||
+-                (std::is_same_v<std::decay_t<T>, Obj> && V == 1)) {
++  if constexpr (std::is_same_v<std::decay_t<T>, Obj> && V == 1) {
++    auto visitor = VersionNodeVisitor{load_visitor};
++    obj.LoadOriginFacet(visitor);
++  } else if constexpr (HasAnyVersionedLoad<T>::value) {
++    // if T has any versioned, it also must have Load for this version
+     auto visitor = VersionNodeVisitor{load_visitor};
+     obj.Load(version, visitor);
+   } else {
+@@ -311,13 +313,6 @@ std::optional<seri::SeriResult> DomainGraph::Save(T const& obj, ObjId obj_id) {
+               return;
+             }
+           }
+-          if constexpr (std::is_same_v<std::decay_t<T>, Obj>) {
+-            if constexpr (requires { obj.ShouldSaveOriginFacet(version); }) {
+-              if (!obj.ShouldSaveOriginFacet(version)) {
+-                return;
+-              }
+-            }
+-          }
+           result = this->SaveVersion(version, obj, obj_id);
+         });
+     save_result = result;
+@@ -367,8 +362,10 @@ seri::SeriResult DomainGraph::SaveVersion(Version<V> version, T const& obj,
+ 
+   auto save_visitor = SaveVisitor{bin_archive};
+ 
+-  if constexpr (HasAnyVersionedSave<T>::value ||
+-                (std::is_same_v<std::decay_t<T>, Obj> && V == 1)) {
++  if constexpr (std::is_same_v<std::decay_t<T>, Obj> && V == 1) {
++    auto visitor = VersionNodeVisitor{save_visitor};
++    obj.SaveOriginFacet(visitor);
++  } else if constexpr (HasAnyVersionedSave<T>::value) {
+     auto visitor = VersionNodeVisitor{save_visitor};
+     obj.Save(version, visitor);
+   } else {
+diff --git a/src/aether-objects/obj/obj.h b/src/aether-objects/obj/obj.h
+index d1620a6..f2f4091 100644
+--- a/src/aether-objects/obj/obj.h
++++ b/src/aether-objects/obj/obj.h
+@@ -79,21 +79,23 @@ class Obj {
+   ObjId obj_id;
+   std::shared_ptr<DomainRegisteredObjects> registered_objects_;
+ 
+- protected:
++ private:
++  // Obj/S1 origin facet. Not named Load/Save: derived classes would inherit
++  // them as Version<1> overloads, and the versioned-Load/Save traits would then
++  // depend on access checking to tell reflection-only classes apart.
+   template <typename Dnv>
+-  void Load(ae::Version<1>, Dnv& dnv) {
++  void LoadOriginFacet(Dnv& dnv) {
+     dnv(origin_);
+   }
+ 
+   template <typename Dnv>
+-  void Save(ae::Version<1>, Dnv& dnv) const {
++  void SaveOriginFacet(Dnv& dnv) const {
+     if (origin_.is_loaded()) {
+       std::abort();
+     }
+     dnv(origin_);
+   }
+ 
+- private:
+   ObjPtr<Obj> origin_{};
+ };
+ 

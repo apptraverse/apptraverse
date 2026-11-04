@@ -16,8 +16,11 @@
 #include "aether-objects/obj/version_iterator.h"
 
 #include "apptraverse/directory_domain_storage.h"
+#include "apptraverse/event.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/overlay_domain_storage.h"
+#include "apptraverse/ui/ui_desktop_window.h"
+#include "apptraverse/ui/ui_presenters.h"
 
 namespace {
 
@@ -153,9 +156,28 @@ class OriginFacetTargetV1Gated : public ae::Obj {
   bool write_derived_s1{true};
 };
 
+// No own versioned Load/Save: persisted only through reflection, so the
+// inherited Obj origin facet must not select the versioned path.
+class OriginFacetReflectOnly : public ae::Obj {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::OriginFacetReflectOnly",
+                           OriginFacetReflectOnly, ae::Obj, 0)
+
+ protected:
+  OriginFacetReflectOnly() = default;
+
+ public:
+  explicit OriginFacetReflectOnly(ae::ObjProp prop) : Obj{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(value), AE_MMBR(tag))
+
+  std::uint32_t value{0};
+  std::uint32_t tag{0};
+};
+
 APPTRAVERSE_REGISTER(OriginFacetTargetV0);
 APPTRAVERSE_REGISTER(OriginFacetTargetV1);
 APPTRAVERSE_REGISTER(OriginFacetTargetV1Gated);
+APPTRAVERSE_REGISTER(OriginFacetReflectOnly);
 
 static_assert(!ae::VersionSaveTrait<OriginFacetTargetV0, 1>::value,
               "OriginFacetTargetV0 must not expose public Save(V1)");
@@ -1039,6 +1061,110 @@ void TestLoadRootRejectsObjFacetOnlyStorage() {
   }
 }
 
+template <typename T, typename Fill, typename Check>
+void RoundtripWithOrigin(char const* label, ae::ObjId instance_id,
+                         ae::ObjId prefab_id, StoredLayerSet const& expected,
+                         Fill&& fill, Check&& check) {
+  ae::RamDomainStorage storage;
+  {
+    ae::Domain domain{storage};
+    typename T::ptr instance =
+        T::ptr::Create(ae::CreateWith{domain}.with_id(instance_id));
+    ae::Ptr<T> body = instance.Load();
+    fill(*body);
+    body->SetOriginId(prefab_id);
+    ae::DomainGraph graph{&domain};
+    if (!graph.SaveRoot(body, instance_id).IsOk()) {
+      std::cerr << label << ": ";
+      Fail("SaveRoot with origin");
+    }
+  }
+  StoredLayerSet const stored = CollectStoredLayers(storage, instance_id);
+  if (!PrefabBodyAbsent(storage, prefab_id)) {
+    std::cerr << label << ": ";
+    Fail("prefab body written to storage");
+  }
+
+  ae::Domain domain{storage};
+  ae::DomainGraph graph{&domain};
+  ae::Ptr<ae::Obj> root;
+  if (!graph.LoadRoot(instance_id, root).IsOk() || !root ||
+      root->GetClassId() != T::kClassId) {
+    std::cerr << label << ": ";
+    Fail("LoadRoot in a new Domain");
+  }
+  ae::Ptr<T> loaded{root};
+  if (loaded->origin_id() != prefab_id) {
+    std::cerr << label << ": ";
+    Fail("origin lost after new Domain load");
+  }
+  if (!check(*loaded)) {
+    std::cerr << label << ": ";
+    Fail("payload lost after new Domain load");
+  }
+  if (domain.Find(prefab_id)) {
+    std::cerr << label << ": ";
+    Fail("prefab materialized during load");
+  }
+  if (stored != expected) {
+    std::cerr << label << ": stored layers";
+    for (auto const& [class_id, versions] : stored) {
+      for (std::uint8_t const version : versions) {
+        std::cerr << ' ' << class_id << '/' << static_cast<int>(version);
+      }
+    }
+    std::cerr << '\n';
+    Fail("unexpected stored layer set");
+  }
+}
+
+void TestNewDomainRoundtripReflectOnlyWithOrigin() {
+  RoundtripWithOrigin<OriginFacetReflectOnly>(
+      "reflect-only", ae::ObjId{720u}, ae::ObjId{721u},
+      StoredLayerSet{{OriginFacetReflectOnly::kClassId, {0}},
+                     {ae::Obj::kClassId, {0, 1}}},
+      [](OriginFacetReflectOnly& o) {
+        o.value = 31;
+        o.tag = 32;
+      },
+      [](OriginFacetReflectOnly const& o) {
+        return o.value == 31 && o.tag == 32;
+      });
+}
+
+void TestNewDomainRoundtripConcreteEventWithOrigin() {
+  using Frame = apptraverse::ui::SetUiDesktopWindowFrameEvent;
+  RoundtripWithOrigin<Frame>(
+      "concrete EventFor", ae::ObjId{730u}, ae::ObjId{731u},
+      StoredLayerSet{{Frame::kClassId, {0}},
+                     {apptraverse::Event::kClassId, {0}},
+                     {ae::Obj::kClassId, {0, 1}}},
+      [](Frame& e) {
+        e.x = 120;
+        e.y = 80;
+        e.client_width = 640;
+        e.client_height = 480;
+      },
+      [](Frame const& e) {
+        return e.x == 120 && e.y == 80 && e.client_width == 640 &&
+               e.client_height == 480;
+      });
+}
+
+void TestNewDomainRoundtripOwnVersionedWithOrigin() {
+  RoundtripWithOrigin<OriginFacetTargetV1>(
+      "own versioned Load/Save", ae::ObjId{740u}, ae::ObjId{741u},
+      StoredLayerSet{{OriginFacetTargetV1::kClassId, {0, 1}},
+                     {ae::Obj::kClassId, {0, 1}}},
+      [](OriginFacetTargetV1& o) {
+        o.value = 41;
+        o.tag = 42;
+      },
+      [](OriginFacetTargetV1 const& o) {
+        return o.value == 41 && o.tag == 42;
+      });
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -1046,6 +1172,8 @@ int main(int argc, char** argv) {
   (void)&g_apptraverse_registrar_OriginFacetTargetV0;
   (void)&g_apptraverse_registrar_OriginFacetTargetV1;
   (void)&g_apptraverse_registrar_OriginFacetTargetV1Gated;
+  (void)&g_apptraverse_registrar_OriginFacetReflectOnly;
+  apptraverse::ui::EnsureUiPresenterRegistration();
 
   if (argc == 3) {
     std::string_view const mode{argv[1]};
@@ -1080,6 +1208,9 @@ int main(int argc, char** argv) {
   TestFinalOriginRoundtripV0();
   TestFinalOriginRoundtripV1WithShouldSaveVersion();
   TestConstPrefabDynamicInstanceRoundtrip();
+  TestNewDomainRoundtripReflectOnlyWithOrigin();
+  TestNewDomainRoundtripConcreteEventWithOrigin();
+  TestNewDomainRoundtripOwnVersionedWithOrigin();
   std::cout << "object_origin_facet_test OK\n";
   return 0;
 }

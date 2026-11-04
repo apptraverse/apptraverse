@@ -1,17 +1,67 @@
 if(NOT EMSCRIPTEN)
   message(FATAL_ERROR "minimal_app/web requires Emscripten")
 endif()
+if(NOT CMAKE_CROSSCOMPILING_EMULATOR)
+  message(FATAL_ERROR "minimal_app/web supply export requires CMAKE_CROSSCOMPILING_EMULATOR (node)")
+endif()
+
+include(${CMAKE_SOURCE_DIR}/cmake/apptraverse_embed_distilled_supply.cmake)
+
+set(_minimal_web_embed_graph_sources
+  ${CMAKE_CURRENT_SOURCE_DIR}/minimal_app_web_graph.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common/minimal_app_graph_builder.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common/minimal_application.cpp)
+
+# Build-time exporter: Emscripten executable run under node (toolchain
+# CROSSCOMPILING_EMULATOR); NODERAWFS writes the header to the host build tree.
+add_executable(apptraverse_export_minimal_distilled_graph_web
+  minimal_app_export_web.cpp
+  minimal_app_web_graph.cpp
+)
+target_compile_definitions(apptraverse_export_minimal_distilled_graph_web PRIVATE
+  APPTRAVERSE_ENABLE_DISTILLATION
+  EMSCRIPTEN_HAS_UNBOUND_TYPE_NAMES=0
+)
+target_include_directories(apptraverse_export_minimal_distilled_graph_web PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_SOURCE_DIR}/examples/minimal_app/common
+)
+target_link_libraries(apptraverse_export_minimal_distilled_graph_web PRIVATE
+  minimal_app_common
+  apptraverse_ui_web
+)
+target_compile_options(apptraverse_export_minimal_distilled_graph_web PRIVATE
+  -fno-rtti
+  -fno-exceptions
+)
+target_link_options(apptraverse_export_minimal_distilled_graph_web PRIVATE
+  -sENVIRONMENT=node
+  -sNODERAWFS=1
+  -sEXIT_RUNTIME=1
+  -sINITIAL_MEMORY=67108864
+  --bind
+)
+set_target_properties(apptraverse_export_minimal_distilled_graph_web PROPERTIES
+  SUFFIX ".js"
+  CROSSCOMPILING_EMULATOR "${CMAKE_CROSSCOMPILING_EMULATOR}"
+)
 
 add_executable(web_minimal_app
   minimal_app_web_main.cpp
   minimal_app_web_app.cpp
-  minimal_app_web_graph.cpp
 )
 
 target_compile_definitions(web_minimal_app PRIVATE
   APPTRAVERSE_ENABLE_DISTILLATION
   EMSCRIPTEN_HAS_UNBOUND_TYPE_NAMES=0
 )
+
+apptraverse_embed_distilled_supply(
+  web_minimal_app
+  apptraverse_export_minimal_distilled_graph_web
+  embedded_distilled_minimal_app_supply.h
+  ${_minimal_web_embed_graph_sources})
+add_dependencies(web_minimal_app apptraverse_export_minimal_distilled_graph_web)
 
 target_include_directories(web_minimal_app PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}

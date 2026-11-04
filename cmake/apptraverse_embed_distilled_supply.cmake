@@ -22,9 +22,11 @@ function(apptraverse_embed_distilled_supply target exporter_exe header_basename)
   file(MAKE_DIRECTORY "${_gen_dir}")
   set(_header "${_gen_dir}/${header_basename}")
 
+  # Target name (not $<TARGET_FILE>) so CMake prepends the exporter's
+  # CROSSCOMPILING_EMULATOR (node for Emscripten exporters).
   add_custom_command(
     OUTPUT "${_header}"
-    COMMAND "$<TARGET_FILE:${exporter_exe}>" "${_header}"
+    COMMAND ${exporter_exe} "${_header}"
     DEPENDS ${exporter_exe} ${_extra_deps}
     VERBATIM
     COMMENT "Embed distilled domain supply for ${target}")

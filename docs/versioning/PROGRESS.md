@@ -7,6 +7,66 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+<a id="p3t3web6--web-embedded-backing--idbfs-user-2026-11-04--pass"></a>
+
+## P3.T3.Web6 — Web MinimalApp embedded BACKING + IDBFS USER (post-`8f2b7e5`, 2026-11-04) — PASS (Web slice); regression: 1 открытый pre-existing FAIL
+
+**Base:** `8f2b7e5`. **NEXT:** только **Android embedded** (BACKING + USER, по образцу Web6/Linux L3); Apple — не начинать.
+
+### Web embedded (продукт)
+
+- **Exporter (build-time):** `examples/minimal_app/web/minimal_app_export_web.cpp` → target **`apptraverse_export_minimal_distilled_graph_web`** (Emscripten, `-sENVIRONMENT=node -sNODERAWFS=1`, запуск через **`CROSSCOMPILING_EMULATOR`** = node); `BuildWebMinimalApplicationGraph` → `FinalizeDistilledGraph` → `SaveDistilledRoot` → **`WriteEmbeddedDistilledSupplyHeader`** (`embedded_distilled_minimal_app_supply.h`). `apptraverse_embed_distilled_supply` передаёт exporter как **имя target** (CMake подставляет emulator); прежняя форма `$<TARGET_FILE>` на Windows открывала `.js` через WScript (exit 0, без header).
+- **`web_minimal_app`:** builder (`minimal_app_web_graph.cpp`) **не** входит в product sources; модель — **`RunEmbeddedApplicationModelSession`** (USER `/persistent/minimal_app_web_embedded_user` на IDBFS + `kEmbeddedGraph`). Пустой USER → load из BACKING (**`MINIMAL_APP_LOADED_FROM_EMBEDDED_BACKING`**), bootstrap **нет**; профиль есть → **`NormalizeMinimalApplicationAfterEmbeddedUserLoad`** (**`MINIMAL_APP_LOADED_FROM_PROFILE`**). Save и shutdown → **`PersistMinimalApplicationEmbeddedUserOverlay`**.
+- Порядок host без изменений: IDBFS populate → model session → publication; Save → USER persist → `syncfs(false)` → confirmation; shutdown → persist → UI teardown → flush → join. Fallback builder / ID repair / Ensure / новые форматы — **нет**.
+
+### Обнаруженный дефект: выбор versioned/reflection сериализации под Emscripten (aether origin facet)
+
+- **Первый FAIL (до core-fix):** WASM minimal smoke — Save завис на «Saving…»; worker abort **`embedded USER overlay save requires compacted journal`**. Причина: `SetUiDesktopWindowFrameEvent` в USER сохранялся только как layer **v1** (5 байт, `origin_`), payload кадра терялся; `CanCompactStoredState` видел stored v1 > current 0.
+- **Механизм:** `origin-facet.patch` объявлял в `ae::Obj` **protected** `Load/Save(ae::Version<1>, Dnv&)`. Reflection-only потомки (без своих `Load/Save`) наследуют это имя; `VersionSaveTrait`/`VersionLoadTrait` (`declval<U const&>().Save(Version<V>{}, …)` в SFINAE) на **em++ (clang 19)** (и, по probe, **NDK clang 21**) считали перегрузку доступной → `HasAnyVersioned*` = true, bounds [1,1] → сохранялся только `origin_` под ClassId потомка, reflection-путь не выполнялся; у `Obj` пропадал layer v0. На **MSVC** и **gcc** trait = false (штатный reflection-путь). Отдельный probe (protected inherited overload + тот же SFINAE): em++ `Report<1,1>`, MSVC `Report<0,0>` — **расхождение toolchain зафиксировано**, ошибкой компилятора **не** объявлялось (доказательства нет).
+- **Fix (общий механизм):** новый patch **`cmake/patches/aether-objects-origin-facet-overload-set.patch`** (16-й элемент `APPTRAVERSE_AETHER_OBJECTS_PATCH_NAMES`, после `graph-load-instance-identity`): facet переименован в **private** `LoadOriginFacet`/`SaveOriginFacet` (не входит в overload set `Load/Save` потомков); `DomainGraph::LoadVersion`/`SaveVersion` для `Obj`/v1 вызывают facet явно; мёртвый gate `ShouldSaveOriginFacet` в versioned-итерации `Save<T>` удалён. `TryAppendOriginFacetLayer`/`ShouldSaveOriginFacet` без изменений. EventFor workaround / ручная сериализация / fallback — **нет**.
+- **Patch chain:** вся цепочка применена к чистому clone pin **`79283b667cabf689da1059d618fe2a22abf51db4`** — `full patch chain OK`; CPM source dir сменился по hash списка patch (`d580` win64/WASM/Android, `1506` Linux), во всех деревьях `obj.h`/`domain.h` содержат `LoadOriginFacet` (CPM cache вручную не правился).
+
+### Regression Object Core (Save → новый Domain → Load, с origin)
+
+`tests/object_origin_facet_test.cpp`: reflection-only `Obj` потомок (`OriginFacetReflectOnly`), concrete **EventFor** (`SetUiDesktopWindowFrameEvent` 120/80/640/480), класс с собственными versioned `Load/Save` (`OriginFacetTargetV1`). Проверяются ClassId, `origin_id`, payload, prefab не материализуется, точный набор stored layers (`Obj` {0,1}; reflection/event layers v0; `Event` v0).
+
+| Прогон | Результат |
+| --- | --- |
+| WASM **до** fix | **FAIL** ×3: reflect-only «payload lost after new Domain load»; EventFor «payload lost»; own-versioned «unexpected stored layer set» (`Obj/0` отсутствует). Существующий `TestConstPrefabDynamicInstanceRoundtrip` на WASM тоже FAIL («unexpected Obj S layers») — suite на WASM ранее не запускался |
+| win64 **до** fix | PASS |
+| WASM **после** fix | **PASS** (`apptraverse_object_origin_facet_test`) |
+| win64 / Linux **после** fix | **PASS** |
+
+### Web E2E (WASM ×3, первые прогоны после fix)
+
+- **`wasm_minimal_app_browser_smoke.py` — PASS:** пустой USER → markers `["backing"]` → UI-команды → подтверждённый Save → cold reload → восстановленные данные (marker `profile`) → новые команды; итог markers `["backing","profile","profile","profile"]`; Detail (`Detail Panel`), shutdown, stale-callback, EM_VAL (`emval_pre_stop=11 emval_startup=6 emval_after_stop=0`) — PASS. Supply: frame event = `Obj/0` (empty), `Event/0` (empty), `Frame/0` (payload); в product WASM builder не вызывается.
+- **lifecycle — PASS**, **catalog — PASS**.
+
+### Incremental regression (без clean, без полного CTest)
+
+| Контур | Результат (первый прогон) |
+| --- | --- |
+| Windows 14 + embedded export | **14/14 PASS** |
+| Object Core win64 (facet, clone, origin disk roundtrip/matrix, model persistence, checkpoint load-cycle, directory/overlay storage, embedded distilled) | **9/9 PASS** |
+| `apptraverse_event_version_matrix` win64 | **FAIL** (первый прогон и повтор): «known-prefix A compact-zero journal_len expected 2, got 3». **Не вызван** patch: тот же FAIL воспроизведён при временном исключении `origin-facet-overload-set` из списка (сборка fixtures на прежних sources `2915`), список затем восстановлен; uncommitted срез fixtures/`node.h` не трогает. **Открытый pre-existing FAIL**, не исправлялся в этом срезе |
+| Linux ctest (materialization, model runtime, minimal headless + Object Core 9) | **12/12 PASS** |
+| Linux L3 `linux_minimal_app_l3_smoke.py` | **PASS** |
+| Linux `apptraverse_event_version_a/b` | **NOT BUILT** (pre-existing: `throw` при `-fno-exceptions` в `tests/event_version_fixture.cpp` под gcc); вне согласованного Linux scope |
+| WASM ×3 | **PASS** (см. выше) |
+| Android `connectedDebugAndroidTest` (patched `d580`) | **13/13 PASS** (прогон 6, после перезапуска host-процесса emulator); история ниже |
+
+**Android — история прогонов (AVD `Aether_NDK_Smoke_x86_64`, API 34):**
+
+- **Прогон 1 (первый):** **12/13 FAIL** — `SaveColdReloadInstrumentedTest.sameProcessResumeAfterBackgroundSaveAcceptsInput` (Apply/Row B не найдены после fresh launch); в logcat `com.android.systemui` FATAL `FinalizerWatchdogDaemon`.
+- **Прогон 2 (повтор):** **11/13 FAIL** — `ListApplyInputInstrumentedTest`, `NewPidColdReloadInstrumentedTest`; ANR systemui/launcher/system. (Промежуточный запуск без тестов — lock каталога результатов, не считается прогоном.)
+- **`adb reboot` (guest uptime был 2 дня, load ≈10) → прогон 3:** **11/13 FAIL** (те же два). ANR trace `com.apptraverse.minimal:demo`: main ждёт `RenderProxy::setStopped`, RenderThread — `qemu_pipe_read` в `glLinkProgram` (host GPU pipe); model thread idle; app abort/«requires compacted journal» — **нет**.
+- **A/B до patch (временно без `origin-facet-overload-set`, sources `2915`):** **13/13 PASS**, ANR-файлов в окне прогона нет. Patched прогон 4: **10/13 FAIL**, прогон 5: **6/13 FAIL** (деградация).
+- **Ручной запуск на том же emulator:** и patched, и pre-patch (`2915`) build — диалог «Minimal App isn't responding» (bootstrap→`INITIAL_RENDER_OK` 10 s / 13 s) → ANR **не** специфичен для patch.
+- **NDK clang 21** на том же probe: `Report<1,1>` (как em++) — т.е. до patch Android тоже выбирал versioned путь для reflection-only классов; patch меняет фактическую сериализацию на Android (payload сохраняется).
+- **Перезапуск host-процесса emulator** (`adb emu kill`, тот же `-avd … -no-snapshot-load`; qemu работал с 2026-11-02) → **прогон 6 patched: 13/13 PASS**, ANR-файлов за прогон нет.
+
+**Pre-existing (вне среза):** полный WASM tree build падает (`surfaces_demo_evolution` `throw` при `-fno-exceptions`; lazy/prefab test exporters «failed to write» без NODERAWFS) — собирались только названные targets.
+
 ## WindowCatalog headless active-only localization EN→RU→EN (post-`760dfc0`, 2026-11-03) — PASS (tests/docs)
 
 **Base:** `760dfc0`. Scope: **`tests/window_catalog_headless_test.cpp`** only; **production не менялся** (тест на текущем продукте **PASS**, дефект **не** выявлен — **не** оформлялся как исправление).
@@ -678,7 +738,9 @@ Embedded USER save вызывал **`FinalizeUiNodeState`** (UI publication): с
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-11-02):** **P3.T3.L3 PASS** (§P3.T3.L3). **WindowCatalog обязательный граф** — правки продолжаются (§[WindowCatalog required links](./PROGRESS.md#windowcatalog-required-links-fatal-2026-11-02)). **P3.T3.M (macOS)** — **не NEXT**. Полная Android lifecycle matrix — **не начинать**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
+**Активный порядок (2026-11-04):** **P3.T3.Web6 PASS** (§[P3.T3.Web6](#p3t3web6--web-embedded-backing--idbfs-user-2026-11-04--pass)); **NEXT:** только **Android embedded**; Apple — не NEXT.
+
+**Активный порядок (2026-11-02, historical):** **P3.T3.L3 PASS** (§P3.T3.L3). **WindowCatalog обязательный граф** — правки продолжаются (§[WindowCatalog required links](./PROGRESS.md#windowcatalog-required-links-fatal-2026-11-02)). **P3.T3.M (macOS)** — **не NEXT**. Полная Android lifecycle matrix — **не начинать**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 
 **Object Core (исторический roadmap, DEFERRED):** **13 IN_PROGRESS**; прежний **NEXT: 13.3** не является активным заданием. **11** **IN_PROGRESS** (частичный PASS). **01–10** **PASS** в заявленном scope. **14–22** — **TODO**. **T16/T17** — фрагменты. Полная Object Core regression на unified не заявлена; снятый U6 не возвращается в активную очередь.
 

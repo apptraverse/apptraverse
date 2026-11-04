@@ -25,6 +25,7 @@ set(APPTRAVERSE_AETHER_OBJECTS_PATCH_NAMES
   emscripten-domain-include
   nested-obj-archive-deseri
   graph-load-instance-identity
+  origin-facet-overload-set
 )
 set(APPTRAVERSE_AETHER_OBJECTS_PATCHES)
 foreach(patch_name IN LISTS APPTRAVERSE_AETHER_OBJECTS_PATCH_NAMES)
