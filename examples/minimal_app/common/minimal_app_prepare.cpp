@@ -6,32 +6,51 @@
 
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/ui/ui_presented_window_lifecycle.h"
+#include "apptraverse/ui/ui_window_presenter.h"
 
 namespace apptraverse::example::minimal {
 namespace {
 
-void MaterializeLabelTree(ui::UiLocalizationString::ptr const& label) {
-  if (!label.is_valid()) {
-    return;
-  }
-  label.Load();
-  if (!label) {
-    return;
-  }
-  for (auto& entry : label->strings) {
-    if (entry.is_valid()) {
-      entry.Load();
-    }
+void MaterializePresentedLabel(ui::UiLocalizationString::ptr const& label,
+                               int language_index) {
+  label->MaterializeLanguage(language_index);
+}
+
+void MaterializeListRowLabels(MinimalAppList& list, int language_index) {
+  for (auto const& row : list.rows) {
+    MaterializePresentedLabel(row->primary_text, language_index);
   }
 }
 
-void MaterializeListRowLabels(MinimalAppList& list) {
-  for (auto const& row : list.rows) {
-    if (!row) {
-      continue;
-    }
-    MaterializeLabelTree(row->primary_text);
-  }
+void MaterializeWindowPresenterTitle(ui::UiWindowPresenter& presenter,
+                                     int language_index) {
+  presenter.title.Load();
+  MaterializePresentedLabel(presenter.title, language_index);
+}
+
+int ActiveLanguageIndex(ui::UiWindowPresenter& main_window_presenter) {
+  main_window_presenter.locale.Load();
+  return main_window_presenter.locale->language_index();
+}
+
+void MaterializeMainWindowLocalizedContent(MinimalApplication& application,
+                                           int language_index) {
+  MaterializePresentedLabel(application.apply_button->label, language_index);
+  MaterializePresentedLabel(application.auxiliary_opener->label, language_index);
+  MaterializeListRowLabels(*application.row_list, language_index);
+  MaterializeWindowPresenterTitle(
+      *application.presenters.apply_button->window_presenter, language_index);
+}
+
+void MaterializeOpenAuxiliaryLocalizedContent(MinimalApplication& application,
+                                              int language_index) {
+  MaterializePresentedLabel(application.auxiliary.apply_button->label,
+                            language_index);
+  MaterializeListRowLabels(*application.auxiliary.row_list, language_index);
+  MaterializePresentedLabel(application.auxiliary.closer->label, language_index);
+  application.auxiliary.window->presenter.Load();
+  MaterializeWindowPresenterTitle(*application.auxiliary.window->presenter,
+                                  language_index);
 }
 
 }  // namespace
@@ -94,20 +113,20 @@ void PrepareMinimalApplicationForRun(MinimalApplication& application) {
     std::abort();
   }
 
-  MaterializeLabelTree(application.apply_button->label);
-  MaterializeLabelTree(application.auxiliary_opener->label);
-  MaterializeListRowLabels(*application.row_list);
-  if (application.auxiliary_presented_open) {
-    MaterializeLabelTree(application.auxiliary.apply_button->label);
-    MaterializeListRowLabels(*application.auxiliary.row_list);
-    MaterializeLabelTree(application.auxiliary.closer->label);
-  }
+  int const language_index = ActiveLanguageIndex(*window_presenter);
+  MaterializeMainWindowLocalizedContent(application, language_index);
 
 #if !defined(__EMSCRIPTEN__)
   if (application.auxiliary_presented_open) {
     application.LoadAuxiliaryPresentation();
+    MaterializeOpenAuxiliaryLocalizedContent(application, language_index);
   } else {
     SealAuxiliaryWindowClosed(application);
+  }
+#else
+  if (application.auxiliary_presented_open) {
+    application.LoadAuxiliaryPresentation();
+    MaterializeOpenAuxiliaryLocalizedContent(application, language_index);
   }
 #endif
 }

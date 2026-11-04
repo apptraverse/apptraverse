@@ -7,6 +7,35 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+## MinimalApp Prepare: active locale only before publication (post-`6644667`, 2026-11-03) — PASS
+
+**Base:** `6644667`. Scope: `minimal_app_prepare.cpp`, `minimal_app_headless_test.cpp`.
+
+### Reproduction before the fix
+
+**`TestMinimalAppPrepareMaterializesActiveLanguageOnly(0|1)`** (new): bilingual EN/RU `UiString` bodies saved with `kUnloadedByDefault`, active language set on shared `UiLocaleSettings` via `SetUiLanguageIndexEvent`, standard distill → cold load → **`PrepareMinimalApplicationForRun`**. With the previous **`MaterializeLabelTree`** (Load every `label->strings[]` entry), after Prepare **both** slots on apply/opener/row/title labels were loaded — **`CheckActiveLanguageSlots`** would fail on `!inactive.is_loaded()`. Single-language fixtures did not catch this.
+
+### Fix
+
+- **`PrepareMinimalApplicationForRun`:** replace per-label tree load with **`UiLocalizationString::MaterializeLanguage(language_index)`** where **`language_index`** comes from **`presenters.apply_button->window_presenter->locale->language_index()`** (no literal `0`, no fallback).
+- Materialize main-window apply/opener/row primary texts and **main window presenter title** together; when **`auxiliary_presented_open`**, **`LoadAuxiliaryPresentation`** then the same index for auxiliary apply/rows/closer/**aux window title**. Closed Detail still **`SealAuxiliaryWindowClosed`** (non-Emscripten); no prefab load for localization.
+
+### Headless contract checks (new)
+
+- Active language **0** and **1**: after Prepare active slot loaded, inactive valid-but-unloaded, inactive UTF-8 preserved (probe via temporary Load/Reset), title **`Resolve(active)`** matches window presenter title; repeat Prepare does not load inactive; initial publication + UI mirror show active text; **`auxiliary.window`** stays unloaded when sealed.
+- **`TestMinimalAppPrepareActiveLanguageOpenDetail`:** open Detail before Prepare with bilingual aux controls; active RU materialized on aux apply/title only.
+
+### Regressions (incremental Debug, `apptraverse-wt-web5`, 2026-11-03)
+
+| Check | Result |
+| --- | --- |
+| **`apptraverse_minimal_app_headless_test`** + **`apptraverse_minimal_app_embedded_export_test`** (Win) | **PASS** |
+| Windows 14 exe via `ctest -R` (prior scope) | **PASS** 14/14 |
+| Linux runtime + materialization + headless + full L3 | **PASS** |
+| WASM ×3 (`serve_wasm.py` 8851, 8853) | **PASS** |
+| Android **`connectedDebugAndroidTest`** (13 tests) | **PASS** 13/13 |
+| Full CTest / clean rebuild | **NOT RUN** (by instruction) |
+
 ## MinimalApp Open/Close Detail owner wiring (post-`39b1528`, 2026-11-03) — PASS
 
 **Base:** `39b1528`. Scope: `minimal_app_controls`, `minimal_application.h`, `minimal_app_graph_builder.cpp`, headless tests; embedded supplies regenerated at build via standard exporters (not committed; per-target `generated_distilled/`).

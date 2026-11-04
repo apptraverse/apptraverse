@@ -27,6 +27,8 @@
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_list_container.h"
 #include "apptraverse/ui/ui_localization_string.h"
+#include "apptraverse/ui/ui_locale_settings.h"
+#include "apptraverse/ui/ui_string.h"
 #include "apptraverse/ui/ui_push_button.h"
 #include "apptraverse/ui/ui_push_button_presenter.h"
 #include "apptraverse/ui/ui_desktop_window.h"
@@ -65,6 +67,7 @@ using example::minimal::MinimalAuxiliaryCloserButton;
 using example::minimal::MinimalAuxiliaryCloserId;
 using example::minimal::MinimalAuxiliaryOpenerButton;
 using example::minimal::MinimalAuxiliaryOpenerId;
+using example::minimal::MinimalLocaleId;
 using example::minimal::MinimalMainWindowId;
 using example::minimal::MinimalPresenterId;
 using example::minimal::NormalizeMinimalApplicationAfterEmbeddedUserLoad;
@@ -1291,6 +1294,227 @@ void TestMinimalAppApplyCheckpointPersistColdLoad() {
   }
 }
 
+struct BilingualMinimalStrings {
+  char const* apply_en;
+  char const* apply_ru;
+  char const* row_a_en;
+  char const* row_a_ru;
+  char const* row_b_en;
+  char const* row_b_ru;
+  char const* opener_en;
+  char const* opener_ru;
+  char const* title_en;
+  char const* title_ru;
+};
+
+struct BilingualLabelIds {
+  ae::ObjId en;
+  ae::ObjId ru;
+};
+
+ui::UiLocalizationString::ptr MakeBilingualMinimalLabel(
+    ae::Domain& domain, char const* en_utf8, char const* ru_utf8,
+    BilingualLabelIds* ids) {
+  auto label = ui::UiLocalizationString::ptr::Create(ae::CreateWith{domain});
+  auto en = ui::UiString::ptr::Create(ae::CreateWith{domain});
+  auto ru = ui::UiString::ptr::Create(ae::CreateWith{domain});
+  en->utf8 = en_utf8;
+  ru->utf8 = ru_utf8;
+  en.Save();
+  ru.Save();
+  if (ids != nullptr) {
+    ids->en = en->obj_id;
+    ids->ru = ru->obj_id;
+  }
+  label->strings = {
+      ui::UiString::ptr::Declare(
+          ae::CreateWith{domain}
+              .with_id(en->obj_id)
+              .with_flags(ae::ObjFlags::kUnloadedByDefault)),
+      ui::UiString::ptr::Declare(
+          ae::CreateWith{domain}
+              .with_id(ru->obj_id)
+              .with_flags(ae::ObjFlags::kUnloadedByDefault)),
+  };
+  ui::UiLocalizationString::ptr::MakeFromThis(&*label).Save();
+  return label;
+}
+
+void CommitActiveLanguage(ae::Domain& domain, int language_index) {
+  auto locale = ui::UiLocaleSettings::ptr::Declare(
+      ae::CreateWith{domain}.with_id(MinimalLocaleId()));
+  locale.Load();
+  auto event = ui::SetUiLanguageIndexEvent::ptr::Create(ae::CreateWith{domain});
+  event->language_index = language_index;
+  locale->Commit(std::move(event));
+}
+
+void InstallBilingualMinimalLabels(MinimalApplication& application,
+                                   ae::Domain& domain,
+                                   BilingualMinimalStrings const& text) {
+  application.apply_button.Load();
+  application.auxiliary_opener.Load();
+  application.row_list.Load();
+  application.main_window.Load();
+  application.main_window->presenter.Load();
+
+  BilingualLabelIds apply_ids{};
+  application.apply_button->label =
+      MakeBilingualMinimalLabel(domain, text.apply_en, text.apply_ru, &apply_ids);
+  BilingualLabelIds opener_ids{};
+  application.auxiliary_opener->label = MakeBilingualMinimalLabel(
+      domain, text.opener_en, text.opener_ru, &opener_ids);
+  for (auto const& row : application.row_list->rows) {
+    row.Load();
+  }
+  application.row_list->rows[0]->primary_text = MakeBilingualMinimalLabel(
+      domain, text.row_a_en, text.row_a_ru, nullptr);
+  application.row_list->rows[1]->primary_text = MakeBilingualMinimalLabel(
+      domain, text.row_b_en, text.row_b_ru, nullptr);
+
+  ui::UiLocalizationString::ptr title_label = MakeBilingualMinimalLabel(
+      domain, text.title_en, text.title_ru, nullptr);
+  application.main_window->presenter->title = title_label;
+  application.apply_button->window_title = title_label;
+  application.row_list->window_title = title_label;
+  application.auxiliary_opener->window_title = title_label;
+
+  (void)apply_ids;
+  (void)opener_ids;
+}
+
+void CheckActiveLanguageSlots(ui::UiLocalizationString& label, int active_index,
+                              char const* active_text,
+                              ae::ObjId inactive_string_id,
+                              char const* inactive_persisted_utf8) {
+  CHECK(label.strings.size() >= 2);
+  int const inactive_index = active_index == 0 ? 1 : 0;
+  CHECK(label.strings[static_cast<std::size_t>(active_index)].is_loaded());
+  CHECK(label.strings[static_cast<std::size_t>(inactive_index)].is_valid());
+  CHECK(!label.strings[static_cast<std::size_t>(inactive_index)].is_loaded());
+  CHECK(label.strings[static_cast<std::size_t>(inactive_index)].id() ==
+        inactive_string_id);
+  CHECK(label.Resolve(active_index) == active_text);
+  {
+    auto inactive_view = label.strings[static_cast<std::size_t>(inactive_index)].Load();
+    CHECK(inactive_view->utf8 == inactive_persisted_utf8);
+    label.strings[static_cast<std::size_t>(inactive_index)].Reset();
+  }
+  CHECK(!label.strings[static_cast<std::size_t>(inactive_index)].is_loaded());
+}
+
+void TestMinimalAppPrepareMaterializesActiveLanguageOnly(int active_language) {
+  EnsureObjectRegistration();
+  EnsureHeadlessMinimalApplicationGraphRegistration();
+
+  BilingualMinimalStrings const text{
+      "Apply-EN", "Apply-RU", "RowA-EN", "RowA-RU", "RowB-EN", "RowB-RU",
+      "Open-EN",  "Open-RU",  "Title-EN", "Title-RU",
+  };
+  char const* const active_apply =
+      active_language == 0 ? text.apply_en : text.apply_ru;
+  char const* const active_title =
+      active_language == 0 ? text.title_en : text.title_ru;
+
+  std::filesystem::path const profile_dir =
+      std::filesystem::temp_directory_path() /
+      ("minimal_app_prepare_active_lang_" + std::to_string(active_language));
+  std::error_code ec;
+  std::filesystem::remove_all(profile_dir, ec);
+
+  BilingualLabelIds apply_ids{};
+  BootstrapMinimalApplicationProfileIfAbsent(
+      profile_dir, [&](ae::Domain& domain) {
+        auto application = BuildHeadlessMinimalApplicationGraph(domain);
+        InstallBilingualMinimalLabels(*application, domain, text);
+        application->apply_button->label.Load();
+        apply_ids.en = application->apply_button->label->strings[0].id();
+        apply_ids.ru = application->apply_button->label->strings[1].id();
+        CommitActiveLanguage(domain, active_language);
+        return application;
+      });
+
+  DirectoryDomainStorage model_storage{profile_dir};
+  ae::Domain model_domain{model_storage};
+  auto model_root =
+      LoadApplication<MinimalApplication>(model_domain, MinimalApplicationRootId());
+
+  model_root->apply_button.Load();
+  model_root->apply_button->label.Load();
+  CHECK(!model_root->apply_button->label->strings[0].is_loaded());
+  CHECK(!model_root->apply_button->label->strings[1].is_loaded());
+
+  PrepareMinimalApplicationForRun(*model_root);
+
+  ae::ObjId const inactive_apply_id =
+      active_language == 0 ? apply_ids.ru : apply_ids.en;
+  char const* const inactive_apply =
+      active_language == 0 ? text.apply_ru : text.apply_en;
+  CheckActiveLanguageSlots(*model_root->apply_button->label, active_language,
+                           active_apply, inactive_apply_id, inactive_apply);
+  CHECK(WindowTitleMirror(*model_root).Resolve(active_language) == active_title);
+  CHECK(!model_root->auxiliary.window.is_loaded());
+
+  PrepareMinimalApplicationForRun(*model_root);
+  CheckActiveLanguageSlots(*model_root->apply_button->label, active_language,
+                           active_apply, inactive_apply_id, inactive_apply);
+
+  ByteSink initial;
+  SerializeInitialPublication(*model_root, initial);
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  ByteSource in;
+  in.data = initial.bytes.data();
+  in.size = initial.bytes.size();
+  ae::Ptr<ae::Obj> ui_root = LoadInitialPublication(in, ui_domain, ui_storage);
+  auto& ui_app = static_cast<MinimalApplication&>(*ui_root);
+  ui_app.apply_button.Load();
+  ui_app.apply_button->label.Load();
+  CHECK(ui_app.apply_button->label->Resolve(active_language) == active_apply);
+  CHECK(WindowTitleMirror(ui_app).Resolve(active_language) == active_title);
+  CHECK(!ui_app.auxiliary.window.is_loaded());
+}
+
+void TestMinimalAppPrepareActiveLanguageOpenDetail() {
+  EnsureObjectRegistration();
+  EnsureHeadlessMinimalApplicationGraphRegistration();
+
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  BilingualMinimalStrings const main_text{
+      "Apply-EN", "Apply-RU", "RowA-EN", "RowA-RU", "RowB-EN", "RowB-RU",
+      "Open-EN",  "Open-RU",  "MainTitle-EN", "MainTitle-RU",
+  };
+  auto application = BuildHeadlessMinimalApplicationGraph(domain);
+  InstallBilingualMinimalLabels(*application, domain, main_text);
+  application->auxiliary.apply_button.Load();
+  BilingualLabelIds aux_apply_ids{};
+  application->auxiliary.apply_button->label = MakeBilingualMinimalLabel(
+      domain, "DetailApply-EN", "DetailApply-RU", &aux_apply_ids);
+  application->auxiliary.window.Load();
+  application->auxiliary.window->presenter.Load();
+  BilingualLabelIds aux_title_ids{};
+  application->auxiliary.window->presenter->title = MakeBilingualMinimalLabel(
+      domain, "DetailTitle-EN", "DetailTitle-RU", &aux_title_ids);
+  application->auxiliary.closer.Load();
+  application->auxiliary.closer->label = MakeBilingualMinimalLabel(
+      domain, "DetailClose-EN", "DetailClose-RU", nullptr);
+  for (auto const& row : application->auxiliary.row_list->rows) {
+    row.Load();
+  }
+  application->auxiliary.row_list->rows[0]->primary_text = MakeBilingualMinimalLabel(
+      domain, "DetailA-EN", "DetailA-RU", nullptr);
+  application->auxiliary.row_list->rows[1]->primary_text = MakeBilingualMinimalLabel(
+      domain, "DetailB-EN", "DetailB-RU", nullptr);
+  CommitActiveLanguage(domain, 1);
+  application->OpenAuxiliaryWindowImpl();
+  PrepareMinimalApplicationForRun(*application);
+
+  CheckActiveLanguageSlots(*application->auxiliary.apply_button->label, 1,
+                           "DetailApply-RU", aux_apply_ids.en, "DetailApply-EN");
+  CHECK(AuxiliaryWindowTitleMirror(*application).Resolve(1) == "DetailTitle-RU");
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -1307,6 +1531,9 @@ int main() {
   apptraverse::test::TestMinimalAppAuxiliaryPersistColdLoad();
   apptraverse::test::TestMinimalAppAuxiliaryCloseOpenHeadless();
   apptraverse::test::TestMinimalAppAuxiliaryCloseEmbeddedUserShutdownColdLoad();
+  apptraverse::test::TestMinimalAppPrepareMaterializesActiveLanguageOnly(0);
+  apptraverse::test::TestMinimalAppPrepareMaterializesActiveLanguageOnly(1);
+  apptraverse::test::TestMinimalAppPrepareActiveLanguageOpenDetail();
   std::cout << "minimal_app_headless_test OK\n";
   return 0;
 }
