@@ -7,6 +7,26 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+## WASM WindowCatalog initial smoke — «Loading…» investigation (post-`371c92e`, 2026-11-03)
+
+**Base:** `371c92e`. Scope: **`tools/wasm_window_catalog_browser_smoke.py`** (+ PROGRESS); **production не менялся**.
+
+### Smoke tooling (доказанный дефект smoke)
+
+- При любом отказе скрипт теперь печатает собранные **PAGEERROR**, **CONSOLE.ERROR**, **REQUESTFAILED**, маркеры **`IDBFS_LOADED` / `WASM_READY` / `INITIAL_RENDER_OK`** и снимок DOM (**`#catalog-title`**, **`#status`**, counts) **до** закрытия браузера; **PASS** — только после всех проверок.
+- Раньше диагностика часто не попадала в stderr (ранний `return` / **`PAGEERROR`** после **`finally`**), что маскировало причину зависания на **«Loading…»**.
+
+### Исходное зависание (post-Prepare slice, serve **8903**)
+
+- Симптом: timeout на **`#catalog-title` == "Window Catalog"**, HTML оставался **«Loading…»**; minimal/lifecycle WASM в том же прогоне **PASS**.
+- **Prepare / catalog WASM не доказаны** причиной: **«Loading…»** — начальное состояние shell до **`WebCatalogWindowPresenter::OnLoad`**; без маркеров отказ мог быть на любой стадии до publication.
+
+### Воспроизведение (incremental **`web_window_catalog_demo`**, dedicated **`serve_wasm.py`** **8911**, COOP/COEP подтверждены curl)
+
+- Артефакты: **`build/wasm-ninja-debug/examples/surfaces_demo/web/web_window_catalog_demo.{html,js,wasm,worker.js}`** (mtime **2026-11-03** post-Prepare rebuild).
+- **5×** catalog smoke с обновлённым скриптом: **PASS** (нет FAIL для сбора stderr).
+- **Статус:** зависание **не воспроизведено**, **корневая причина не установлена** (вероятный класс — редкая гонка/окружение serve; **не зафиксировано** доказательствами).
+
 ## WindowCatalog Prepare: drop redundant required-graph fatals (post-`e5543a0`, 2026-11-03) — PASS
 
 **Base:** `e5543a0`. Scope: **`examples/surfaces_demo/common/window_catalog_prepare.cpp`**, **`tests/window_catalog_win32_acceptance_test.cpp`**.

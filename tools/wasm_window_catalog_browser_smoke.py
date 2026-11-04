@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from playwright.sync_api import Error as PlaywrightError
-from playwright.sync_api import expect, sync_playwright
+from playwright.sync_api import Page, expect, sync_playwright
 
 EXPECTED_BUTTONS = {
     "5002": {"label": "Add", "enabled": True},
@@ -30,27 +30,66 @@ def main() -> int:
     args = parser.parse_args()
 
     page_errors: list[str] = []
-    saw_render_ok = False
+    console_errors: list[str] = []
+    request_failures: list[str] = []
+    markers = {
+        "idbfs_loaded": False,
+        "wasm_ready": False,
+        "initial_render_ok": False,
+    }
 
     def on_pageerror(err: Exception) -> None:
         page_errors.append(str(err))
 
     def on_console(msg) -> None:
-        nonlocal saw_render_ok
         text = msg.text
+        if "WINDOW_CATALOG_IDBFS_LOADED" in text:
+            markers["idbfs_loaded"] = True
+        if "WINDOW_CATALOG_WASM_READY" in text:
+            markers["wasm_ready"] = True
         if "WINDOW_CATALOG_INITIAL_RENDER_OK" in text:
-            saw_render_ok = True
+            markers["initial_render_ok"] = True
         if msg.type == "error":
             if "Failed to load resource:" in text or "favicon.ico" in text:
                 return
-            page_errors.append(f"console.error: {text}")
+            console_errors.append(text)
 
     def on_requestfailed(request) -> None:
-        name = request.url.rsplit("/", 1)[-1]
-        if name.startswith("web_window_catalog_demo"):
-            page_errors.append(
-                f"requestfailed: {request.url} ({request.failure})"
-            )
+        request_failures.append(f"{request.url} ({request.failure})")
+
+    def dump_diagnostics(page: Page | None, reason: str) -> None:
+        print(f"FAIL: {reason}", file=sys.stderr)
+        print(
+            "stage markers: "
+            f"IDBFS_LOADED={markers['idbfs_loaded']} "
+            f"WASM_READY={markers['wasm_ready']} "
+            f"INITIAL_RENDER_OK={markers['initial_render_ok']}",
+            file=sys.stderr,
+        )
+        if page is not None:
+            try:
+                title = page.locator("#catalog-title").inner_text(timeout=2000)
+                status = page.locator("#status").inner_text(timeout=2000)
+                list_count = page.locator("#catalog-list li").count()
+                button_count = page.locator(
+                    "#catalog-buttons button.catalog-button"
+                ).count()
+                print(
+                    f"DOM: catalog-title={title!r} status={status!r} "
+                    f"list_items={list_count} catalog_buttons={button_count}",
+                    file=sys.stderr,
+                )
+            except (PlaywrightError, TimeoutError) as dom_exc:
+                print(f"DOM probe failed: {dom_exc}", file=sys.stderr)
+        for err in page_errors:
+            print(f"PAGEERROR: {err}", file=sys.stderr)
+        for err in console_errors:
+            print(f"CONSOLE.ERROR: {err}", file=sys.stderr)
+        for err in request_failures:
+            print(f"REQUESTFAILED: {err}", file=sys.stderr)
+
+    exit_code = 0
+    page: Page | None = None
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, channel="chrome")
@@ -83,37 +122,34 @@ def main() -> int:
 
             isolated = page.evaluate("() => crossOriginIsolated === true")
             if not isolated:
-                print("FAIL: crossOriginIsolated is not true", file=sys.stderr)
-                return 1
-            sab = page.evaluate(
+                exit_code = 1
+                dump_diagnostics(page, "crossOriginIsolated is not true")
+            elif not page.evaluate(
                 "() => typeof SharedArrayBuffer !== 'undefined'"
-            )
-            if not sab:
-                print("FAIL: SharedArrayBuffer unavailable", file=sys.stderr)
-                return 1
-            if not saw_render_ok:
-                print(
-                    "FAIL: missing console marker WINDOW_CATALOG_INITIAL_RENDER_OK",
-                    file=sys.stderr,
+            ):
+                exit_code = 1
+                dump_diagnostics(page, "SharedArrayBuffer unavailable")
+            elif not markers["initial_render_ok"]:
+                exit_code = 1
+                dump_diagnostics(
+                    page, "missing console marker WINDOW_CATALOG_INITIAL_RENDER_OK"
                 )
-                return 1
-
-            shot = Path(args.screenshot)
-            shot.parent.mkdir(parents=True, exist_ok=True)
-            page.screenshot(path=str(shot), full_page=True)
-            print(f"PASS screenshot={shot}")
+            elif page_errors or console_errors or request_failures:
+                exit_code = 1
+                dump_diagnostics(page, "page reported errors during load")
+            else:
+                shot = Path(args.screenshot)
+                shot.parent.mkdir(parents=True, exist_ok=True)
+                page.screenshot(path=str(shot), full_page=True)
+                print(f"PASS screenshot={shot}")
         except (PlaywrightError, TimeoutError, AssertionError) as exc:
-            print(f"FAIL: {exc}", file=sys.stderr)
-            return 1
+            exit_code = 1
+            dump_diagnostics(page, str(exc))
         finally:
             context.close()
             browser.close()
 
-    if page_errors:
-        for err in page_errors:
-            print(f"PAGEERROR: {err}", file=sys.stderr)
-        return 1
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":
