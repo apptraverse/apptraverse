@@ -36,16 +36,6 @@ void LinuxPushButtonPresenter::OnLoad() {
 }
 
 void LinuxPushButtonPresenter::SyncFromMirror() {
-  if (button_ == nullptr) {
-    return;
-  }
-  button.Load();
-  window_presenter.Load();
-  window_presenter->locale.Load();
-  button->label.Load();
-  if (!button->label) {
-    FatalLinux("LinuxPushButtonPresenter mirror label missing");
-  }
   int const language_index = window_presenter->locale->language_index();
   std::string const label = button->label->Resolve(language_index);
   gtk_button_set_label(GTK_BUTTON(button_), label.c_str());

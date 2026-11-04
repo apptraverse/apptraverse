@@ -7,6 +7,30 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+## Linux/Android PushButton SyncFromMirror aligned with Win/Web (post-`76ed215`, 2026-11-03) — PASS
+
+**Base:** `76ed215`. Scope: **`SyncFromMirror` only** in `linux_ui_push_button_presenter.cpp` and `android_ui_push_button_presenter.cpp`.
+
+### Change
+
+- Removed silent return when native **`button_`** / **`view_refs_`** missing; removed redundant **`Load()`** and label fatals.
+- Mirror sync now matches Win/Web: **`window_presenter->locale->language_index()`**, **`button->label->Resolve(...)`**, enabled from mirror. **`OnLoad` / `OnUnload` / listeners / presentation order** unchanged.
+
+### Call sites (unchanged)
+
+- **`OnLoad`** after control creation; **`OnModelChanged`** after mirror updates — same as Windows/Web.
+
+### Regressions (incremental Debug, `apptraverse-wt-web5`, 2026-11-03)
+
+| Check | Result |
+| --- | --- |
+| **`apptraverse_minimal_app_headless_test`** + **`apptraverse_minimal_app_embedded_export_test`** (Win) | **PASS** |
+| Windows §W2 (14 ctest) | **13/14 PASS** — **`apptraverse_window_catalog_win32_acceptance_test` FAIL** (1st + retry: load-only negative child, `ObjPtr` assert; not PushButton Sync) |
+| Linux runtime + materialization + headless + L3 | **PASS** |
+| WASM ×3 (`serve_wasm.py` **8881**, **8883**; lifecycle on **`apptraverse_web_presenter_lifecycle_test.html`**) | **PASS** |
+| Android **`connectedDebugAndroidTest`** | **PASS** 13/13 |
+| Full tree build / full CTest | **NOT RUN** (surfaces_demo link flake unrelated to slice) |
+
 ## UI LoadPresentedWindow + list row primary text: drop redundant graph validation (post-`2a25408`, 2026-11-03) — PASS
 
 **Base:** `2a25408`. Scope: **`include/apptraverse/ui/ui_presented_window_lifecycle.h`**, **`src/ui/ui_list_container.cpp`**, **`tests/ui/ui_control_materialization_test.cpp`** only (not project-wide).

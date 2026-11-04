@@ -51,20 +51,8 @@ void AndroidPushButtonPresenter::OnLoad() {
 }
 
 void AndroidPushButtonPresenter::SyncFromMirror() {
-  if (view_refs_ == nullptr || view_refs_->button == nullptr) {
-    return;
-  }
   auto* host = static_cast<AndroidPresentationHost*>(presentation_host);
   JNIEnv* env = RequireUiThreadEnv(*host);
-  button.Load();
-  window_presenter.Load();
-  window_presenter->locale.Load();
-  button->label.Load();
-  if (!button->label) {
-    WriteFatalStderr(
-        "fatal: AndroidPushButtonPresenter mirror label not found\n");
-    std::abort();
-  }
   int const language_index = window_presenter->locale->language_index();
   std::string const label = button->label->Resolve(language_index);
   jclass ui_class = env->FindClass("com/apptraverse/ui/android/AppTraverseAndroidUi");
