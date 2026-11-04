@@ -643,52 +643,6 @@ void RegisterCatalogTypes() {
   EnsureWindowCatalogGraphRegistration();
 }
 
-void WriteProfileMissingMainWindow(std::filesystem::path const& state_dir) {
-  RegisterCatalogTypes();
-  DirectoryDomainStorage storage{state_dir};
-  ae::Domain domain{storage};
-  WindowCatalog::ptr loaded =
-      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
-  ae::Ptr<WindowCatalog> catalog = loaded.Load();
-  catalog->main_window = CatalogWindow::ptr::Declare(
-      ae::CreateWith{domain}.with_id(ae::ObjId{}));
-  if (catalog->base.is_valid()) {
-    if (!catalog->base.is_loaded()) {
-      catalog->base.Load();
-    }
-    auto& base_catalog = static_cast<WindowCatalog&>(*catalog->base.operator->());
-    base_catalog.main_window = CatalogWindow::ptr::Declare(
-        ae::CreateWith{domain}.with_id(ae::ObjId{}));
-    catalog->base.Save();
-  }
-  ae::DomainGraph graph{&domain};
-  CHECK(graph.SaveRoot(catalog, CatalogRootObjId()).IsOk());
-}
-
-void AssertMainWindowRefAbsent(std::filesystem::path const& state_dir) {
-  RegisterCatalogTypes();
-  DirectoryDomainStorage storage{state_dir};
-  ae::Domain domain{storage};
-  WindowCatalog::ptr loaded =
-      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
-  ae::Ptr<WindowCatalog> catalog = loaded.Load();
-  CHECK(!catalog->main_window.is_valid());
-}
-
-void WriteProfileMissingPresenter(std::filesystem::path const& state_dir) {
-  RegisterCatalogTypes();
-  DirectoryDomainStorage storage{state_dir};
-  ae::Domain domain{storage};
-  WindowCatalog::ptr loaded =
-      LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
-  ae::Ptr<WindowCatalog> catalog = loaded.Load();
-  ae::Ptr<CatalogWindow> window = catalog->main_window.Load();
-  window->presenter = ui::windows::WinDesktopWindowPresenter::ptr::Declare(
-      ae::CreateWith{domain}.with_id(ae::ObjId{}));
-  ae::DomainGraph graph{&domain};
-  CHECK(graph.SaveRoot(window, CatalogMainWindowObjId()).IsOk());
-}
-
 void WriteProfileMissingPresenterObject(std::filesystem::path const& state_dir) {
   RegisterCatalogTypes();
   DirectoryDomainStorage storage{state_dir};
@@ -1201,43 +1155,11 @@ void RunRequiredMainWindowNegativeTests(
   }
 
   {
-    auto const dir = NegativeStateDir("missing_main_window");
-    CopyStateDir(good_state, dir);
-    WriteProfileMissingMainWindow(dir);
-    AssertMainWindowRefAbsent(dir);
-    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
-    ExpectFatalLoadOnly(result,
-                        "fatal: LoadPresentedWindow required window missing");
-  }
-
-  {
-    auto const dir = NegativeStateDir("missing_presenter_ref");
-    CopyStateDir(good_state, dir);
-    WriteProfileMissingPresenter(dir);
-    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
-    ExpectFatalLoadOnly(result,
-                        "fatal: LoadPresentedWindow required presenter missing");
-  }
-
-  {
     auto const dir = NegativeStateDir("missing_presenter_object");
     CopyStateDir(good_state, dir);
     WriteProfileMissingPresenterObject(dir);
     auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
-    bool const presenter_missing =
-        result.stderr_text.find(
-            "fatal: LoadPresentedWindow required presenter missing") !=
-        std::string::npos;
-    bool const load_failed =
-        result.stderr_text.find("fatal: LoadApplication failed") !=
-        std::string::npos;
-    CHECK(result.exit_code != 0);
-    CHECK(presenter_missing || load_failed);
-    if (!presenter_missing && !load_failed) {
-      std::cerr << "missing presenter object stderr was:\n"
-                << result.stderr_text << '\n';
-      std::exit(1);
-    }
+    ExpectFatalLoadOnly(result, "fatal: LoadApplication failed");
   }
 }
 
@@ -1534,28 +1456,20 @@ void RelocateStoredLayerVersion0To1(std::filesystem::path const& state_dir,
 }
 
 void ExpectUnsupportedSchemaLoadOnly(char const* scenario,
-                                     ChildRunResult const& result,
-                                     bool allow_presenter_boundary) {
+                                     ChildRunResult const& result) {
   bool const load_failed =
       result.stderr_text.find("fatal: LoadApplication failed") !=
       std::string::npos;
-  bool const presenter_missing =
-      allow_presenter_boundary &&
-      result.stderr_text.find(
-          "fatal: LoadPresentedWindow required presenter missing") !=
-          std::string::npos;
-  bool const ok = result.exit_code != 0 && (load_failed || presenter_missing);
-  if (!ok) {
+  if (result.exit_code == 0 || !load_failed) {
     std::cerr << "unsupported-schema scenario: " << scenario << '\n'
               << "child exit: dec=" << result.exit_code << " hex=0x"
               << std::hex << result.exit_code << std::dec << '\n'
-              << "load_failed=" << load_failed
-              << " presenter_missing=" << presenter_missing << '\n'
+              << "load_failed=" << load_failed << '\n'
               << "captured stderr:\n"
               << result.stderr_text << '\n';
   }
   CHECK(result.exit_code != 0);
-  CHECK(load_failed || presenter_missing);
+  CHECK(load_failed);
 }
 
 std::uint32_t UnknownStoredClassIdForTests() {
@@ -1624,8 +1538,7 @@ void RunRequiredUnknownClassIdNegativeTests(
     CopyStateDir(good_state, dir);
     AddUnknownStoredClassLayerAlongsideRoot(dir);
     auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
-    ExpectUnsupportedSchemaLoadOnly("unknown_class_id_alongside_root", result,
-                                    false);
+    ExpectUnsupportedSchemaLoadOnly("unknown_class_id_alongside_root", result);
   }
 
   {
@@ -1636,8 +1549,8 @@ void RunRequiredUnknownClassIdNegativeTests(
         ui::windows::WinDesktopWindowPresenter::kClassId,
         UnknownStoredClassIdForTests());
     auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
-    ExpectUnsupportedSchemaLoadOnly(
-        "unknown_class_id_main_window_presenter", result, true);
+    ExpectUnsupportedSchemaLoadOnly("unknown_class_id_main_window_presenter",
+                                    result);
   }
 }
 
@@ -1650,8 +1563,8 @@ void RunRequiredUnsupportedSchemaNegativeTests(
     RelocateStoredLayerVersion0To1(dir, CatalogRootObjId(),
                                    WindowCatalog::kClassId);
     auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
-    ExpectUnsupportedSchemaLoadOnly(
-        "unsupported_schema_window_catalog_root", result, false);
+    ExpectUnsupportedSchemaLoadOnly("unsupported_schema_window_catalog_root",
+                                    result);
   }
 
   {
@@ -1662,8 +1575,8 @@ void RunRequiredUnsupportedSchemaNegativeTests(
         dir, CatalogMainWindowPresenterObjId(),
         ui::windows::WinDesktopWindowPresenter::kClassId);
     auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
-    ExpectUnsupportedSchemaLoadOnly(
-        "unsupported_schema_main_window_presenter", result, true);
+    ExpectUnsupportedSchemaLoadOnly("unsupported_schema_main_window_presenter",
+                                    result);
   }
 }
 

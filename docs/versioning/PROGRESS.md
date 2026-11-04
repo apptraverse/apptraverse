@@ -7,6 +7,28 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+## WindowCatalog Win32 acceptance: drop LoadPresentedWindow consumer fatals (post-`2d79624`, 2026-11-03) — PASS
+
+**Base:** `2d79624`. Scope: **`tests/window_catalog_win32_acceptance_test.cpp`** only.
+
+### Confirmed mismatch (pre-fix)
+
+- Incremental binaries: **`build/win64-ninja-msvc-debug/tests/apptraverse_window_catalog_win32_acceptance_test.exe`** (same dir as test via `DemoExe`); load-only child **`…/examples/surfaces_demo/windows/win32_window_catalog_demo_load_only.exe`** (fallback `ExeDir/../examples/surfaces_demo/windows/`).
+- **First failing scenario:** `RunRequiredMainWindowNegativeTests` → **`missing_main_window`** — expected `fatal: LoadPresentedWindow required window missing`; child stderr was **`ObjPtr` assert** (`Dereferencing invalid object`), exit ≠ 0. Production removed those fatals in **`76ed215`**; stale expectations on **`2d79624`**, not stale demo binaries.
+
+### Test cleanup
+
+- **Removed scenarios:** `missing_main_window`, `missing_presenter_ref` and helpers **`WriteProfileMissingMainWindow`**, **`AssertMainWindowRefAbsent`**, **`WriteProfileMissingPresenter`** (zero mandatory ref fixtures for cancelled consumer validation).
+- **Kept loader negatives:** `missing_root`, **`missing_presenter_object`** (now **`ExpectFatalLoadOnly` → `fatal: LoadApplication failed`** only), chrome/list/locale/text/schema/ClassId cases unchanged except **`ExpectUnsupportedSchemaLoadOnly`** — no alternate **`LoadPresentedWindow required presenter missing`**; loader must fail with **`LoadApplication failed`**.
+
+### Regressions (incremental Debug, `apptraverse-wt-web5`, 2026-11-03)
+
+| Check | Result |
+| --- | --- |
+| **`apptraverse_window_catalog_win32_acceptance_test`** (full acceptance + all load-only negatives) | **PASS** |
+| Windows §W2 (14 ctest) | **PASS** 14/14 |
+| Other backends (Linux/Android/WASM @ `2d79624`) | **NOT RE-RUN** (tests/docs-only slice) |
+
 ## Linux/Android PushButton SyncFromMirror aligned with Win/Web (post-`76ed215`, 2026-11-03) — PASS
 
 **Base:** `76ed215`. Scope: **`SyncFromMirror` only** in `linux_ui_push_button_presenter.cpp` and `android_ui_push_button_presenter.cpp`.
