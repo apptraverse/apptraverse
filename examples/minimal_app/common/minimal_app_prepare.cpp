@@ -4,7 +4,6 @@
 
 #include "minimal_app_window_lifecycle.h"
 
-#include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/ui/ui_presented_window_lifecycle.h"
 #include "apptraverse/ui/ui_window_presenter.h"
 
@@ -63,57 +62,9 @@ void PrepareMinimalApplicationForRun(MinimalApplication& application) {
   application.presenters.row_list.Load();
   application.presenters.auxiliary_opener.Load();
   application.auxiliary_opener.Load();
-  if (!application.apply_button || !application.row_list ||
-      !application.presenters.apply_button ||
-      !application.presenters.row_list ||
-      !application.presenters.auxiliary_opener || !application.auxiliary_opener) {
-    WriteFatalStderr(
-        "fatal: MinimalApplication required control or presenter missing\n");
-    std::abort();
-  }
-  if (!application.apply_button->label.is_valid()) {
-    WriteFatalStderr(
-        "fatal: MinimalApplication apply_button label ref invalid\n");
-    std::abort();
-  }
-  application.apply_button->label.Load();
-  if (!application.apply_button->label) {
-    WriteFatalStderr("fatal: MinimalApplication apply_button missing label\n");
-    std::abort();
-  }
-  if (!application.auxiliary_opener->label.is_valid()) {
-    WriteFatalStderr(
-        "fatal: MinimalApplication auxiliary_opener label ref invalid\n");
-    std::abort();
-  }
-  application.auxiliary_opener->label.Load();
-  if (!application.auxiliary_opener->label) {
-    WriteFatalStderr(
-        "fatal: MinimalApplication auxiliary_opener missing label\n");
-    std::abort();
-  }
-  if (!application.apply_button->window_title ||
-      !application.row_list->window_title) {
-    WriteFatalStderr(
-        "fatal: MinimalApplication missing window_title wiring\n");
-    std::abort();
-  }
-  for (auto const& row : application.row_list->rows) {
-    if (!row || !row->primary_text) {
-      WriteFatalStderr(
-          "fatal: MinimalApplication list row missing primary_text\n");
-      std::abort();
-    }
-  }
-  auto const& window_presenter =
-      application.presenters.apply_button->window_presenter;
-  if (!window_presenter || !window_presenter->locale) {
-    WriteFatalStderr(
-        "fatal: MinimalApplication window presenter missing locale\n");
-    std::abort();
-  }
 
-  int const language_index = ActiveLanguageIndex(*window_presenter);
+  int const language_index = ActiveLanguageIndex(
+      *application.presenters.apply_button->window_presenter);
   MaterializeMainWindowLocalizedContent(application, language_index);
 
 #if !defined(__EMSCRIPTEN__)

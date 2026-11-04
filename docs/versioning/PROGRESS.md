@@ -7,6 +7,34 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+## MinimalApp Prepare / LoadAuxiliary: drop redundant graph validation (post-`fe1b982`, 2026-11-03) — PASS
+
+**Base:** `fe1b982`. Scope: `minimal_app_prepare.cpp`, `minimal_app_window_lifecycle.cpp`, headless test.
+
+### Removed (no replacement validation)
+
+- **`PrepareMinimalApplicationForRun`:** fatal/abort blocks for missing apply/row/presenters/opener, invalid/missing apply and opener **label** refs, missing **window_title** wiring, missing list **primary_text**, missing window presenter **locale**; redundant explicit **label.Load()** before materialization ( **`operator->`** on guaranteed refs already loads).
+- **`MinimalApplication::LoadAuxiliaryPresentation`:** fatal/abort for missing auxiliary controls/presenters after Load.
+
+### Preserved materialization
+
+- **`LoadPresentedWindow(main_window)`**; Load of main apply/row/presenters/opener; **`ActiveLanguageIndex`** via presenter **locale**; **`MaterializeLanguage`** for main (and open Detail) labels/titles; **`SealAuxiliaryWindowClosed`** / Emscripten branch unchanged; auxiliary path still **`LoadAuxiliaryPresentation`** then aux **`MaterializeLanguage`**.
+
+### Test
+
+- **`TestMinimalAppPrepareUnloadedRequiredApplyLabelRef`:** distill/cold load, then **`apply_button->label.Reset()`** (reference-contract probe, not natural cold load); **`PrepareMinimalApplicationForRun`** materializes active EN, inactive RU stays unloaded, closed Detail stays unloaded.
+
+### Regressions (incremental Debug, `apptraverse-wt-web5`, 2026-11-03)
+
+| Check | Result |
+| --- | --- |
+| **`apptraverse_minimal_app_headless_test`** + **`apptraverse_minimal_app_embedded_export_test`** (Win) | **PASS** |
+| Windows 14 exe via `ctest -R` | **PASS** 14/14 |
+| Linux runtime + materialization + headless + full L3 | **PASS** |
+| WASM ×3 (`serve_wasm.py` 8861, 8863) | **PASS** |
+| Android **`connectedDebugAndroidTest`** (13 tests) | **PASS** 13/13 |
+| Full CTest / clean rebuild | **NOT RUN** (by instruction) |
+
 ## MinimalApp Prepare: active locale only before publication (post-`6644667`, 2026-11-03) — PASS
 
 **Base:** `6644667`. Scope: `minimal_app_prepare.cpp`, `minimal_app_headless_test.cpp`.

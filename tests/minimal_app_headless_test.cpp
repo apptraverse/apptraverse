@@ -1515,6 +1515,54 @@ void TestMinimalAppPrepareActiveLanguageOpenDetail() {
   CHECK(AuxiliaryWindowTitleMirror(*application).Resolve(1) == "DetailTitle-RU");
 }
 
+void TestMinimalAppPrepareUnloadedRequiredApplyLabelRef() {
+  EnsureObjectRegistration();
+  EnsureHeadlessMinimalApplicationGraphRegistration();
+
+  BilingualMinimalStrings const text{
+      "Apply-EN", "Apply-RU", "RowA-EN", "RowA-RU", "RowB-EN", "RowB-RU",
+      "Open-EN",  "Open-RU",  "Title-EN", "Title-RU",
+  };
+  std::filesystem::path const profile_dir =
+      std::filesystem::temp_directory_path() /
+      "minimal_app_prepare_unloaded_apply_label_ref";
+  std::error_code ec;
+  std::filesystem::remove_all(profile_dir, ec);
+
+  BilingualLabelIds apply_ids{};
+  BootstrapMinimalApplicationProfileIfAbsent(
+      profile_dir, [&](ae::Domain& domain) {
+        auto application = BuildHeadlessMinimalApplicationGraph(domain);
+        InstallBilingualMinimalLabels(*application, domain, text);
+        application->apply_button->label.Load();
+        apply_ids.en = application->apply_button->label->strings[0].id();
+        apply_ids.ru = application->apply_button->label->strings[1].id();
+        CommitActiveLanguage(domain, 0);
+        return application;
+      });
+
+  DirectoryDomainStorage model_storage{profile_dir};
+  ae::Domain model_domain{model_storage};
+  auto model_root =
+      LoadApplication<MinimalApplication>(model_domain, MinimalApplicationRootId());
+
+  model_root->apply_button.Load();
+  ae::ObjId const label_id = model_root->apply_button->label.id();
+  // Reset() drops the cached label body but keeps ObjId — reference-contract
+  // check, not a natural cold-load path.
+  model_root->apply_button->label.Reset();
+  CHECK(model_root->apply_button->label.is_valid());
+  CHECK(!model_root->apply_button->label.is_loaded());
+  CHECK(model_root->apply_button->label.id() == label_id);
+
+  PrepareMinimalApplicationForRun(*model_root);
+
+  CheckActiveLanguageSlots(*model_root->apply_button->label, 0, text.apply_en,
+                           apply_ids.ru, text.apply_ru);
+  CHECK(WindowTitleMirror(*model_root).Resolve(0) == text.title_en);
+  CHECK(!model_root->auxiliary.window.is_loaded());
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -1534,6 +1582,7 @@ int main() {
   apptraverse::test::TestMinimalAppPrepareMaterializesActiveLanguageOnly(0);
   apptraverse::test::TestMinimalAppPrepareMaterializesActiveLanguageOnly(1);
   apptraverse::test::TestMinimalAppPrepareActiveLanguageOpenDetail();
+  apptraverse::test::TestMinimalAppPrepareUnloadedRequiredApplyLabelRef();
   std::cout << "minimal_app_headless_test OK\n";
   return 0;
 }
