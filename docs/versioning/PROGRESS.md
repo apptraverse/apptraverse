@@ -7,6 +7,39 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+## UI LoadPresentedWindow + list row primary text: drop redundant graph validation (post-`2a25408`, 2026-11-03) — PASS
+
+**Base:** `2a25408`. Scope: **`include/apptraverse/ui/ui_presented_window_lifecycle.h`**, **`src/ui/ui_list_container.cpp`**, **`tests/ui/ui_control_materialization_test.cpp`** only (not project-wide).
+
+### Removed (no replacement validation)
+
+- **`LoadPresentedWindow`:** fatal/abort when **`window`** or **`presenter`** missing after **`Load()`**.
+- **`ResolvePresentedListRowPrimaryText`:** **`FatalPresentedListRowLabel`** and row / **`primary_text`** existence checks.
+
+### Preserved materialization
+
+- **`LoadPresentedWindow`:** **`window.Load()`** then **`window->presenter.Load()`**; **`SavePresentedWindow` / `UnloadPresentedWindow`** and compile-time **`static_assert`** unchanged.
+- **`ResolvePresentedListRowPrimaryText`:** **`row.Load()`** then **`row->primary_text->Resolve(language_index)`**; one row → one text, list order unchanged.
+
+### Tests
+
+- **`TestPresentedListRowPrimaryTextsMatchRowIndices`:** kept; after first resolve, **`primary_text.Reset()`** on each row (valid-but-unloaded refs, reference-contract probe); **`ResolvePresentedListRowPrimaryTexts`** still returns **`Row A` / `Row B`** in order.
+- Removed **`missing_primary_text_fatal`** child mode, **`TestPresentedListRowMissingPrimaryTextRefusesPartialList`**, and Win32 death-test helpers (obsolete re-validation contract). Serialization / localization load error tests unchanged.
+
+### Regressions (incremental Debug, `apptraverse-wt-web5`, 2026-11-03)
+
+| Check | Result |
+| --- | --- |
+| **`apptraverse_ui_control_materialization_test`** | **PASS** |
+| **`apptraverse_minimal_app_headless_test`** + **`apptraverse_minimal_app_embedded_export_test`** (Win) | **PASS** |
+| Windows 14 exe via `ctest -R` (§W2 scope) | **PASS** 14/14 |
+| Linux runtime + materialization + headless (WSL `build/linux-x64-debug`) | **PASS** |
+| Linux full **`linux_minimal_app_l3_smoke.py`** | **PASS** |
+| WASM **`wasm_minimal_app_browser_smoke.py`** / catalog smoke (`serve_wasm.py` **8871**, **8873**) | **PASS** / **PASS** |
+| WASM **`wasm_web_presenter_lifecycle_test.py`**: 1st run with **`web_minimal_app.html`** → **FAIL** (timeout; wrong page for lifecycle harness); **retry** with **`apptraverse_web_presenter_lifecycle_test.html`** (`serve_wasm.py` **8874**) → **PASS** |
+| Android **`connectedDebugAndroidTest`** (13 tests) | **PASS** 13/13 |
+| Full CTest / clean rebuild | **NOT RUN** (by instruction) |
+
 ## MinimalApp Prepare / LoadAuxiliary: drop redundant graph validation (post-`fe1b982`, 2026-11-03) — PASS
 
 **Base:** `fe1b982`. Scope: `minimal_app_prepare.cpp`, `minimal_app_window_lifecycle.cpp`, headless test.
