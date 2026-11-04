@@ -13,8 +13,9 @@
 
 ### Smoke tooling (доказанный дефект smoke)
 
-- При любом отказе скрипт теперь печатает собранные **PAGEERROR**, **CONSOLE.ERROR**, **REQUESTFAILED**, маркеры **`IDBFS_LOADED` / `WASM_READY` / `INITIAL_RENDER_OK`** и снимок DOM (**`#catalog-title`**, **`#status`**, counts) **до** закрытия браузера; **PASS** — только после всех проверок.
-- Раньше диагностика часто не попадала в stderr (ранний `return` / **`PAGEERROR`** после **`finally`**), что маскировало причину зависания на **«Loading…»**.
+- При любом отказе скрипт печатает собранные **PAGEERROR**, **CONSOLE.ERROR**, **REQUESTFAILED**, маркеры **`IDBFS_LOADED` / `WASM_READY` / `INITIAL_RENDER_OK`** и снимок DOM **до** teardown; **PASS** — только после всех проверок.
+- Раньше диагностика часто не попадала в stderr (ранний `return` / **`PAGEERROR`** после **`finally`**), что маскировало зависание на **«Loading…»**.
+- **f9b9427 follow-up:** накопленные ошибки проверялись **до** **`screenshot()`** → **`PASS`** при **`console.error`** во время screenshot; исправлено: итоговая проверка **после** screenshot (probe **`SMOKE_LATE_ERROR_PROBE`** → exit **1**, без **PASS**).
 
 ### Исходное зависание (post-Prepare slice, serve **8903**)
 
@@ -25,7 +26,7 @@
 
 - Артефакты: **`build/wasm-ninja-debug/examples/surfaces_demo/web/web_window_catalog_demo.{html,js,wasm,worker.js}`** (mtime **2026-11-03** post-Prepare rebuild).
 - **5×** catalog smoke с обновлённым скриптом: **PASS** (нет FAIL для сбора stderr).
-- **Статус:** зависание **не воспроизведено**, **корневая причина не установлена** (вероятный класс — редкая гонка/окружение serve; **не зафиксировано** доказательствами).
+- **Статус:** зависание **не воспроизведено**, **корневая причина не установлена**.
 
 ## WindowCatalog Prepare: drop redundant required-graph fatals (post-`e5543a0`, 2026-11-03) — PASS
 

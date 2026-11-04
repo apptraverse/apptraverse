@@ -134,14 +134,15 @@ def main() -> int:
                 dump_diagnostics(
                     page, "missing console marker WINDOW_CATALOG_INITIAL_RENDER_OK"
                 )
-            elif page_errors or console_errors or request_failures:
-                exit_code = 1
-                dump_diagnostics(page, "page reported errors during load")
             else:
                 shot = Path(args.screenshot)
                 shot.parent.mkdir(parents=True, exist_ok=True)
                 page.screenshot(path=str(shot), full_page=True)
-                print(f"PASS screenshot={shot}")
+                if page_errors or console_errors or request_failures:
+                    exit_code = 1
+                    dump_diagnostics(page, "page reported errors during load")
+                else:
+                    print(f"PASS screenshot={shot}")
         except (PlaywrightError, TimeoutError, AssertionError) as exc:
             exit_code = 1
             dump_diagnostics(page, str(exc))
