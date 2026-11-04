@@ -159,6 +159,7 @@ MinimalApplication::ptr BuildMinimalApplicationGraph(
   application->auxiliary_opener->label = opener_label;
   application->auxiliary_opener->window_title = title;
   application->auxiliary_opener->row_list = application->row_list;
+  application->auxiliary_opener->application = application;
   InitializeRuntimeNode(*application->auxiliary_opener, *main_panel.window);
 
   auto opener_presenter = factories.create_button(
@@ -205,6 +206,7 @@ MinimalApplication::ptr BuildMinimalApplicationGraph(
   InitializeRuntimeNode(*closer_label, *application->auxiliary.closer);
   application->auxiliary.closer->label = closer_label;
   application->auxiliary.closer->window_title = aux_title;
+  application->auxiliary.closer->application = application;
   InitializeRuntimeNode(*application->auxiliary.closer, *aux_panel.window);
 
   auto closer_presenter = factories.create_button(

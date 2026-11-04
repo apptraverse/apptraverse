@@ -67,12 +67,6 @@ void WireMinimalAppControlContext(MinimalApplication& application,
 }
 
 void MinimalAuxiliaryOpenerButton::HandlePushButtonClicked() {
-  auto application = MinimalApplication::ptr::Declare(
-      ae::CreateWith{*domain}.with_id(MinimalApplicationRootId()));
-  application.Load();
-  if (!application) {
-    return;
-  }
   auto event = MinimalOpenAuxiliaryWindowEvent::ptr::Create(
       ae::CreateWith{*domain});
   application->Commit(std::move(event));
@@ -111,12 +105,6 @@ void MinimalAppList::HandleListRowActivated(std::size_t row_index) {
 }
 
 void MinimalAuxiliaryCloserButton::HandlePushButtonClicked() {
-  auto application = MinimalApplication::ptr::Declare(
-      ae::CreateWith{*domain}.with_id(MinimalApplicationRootId()));
-  application.Load();
-  if (!application) {
-    return;
-  }
   auto event = MinimalCloseAuxiliaryWindowEvent::ptr::Create(
       ae::CreateWith{*domain});
   application->Commit(std::move(event));

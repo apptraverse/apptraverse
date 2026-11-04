@@ -61,6 +61,8 @@ using example::minimal::MinimalApplication;
 using example::minimal::MinimalApplicationRootId;
 using example::minimal::MinimalApplyButton;
 using example::minimal::MinimalApplyButtonId;
+using example::minimal::MinimalAuxiliaryCloserButton;
+using example::minimal::MinimalAuxiliaryCloserId;
 using example::minimal::MinimalAuxiliaryOpenerButton;
 using example::minimal::MinimalAuxiliaryOpenerId;
 using example::minimal::MinimalMainWindowId;
@@ -744,6 +746,23 @@ ui::UiPushButtonPresenter& UiAuxiliaryOpenerPresenter(
   return *app.presenters.auxiliary_opener;
 }
 
+void CheckOpenCloseOwnerWiring(MinimalApplication& app, ae::Domain& domain) {
+  ae::Ptr<ae::Obj> const opener_obj = domain.Find(MinimalAuxiliaryOpenerId());
+  CHECK(opener_obj);
+  auto& opener = static_cast<MinimalAuxiliaryOpenerButton&>(*opener_obj);
+  CHECK(opener.application.is_valid());
+  CHECK(opener.application.id() == app.obj_id);
+
+  ae::Ptr<ae::Obj> const closer_obj = domain.Find(MinimalAuxiliaryCloserId());
+  if (closer_obj) {
+    auto& closer = static_cast<MinimalAuxiliaryCloserButton&>(*closer_obj);
+    CHECK(closer.application.is_valid());
+    CHECK(closer.application.id() == app.obj_id);
+  }
+
+  CHECK(!app.auxiliary.window.is_loaded());
+}
+
 void TestMinimalAppAuxiliaryPersistColdLoad() {
   EnsureObjectRegistration();
   EnsureHeadlessMinimalApplicationGraphRegistration();
@@ -938,6 +957,7 @@ void TestMinimalAppAuxiliaryCloseEmbeddedUserShutdownColdLoad() {
   cold_app->main_window.Load();
   CHECK(cold_app->main_window->journal.empty());
   NormalizeMinimalApplicationAfterEmbeddedUserLoad(*cold_app);
+  CheckOpenCloseOwnerWiring(*cold_app, cold_domain);
   PrepareMinimalApplicationForRun(*cold_app);
   CHECK(!cold_app->auxiliary_presented_open);
   cold_app->row_list.Load();
@@ -962,8 +982,6 @@ void TestMinimalAppAuxiliaryCloseEmbeddedUserShutdownColdLoad() {
   CHECK(cold_app->auxiliary.row_list->window_title->journal.empty());
   CHECK(cold_app->auxiliary.row_list->window_title->Resolve(0) == "Applied");
 }
-
-namespace {
 
 constexpr char kOpenerProbeLabel[] = "OpenerLabel-A1R1-probe";
 
@@ -1029,6 +1047,8 @@ void CheckSharedRefsAndCycleIdentity(MinimalApplication& app) {
   CHECK(app.auxiliary_opener->row_list.is_loaded());
   CHECK(AsObj(*app.apply_button->row_list) == AsObj(*app.row_list));
   CHECK(AsObj(*app.auxiliary_opener->row_list) == AsObj(*app.row_list));
+  CHECK(app.auxiliary_opener->application.is_valid());
+  CHECK(app.auxiliary_opener->application.id() == app.obj_id);
 
   CHECK(app.main_window.is_loaded());
   CHECK(app.main_window->presenter.is_loaded());
@@ -1042,8 +1062,6 @@ void CheckSharedRefsAndCycleIdentity(MinimalApplication& app) {
         AsObj(*app.auxiliary_opener));
   CHECK(app.auxiliary_opener->label.is_valid());
 }
-
-}  // namespace
 
 void TestMinimalAppProductionOpenerColdLoadInitialPublication() {
   EnsureObjectRegistration();
@@ -1086,6 +1104,7 @@ void TestMinimalAppProductionOpenerColdLoadInitialPublication() {
   auto& ui_app = static_cast<MinimalApplication&>(*ui_root);
   CheckSharedRefsAndCycleIdentity(*model_root);
   CheckSharedRefsAndCycleIdentity(ui_app);
+  CheckOpenCloseOwnerWiring(ui_app, ui_domain);
   ui_app.presenters.auxiliary_opener->button->label.Load();
   CHECK(ui_app.presenters.auxiliary_opener->button->label);
   CHECK(ui_app.presenters.auxiliary_opener->button->label->Resolve(0) ==
@@ -1164,6 +1183,9 @@ void TestMinimalAppProductionOpenerColdLoadBeforePrepare() {
   CHECK(apply_obj);
   auto& apply = static_cast<MinimalApplyButton&>(*apply_obj);
   CHECK(apply.label.is_valid());
+
+  CheckOpenCloseOwnerWiring(*model_root, model_domain);
+  CHECK(model_domain.Find(MinimalAuxiliaryCloserId()));
 
   model_root->auxiliary_opener.Load();
   CHECK(model_root->auxiliary_opener->label.is_valid());

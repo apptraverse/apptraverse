@@ -27,6 +27,69 @@ struct MinimalAuxiliaryPresenters {
   AE_REFLECT_MEMBERS(apply_button, row_list, closer)
 };
 
+class MinimalApplication;
+
+class MinimalAuxiliaryOpenerButton
+    : public NodeFor<MinimalAuxiliaryOpenerButton, ui::UiPushButton> {
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::example::minimal::MinimalAuxiliaryOpenerButton",
+      MinimalAuxiliaryOpenerButton, ui::UiPushButton, 0)
+
+ protected:
+  MinimalAuxiliaryOpenerButton() = default;
+
+ public:
+  explicit MinimalAuxiliaryOpenerButton(ae::ObjProp prop) : NodeFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(window_title), AE_MMBR(row_list), AE_MMBR(application))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, window_title, row_list, application);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, window_title, row_list, application);
+  }
+
+  ui::UiLocalizationString::ptr window_title;
+  MinimalAppList::ptr row_list;
+  ae::ObjPtr<MinimalApplication> application;
+
+  void HandlePushButtonClicked() override;
+};
+
+class MinimalAuxiliaryCloserButton
+    : public NodeFor<MinimalAuxiliaryCloserButton, ui::UiPushButton> {
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::example::minimal::MinimalAuxiliaryCloserButton",
+      MinimalAuxiliaryCloserButton, ui::UiPushButton, 0)
+
+ protected:
+  MinimalAuxiliaryCloserButton() = default;
+
+ public:
+  explicit MinimalAuxiliaryCloserButton(ae::ObjProp prop) : NodeFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(window_title), AE_MMBR(application))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, window_title, application);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, window_title, application);
+  }
+
+  ui::UiLocalizationString::ptr window_title;
+  ae::ObjPtr<MinimalApplication> application;
+
+  void HandlePushButtonClicked() override;
+};
+
 struct MinimalAuxiliaryWindowState {
   ui::UiDesktopWindow::ptr window;
   MinimalApplyButton::ptr apply_button;

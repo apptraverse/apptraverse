@@ -93,65 +93,6 @@ class MinimalApplyButton : public NodeFor<MinimalApplyButton, ui::UiPushButton> 
 
 class MinimalApplication;
 
-class MinimalAuxiliaryOpenerButton
-    : public NodeFor<MinimalAuxiliaryOpenerButton, ui::UiPushButton> {
-  APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::example::minimal::MinimalAuxiliaryOpenerButton",
-      MinimalAuxiliaryOpenerButton, ui::UiPushButton, 0)
-
- protected:
-  MinimalAuxiliaryOpenerButton() = default;
-
- public:
-  explicit MinimalAuxiliaryOpenerButton(ae::ObjProp prop) : NodeFor{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(window_title), AE_MMBR(row_list))
-
-  template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, window_title, row_list);
-  }
-
-  template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, window_title, row_list);
-  }
-
-  ui::UiLocalizationString::ptr window_title;
-  MinimalAppList::ptr row_list;
-
-  void HandlePushButtonClicked() override;
-};
-
-class MinimalAuxiliaryCloserButton
-    : public NodeFor<MinimalAuxiliaryCloserButton, ui::UiPushButton> {
-  APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::example::minimal::MinimalAuxiliaryCloserButton",
-      MinimalAuxiliaryCloserButton, ui::UiPushButton, 0)
-
- protected:
-  MinimalAuxiliaryCloserButton() = default;
-
- public:
-  explicit MinimalAuxiliaryCloserButton(ae::ObjProp prop) : NodeFor{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(window_title))
-
-  template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, window_title);
-  }
-
-  template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, window_title);
-  }
-
-  ui::UiLocalizationString::ptr window_title;
-
-  void HandlePushButtonClicked() override;
-};
-
 ui::UiLocalizationString::ptr MakeMinimalLabel(ae::Domain& domain,
                                                char const* utf8);
 

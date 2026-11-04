@@ -7,6 +7,31 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+## MinimalApp Open/Close Detail owner wiring (post-`39b1528`, 2026-11-03) — PASS
+
+**Base:** `39b1528`. Scope: `minimal_app_controls`, `minimal_application.h`, `minimal_app_graph_builder.cpp`, headless tests; embedded supplies regenerated at build via standard exporters (not committed; per-target `generated_distilled/`).
+
+### Change
+
+- **`MinimalAuxiliaryOpenerButton` / `MinimalAuxiliaryCloserButton`:** reflected field **`ae::ObjPtr<MinimalApplication> application`** (typed owner link). Set in **`BuildMinimalApplicationGraph`** before distillation (`auxiliary_opener->application = application`, `auxiliary.closer->application = application`). Persisted through normal S0 Load/Save/reflection; no **`Declare`/`Find(MinimalApplicationRootId)`**, silent return, Prepare repair, or fixed-ID lookup in handlers.
+- **Handlers:** commit the same **`MinimalOpenAuxiliaryWindowEvent` / `MinimalCloseAuxiliaryWindowEvent`** on **`application`** directly. Open/Close still **presenter → proxy → model handler → Event → publication**.
+
+### Headless checks (new / extended)
+
+- **`CheckOpenCloseOwnerWiring`:** after distill/cold load (model domain, before Prepare) opener and closer **`application.id()`** match domain root; closer verified when the object is present in the domain (UI mirror after initial publication may omit sealed auxiliary nodes — opener wiring checked; closer when present). **`auxiliary.window`** stays unloaded (no Detail materialization).
+- Existing **Open → Detail change → Close → USER save → cold reload → Open** path (**`TestMinimalAppAuxiliaryCloseEmbeddedUserShutdownColdLoad`**) extended with owner wiring after embedded USER load; state/title/Apply behavior unchanged.
+
+### Regressions (incremental Debug, `apptraverse-wt-web5`, 2026-11-03)
+
+| Check | Result |
+| --- | --- |
+| **`apptraverse_minimal_app_embedded_export_test`** + **`apptraverse_minimal_app_headless_test`** (Win) | **PASS** |
+| Windows 14 exe via `ctest -R` (prior scope) | **PASS** 14/14 |
+| Linux runtime + materialization + headless + full L3 | **PASS** |
+| WASM ×3 (`serve_wasm.py` 8841, 8843) | **PASS** |
+| Android **`connectedDebugAndroidTest`** (13 tests; 1st run **`SaveColdReloadInstrumentedTest.sameProcessResumeAfterBackgroundSaveAcceptsInput`** log timing flake, **retry PASS**) | **PASS** 13/13 |
+| Full CTest / clean rebuild | **NOT RUN** (by instruction) |
+
 ## Android presenter teardown: listeners + View ownership (post-`efba74a`, 2026-11-03) — PASS
 
 **Base:** `efba74a`. Scope: `src/platform/android/android_ui_{push_button,list,window}_presenter.cpp`, `AppTraverseAndroidUi.java`, Android instrumented test + test-only fixture library.
