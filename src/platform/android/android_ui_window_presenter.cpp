@@ -79,6 +79,15 @@ void AndroidDesktopWindowPresenter::OnUnload() {
     return;
   }
   auto* host = static_cast<AndroidPresentationHost*>(presentation_host);
+  if (view_refs_->client_mount != nullptr) {
+    JNIEnv* env = RequireUiThreadEnv(*host);
+    jclass ui_class =
+        env->FindClass("com/apptraverse/ui/android/AppTraverseAndroidUi");
+    jmethodID release = env->GetStaticMethodID(
+        ui_class, "releaseClientMount", "(Landroid/widget/FrameLayout;)V");
+    env->CallStaticVoidMethod(ui_class, release, view_refs_->client_mount);
+    env->DeleteLocalRef(ui_class);
+  }
   ClearGlobalRef(*host, view_refs_->client_mount);
   delete view_refs_;
   view_refs_ = nullptr;

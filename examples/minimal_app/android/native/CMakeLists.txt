@@ -73,3 +73,19 @@ set_target_properties(apptraverse_minimal_app PROPERTIES
   CXX_VISIBILITY_PRESET hidden
   VISIBILITY_INLINES_HIDDEN ON
 )
+
+# Instrumented-test fixture; only the debug build type lists this target.
+add_library(apptraverse_minimal_app_test_fixture SHARED
+  ../app/src/androidTest/cpp/presenter_lifecycle_fixture.cpp
+)
+target_link_libraries(apptraverse_minimal_app_test_fixture PRIVATE
+  minimal_app_android
+  minimal_app_common
+  apptraverse_ui_android
+  log
+)
+set_target_properties(apptraverse_minimal_app_test_fixture PROPERTIES
+  POSITION_INDEPENDENT_CODE ON
+  CXX_VISIBILITY_PRESET hidden
+  VISIBILITY_INLINES_HIDDEN ON
+)

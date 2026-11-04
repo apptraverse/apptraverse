@@ -7,6 +7,42 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+## Android presenter teardown: listeners + View ownership (post-`efba74a`, 2026-11-03) — PASS
+
+**Base:** `efba74a`. Scope: `src/platform/android/android_ui_{push_button,list,window}_presenter.cpp`, `AppTraverseAndroidUi.java`, Android instrumented test + test-only fixture library.
+
+### Reproduction before the fix
+
+**`PresenterLifecycleInstrumentedTest`** (real **`ApplicationUiSession`** over the MinimalApp graph, existing **`ModelObjectProxy`** with an enqueue counter, Java refs to the old button / rows / client mount held, **`RemountPresentation`** into the same `content_root`; presenters are still alive at remount, so old-View clicks are safe). Unfixed production code, one run:
+
+- `content root children=2 expected 1` and `old client mount still attached` — window **`OnUnload`** freed the global ref but left `client_mount` in `content_root`;
+- `old button: sent 1 command(s), expected 0`, `old button keeps OnClickListener` — button **`OnUnload`** detached the View but kept its listener;
+- `old row B: sent 1 command(s), expected 0`, `old row A/B keeps OnClickListener` — list **`OnUnload`** kept row listeners.
+- New button / row each sent exactly one command (no violation).
+
+### Fix (UI thread; listeners → owned Views → JNI global refs)
+
+- **`AppTraverseAndroidUi`:** `releasePushButton` (listener `null`, detach), `releaseListContainer` (rows via `clearListRows(list, 0)`, detach), `releaseClientMount` (detach the mount; host `content_root` untouched). **`clearListRows`** clears each removed row's listener before **`removeViewAt`**; kept rows keep their callbacks.
+- Presenter **`OnUnload`** calls the matching release, then **`ClearGlobalRef`**. Children unload before the window via the existing descending presentation-load order. No live-pointer registry, alive flags, JNI checks or graph revalidation.
+
+### Test (`PresenterLifecycleInstrumentedTest.presenterTeardownReleasesListenersAndViews`)
+
+- Remount: old Views send nothing and have no listeners, old mount detached, exactly one mount, new button/rows one command each.
+- List shrink through the normal path (model **`RemoveUiListRowEvent`** → root structural publication → **`ApplicationUiSession::ApplyStructural`**): removed row detached, no listener, sends nothing; remaining row keeps its View and callback.
+- 3 more remount cycles; session end → `content_root` empty, every saved View without listeners; second create/destroy on the same root — one mount, controls work, empty after.
+- Fixture/counter/JNI entries: `app/src/androidTest/cpp/presenter_lifecycle_fixture.cpp` + `PresenterLifecycleFixture.java`; CMake target **`apptraverse_minimal_app_test_fixture`** listed only in the **debug** build type targets (re-registers the `AppTraverseAndroidUi` natives for its own presenter copy). Release packaging not built/checked.
+
+### Regressions (incremental Debug, `apptraverse-wt-web5`, 2026-11-03)
+
+| Check | Result |
+| --- | --- |
+| Android **`connectedDebugAndroidTest`** (`Aether_NDK_Smoke_x86_64`, 12 existing + lifecycle) | **PASS** 13/13 |
+| Windows 14 exe via `ctest -R` (headless, §W2, WindowCatalog model / headless / win32 / embedded overlay, …) | **PASS** 14/14 |
+| Linux runtime + materialization + minimal headless | **PASS** |
+| Linux full **`linux_minimal_app_l3_smoke.py`** | **PASS** |
+| WASM minimal / presenter lifecycle / window catalog (`serve_wasm.py` 8831, 8833) | **PASS** ×3 |
+| Full CTest / clean rebuild | **NOT RUN** (by instruction) |
+
 ## UiListContainer row removal by reference identity (post-`51844e0`, 2026-11-03) — PASS
 
 **Base:** `51844e0` (`integration/unified-application`). Scope: **`src/ui/ui_list_container.cpp`** + existing tests.

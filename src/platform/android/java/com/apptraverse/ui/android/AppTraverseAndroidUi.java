@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.Context;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -26,6 +27,11 @@ public final class AppTraverseAndroidUi {
         ViewGroup.LayoutParams.MATCH_PARENT));
     contentRoot.addView(client);
     return client;
+  }
+
+  /** Detaches the presenter-owned client mount; the host content root stays. */
+  public static void releaseClientMount(FrameLayout client) {
+    detachFromParent(client);
   }
 
   public static Button createPushButton(ViewGroup parent, int controlId, String label,
@@ -54,6 +60,11 @@ public final class AppTraverseAndroidUi {
     button.setText(label);
     button.setEnabled(enabled);
     button.setContentDescription(label);
+  }
+
+  public static void releasePushButton(Button button) {
+    button.setOnClickListener(null);
+    detachFromParent(button);
   }
 
   public static LinearLayout createListContainer(ViewGroup parent, int controlId, int x,
@@ -94,7 +105,21 @@ public final class AppTraverseAndroidUi {
 
   public static void clearListRows(LinearLayout list, int keepCount) {
     while (list.getChildCount() > keepCount) {
-      list.removeViewAt(list.getChildCount() - 1);
+      int last = list.getChildCount() - 1;
+      list.getChildAt(last).setOnClickListener(null);
+      list.removeViewAt(last);
+    }
+  }
+
+  public static void releaseListContainer(LinearLayout list) {
+    clearListRows(list, 0);
+    detachFromParent(list);
+  }
+
+  private static void detachFromParent(View view) {
+    ViewParent parent = view.getParent();
+    if (parent instanceof ViewGroup) {
+      ((ViewGroup) parent).removeView(view);
     }
   }
 

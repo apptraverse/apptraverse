@@ -87,19 +87,12 @@ void AndroidPushButtonPresenter::OnUnload() {
   auto* host = static_cast<AndroidPresentationHost*>(presentation_host);
   if (view_refs_->button != nullptr) {
     JNIEnv* env = RequireUiThreadEnv(*host);
-    jclass view_class = env->FindClass("android/view/View");
-    jmethodID remove = env->GetMethodID(
-        view_class, "getParent", "()Landroid/view/ViewParent;");
-    jobject parent_obj = env->CallObjectMethod(view_refs_->button, remove);
-    if (parent_obj != nullptr) {
-      jclass vg_class = env->FindClass("android/view/ViewGroup");
-      jmethodID remove_view = env->GetMethodID(
-          vg_class, "removeView", "(Landroid/view/View;)V");
-      env->CallVoidMethod(parent_obj, remove_view, view_refs_->button);
-      env->DeleteLocalRef(parent_obj);
-      env->DeleteLocalRef(vg_class);
-    }
-    env->DeleteLocalRef(view_class);
+    jclass ui_class =
+        env->FindClass("com/apptraverse/ui/android/AppTraverseAndroidUi");
+    jmethodID release = env->GetStaticMethodID(
+        ui_class, "releasePushButton", "(Landroid/widget/Button;)V");
+    env->CallStaticVoidMethod(ui_class, release, view_refs_->button);
+    env->DeleteLocalRef(ui_class);
   }
   ClearGlobalRef(*host, view_refs_->button);
   delete view_refs_;

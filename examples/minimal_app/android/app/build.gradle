@@ -60,6 +60,11 @@ android {
     debug {
       debuggable true
       jniDebuggable true
+      externalNativeBuild {
+        cmake {
+          targets "apptraverse_minimal_app", "apptraverse_minimal_app_test_fixture"
+        }
+      }
       ndk {
         debugSymbolLevel "FULL"
       }

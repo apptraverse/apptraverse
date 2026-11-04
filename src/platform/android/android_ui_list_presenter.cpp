@@ -102,19 +102,12 @@ void AndroidListContainerPresenter::OnUnload() {
   auto* host = static_cast<AndroidPresentationHost*>(presentation_host);
   if (view_refs_->list != nullptr) {
     JNIEnv* env = RequireUiThreadEnv(*host);
-    jclass view_class = env->FindClass("android/view/View");
-    jmethodID get_parent = env->GetMethodID(
-        view_class, "getParent", "()Landroid/view/ViewParent;");
-    jobject parent_obj = env->CallObjectMethod(view_refs_->list, get_parent);
-    if (parent_obj != nullptr) {
-      jclass vg_class = env->FindClass("android/view/ViewGroup");
-      jmethodID remove_view = env->GetMethodID(
-          vg_class, "removeView", "(Landroid/view/View;)V");
-      env->CallVoidMethod(parent_obj, remove_view, view_refs_->list);
-      env->DeleteLocalRef(parent_obj);
-      env->DeleteLocalRef(vg_class);
-    }
-    env->DeleteLocalRef(view_class);
+    jclass ui_class =
+        env->FindClass("com/apptraverse/ui/android/AppTraverseAndroidUi");
+    jmethodID release = env->GetStaticMethodID(
+        ui_class, "releaseListContainer", "(Landroid/widget/LinearLayout;)V");
+    env->CallStaticVoidMethod(ui_class, release, view_refs_->list);
+    env->DeleteLocalRef(ui_class);
   }
   ClearGlobalRef(*host, view_refs_->list);
   delete view_refs_;
