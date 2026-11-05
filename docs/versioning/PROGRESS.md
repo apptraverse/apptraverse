@@ -34,10 +34,13 @@
 
 ### Verification
 
-- **iOS sim build:** `apptraverse_minimal_app_ios` — **PASS** (incremental Debug).
-- **macOS regressions (same branch, host tree):** `apptraverse_macos_ui_backend_lifecycle_test`, `apptraverse_minimal_app_headless_test`, `apptraverse_ui_control_materialization_test`, `apptraverse_export_minimal_distilled_graph_macos`, `apptraverse_embedded_distilled_domain_test`, `apptraverse_overlay_user_backing_test` — **PASS**.
-- **iPhone/iPad Simulator E2E (Row B → Apply → Detail ×2 → background checkpoints → cold relaunch):** **BLOCKED** — `simctl boot` fails with `launchd_sim may have crashed or quit responding` (NSPOSIXErrorDomain 60) on this host; device target would be **iPhone 15 Pro Max** (`EB9ED0F9-3C43-48A2-A18B-66C654FAAD4D`, iOS 17.2 runtime). Script: `examples/minimal_app/ios/run_simulator.sh`.
-- **NOT RUN:** Windows, Android, Web, Linux backend runners; full CTest; clean/Release; iPad-specific sim run (same app binary supports UIDeviceFamily 1+2).
+- **iOS sim build / macOS host export:** `apptraverse_minimal_app_ios`, `apptraverse_export_minimal_distilled_graph_ios` — **PASS** (incremental Debug, 2026-11-05 re-check). Build/export **≠** runtime PASS.
+- **macOS regressions (no Apple product code changes this slice):** prior PASS retained; macOS native two-process E2E **NOT RUN** on this slice.
+- **Simulator host diagnosis (2026-11-05):** Xcode **15.2** (15C500b), `xcode-select` → `/Applications/Xcode.app/Contents/Developer`; sole installed runtime **iOS 17.2** (`com.apple.CoreSimulator.SimRuntime.iOS-17-2`, 21C62). Boot fails for **every** tested UDID with `SimLaunchHostService` / `launchd_sim`: *could not bind to session* → `NSPOSIXErrorDomain` **60** / `SimLaunchHostService.RequestError` **4** (~8 s timeout in `CoreSimulator.log`). Reproduced from Cursor agent shell, `launchctl asuser 501`, and **Terminal.app** (`BOOT_FAIL`); **not** an AppTraverse defect. Mitigations tried without erasing user devices: restart `CoreSimulatorService` / `SimLaunchHost.x86`, `open -a Simulator`, erase **new** test devices only.
+- **Dedicated E2E simulators created (user devices/data untouched):** `AT-Minimal-E2E-iPhone-15PM` **`84D17537-5A72-4C23-B852-EBB92B429BEB`** (iPhone 15 Pro Max, iOS 17.2); `AT-Minimal-E2E-iPad10` **`24DDD487-E38E-4706-A4AB-A8D7AD741C5F`** (iPad 10th gen, iOS 17.2). Legacy **`EB9ED0F9-3C43-48A2-A18B-66C654FAAD4D`** not used after repeated boot failure.
+- **iPhone Simulator runtime E2E** (empty USER → embedded UI → Row B → Apply → Detail open/close/reopen → background checkpoint → foreground command → terminate → cold relaunch): **BLOCKED** (no booted device; `run_simulator.sh` cannot install/launch).
+- **iPad Simulator runtime E2E:** **BLOCKED** (same `launchd_sim` failure; iPad UDID ready, not booted).
+- **NOT RUN:** Windows (`feature/windows-window-catalog-complete` in flight on origin), Android, Web, Linux backend runners; full CTest; clean/Release.
 
 <a id="p3t3m--macos-minimalapp-embedded-user-2026-11-05--pass"></a>
 
