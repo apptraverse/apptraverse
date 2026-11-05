@@ -3,6 +3,7 @@
 #include "window_catalog_prepare.h"
 
 #include <filesystem>
+#include <iostream>
 #include <optional>
 #include <unordered_set>
 #include <vector>
@@ -37,12 +38,41 @@ ae::ObjId CatalogRootId() {
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
 }
 
+#if defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
+bool UserProfilePresent(std::filesystem::path const& state_dir) {
+  std::error_code profile_error;
+  bool const profile_exists = std::filesystem::exists(state_dir, profile_error);
+  if (profile_error) {
+    WriteFatalStderr("fatal: cannot inspect catalog profile\n");
+    std::abort();
+  }
+  bool const profile_absent =
+      !profile_exists || std::filesystem::is_empty(state_dir, profile_error);
+  if (profile_error) {
+    WriteFatalStderr("fatal: cannot inspect catalog profile contents\n");
+    std::abort();
+  }
+  return !profile_absent;
+}
+
+void LogEmbeddedLoadMarker(std::filesystem::path const& state_dir) {
+  if (UserProfilePresent(state_dir)) {
+    std::cerr << "WINDOW_CATALOG_LOADED_FROM_PROFILE\n";
+  } else {
+    std::cerr << "WINDOW_CATALOG_LOADED_FROM_EMBEDDED_BACKING\n";
+  }
+}
+#endif
+
 }  // namespace
 
 int WindowCatalogModelSession::Run(
     ApplicationPublishedCallback on_published) {
   EnsureObjectRegistration();
   EnsureWindowCatalogGraphRegistration();
+#if defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
+  LogEmbeddedLoadMarker(state_dir);
+#endif
 
   ApplicationModelSessionHooks<WindowCatalog> hooks;
   hooks.prepare = PrepareWindowCatalogForRun;

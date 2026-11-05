@@ -5,7 +5,69 @@
 1. Google Doc: [AppTraverse — версионирование состояния и жизненный цикл поставок](https://docs.google.com/document/d/196STRvU1QMbMu0ArGRLahPpgnTb6HQoldUV-7tOIcfo/edit) — **прямая сверка не выполнена** (403 при fetch).
 2. Архитектурный контракт и roadmap: [PLAN.md](./PLAN.md) — **AppTraverse Libraries Architecture RU v0.3 (25.10.2026)** + Object Core **`01_Object_Core_Versioning_PLAN.md` (25.10.2026)** ([share](https://chatgpt.com/library/share/libfile_c97b08ed7af88191a916944ac06566f7?account_id=personal)).
 
-**Branch (рабочая):** **feature/ios-minimal-app**, base `e94899255ab779df8d9d625b13b958d919eb64d5` (`origin/integration/unified-application`). Историческая координация: [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
+**Branch (рабочая):** **feature/linux-window-catalog**, base `d590ee7f932d1f6df82c196f36c99e3b5e0b9102` (`origin/integration/unified-application`). Историческая координация: [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
+
+<a id="p4-wc-linux-gtk-embedded--2026-11-05"></a>
+
+## P4 / WindowCatalog — Linux/GTK embedded consumer (2026-11-05) — PASS (Linux slice, verified)
+
+**Ветка:** **`feature/linux-window-catalog`** @ `d590ee7` (integration не обновлялась).
+
+### Переиспользование
+
+- Общая модель: `examples/surfaces_demo/common/window_catalog_*` (builder, model, actions, prepare, localization, `WindowCatalogModelSession` + `RunEmbeddedApplicationModelSession`).
+- Платформа: `LinuxApplicationHost`, `LinuxPresentationHost`, `LinuxDesktopWindowPresenter`, `LinuxListContainerPresenter`, `LinuxPushButtonPresenter`.
+- Образец embedded: `examples/minimal_app/linux/` (exporter + `apptraverse_embed_distilled_supply.cmake`).
+- Legacy **`linux_surfaces_demo`** / `linux_app` / `linux_presenters` **не** трогались.
+
+### Добавлено
+
+- `examples/surfaces_demo/linux/window_catalog_graph_linux.cpp` — `CatalogListContainerPresenter` + `BuildWindowCatalogGraph` (Linux factories).
+- `examples/surfaces_demo/linux/window_catalog_export_linux.cpp` — host exporter → `embedded_distilled_window_catalog_supply.h` (Linux ClassId/layers).
+- `examples/surfaces_demo/linux/window_catalog_main.cpp` — thin GTK host (close/focus/persist; **без** native desktop z-order restore).
+- `examples/surfaces_demo/linux/window_catalog_linux_session_automation.*` + `tools/linux_window_catalog_l3_smoke.py`.
+- `examples/surfaces_demo/common/window_catalog_graph.h` (общий заголовок graph API; Windows graph .cpp без изменения семантики).
+- Маркеры embedded load в `window_catalog_lifecycle.cpp`: `WINDOW_CATALOG_LOADED_FROM_EMBEDDED_BACKING` / `…_PROFILE`.
+
+**Target:** `linux_window_catalog_demo` (`APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL`).
+
+### Ограничения GTK / WM
+
+- **Desktop z-order:** модель хранит `desktop_z_order`; при shutdown main window в USER пишется текущий порядок из модели. **Восстановление stacking через WM (аналог Win `EnumWindows` + `SetWindowPos`) не реализовано** — GTK/Wayland/X11 не дают переносимого контракта; повторный Open использует `gtk_window_present` для pending focus.
+
+### Прогоны (WSL **`Ubuntu`**, incremental)
+
+| Контур | 1-й прогон | Повтор |
+| --- | --- | --- |
+| `tools/linux_window_catalog_l3_smoke.py` на **Debug** exe | **PASS** | — |
+| `apptraverse_window_catalog_headless_test` (Debug) | **PASS** | — |
+| `tools/linux_window_catalog_l3_smoke.py` на **MinSizeRel** exe | **PASS** | — |
+| `apptraverse_window_catalog_win32_acceptance_test` (Win Debug, общий lifecycle header) | **PASS** | — |
+| Linux **`linux_minimal_app_l3_smoke.py`** | **NOT RUN** (GTK backend library не менялся) | — |
+| WASM `wasm_window_catalog_browser_smoke.py` | **NOT RUN** (Emscripten tree не пересобирался в этом срезе) | — |
+| `apptraverse_window_catalog_embedded_overlay_test` | **NOT RUN** on Linux (target Win-only в preset) | — |
+
+### MinSizeRel executable (x86-64, GCC 13.3, `-DCMAKE_BUILD_TYPE=MinSizeRel`, `build/linux-x64-minsizerel`)
+
+| | Байты | KiB (1024) |
+| --- | --- | --- |
+| **Оригинал** (not stripped) | 750 008 | ~732.4 |
+| **Копия + `strip`** (оригинал не заменялся) | 489 696 | ~478.2 |
+
+**Путь:** `build/linux-x64-minsizerel/examples/surfaces_demo/linux/linux_window_catalog_demo`  
+**Debug:** `build/linux-x64-debug/examples/surfaces_demo/linux/linux_window_catalog_demo`  
+
+**Динамические зависимости (ldd):** `libgtk-3`, `libgdk-3`, GLib/GObject/GIO, Pango/Cairo, X11/Wayland client libs, … — **размер ELF не включает** системные GTK/shared libraries.
+
+### Ручной запуск (MinSizeRel, отдельный USER)
+
+PowerShell:
+
+```powershell
+wsl -d Ubuntu -- /mnt/c/Users/nickc/Projects/apptraverse-wt-web5/build/linux-x64-minsizerel/examples/surfaces_demo/linux/linux_window_catalog_demo --state-dir /mnt/c/Users/nickc/Projects/apptraverse-wt-web5/build/manual_profiles/linux_window_catalog_manual_wslg
+```
+
+Повтор с тем же `--state-dir` восстанавливает USER overlay. Профиль **`build/manual_profiles/linux_window_catalog_manual_wslg`** оставлен для WSLg (MinSizeRel процесс запущен агентом, окно не закрывалось).
 
 <a id="p4-wc-win-debug-embedded--2026-11-05"></a>
 
