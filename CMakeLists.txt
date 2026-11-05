@@ -171,6 +171,16 @@ target_include_directories(apptraverse_ui_android_presenters PUBLIC
 target_link_libraries(apptraverse_ui_android_presenters PUBLIC apptraverse)
 target_compile_features(apptraverse_ui_android_presenters PUBLIC cxx_std_20)
 
+if(APPLE)
+  add_library(apptraverse_ui_macos_presenters STATIC
+    src/platform/macos/macos_ui_presenters.cpp
+  )
+  target_include_directories(apptraverse_ui_macos_presenters PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_link_libraries(apptraverse_ui_macos_presenters PUBLIC apptraverse)
+  target_compile_features(apptraverse_ui_macos_presenters PUBLIC cxx_std_20)
+endif()
+
 if(ANDROID)
   add_library(apptraverse_ui_android STATIC
     src/platform/android/android_jni_util.cpp

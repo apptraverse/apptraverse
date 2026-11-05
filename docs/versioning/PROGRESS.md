@@ -5,7 +5,36 @@
 1. Google Doc: [AppTraverse — версионирование состояния и жизненный цикл поставок](https://docs.google.com/document/d/196STRvU1QMbMu0ArGRLahPpgnTb6HQoldUV-7tOIcfo/edit) — **прямая сверка не выполнена** (403 при fetch).
 2. Архитектурный контракт и roadmap: [PLAN.md](./PLAN.md) — **AppTraverse Libraries Architecture RU v0.3 (25.10.2026)** + Object Core **`01_Object_Core_Versioning_PLAN.md` (25.10.2026)** ([share](https://chatgpt.com/library/share/libfile_c97b08ed7af88191a916944ac06566f7?account_id=personal)).
 
-**Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
+**Branch (рабочая):** **feature/macos-minimal-app**, base `43c66bdb802a64e8f4b48cef95eee2551207b35f` (`origin/integration/unified-application`). Историческая координация: [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
+
+<a id="p3t3m--macos-minimalapp-embedded-user-2026-11-05--pass"></a>
+
+## P3.T3.M — macOS MinimalApp: SwiftUI + embedded BACKING + USER (2026-11-05) — PASS
+
+**Base:** `43c66bdb802a64e8f4b48cef95eee2551207b35f`. **Scope:** только macOS; iOS/iPadOS и WindowCatalog не начинались. **NEXT:** P3.T3.I — iOS/iPadOS отдельной итерацией.
+
+### Граница платформы
+
+- **C++:** `minimal_app_common`, `RunEmbeddedApplicationModelSession`, `ApplicationUiSession`, `ModelObjectProxy`, штатные Prepare/Normalize/Persist; зарегистрированные `MacDesktopWindowPresenter`, `MacPushButtonPresenter`, `MacListContainerPresenter` содержат только сериализуемые common-связи и делегируют lifecycle в `MacUiNativeViews`.
+- **Objective-C++:** `ATMinimalNativeBridge.mm` реализует только boundary ownership, immutable display snapshots, publication apply и передачу Swift-команд существующим presenters/proxy. Model pointers в Swift не передаются.
+- **Swift/AppKit/SwiftUI:** `NSApplication` lifecycle/main-thread dispatch, `NSWindow`/delegates, SwiftUI Window/List/Button и runtime-only `ObservableObject` adapters из UI mirror. Detail — отдельное non-modal окно; native close отправляет common close Event. Main/Cmd-Q выполняют stop → drain → persist → teardown без ожидания worker на main thread.
+
+### Toolchain и сборка
+
+- Отдельное дерево `build/macos-x64-mp20-debug`, Ninja, Debug, x86_64, deployment 13.0, macOS 14.2 SDK.
+- C/C++/Objective-C/Objective-C++: `/opt/local/bin/clang{,++}-mp-20`; Swift: Xcode `swiftc`. Реальные compile/link commands проверены; финальный link выполнен MacPorts `clang++`, Swift и Objective-C++ targets разделены.
+- Первый compile FAIL: в macOS graph ошибочно использовался отсутствующий helper `MakeMinimalPresenterFactory`; заменён на штатные typed factory lambdas.
+- Повторный compile FAIL: MacPorts Objective-C++ оставлял Objective-C exceptions включёнными при `-fno-exceptions`; target получил `-fno-objc-exceptions`. Следующий incremental build PASS. Clean/Release не запускались.
+
+### Проверки
+
+- Focused CTest: `apptraverse_embedded_distilled_domain_test`, `apptraverse_overlay_user_backing_test`, `apptraverse_minimal_app_headless_test` — **3/3 PASS** (38.30 s).
+- macOS exporter — **PASS**; generated embedded header до/после двух процессов: SHA-256 `cbdad4ebc8fc0f02018961ff41ec30f9bfdcec662ee0546c8755aa120d605f77` (BACKING неизменён).
+- Первый native E2E обнаружил lifecycle FAIL: AppKit `terminateLater` вошёл во вложенное ожидание после завершения model worker. Исправлено без common-изменений: первый termination request отменяется, затем после worker drain/persist и UI teardown выполняется повторный terminate. Диагностический процесс был остановлен после подтверждённой записи USER.
+- Чистый повтор на `/tmp/apptraverse-minimal-macos-e2e-20261105-b` — **PASS**: embedded startup (`Minimal App`, Apply/Open Detail, Row A/Row B) → native Row B → Apply (`Applied`, Apply disabled, selection cleared) → Detail open → native Detail close (Main остаётся) → native Main close и exit 0 → новый процесс (`LOADED_FROM_PROFILE`) восстанавливает `Applied`/disabled/cleared до кликов → native Row A → publication показывает Row A selected → native close и exit 0.
+- Windows/Android/Web/Linux backend runners — **NOT RUN**: на текущем macOS host нет соответствующих штатных runner profiles; их последний зафиксированный результат на базовой unified-ветке сохранён. Известные matrix FAIL не запускались.
+
+**Common changes for other branches:** нет. Изменены только macOS backend/example и platform-gated CMake.
 
 <a id="p3t3ae--android-embedded-backing--user-2026-11-04--pass"></a>
 
