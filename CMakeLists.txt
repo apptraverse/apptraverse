@@ -171,7 +171,15 @@ target_include_directories(apptraverse_ui_android_presenters PUBLIC
 target_link_libraries(apptraverse_ui_android_presenters PUBLIC apptraverse)
 target_compile_features(apptraverse_ui_android_presenters PUBLIC cxx_std_20)
 
-if(APPLE)
+add_library(apptraverse_ui_ios_presenters STATIC
+  src/platform/ios/ios_ui_presenters.cpp
+)
+target_include_directories(apptraverse_ui_ios_presenters PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(apptraverse_ui_ios_presenters PUBLIC apptraverse)
+target_compile_features(apptraverse_ui_ios_presenters PUBLIC cxx_std_20)
+
+if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
   enable_language(OBJC OBJCXX)
   set(CMAKE_OBJCXX_STANDARD 20)
   set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
@@ -228,6 +236,62 @@ if(APPLE)
   target_link_options(apptraverse_ui_macos INTERFACE
     -L${CMAKE_OSX_SYSROOT}/usr/lib/swift
     -L/usr/lib/swift
+    -Wl,-rpath,/usr/lib/swift)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+  enable_language(OBJC OBJCXX)
+  set(CMAKE_OBJCXX_STANDARD 20)
+  set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
+  if(NOT CMAKE_Swift_COMPILER)
+    execute_process(
+      COMMAND xcrun --find swiftc
+      OUTPUT_VARIABLE _apptraverse_swiftc_path
+      OUTPUT_STRIP_TRAILING_WHITESPACE)
+    set(CMAKE_Swift_COMPILER "${_apptraverse_swiftc_path}")
+  endif()
+  set(CMAKE_Swift_FLAGS "-sdk ${CMAKE_OSX_SYSROOT}")
+  set(CMAKE_Swift_COMPILER_TARGET
+    ${CMAKE_OSX_ARCHITECTURES}-apple-ios${CMAKE_OSX_DEPLOYMENT_TARGET}-simulator)
+  enable_language(Swift)
+
+  add_library(apptraverse_ui_ios_bridge STATIC
+    src/platform/ios/ios_application_bridge.mm)
+  target_include_directories(apptraverse_ui_ios_bridge PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_link_libraries(apptraverse_ui_ios_bridge PUBLIC
+    apptraverse_ui_ios_presenters
+    "-framework Foundation")
+  set_source_files_properties(
+    src/platform/ios/ios_application_bridge.mm
+    PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+  target_compile_options(apptraverse_ui_ios_bridge PRIVATE
+    $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-rtti>
+    $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-objc-exceptions>)
+
+  add_library(apptraverse_ui_ios_swift STATIC
+    src/platform/ios/IosApplicationHost.swift)
+  set_target_properties(apptraverse_ui_ios_swift PROPERTIES
+    Swift_MODULE_NAME AppTraverseIosUI)
+  target_compile_options(apptraverse_ui_ios_swift PRIVATE
+    "SHELL:-I ${CMAKE_CURRENT_SOURCE_DIR}/include/apptraverse/platform/ios"
+    "$<$<CONFIG:Debug>:-enable-testing>")
+  target_include_directories(apptraverse_ui_ios_swift INTERFACE
+    ${CMAKE_CURRENT_BINARY_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/apptraverse/platform/ios)
+
+  add_library(apptraverse_ui_ios INTERFACE)
+  target_link_libraries(apptraverse_ui_ios INTERFACE
+    apptraverse_ui_ios_bridge
+    apptraverse_ui_ios_swift
+    "-framework UIKit"
+    "-framework Foundation"
+    "-framework SwiftUI")
+  get_filename_component(_ios_swift_bin_dir ${CMAKE_Swift_COMPILER} DIRECTORY)
+  set(_ios_swift_runtime_dir ${_ios_swift_bin_dir}/../lib/swift/iphonesimulator)
+  target_link_options(apptraverse_ui_ios INTERFACE
+    -L${CMAKE_OSX_SYSROOT}/usr/lib/swift
+    -L${_ios_swift_runtime_dir}
     -Wl,-rpath,/usr/lib/swift)
 endif()
 

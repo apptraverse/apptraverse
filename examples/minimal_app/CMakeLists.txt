@@ -39,8 +39,13 @@ if(EMSCRIPTEN AND APPTRAVERSE_BUILD_EXAMPLES)
   add_subdirectory(web)
 endif()
 
-if(APPLE AND APPTRAVERSE_BUILD_EXAMPLES)
+if(APPLE AND NOT IOS AND APPTRAVERSE_BUILD_EXAMPLES)
   add_subdirectory(macos)
+  add_subdirectory(ios/host_export)
+endif()
+
+if(IOS AND APPTRAVERSE_BUILD_EXAMPLES)
+  add_subdirectory(ios)
 endif()
 
 if(APPTRAVERSE_BUILD_LINUX_GUI AND UNIX AND NOT APPLE AND NOT ANDROID AND

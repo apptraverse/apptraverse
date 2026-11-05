@@ -1,0 +1,4 @@
+module AppTraverseIosBridge {
+  header "ATIosApplicationBridge.h"
+  export *
+}

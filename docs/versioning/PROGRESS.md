@@ -5,7 +5,39 @@
 1. Google Doc: [AppTraverse — версионирование состояния и жизненный цикл поставок](https://docs.google.com/document/d/196STRvU1QMbMu0ArGRLahPpgnTb6HQoldUV-7tOIcfo/edit) — **прямая сверка не выполнена** (403 при fetch).
 2. Архитектурный контракт и roadmap: [PLAN.md](./PLAN.md) — **AppTraverse Libraries Architecture RU v0.3 (25.10.2026)** + Object Core **`01_Object_Core_Versioning_PLAN.md` (25.10.2026)** ([share](https://chatgpt.com/library/share/libfile_c97b08ed7af88191a916944ac06566f7?account_id=personal)).
 
-**Branch (рабочая):** **feature/macos-minimal-app**, base `43c66bdb802a64e8f4b48cef95eee2551207b35f` (`origin/integration/unified-application`). Историческая координация: [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
+**Branch (рабочая):** **feature/ios-minimal-app**, base `e94899255ab779df8d9d625b13b958d919eb64d5` (`origin/integration/unified-application`). Историческая координация: [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
+
+<a id="p3t3i--ios-minimalapp-prototype-2026-11-05"></a>
+
+## P3.T3.I — iOS/iPadOS MinimalApp prototype (2026-11-05)
+
+**Base:** `e94899255ab779df8d9d625b13b958d919eb64d5`. **Scope:** functional iOS/iPadOS MinimalApp prototype only; WindowCatalog not started.
+
+### Platform boundary
+
+- **C++:** shared `minimal_app_common`, `RunEmbeddedApplicationModelSession`, iOS presenter types (`IosDesktopWindowPresenter`, `IosPushButtonPresenter`, `IosListContainerPresenter`) registered for embedded export; library has no MinimalApp headers or fixed ObjIds.
+- **Objective-C++:** `ATIosApplicationBridge` — lifecycle, immutable display snapshots, UI commands, `persist_model` for background USER checkpoint; `submitWindowFrame` is a no-op (mobile must not write desktop geometry).
+- **Swift/SwiftUI:** `IosApplicationHost` — UIKit scene, main + Detail sheet, weak command sink disconnect on unload, `scenePhase` → `requestBackgroundSave`, list row identity via ObjId in snapshots.
+
+### Toolchains and build trees
+
+- **Host (embedded export):** `build/macos-x64-mp20-debug`, Ninja Debug x86_64, macOS SDK 14.2, MacPorts `clang++/clang-mp-20`, target `apptraverse_export_minimal_distilled_graph_ios`.
+- **iOS sim app:** `build/ios-sim-x86_64-debug`, `-DCMAKE_SYSTEM_NAME=iOS`, iPhoneSimulator SDK (Xcode 15.2), deployment 17.0, MacPorts C++/ObjCXX + Xcode Swift (`x86_64-apple-ios17.0-simulator`), `APPTRAVERSE_IOS_HOST_EXPORTER` points at macOS exporter; target `apptraverse_minimal_app_ios.app`.
+- **CMake guards:** macOS AppKit/Swift targets gated with `APPLE AND NOT iOS`; iOS bridge/Swift gated with `CMAKE_SYSTEM_NAME STREQUAL "iOS"`.
+- **First compile FAIL (iOS bridge):** brace-initialized `std::atomic<bool>` members in an ObjC `@interface` extension; fixed with default construction + explicit init in `-init`.
+- **First configure FAIL (Swift):** missing `CMAKE_Swift_COMPILER_TARGET` before `enable_language(Swift)` on iOS; fixed at root iOS block (mirrors surfaces demo subdirectory pattern).
+
+### Embedded supply
+
+- Generated header (iOS build tree): `build/ios-sim-x86_64-debug/examples/minimal_app/ios/generated_distilled/minimal_app_ios_composition/embedded_distilled_minimal_app_ios_supply.h`
+- SHA-256 of generated supply header at build time: `91d0ed3daadac8e2bbdc9a6cacc163e7b0767d5f68740d41f3bafbb5dc4bd3e2` (distinct from macOS BACKING; separate iOS distill/export).
+
+### Verification
+
+- **iOS sim build:** `apptraverse_minimal_app_ios` — **PASS** (incremental Debug).
+- **macOS regressions (same branch, host tree):** `apptraverse_macos_ui_backend_lifecycle_test`, `apptraverse_minimal_app_headless_test`, `apptraverse_ui_control_materialization_test`, `apptraverse_export_minimal_distilled_graph_macos`, `apptraverse_embedded_distilled_domain_test`, `apptraverse_overlay_user_backing_test` — **PASS**.
+- **iPhone/iPad Simulator E2E (Row B → Apply → Detail ×2 → background checkpoints → cold relaunch):** **BLOCKED** — `simctl boot` fails with `launchd_sim may have crashed or quit responding` (NSPOSIXErrorDomain 60) on this host; device target would be **iPhone 15 Pro Max** (`EB9ED0F9-3C43-48A2-A18B-66C654FAAD4D`, iOS 17.2 runtime). Script: `examples/minimal_app/ios/run_simulator.sh`.
+- **NOT RUN:** Windows, Android, Web, Linux backend runners; full CTest; clean/Release; iPad-specific sim run (same app binary supports UIDeviceFamily 1+2).
 
 <a id="p3t3m--macos-minimalapp-embedded-user-2026-11-05--pass"></a>
 

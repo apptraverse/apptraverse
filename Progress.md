@@ -1,4 +1,4 @@
-**Active (2026-11-05):** **P3.T3.M macOS MinimalApp PASS** — reusable Swift/AppKit/SwiftUI library backend, thin Objective-C++ bridge, explicit unload/hosting teardown, stable row identity, embedded BACKING + USER, focused tests and native two-process E2E PASS. **NEXT:** **P3.T3.I iOS/iPadOS** only; not started. **P3** IN_PROGRESS. [PLAN](docs/versioning/PLAN.md), [PROGRESS](docs/versioning/PROGRESS.md).
+**Active (2026-11-05):** **P3.T3.I iOS/iPadOS MinimalApp prototype** — SwiftUI/UIKit library backend, thin ObjC++ bridge, embedded BACKING + USER via macOS host exporter; iOS sim Debug build PASS; Simulator runtime E2E **BLOCKED** (`launchd_sim` boot failure on host). macOS focused regressions PASS on same branch. **NEXT:** unblock Simulator and complete two-process sim E2E; then WindowCatalog. **P3** IN_PROGRESS. [PLAN](docs/versioning/PLAN.md), [PROGRESS](docs/versioning/PROGRESS.md).
 
 **Release versioning (R0–R5):** детальный журнал — [docs/versioning/PROGRESS.md](docs/versioning/PROGRESS.md); **P0–P6** — единственная активная очередь на unified. Rules: `.cursor/rules/apptraverse-coding-agent.mdc`.
 
