@@ -65,35 +65,13 @@ if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/surface_v1_package")
 endif()
 
 # WindowCatalog application executables (build-time embedded BACKING + USER).
-include(${CMAKE_SOURCE_DIR}/cmake/apptraverse_embed_distilled_supply.cmake)
-
 set(_window_catalog_win_sources
   window_catalog_main.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/../common/window_catalog_lifecycle.cpp
 )
 
-set(_window_catalog_embed_graph_sources
-  ${CMAKE_CURRENT_SOURCE_DIR}/window_catalog_graph.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/../common/window_catalog_graph_builder.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/../common/window_catalog_model.cpp
-)
-
-set(_window_catalog_embed_gen_dir
-  "${CMAKE_CURRENT_BINARY_DIR}/generated_distilled/window_catalog_shared")
-file(MAKE_DIRECTORY "${_window_catalog_embed_gen_dir}")
 set(_window_catalog_embed_header
-  "${_window_catalog_embed_gen_dir}/embedded_distilled_window_catalog_supply.h")
-
-if(TARGET apptraverse_export_window_catalog_distilled_graph)
-  add_custom_command(
-    OUTPUT "${_window_catalog_embed_header}"
-    COMMAND $<TARGET_FILE:apptraverse_export_window_catalog_distilled_graph>
-            "${_window_catalog_embed_header}"
-    DEPENDS apptraverse_export_window_catalog_distilled_graph
-            ${_window_catalog_embed_graph_sources}
-    VERBATIM
-    COMMENT "Embed distilled WindowCatalog supply (shared by demo executables)")
-endif()
+  "${CMAKE_CURRENT_BINARY_DIR}/../generated_distilled/embedded_distilled_window_catalog_supply.h")
 
 add_executable(win32_window_catalog_demo ${_window_catalog_win_sources})
 target_compile_definitions(win32_window_catalog_demo PRIVATE
@@ -107,12 +85,11 @@ target_compile_definitions(win32_window_catalog_demo_load_only PRIVATE
 )
 
 foreach(_catalog_demo win32_window_catalog_demo win32_window_catalog_demo_load_only)
-  if(TARGET apptraverse_export_window_catalog_distilled_graph)
+  if(TARGET apptraverse_window_catalog_embedded_supply)
     target_sources(${_catalog_demo} PRIVATE "${_window_catalog_embed_header}")
     target_include_directories(${_catalog_demo} PRIVATE
-      "${_window_catalog_embed_gen_dir}")
-    add_dependencies(${_catalog_demo}
-                     apptraverse_export_window_catalog_distilled_graph)
+      "${CMAKE_CURRENT_BINARY_DIR}/../generated_distilled")
+    add_dependencies(${_catalog_demo} apptraverse_window_catalog_embedded_supply)
   endif()
   target_link_libraries(${_catalog_demo} PRIVATE
     surfaces_demo_window_catalog

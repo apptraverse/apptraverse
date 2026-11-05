@@ -1551,16 +1551,18 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
   target_link_libraries(apptraverse_window_catalog_embedded_overlay_test PRIVATE
     surfaces_demo_window_catalog apptraverse)
   target_include_directories(apptraverse_window_catalog_embedded_overlay_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/generated
+    ${APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR}
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
     ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/windows)
   if(MSVC)
     target_compile_options(apptraverse_window_catalog_embedded_overlay_test PRIVATE
       /utf-8)
   endif()
-  if(TARGET apptraverse_generate_window_catalog_distilled_header)
+  if(TARGET apptraverse_window_catalog_embedded_supply)
     add_dependencies(apptraverse_window_catalog_embedded_overlay_test
-      apptraverse_generate_window_catalog_distilled_header)
+      apptraverse_window_catalog_embedded_supply)
+    target_sources(apptraverse_window_catalog_embedded_overlay_test PRIVATE
+      "${APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR}/embedded_distilled_window_catalog_supply.h")
   endif()
   add_test(NAME apptraverse_window_catalog_embedded_overlay_test
     COMMAND apptraverse_window_catalog_embedded_overlay_test)
@@ -1593,8 +1595,16 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
     APPTRAVERSE_ENABLE_DISTILLATION)
   add_dependencies(apptraverse_window_catalog_win32_acceptance_test
     win32_window_catalog_demo win32_window_catalog_demo_load_only)
+  if(TARGET apptraverse_window_catalog_embedded_supply)
+    add_dependencies(apptraverse_window_catalog_win32_acceptance_test
+      apptraverse_window_catalog_embedded_supply)
+    target_include_directories(apptraverse_window_catalog_win32_acceptance_test PRIVATE
+      ${APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR})
+    target_sources(apptraverse_window_catalog_win32_acceptance_test PRIVATE
+      "${APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR}/embedded_distilled_window_catalog_supply.h")
+  endif()
   target_link_libraries(apptraverse_window_catalog_win32_acceptance_test PRIVATE
-    apptraverse_ui_windows_extended)
+    apptraverse_ui_windows_extended apptraverse)
 
   apptraverse_add_test(apptraverse_minimal_app_win32_acceptance_test
     minimal_app_win32_acceptance_test.cpp minimal_app_common)

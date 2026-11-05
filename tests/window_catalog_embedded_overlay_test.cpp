@@ -17,7 +17,7 @@
 #include "apptraverse/ui/ui_presenters.h"
 #include "apptraverse/ui/ui_window_presenter.h"
 
-#include "window_catalog_distilled.h"
+#include "embedded_distilled_window_catalog_supply.h"
 #include "window_catalog_graph.h"
 #include "window_catalog_ids.h"
 #include "window_catalog_model.h"

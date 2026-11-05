@@ -186,19 +186,28 @@ if(WIN32 AND NOT EMSCRIPTEN)
     )
     target_compile_features(apptraverse_export_window_catalog_distilled_graph PRIVATE cxx_std_20)
 
-    set(_window_catalog_distilled_header
-        "${CMAKE_SOURCE_DIR}/generated/window_catalog_distilled.h")
+    set(_window_catalog_embed_graph_sources
+      ${CMAKE_CURRENT_SOURCE_DIR}/windows/window_catalog_graph.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/common/window_catalog_graph_builder.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/common/window_catalog_model.cpp
+    )
+    set(_window_catalog_embed_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/generated_distilled")
+    set(_window_catalog_embed_header
+        "${_window_catalog_embed_dir}/embedded_distilled_window_catalog_supply.h")
+    file(MAKE_DIRECTORY "${_window_catalog_embed_dir}")
     add_custom_command(
-      OUTPUT "${_window_catalog_distilled_header}"
-      COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_SOURCE_DIR}/generated"
+      OUTPUT "${_window_catalog_embed_header}"
       COMMAND $<TARGET_FILE:apptraverse_export_window_catalog_distilled_graph>
-              "${_window_catalog_distilled_header}"
+              "${_window_catalog_embed_header}"
       DEPENDS apptraverse_export_window_catalog_distilled_graph
+              ${_window_catalog_embed_graph_sources}
       VERBATIM
-    )
-    add_custom_target(apptraverse_generate_window_catalog_distilled_header
-      DEPENDS "${_window_catalog_distilled_header}"
-    )
+      COMMENT "Generate WindowCatalog embedded supply header")
+    add_custom_target(apptraverse_window_catalog_embedded_supply
+      DEPENDS "${_window_catalog_embed_header}")
+    set(APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR
+        "${_window_catalog_embed_dir}" CACHE INTERNAL "")
   endif()
 
   add_subdirectory(windows)

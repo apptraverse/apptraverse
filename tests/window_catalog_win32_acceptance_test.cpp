@@ -9,26 +9,33 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <string>
 #include <thread>
+#include <set>
 #include <vector>
 #include <algorithm>
 
+#include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/obj.h"
 
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
+#include "apptraverse/embedded_distilled_domain.h"
+#include "apptraverse/overlay_domain_storage.h"
+#include "embedded_distilled_window_catalog_supply.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_presented_window_lifecycle.h"
 
+#include "window_catalog_actions.h"
 #include "window_catalog_graph.h"
 #include "window_catalog_ids.h"
 #include "window_catalog_model.h"
@@ -577,6 +584,7 @@ struct ChildRunResult {
 ChildRunResult RunLoadOnlyCaptureStderr(
     std::filesystem::path const& exe,
     std::filesystem::path const& state_dir,
+    char const* scenario,
     DWORD timeout_ms = 30000) {
   auto err_path = state_dir;
   err_path += L".stderr.txt";
@@ -617,6 +625,9 @@ ChildRunResult RunLoadOnlyCaptureStderr(
 
   DWORD wait = WaitForSingleObject(pi.hProcess, timeout_ms);
   if (wait == WAIT_TIMEOUT) {
+    std::cerr << "load_only_timeout scenario=" << scenario
+              << " exe=" << exe.string() << " state_dir=" << state_dir.string()
+              << '\n';
     TerminateProcess(pi.hProcess, 1);
     CloseHandle(pi.hProcess);
     CHECK(false);
@@ -641,6 +652,46 @@ void ExpectFatalLoadOnly(ChildRunResult const& result, char const* needle) {
 void RegisterCatalogTypes() {
   EnsureObjectRegistration();
   EnsureWindowCatalogGraphRegistration();
+}
+
+EmbeddedDistilledGraph const& WindowCatalogEmbeddedGraph() {
+  return embedded_distilled::window_catalog::kEmbeddedGraph;
+}
+
+void ExpectUserOnlyMissingRootLayer(std::filesystem::path const& user_dir) {
+  RegisterCatalogTypes();
+  DirectoryDomainStorage user{user_dir};
+  ae::DomainQuery const query{
+      CatalogRootObjId(), WindowCatalog::kClassId,
+      static_cast<std::uint8_t>(WindowCatalog::kCurrentVersion.value)};
+  ae::DomainLoad const load = user.Load(query);
+  CHECK(load.result == ae::DomainLoadResult::kEmpty);
+}
+
+void ExpectEmbeddedOverlayUserTombstone(
+    std::filesystem::path const& user_dir, ae::ObjId object_id,
+    std::uint32_t class_id, char const* probe_name) {
+  RegisterCatalogTypes();
+  DirectoryDomainStorage user_only{user_dir};
+  ae::DomainQuery const query{object_id, class_id, 0};
+  ae::DomainLoad const user_load = user_only.Load(query);
+  CHECK(user_load.result == ae::DomainLoadResult::kRemoved);
+
+  ae::RamDomainStorage backing;
+  InstallEmbeddedDistilledBacking(backing, WindowCatalogEmbeddedGraph());
+  DirectoryDomainStorage user{user_dir};
+  OverlayDomainStorage overlay{
+      user, backing, EmbeddedSupplyConstantIdSet(WindowCatalogEmbeddedGraph())};
+  ae::DomainLoad const overlay_load = overlay.Load(query);
+  CHECK(overlay_load.result == ae::DomainLoadResult::kRemoved);
+
+  std::set<ae::ObjId> const supply =
+      EmbeddedSupplyConstantIdSet(WindowCatalogEmbeddedGraph());
+  CHECK(supply.count(object_id) == 0);
+
+  std::cerr << "overlay_probe " << probe_name << " obj=" << object_id.id()
+            << " user_load=kRemoved overlay_load=kRemoved supply_constant=0"
+            << '\n';
 }
 
 void WriteProfileMissingPresenterObject(std::filesystem::path const& state_dir) {
@@ -742,7 +793,11 @@ void RunRequiredChromeButtonNegativeTests(
   CopyStateDir(good_state, dir);
   ae::ObjId const button_id = WriteProfileMissingAddButtonObject(dir);
   AssertPresenterObjectAbsent(dir, button_id);
-  auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+  ExpectEmbeddedOverlayUserTombstone(
+      dir, button_id, example::surfaces::CatalogDeleteButton::kClassId,
+      "missing_chrome_add_button_object");
+  auto const result = RunLoadOnlyCaptureStderr(
+      load_only, dir, "missing_chrome_add_button_object");
   ExpectFatalLoadOnly(result, "fatal: LoadApplication failed");
 }
 
@@ -773,7 +828,11 @@ void RunRequiredLocalizedTextNegativeTests(
   CopyStateDir(good_state, dir);
   ae::ObjId const text_id = WriteProfileMissingLabelAddObject(dir);
   AssertPresenterObjectAbsent(dir, text_id);
-  auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+  ExpectEmbeddedOverlayUserTombstone(
+      dir, text_id, apptraverse::ui::UiString::kClassId,
+      "missing_localized_text_label_add_object");
+  auto const result = RunLoadOnlyCaptureStderr(
+      load_only, dir, "missing_localized_text_label_add_object");
   ExpectFatalLoadOnly(result, "fatal: LoadApplication failed");
 }
 
@@ -785,7 +844,11 @@ void RunRequiredChromePresenterNegativeTests(
   ae::ObjId const presenter_id =
       WriteProfileMissingAddButtonPresenterObject(dir);
   AssertPresenterObjectAbsent(dir, presenter_id);
-  auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+  ExpectEmbeddedOverlayUserTombstone(
+      dir, presenter_id, ui::windows::WinPushButtonPresenter::kClassId,
+      "missing_chrome_add_button_presenter_object");
+  auto const result = RunLoadOnlyCaptureStderr(
+      load_only, dir, "missing_chrome_add_button_presenter_object");
   ExpectFatalLoadOnly(result, "fatal: LoadApplication failed");
 }
 
@@ -797,7 +860,11 @@ void RunRequiredListLocaleNegativeTests(
     CopyStateDir(good_state, dir);
     WriteProfileMissingListObject(dir);
     AssertListObjectAbsent(dir);
-    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+    ExpectEmbeddedOverlayUserTombstone(
+        dir, CatalogListObjId(), CatalogListContainer::kClassId,
+        "missing_list_object");
+    auto const result =
+        RunLoadOnlyCaptureStderr(load_only, dir, "missing_list_object");
     ExpectFatalLoadOnly(result, "fatal: LoadApplication failed");
   }
 
@@ -806,7 +873,11 @@ void RunRequiredListLocaleNegativeTests(
     CopyStateDir(good_state, dir);
     ae::ObjId const locale_id = WriteProfileMissingLocaleObject(dir);
     AssertLocaleObjectAbsent(dir, locale_id);
-    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+    ExpectEmbeddedOverlayUserTombstone(
+        dir, locale_id, ui::UiLocaleSettings::kClassId,
+        "missing_locale_object");
+    auto const result =
+        RunLoadOnlyCaptureStderr(load_only, dir, "missing_locale_object");
     ExpectFatalLoadOnly(result, "fatal: LoadApplication failed");
   }
 }
@@ -815,16 +886,20 @@ void RunRequiredMainWindowNegativeTests(
     std::filesystem::path const& good_state,
     std::filesystem::path const& load_only) {
   {
-    auto const empty_dir = NegativeStateDir("missing_root");
-    auto const result = RunLoadOnlyCaptureStderr(load_only, empty_dir);
-    ExpectFatalLoadOnly(result, "fatal: LoadApplication failed");
+    auto const empty_dir = NegativeStateDir("missing_root_user_only");
+    ExpectUserOnlyMissingRootLayer(empty_dir);
   }
 
   {
     auto const dir = NegativeStateDir("missing_presenter_object");
     CopyStateDir(good_state, dir);
     WriteProfileMissingPresenterObject(dir);
-    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+    ExpectEmbeddedOverlayUserTombstone(
+        dir, CatalogMainWindowPresenterObjId(),
+        ui::windows::WinDesktopWindowPresenter::kClassId,
+        "missing_presenter_object");
+    auto const result = RunLoadOnlyCaptureStderr(
+        load_only, dir, "missing_presenter_object");
     ExpectFatalLoadOnly(result, "fatal: LoadApplication failed");
   }
 }
@@ -1200,6 +1275,93 @@ void RelocateStoredLayerVersion0To1(std::filesystem::path const& state_dir,
   CHECK(storage.Load(query_v1).result == ae::DomainLoadResult::kLoaded);
 }
 
+std::filesystem::path SelfTestExe() {
+  wchar_t path[MAX_PATH]{};
+  GetModuleFileNameW(nullptr, path, MAX_PATH);
+  return std::filesystem::path{path};
+}
+
+void DiagnoseUnsupportedSchemaOverlayFallback(
+    std::filesystem::path const& user_dir) {
+  RegisterCatalogTypes();
+  ae::DomainQuery const v0{CatalogRootObjId(), WindowCatalog::kClassId, 0};
+  DirectoryDomainStorage user{user_dir};
+  CHECK(user.Load(v0).result == ae::DomainLoadResult::kEmpty);
+  ae::DomainQuery const v1{CatalogRootObjId(), WindowCatalog::kClassId, 1};
+  CHECK(user.Load(v1).result == ae::DomainLoadResult::kLoaded);
+
+  ae::RamDomainStorage backing;
+  InstallEmbeddedDistilledBacking(backing, WindowCatalogEmbeddedGraph());
+  OverlayDomainStorage overlay{
+      user, backing, EmbeddedSupplyConstantIdSet(WindowCatalogEmbeddedGraph())};
+  ae::DomainLoad const overlay_v0 = overlay.Load(v0);
+  std::cerr << "unsupported_schema_overlay_probe v0_after_user_v1_only result="
+            << static_cast<int>(overlay_v0.result)
+            << " (embedded subprocess would not fatal; USER-only probe required)"
+            << '\n';
+  CHECK(overlay_v0.result == ae::DomainLoadResult::kLoaded);
+}
+
+ChildRunResult RunUserOnlyLoadProbeCaptureStderr(
+    std::filesystem::path const& state_dir, char const* scenario,
+    DWORD timeout_ms = 30000) {
+  auto const exe = SelfTestExe();
+  auto err_path = state_dir;
+  err_path += L".stderr.txt";
+  std::error_code ec;
+  std::filesystem::remove(err_path, ec);
+
+  std::wstring cmd = L"\"" + exe.wstring() +
+                     L"\" --user-only-load-probe \"" +
+                     std::wstring(scenario, scenario + std::strlen(scenario)) +
+                     L"\" \"" + state_dir.wstring() + L"\"";
+  std::vector<wchar_t> cmd_buf(cmd.begin(), cmd.end());
+  cmd_buf.push_back(L'\0');
+
+  SECURITY_ATTRIBUTES sa{};
+  sa.nLength = sizeof(sa);
+  sa.bInheritHandle = TRUE;
+  HANDLE errf = CreateFileW(err_path.wstring().c_str(), GENERIC_WRITE,
+                            FILE_SHARE_READ, &sa, CREATE_ALWAYS,
+                            FILE_ATTRIBUTE_NORMAL, nullptr);
+  CHECK(errf != INVALID_HANDLE_VALUE);
+  HANDLE nul = CreateFileW(L"NUL", GENERIC_READ | GENERIC_WRITE,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE, &sa,
+                           OPEN_EXISTING, 0, nullptr);
+  CHECK(nul != INVALID_HANDLE_VALUE);
+
+  STARTUPINFOW si{};
+  si.cb = sizeof(si);
+  si.dwFlags = STARTF_USESTDHANDLES;
+  si.hStdInput = nul;
+  si.hStdOutput = nul;
+  si.hStdError = errf;
+  PROCESS_INFORMATION pi{};
+  BOOL ok = CreateProcessW(exe.wstring().c_str(), cmd_buf.data(), nullptr,
+                           nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr,
+                           &si, &pi);
+  CloseHandle(errf);
+  CloseHandle(nul);
+  CHECK(ok);
+  CloseHandle(pi.hThread);
+
+  DWORD wait = WaitForSingleObject(pi.hProcess, timeout_ms);
+  if (wait == WAIT_TIMEOUT) {
+    std::cerr << "user_only_load_probe_timeout scenario=" << scenario
+              << " exe=" << exe.string() << " state_dir=" << state_dir.string()
+              << '\n';
+    TerminateProcess(pi.hProcess, 1);
+    CloseHandle(pi.hProcess);
+    CHECK(false);
+  }
+  ChildRunResult result;
+  GetExitCodeProcess(pi.hProcess, &result.exit_code);
+  CloseHandle(pi.hProcess);
+  result.stderr_text = ReadAllBytes(err_path);
+  std::filesystem::remove(err_path, ec);
+  return result;
+}
+
 void ExpectUnsupportedSchemaLoadOnly(char const* scenario,
                                      ChildRunResult const& result) {
   bool const load_failed =
@@ -1282,7 +1444,8 @@ void RunRequiredUnknownClassIdNegativeTests(
     auto const dir = NegativeStateDir("unknown_class_id_alongside_root");
     CopyStateDir(good_state, dir);
     AddUnknownStoredClassLayerAlongsideRoot(dir);
-    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+    auto const result =
+        RunUserOnlyLoadProbeCaptureStderr(dir, "unknown_class_id_alongside_root");
     ExpectUnsupportedSchemaLoadOnly("unknown_class_id_alongside_root", result);
   }
 
@@ -1293,7 +1456,8 @@ void RunRequiredUnknownClassIdNegativeTests(
         dir, CatalogMainWindowPresenterObjId(),
         ui::windows::WinDesktopWindowPresenter::kClassId,
         UnknownStoredClassIdForTests());
-    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+    auto const result = RunUserOnlyLoadProbeCaptureStderr(
+        dir, "unknown_class_id_main_window_presenter");
     ExpectUnsupportedSchemaLoadOnly("unknown_class_id_main_window_presenter",
                                     result);
   }
@@ -1301,13 +1465,15 @@ void RunRequiredUnknownClassIdNegativeTests(
 
 void RunRequiredUnsupportedSchemaNegativeTests(
     std::filesystem::path const& good_state,
-    std::filesystem::path const& load_only) {
+    std::filesystem::path const& /*load_only*/) {
   {
     auto const dir = NegativeStateDir("unsupported_schema_window_catalog_root");
     CopyStateDir(good_state, dir);
     RelocateStoredLayerVersion0To1(dir, CatalogRootObjId(),
                                    WindowCatalog::kClassId);
-    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+    DiagnoseUnsupportedSchemaOverlayFallback(dir);
+    auto const result = RunUserOnlyLoadProbeCaptureStderr(
+        dir, "unsupported_schema_window_catalog_root");
     ExpectUnsupportedSchemaLoadOnly("unsupported_schema_window_catalog_root",
                                     result);
   }
@@ -1319,14 +1485,81 @@ void RunRequiredUnsupportedSchemaNegativeTests(
     RelocateStoredLayerVersion0To1(
         dir, CatalogMainWindowPresenterObjId(),
         ui::windows::WinDesktopWindowPresenter::kClassId);
-    auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
+    auto const result = RunUserOnlyLoadProbeCaptureStderr(
+        dir, "unsupported_schema_main_window_presenter");
     ExpectUnsupportedSchemaLoadOnly("unsupported_schema_main_window_presenter",
                                     result);
   }
 }
 
+void RunDeleteAndColdReloadAcceptance() {
+  auto const state_dir = FreshStateDir("window_catalog_win32_delete_cold");
+  auto const demo = DemoExe("win32_window_catalog_demo.exe");
+  auto const load_only = DemoExe("win32_window_catalog_demo_load_only.exe");
+  CHECK(std::filesystem::exists(demo));
+  CHECK(std::filesystem::exists(load_only));
+
+  ActiveDemoProcess session{StartDemo(demo, state_dir)};
+  DWORD const pid = session.pi.dwProcessId;
+  HWND main = WaitCatalogMainWindow(pid, std::chrono::seconds{30});
+  CHECK(main != nullptr);
+  WaitChromeReady(main);
+
+  for (int i = 0; i < 2; ++i) {
+    ClickControl(main, kAddControlId);
+    CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
+      HWND const list = GetDlgItem(main, static_cast<int>(kListControlId));
+      return list && SendMessageW(list, LB_GETCOUNT, 0, 0) == i + 1;
+    }));
+  }
+  ExpectListRows(main, {L"Window 1", L"Window 2"});
+
+  SelectListIndex(main, 0);
+  CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
+    return ControlEnabled(main, kDeleteControlId);
+  }));
+  ClickControl(main, kDeleteControlId);
+  CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
+    HWND const list = GetDlgItem(main, static_cast<int>(kListControlId));
+    return list && SendMessageW(list, LB_GETCOUNT, 0, 0) == 1;
+  }));
+  ExpectListRows(main, {L"Window 2"});
+
+  CloseProcessGracefully(main, session.pi);
+  session.Release();
+
+  {
+    ActiveDemoProcess reload{StartDemo(load_only, state_dir)};
+    DWORD const reload_pid = reload.pi.dwProcessId;
+    main = WaitCatalogMainWindow(reload_pid, std::chrono::seconds{30});
+    CHECK(main != nullptr);
+    WaitChromeReady(main);
+    ExpectListRows(main, {L"Window 2"});
+    ClickControl(main, kAddControlId);
+    CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
+      HWND const list = GetDlgItem(main, static_cast<int>(kListControlId));
+      return list && SendMessageW(list, LB_GETCOUNT, 0, 0) == 2;
+    }));
+    ExpectListRows(main, {L"Window 2", L"Window 3"});
+    CloseProcessGracefully(main, reload.pi);
+    reload.Release();
+  }
+
+  {
+    ActiveDemoProcess restart{StartDemo(demo, state_dir)};
+    main = WaitCatalogMainWindow(restart.pi.dwProcessId, std::chrono::seconds{30});
+    CHECK(main != nullptr);
+    WaitChromeReady(main);
+    ExpectListRows(main, {L"Window 2", L"Window 3"});
+    CloseProcessGracefully(main, restart.pi);
+    restart.Release();
+  }
+}
+
 void RunAcceptanceAndRequiredMainWindowNegatives() {
   auto const good_state = RunRestartPersistenceAcceptance();
+  RunDeleteAndColdReloadAcceptance();
+  RunLanguageAndFocusAcceptance();
   auto const load_only = DemoExe("win32_window_catalog_demo_load_only.exe");
   RunRequiredMainWindowNegativeTests(good_state, load_only);
   RunRequiredListLocaleNegativeTests(good_state, load_only);
@@ -1335,13 +1568,20 @@ void RunAcceptanceAndRequiredMainWindowNegatives() {
   RunRequiredLocalizedTextNegativeTests(good_state, load_only);
   RunRequiredUnsupportedSchemaNegativeTests(good_state, load_only);
   RunRequiredUnknownClassIdNegativeTests(good_state, load_only);
-  RunLanguageAndFocusAcceptance();
 }
 
 }  // namespace
 }  // namespace apptraverse::test
 
-int main() {
+int main(int argc, char** argv) {
+  if (argc >= 4 && std::strcmp(argv[1], "--user-only-load-probe") == 0) {
+    apptraverse::test::RegisterCatalogTypes();
+    apptraverse::DirectoryDomainStorage user{argv[3]};
+    ae::Domain domain{user};
+    (void)apptraverse::LoadApplication<apptraverse::WindowCatalog>(
+        domain, apptraverse::test::CatalogRootObjId());
+    return 1;
+  }
   apptraverse::test::RunAcceptanceAndRequiredMainWindowNegatives();
   std::cout << "window_catalog_win32_acceptance_test OK\n";
   return 0;

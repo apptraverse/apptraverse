@@ -1,7 +1,9 @@
 #include <cstdlib>
 #include <filesystem>
+#include <functional>
 #include <iostream>
 #include <set>
+#include <string>
 #include <vector>
 
 #include "aether-objects/obj/domain.h"
@@ -40,9 +42,12 @@ int main(int argc, char** argv) {
   apptraverse::EnsureObjectRegistration();
   apptraverse::EnsureWindowCatalogGraphRegistration();
 
+  std::filesystem::path const output_path =
+      std::filesystem::absolute(argv[1]);
+  std::size_t const dir_tag = std::hash<std::string>{}(output_path.generic_string());
   std::filesystem::path const export_dir =
       std::filesystem::temp_directory_path() /
-      "apptraverse_export_window_catalog_distilled_graph";
+      ("apptraverse_export_window_catalog_distilled_" + std::to_string(dir_tag));
   std::error_code remove_ec;
   std::filesystem::remove_all(export_dir, remove_ec);
 
