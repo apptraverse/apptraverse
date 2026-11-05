@@ -90,6 +90,12 @@ class Node : public ae::Obj {
       dnv(base_, empty_base, kEmptyJournal);
       return;
     }
+    if (detail::OmitNodeHistoryForHistoricalBaseSnapshot(dnv)) {
+      SharedPtr<Node> empty_base{};
+      static std::vector<EventRecord> const kEmptyJournal{};
+      dnv(base_, empty_base, kEmptyJournal);
+      return;
+    }
     detail::NoteNodeHistorySerialized(journal.size(), base.is_valid());
     ae::DomainGraph* const graph =
         detail::DnvSerializationScope<std::decay_t<Dnv>>::GetGraph(dnv);
@@ -298,7 +304,8 @@ class Node : public ae::Obj {
     ae::RamDomainStorage scratch;
     ae::Domain scratch_domain{scratch};
     ae::DomainGraph save_graph{
-        &scratch_domain, ae::GraphSerializationScope::LocalPersistent};
+        &scratch_domain,
+        ae::GraphSerializationScope::HistoricalBaseSnapshot};
     bool const owner_marked =
         save_graph.cycle_detector.Add(ConcreteNode::kClassId, owner_id);
     assert(owner_marked);

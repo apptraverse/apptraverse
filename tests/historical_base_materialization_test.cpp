@@ -11,6 +11,7 @@
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/overlay_domain_storage.h"
+#include "apptraverse/publication_serialization_scope.h"
 #include "apptraverse/runtime_node.h"
 
 namespace apptraverse::test {
@@ -110,10 +111,36 @@ class HistorizedConstHostNode : public HistorizedValueNode {
   HistorizedSupplyPayload::ptr constant_child;
 };
 
+class HistorizedParentWithChild : public NodeFor<HistorizedParentWithChild> {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::HistorizedParentWithChild",
+                           HistorizedParentWithChild, Node, 0)
+
+ protected:
+  HistorizedParentWithChild() = default;
+
+ public:
+  explicit HistorizedParentWithChild(ae::ObjProp prop) : NodeFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(child))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, child);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, child);
+  }
+
+  HistorizedValueNode::ptr child;
+};
+
 APPTRAVERSE_REGISTER(HistorizedValueNode);
 APPTRAVERSE_REGISTER(HistorizedBumpEvent);
 APPTRAVERSE_REGISTER(HistorizedSupplyPayload);
 APPTRAVERSE_REGISTER(HistorizedConstHostNode);
+APPTRAVERSE_REGISTER(HistorizedParentWithChild);
 
 void HistorizedValueNode::Apply(HistorizedBumpEvent const& event) {
   value += event.delta;
@@ -354,6 +381,31 @@ void TestHistoricalBaseSurvivesBackingSwap() {
   }
 }
 
+void TestCaptureParentOmitsChildNodeHistory() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  HistorizedParentWithChild::ptr parent_ref =
+      HistorizedParentWithChild::ptr::Create(
+          ae::CreateWith{domain}.with_id(ae::ObjId{89050}));
+  ae::Ptr<HistorizedParentWithChild> parent = parent_ref.Load();
+  InitializeRuntimeNode(*parent);
+  HistorizedValueNode::ptr child_ref = HistorizedValueNode::ptr::Create(
+      ae::CreateWith{domain}.with_id(ae::ObjId{89051}));
+  ae::Ptr<HistorizedValueNode> child = child_ref.Load();
+  InitializeRuntimeNode(*child);
+  parent->child = child_ref;
+  for (int i = 0; i < 100; ++i) {
+    CommitBump(*child, domain, 1);
+  }
+  CHECK(child->journal.size() == 100);
+  CHECK(parent->journal.empty());
+  ResetPublicationSerializationStats();
+  parent->CaptureBaseState();
+  CHECK(ActivePublicationSerializationStats().journal_entries_serialized == 0);
+  CHECK(ActivePublicationSerializationStats().node_base_snapshots_serialized ==
+        0);
+}
+
 void TestMaterializedPublicationOmitsHistory() {
   ae::RamDomainStorage backing;
   ae::RamDomainStorage user;
@@ -438,6 +490,7 @@ int main() {
   apptraverse::test::TestDomainGraphForcePropagation();
   apptraverse::test::TestHistoricalBaseUserMaterialization();
   apptraverse::test::TestHistoricalBaseSurvivesBackingSwap();
+  apptraverse::test::TestCaptureParentOmitsChildNodeHistory();
   apptraverse::test::TestMaterializedPublicationOmitsHistory();
   apptraverse::test::TestSupplyConstantWithHistoricalBaseSave();
   std::cout << "historical_base_materialization_test OK\n";

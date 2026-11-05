@@ -10,6 +10,8 @@ namespace apptraverse {
 //   ae::DomainGraph graph{&domain, ae::GraphSerializationScope::NetworkShared};
 // UI publication (structural/incremental) builds:
 //   ae::DomainGraph graph{&domain, ae::GraphSerializationScope::MaterializedPublication};
+// Historical Node base snapshots (CaptureBaseStateInto):
+//   ae::GraphSerializationScope::HistoricalBaseSnapshot;
 //
 // ObjectLink / LocalPtr serializers read archive.buffer().domain_graph->
 // serialization_scope. There is no process-global, static, or thread_local

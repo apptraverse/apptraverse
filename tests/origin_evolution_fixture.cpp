@@ -415,11 +415,26 @@ void OpCompactJournal(Args const& args) {
   ae::Domain domain{*stores.overlay};
   EvolutionItem::ptr a = LoadItem(domain, kInstanceAId);
   EvolutionItem::ptr b = LoadItem(domain, kInstanceBId);
+  JournalRetentionPolicy policy;
+  policy.max_events = 0;
+  a->SetJournalRetentionPolicy(policy);
+  b->SetJournalRetentionPolicy(policy);
+  std::uint64_t const journal_a_before = a->journal.size();
   std::uint64_t const now_us = SystemUtcMicros();
   a->CompactJournal(now_us);
   b->CompactJournal(now_us);
   SaveItems(stores, a, b);
-  WriteState("compact-journal", domain, a, b);
+  std::cout << "{\"ok\":true,\"op\":\"compact-journal\",\"revision\":"
+            << APPTRAVERSE_ORIGIN_EVOLUTION_EXE_REVISION
+            << ",\"prefab_id\":" << kPrefabIdRaw
+            << ",\"item_class_id\":" << EvolutionItem::kClassId
+            << ",\"obj_class_id\":" << ae::Obj::kClassId
+            << ",\"journal_a_before\":" << journal_a_before
+            << ",\"journal_a_after\":" << a->journal.size();
+  WriteItem(std::cout, "a", a);
+  WriteItem(std::cout, "b", b);
+  std::cout << ",\"p_materialized\":"
+            << (domain.Find(kPrefabId) ? "true" : "false") << "}\n";
 }
 
 void OpPublishUi(Args const& args) {

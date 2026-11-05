@@ -73,14 +73,19 @@ def expect_item(record: dict, name: str, **fields):
                f"expected {want}, got {item.get(key)}")
 
 
-def expect_replay_item(record: dict, name: str, want_tag: int, context: str):
+def expect_replay_item(record: dict, name: str, want_tag: int, want_value: int,
+                       context: str):
     item = record[name]
     expect(item.get("model_tag_before") == want_tag,
            f"{context}: {name} model tag before replay")
     expect(item.get("base_tag_before") == want_tag,
            f"{context}: {name} base tag before replay")
+    expect(item.get("replay_ok") is True,
+           f"{context}: {name} replay_ok")
     expect(item.get("model_tag_after") == want_tag,
            f"{context}: {name} model tag after replay")
+    expect(item.get("model_value_after") == want_value,
+           f"{context}: {name} model value after replay")
 
 
 def run_fresh_replay_scenario(rev1: Path, work_root: Path):
@@ -94,8 +99,8 @@ def run_fresh_replay_scenario(rev1: Path, work_root: Path):
         expect_item(cold, "a", tag=P_TAG, own_tag=False, value=P_VALUE)
         expect_item(cold, "b", tag=P_TAG, own_tag=False, value=P_VALUE)
         replay = run(rev1, "replay-base", backing, user)
-        expect_replay_item(replay, "a", P_TAG, "fresh replay")
-        expect_replay_item(replay, "b", P_TAG, "fresh replay")
+        expect_replay_item(replay, "a", P_TAG, P_VALUE, "fresh replay")
+        expect_replay_item(replay, "b", P_TAG, P_VALUE, "fresh replay")
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
@@ -106,20 +111,29 @@ def run_compact_s0_scenario(rev1: Path, work_root: Path):
     backing = root / "backing"
     try:
         run(rev1, "export-backing", backing)
+        backing_manifest = manifest(backing)
         run(rev1, "create-instances", backing, user)
         delivered = run(rev1, "inspect", backing, user)
         expect_item(delivered, "a", tag=P_TAG, own_tag=False)
         edited = run(rev1, "set-value", backing, user, "a", A_VALUE)
-        expect_item(edited, "a", value=A_VALUE, tag=P_TAG, own_tag=False)
+        expect_item(edited, "a", value=A_VALUE, tag=P_TAG, own_tag=False,
+                    journal_len=1)
         compact = run(rev1, "compact-journal", backing, user)
-        expect_item(compact, "a", value=A_VALUE, tag=P_TAG, own_tag=False)
+        expect(compact["journal_a_before"] > 0,
+               "compact S0-only: journal A non-empty before compact")
+        expect(compact["journal_a_after"] == 0,
+               "compact S0-only: journal A empty after compact")
+        expect_item(compact, "a", value=A_VALUE, tag=P_TAG, own_tag=False,
+                    journal_len=0, base_value=A_VALUE)
         expect_user_layers(user, compact, set(), "compact S0-only")
         cold = run(rev1, "inspect", backing, user)
-        expect_item(cold, "a", value=A_VALUE, tag=P_TAG, own_tag=False)
+        expect_item(cold, "a", value=A_VALUE, tag=P_TAG, own_tag=False,
+                    journal_len=0, base_value=A_VALUE)
         replay = run(rev1, "replay-base", backing, user)
-        expect_replay_item(replay, "a", P_TAG, "compact S0 replay")
-        expect_replay_item(replay, "b", P_TAG, "compact S0 replay")
+        expect_replay_item(replay, "a", P_TAG, A_VALUE, "compact S0 replay")
+        expect_replay_item(replay, "b", P_TAG, P_VALUE, "compact S0 replay")
         expect_user_layers(user, cold, set(), "compact cold load")
+        unchanged(backing_manifest, manifest(backing), "compact BACKING")
     finally:
         shutil.rmtree(root, ignore_errors=True)
 

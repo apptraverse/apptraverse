@@ -26,6 +26,7 @@ set(APPTRAVERSE_AETHER_OBJECTS_PATCH_NAMES
   nested-obj-archive-deseri
   graph-load-instance-identity
   origin-layer-lookup
+  historical-base-snapshot-scope
 )
 set(APPTRAVERSE_AETHER_OBJECTS_PATCHES)
 foreach(patch_name IN LISTS APPTRAVERSE_AETHER_OBJECTS_PATCH_NAMES)

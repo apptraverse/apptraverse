@@ -7,6 +7,41 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+<a id="p3t3o1pub3--historical-base-snapshot-scope-2026-11-04--pass"></a>
+
+## P3.T3.O1pub3 — HistoricalBaseSnapshot: capture vs UI publication (post-`24e989e`, 2026-11-04) — PASS; regression: 2 открытых pre-existing FAIL
+
+**Base:** `24e989e`. **NEXT:** без изменений.
+
+### Красный контроль (на `24e989e`, до fix)
+
+- **`CaptureBaseStateInto` на `LocalPersistent`:** parent → child, **100** committed Events на child; один `parent.CaptureBaseState()` сериализовал **100** `EventRecord` и **1** child base (`journal_entries_serialized` / `node_base_snapshots_serialized` ≠ 0). Новый **`TestCaptureParentOmitsChildNodeHistory`** в `historical_base_materialization_test` — **FAIL** на `24e989e`.
+- **`OpCompactJournal` с unlimited retention:** журнал оставался длиной 1 без реального уплотнения; `expect_replay_item` не проверял `replay_ok` / value.
+
+### Механизм (две политики)
+
+| Назначение | Scope | `ShouldSaveVersion` | Node `base`/`journal` в обходе |
+| --- | --- | --- | --- |
+| UI publication | `MaterializedPublication` | не применяется (материализованный S1) | опускаются |
+| Historical base capture | **`HistoricalBaseSnapshot`** (Æther patch `historical-base-snapshot-scope`, 17-й в chain) | **применяется** (нет «своего» S1 без `own_tag`) | опускаются (`OmitNodeHistoryForHistoricalBaseSnapshot` в `Node::Save`) |
+
+`Node::CaptureBaseStateInto` переведён на **`HistoricalBaseSnapshot`**. Исправления **`5e935e7`** (UI S1) и **fresh replay** сохранены. CPM dir: **`8e2d`** win64/WASM/Android (Linux — отдельный reconfigure при прогоне).
+
+### Тесты origin evolution (расширение)
+
+- **fresh replay** + **compact S0-only:** `max_events=0` перед `CompactJournal`; проверки journal до/после, `base_value`, `replay_ok`, value/tag после replay, USER без Item/S1, BACKING неизменён; **`publish-ui`** (252 / 999) — PASS.
+
+### Regression (incremental Debug)
+
+| Контур | Результат |
+| --- | --- |
+| origin evolution (full matrix), historical base (+ child-history test), checkpoint rehydration + load-cycle, origin facet | **PASS** win64 |
+| Windows 14 + embedded export | **14/14 PASS** |
+| Linux materialization/model runtime/headless + evolution + historical base; L3 | **5/5 PASS** + **L3 PASS** |
+| WASM origin facet + ×3 smoke (PIDs 28264 / 46492) | **PASS** |
+| Android connectedDebugAndroidTest | **13/13 PASS** |
+| `event_version_matrix`, `surfaces_distilled_embedded_matrix` | **FAIL** (без изменений) |
+
 <a id="p3t3o1pub2--historical-base-capture-scope-2026-11-04--pass"></a>
 
 ## P3.T3.O1pub2 — historical base capture vs UI publication scope (post-`5e935e7`, 2026-11-04) — PASS; regression: 2 открытых pre-existing FAIL

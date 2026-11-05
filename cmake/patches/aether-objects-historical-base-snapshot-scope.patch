@@ -1,0 +1,12 @@
+--- a/src/aether-objects/obj/domain.h
++++ b/src/aether-objects/obj/domain.h
+@@ -102,6 +102,9 @@
+   // Canonical Clone snapshot: current fields and local refs; omit Node
+   // historical base/journal.
+   CanonicalClone = 3,
++  // Historical Node base snapshot: materialized fields with layer ownership;
++  // AppTraverse omits Node base/journal like publication/clone walks.
++  HistoricalBaseSnapshot = 4,
+ };
+ 
+ /**
