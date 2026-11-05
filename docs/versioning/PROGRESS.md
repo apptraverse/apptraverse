@@ -7,6 +7,48 @@
 
 **Branch (рабочая):** **feature/ios-minimal-app**, base `e94899255ab779df8d9d625b13b958d919eb64d5` (`origin/integration/unified-application`). Историческая координация: [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+<a id="p4-wc-win-debug-embedded--2026-11-05"></a>
+
+## P4 / WindowCatalog — Windows Debug embedded executable (post-`f5c8e7e`, 2026-11-05) — частичный PASS; блокер: load-only negatives + BACKING
+
+**Ветка:** **`feature/windows-window-catalog-complete`** (base **`f5c8e7e`**). **Integration не обновлялась** (параллельно Apple/iOS).
+
+### Что уже работало (без переписывания)
+
+| Область | Статус |
+| --- | --- |
+| `examples/surfaces_demo/common/window_catalog_*` (model, actions, prepare, localization, graph builder) | **PASS** — `apptraverse_window_catalog_model_test`, headless |
+| Windows graph + presenters + `WinApplicationHost` в `window_catalog_main.cpp` | **PASS** — UI acceptance основной сценарий (до negatives) |
+| Exporter `apptraverse_export_window_catalog_distilled_graph` + overlay roundtrip | **PASS** после regen supply |
+| §W2 (кроме полного catalog acceptance) | **PASS** 13/14 |
+
+### Изменено
+
+- **`win32_window_catalog_demo`** и **`win32_window_catalog_demo_load_only`**: **`APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL` в Debug** (раньше embedded только **MinSizeRel**); один shared build-time header `embedded_distilled_window_catalog_supply.h` на оба exe (exporter при сборке, без runtime distill/bootstrap в main).
+- **`window_catalog_lifecycle`**: embedded session + persist USER snapshot; **`APPTRAVERSE_WINDOW_CATALOG_LOAD_ONLY`**: пустой USER → `fatal: LoadApplication failed` (без UI из BACKING).
+- **`generated/window_catalog_distilled.h`**: пересобран под текущий граф (**165** layers, было **387** stale → ломало overlay/Clone).
+
+### Executable
+
+- Main: `build/win64-ninja-msvc-debug/examples/surfaces_demo/windows/win32_window_catalog_demo.exe` (`--state-dir`).
+- Load-only: `…/win32_window_catalog_demo_load_only.exe` (тот же embedded BACKING + USER overlay при непустом profile).
+
+### Прогоны (incremental Debug, MSVC)
+
+| Контур | Результат |
+| --- | --- |
+| **1-й** `apptraverse_window_catalog_win32_acceptance_test` | **FAIL** `:936` — list count после Add (stale per-target supply **387** vs **165**) |
+| После shared supply + regen | **FAIL** `:622` — load-only negative child **30s timeout** (профиль с удалённым required объектом + embedded BACKING подставляет слой → GUI не выходит; не flaky) |
+| `apptraverse_window_catalog_embedded_overlay_test` | **PASS** (после regen) |
+| `apptraverse_window_catalog_model_test` / headless | **PASS** |
+| Windows §W2 (14 ctest) | **13/14 PASS** — только полный catalog acceptance **FAIL** на negatives |
+| MinimalApp headless + embedded export | **PASS** (infra smoke) |
+
+### Ограничения / блокер
+
+- Подпроцессные **load-only negative** тесты acceptance написаны под **USER-only** load (Debug до среза): ожидают быстрый `fatal: LoadApplication failed` при удалении required ObjId из USER. С **embedded BACKING** overlay обязательный chrome/presenter может резолвиться из supply → процесс остаётся в message loop до timeout (**`:622`**). Это не ослабление Prepare и не WindowCatalog workaround; нужна политика теста vs overlay (отдельная задача). **Основной UI-сценарий** (Add/Open/Close/Delete, language, два cold-load цикла в `RunRestartPersistenceAcceptance`) в том же прогоне **до negatives** укладывается в ~20s и **не** падает на `:936`/`:1034` после fix supply.
+- **`win32_surfaces_demo*`** link gap на HEAD — **не** в scope среза.
+
 <a id="p3t3i--ios-minimalapp-prototype-2026-11-05"></a>
 
 ## P3.T3.I — iOS/iPadOS MinimalApp prototype (2026-11-05)

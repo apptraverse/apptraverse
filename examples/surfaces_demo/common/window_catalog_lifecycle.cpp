@@ -20,7 +20,7 @@
 #include "apptraverse/distilled_domain_export.h"
 #endif
 #if defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
-#include "window_catalog_distilled.h"
+#include "embedded_distilled_window_catalog_supply.h"
 #endif
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/node.h"
@@ -35,6 +35,22 @@ namespace {
 ae::ObjId CatalogRootId() {
   return ae::ObjId{
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
+}
+
+bool UserProfilePresent(std::filesystem::path const& state_dir) {
+  std::error_code profile_error;
+  bool const profile_exists = std::filesystem::exists(state_dir, profile_error);
+  if (profile_error) {
+    WriteFatalStderr("fatal: cannot inspect catalog profile\n");
+    std::abort();
+  }
+  bool const profile_absent =
+      !profile_exists || std::filesystem::is_empty(state_dir, profile_error);
+  if (profile_error) {
+    WriteFatalStderr("fatal: cannot inspect catalog profile contents\n");
+    std::abort();
+  }
+  return !profile_absent;
 }
 
 }  // namespace
@@ -54,6 +70,12 @@ int WindowCatalogModelSession::Run(
   };
 
 #if defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
+#if defined(APPTRAVERSE_WINDOW_CATALOG_LOAD_ONLY)
+  if (!UserProfilePresent(state_dir)) {
+    WriteFatalStderr("fatal: LoadApplication failed\n");
+    return 1;
+  }
+#endif
   DirectoryDomainStorage user_storage{state_dir};
   hooks.persist = [&user_storage](WindowCatalog& catalog) -> int {
     user_storage.BeginSaveSession();

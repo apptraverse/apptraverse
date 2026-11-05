@@ -64,32 +64,56 @@ if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/surface_v1_package")
   endforeach()
 endif()
 
-# WindowCatalog application executables.
+# WindowCatalog application executables (build-time embedded BACKING + USER).
+include(${CMAKE_SOURCE_DIR}/cmake/apptraverse_embed_distilled_supply.cmake)
+
 set(_window_catalog_win_sources
   window_catalog_main.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/../common/window_catalog_lifecycle.cpp
 )
+
+set(_window_catalog_embed_graph_sources
+  ${CMAKE_CURRENT_SOURCE_DIR}/window_catalog_graph.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common/window_catalog_graph_builder.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common/window_catalog_model.cpp
+)
+
+set(_window_catalog_embed_gen_dir
+  "${CMAKE_CURRENT_BINARY_DIR}/generated_distilled/window_catalog_shared")
+file(MAKE_DIRECTORY "${_window_catalog_embed_gen_dir}")
+set(_window_catalog_embed_header
+  "${_window_catalog_embed_gen_dir}/embedded_distilled_window_catalog_supply.h")
+
+if(TARGET apptraverse_export_window_catalog_distilled_graph)
+  add_custom_command(
+    OUTPUT "${_window_catalog_embed_header}"
+    COMMAND $<TARGET_FILE:apptraverse_export_window_catalog_distilled_graph>
+            "${_window_catalog_embed_header}"
+    DEPENDS apptraverse_export_window_catalog_distilled_graph
+            ${_window_catalog_embed_graph_sources}
+    VERBATIM
+    COMMENT "Embed distilled WindowCatalog supply (shared by demo executables)")
+endif()
+
 add_executable(win32_window_catalog_demo ${_window_catalog_win_sources})
 target_compile_definitions(win32_window_catalog_demo PRIVATE
-  $<IF:$<CONFIG:MinSizeRel>,APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL,APPTRAVERSE_ENABLE_DISTILLATION>
+  APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL
 )
-if(TARGET apptraverse_generate_window_catalog_distilled_header)
-  add_dependencies(win32_window_catalog_demo
-                   apptraverse_generate_window_catalog_distilled_header)
-  target_include_directories(win32_window_catalog_demo PRIVATE
-    ${CMAKE_SOURCE_DIR}/generated)
-endif()
+
 add_executable(win32_window_catalog_demo_load_only ${_window_catalog_win_sources})
 target_compile_definitions(win32_window_catalog_demo_load_only PRIVATE
-  $<IF:$<CONFIG:MinSizeRel>,APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL,>
+  APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL
+  APPTRAVERSE_WINDOW_CATALOG_LOAD_ONLY
 )
-if(TARGET apptraverse_generate_window_catalog_distilled_header)
-  add_dependencies(win32_window_catalog_demo_load_only
-                   apptraverse_generate_window_catalog_distilled_header)
-  target_include_directories(win32_window_catalog_demo_load_only PRIVATE
-    ${CMAKE_SOURCE_DIR}/generated)
-endif()
+
 foreach(_catalog_demo win32_window_catalog_demo win32_window_catalog_demo_load_only)
+  if(TARGET apptraverse_export_window_catalog_distilled_graph)
+    target_sources(${_catalog_demo} PRIVATE "${_window_catalog_embed_header}")
+    target_include_directories(${_catalog_demo} PRIVATE
+      "${_window_catalog_embed_gen_dir}")
+    add_dependencies(${_catalog_demo}
+                     apptraverse_export_window_catalog_distilled_graph)
+  endif()
   target_link_libraries(${_catalog_demo} PRIVATE
     surfaces_demo_window_catalog
     apptraverse_ui_windows
