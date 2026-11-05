@@ -2,12 +2,12 @@
 
 #include <cstdio>
 
-#include "minimal_app_android_graph.h"
+#include "minimal_app_android_embedded_profile.h"
 #include "minimal_app_controls.h"
+#include "minimal_app_persistence.h"
 #include "minimal_app_prepare.h"
 #include "minimal_application.h"
 
-#include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
 
 namespace apptraverse::example::minimal {
@@ -64,31 +64,33 @@ AndroidColdLoadLabelProbeResult RunAndroidColdLoadLabelProbe(
   std::error_code ec;
   std::filesystem::remove_all(profile_dir, ec);
 
-#if !defined(APPTRAVERSE_ENABLE_DISTILLATION)
-  SetDetail(result, "distillation disabled");
-  return result;
-#endif
-
-  ae::ObjId built_label_id{};
+  ae::ObjId supply_label_id{};
   {
-    DirectoryDomainStorage bootstrap_storage{profile_dir};
-    ae::Domain bootstrap_domain{bootstrap_storage};
-    auto bootstrap_app = BuildAndroidMinimalApplicationGraph(bootstrap_domain);
-    bootstrap_app->auxiliary_opener.Load();
-    bootstrap_app->apply_button.Load();
-    if (!bootstrap_app->auxiliary_opener->label.is_valid()) {
-      SetDetail(result, "bootstrap build: opener label invalid");
+    MinimalAppEmbeddedProfile backing_only{profile_dir};
+    ae::Domain backing_domain{backing_only.overlay};
+    auto backing_app = LoadApplication<MinimalApplication>(
+        backing_domain, MinimalApplicationRootId());
+    backing_app->auxiliary_opener.Load();
+    backing_app->apply_button.Load();
+    if (!ProbeApplyLabelOnDomain(backing_domain, result)) {
       return result;
     }
-    built_label_id = bootstrap_app->auxiliary_opener->label.id();
-    result.built_label_obj_id = built_label_id.id();
-    PrepareMinimalApplicationForRun(*bootstrap_app);
-    FinalizeDistilledGraph(*bootstrap_app);
-    SaveDistilledRoot(*bootstrap_app);
+    if (!backing_app->auxiliary_opener->label.is_valid()) {
+      SetDetail(result, "embedded BACKING: opener label invalid");
+      return result;
+    }
+    supply_label_id = backing_app->auxiliary_opener->label.id();
+    result.supply_label_obj_id = supply_label_id.id();
+    PrepareMinimalApplicationForRun(*backing_app);
+    if (PersistMinimalApplicationEmbeddedUserOverlay(*backing_app,
+                                                     backing_only.user) != 0) {
+      SetDetail(result, "embedded USER save failed");
+      return result;
+    }
   }
 
-  DirectoryDomainStorage model_storage{profile_dir};
-  ae::Domain model_domain{model_storage};
+  MinimalAppEmbeddedProfile profile{profile_dir};
+  ae::Domain model_domain{profile.overlay};
   auto model_root =
       LoadApplication<MinimalApplication>(model_domain, MinimalApplicationRootId());
   if (!model_root) {
@@ -101,14 +103,14 @@ AndroidColdLoadLabelProbeResult RunAndroidColdLoadLabelProbe(
   if (!ProbeApplyLabelOnDomain(model_domain, result)) {
     return result;
   }
-  if (!ProbeOpenerLabelOnDomain(model_domain, built_label_id, result)) {
+  if (!ProbeOpenerLabelOnDomain(model_domain, supply_label_id, result)) {
     return result;
   }
   if (!model_root->auxiliary_opener->label.is_valid()) {
     SetDetail(result, "auxiliary_opener.Load(): label ref invalid before Prepare");
     return result;
   }
-  if (model_root->auxiliary_opener->label.id().id() != built_label_id.id()) {
+  if (model_root->auxiliary_opener->label.id().id() != supply_label_id.id()) {
     SetDetail(result, "auxiliary_opener.Load(): label ObjId mismatch before Prepare");
     return result;
   }

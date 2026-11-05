@@ -6,14 +6,6 @@
     <activity
         android:name=".MainActivity"
         android:process=":demo" />
-    <receiver
-        android:name=".DemoProcessExitReceiver"
-        android:exported="false"
-        android:process=":demo">
-      <intent-filter>
-        <action android:name="com.apptraverse.minimal.action.EXIT_DEMO_PROCESS" />
-      </intent-filter>
-    </receiver>
   </application>
 
 </manifest>

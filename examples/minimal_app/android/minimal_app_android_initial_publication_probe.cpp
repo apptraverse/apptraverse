@@ -3,12 +3,11 @@
 #include <cstdio>
 #include <cstring>
 
-#include "minimal_app_android_graph.h"
+#include "minimal_app_android_embedded_profile.h"
 #include "minimal_app_controls.h"
 #include "minimal_app_prepare.h"
 #include "minimal_application.h"
 
-#include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/platform/android/android_ui_registration.h"
@@ -48,29 +47,8 @@ AndroidInitialPublicationLabelProbeResult RunAndroidInitialPublicationLabelProbe
   std::error_code ec;
   std::filesystem::remove_all(profile_dir, ec);
 
-#if !defined(APPTRAVERSE_ENABLE_DISTILLATION)
-  SetStage(result, "distillation");
-  SetDetail(result, "distillation disabled");
-  return result;
-#endif
-
-  {
-    DirectoryDomainStorage bootstrap_storage{profile_dir};
-    ae::Domain bootstrap_domain{bootstrap_storage};
-    auto bootstrap_app = BuildAndroidMinimalApplicationGraph(bootstrap_domain);
-    bootstrap_app->auxiliary_opener.Load();
-    if (!bootstrap_app->auxiliary_opener->label.is_valid()) {
-      SetStage(result, "bootstrap");
-      SetDetail(result, "bootstrap opener label invalid");
-      return result;
-    }
-    PrepareMinimalApplicationForRun(*bootstrap_app);
-    FinalizeDistilledGraph(*bootstrap_app);
-    SaveDistilledRoot(*bootstrap_app);
-  }
-
-  DirectoryDomainStorage model_storage{profile_dir};
-  ae::Domain model_domain{model_storage};
+  MinimalAppEmbeddedProfile profile{profile_dir};
+  ae::Domain model_domain{profile.overlay};
   auto model_root =
       LoadApplication<MinimalApplication>(model_domain, MinimalApplicationRootId());
   if (!model_root) {

@@ -44,4 +44,8 @@ if(APPTRAVERSE_BUILD_LINUX_GUI AND UNIX AND NOT APPLE AND NOT ANDROID AND
   add_subdirectory(linux)
 endif()
 
-# Android APK is built only via Gradle (examples/minimal_app/android).
+# Android APK is built only via Gradle (examples/minimal_app/android); its
+# supply exporter is a build-host tool.
+if(NOT ANDROID AND NOT EMSCRIPTEN AND APPTRAVERSE_BUILD_EXAMPLES)
+  add_subdirectory(android/host_export)
+endif()

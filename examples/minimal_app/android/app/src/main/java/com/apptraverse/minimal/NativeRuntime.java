@@ -36,7 +36,6 @@ public final class NativeRuntime {
 
   static native String nativeRunModelThreadStartSyncProbe();
 
-  /** A1R1: distill → cold LoadApplication label probe (no UI presenters). */
   static native String nativeRunColdReloadApplyStateProbe(String profileDir);
 
   static native String nativeRunColdReloadProfileStateProbe(
@@ -46,4 +45,6 @@ public final class NativeRuntime {
   static native String nativeRunColdLoadLabelProbe(String profileDir);
 
   static native String nativeRunInitialPublicationLabelProbe(String profileDir);
+
+  static native String nativeRunEmbeddedBackingProbe(String profileDir, String emptyUserDir);
 }

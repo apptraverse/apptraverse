@@ -171,6 +171,25 @@ jstring NativeRunColdReloadApplyStateProbe(JNIEnv* env, jclass,
   return env->NewStringUTF(out.c_str());
 }
 
+jstring NativeRunEmbeddedBackingProbe(JNIEnv* env, jclass, jstring profile_dir,
+                                      jstring empty_user_dir) {
+  EnsureObjectRegistration();
+  EnsureMinimalApplicationRegistration();
+  char const* dir_chars = env->GetStringUTFChars(profile_dir, nullptr);
+  auto const dir = std::filesystem::path{dir_chars};
+  env->ReleaseStringUTFChars(profile_dir, dir_chars);
+  char const* empty_chars = env->GetStringUTFChars(empty_user_dir, nullptr);
+  auto const empty_dir = std::filesystem::path{empty_chars};
+  env->ReleaseStringUTFChars(empty_user_dir, empty_chars);
+  AndroidColdReloadApplyProbeResult const probe =
+      RunAndroidEmbeddedBackingProbe(dir, empty_dir);
+  std::string const out =
+      probe.ok ? std::string{"OK:"} + probe.title
+               : std::string{"FAIL:"} + std::string{probe.detail} + ":sel=" +
+                     std::to_string(probe.selection_index);
+  return env->NewStringUTF(out.c_str());
+}
+
 jstring NativeRunColdLoadLabelProbe(JNIEnv* env, jclass, jstring profile_dir) {
   EnsureMinimalApplicationRegistration();
   char const* chars = env->GetStringUTFChars(profile_dir, nullptr);
@@ -178,7 +197,7 @@ jstring NativeRunColdLoadLabelProbe(JNIEnv* env, jclass, jstring profile_dir) {
   env->ReleaseStringUTFChars(profile_dir, chars);
   AndroidColdLoadLabelProbeResult const probe = RunAndroidColdLoadLabelProbe(dir);
   std::string const out =
-      probe.ok ? std::string{"OK:"} + std::to_string(probe.built_label_obj_id)
+      probe.ok ? std::string{"OK:"} + std::to_string(probe.supply_label_obj_id)
                : std::string{"FAIL:"} + probe.detail;
   return env->NewStringUTF(out.c_str());
 }
@@ -220,6 +239,9 @@ JNINativeMethod const kNativeMethods[] = {
      reinterpret_cast<void*>(&NativeRunColdReloadProfileStateProbe)},
     {"nativeRunInitialPublicationLabelProbe", "(Ljava/lang/String;)Ljava/lang/String;",
      reinterpret_cast<void*>(&NativeRunInitialPublicationLabelProbe)},
+    {"nativeRunEmbeddedBackingProbe",
+     "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+     reinterpret_cast<void*>(&NativeRunEmbeddedBackingProbe)},
 };
 
 constexpr char const kAndroidUiClass[] =

@@ -27,9 +27,44 @@ set(APPTRAVERSE_BUILD_AETHER_DEMOS OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 add_subdirectory(${APPTRAVERSE_ROOT} ${CMAKE_CURRENT_BINARY_DIR}/apptraverse)
 
+# The supply is distilled by a build-host exporter (examples/minimal_app/
+# android/host_export) in a nested host build of this tree; the NDK toolchain
+# never runs a target executable. The host build tracks the builder, schema
+# and presenter sources and rewrites the header only when the exporter changes.
+set(_minimal_supply_dir "${CMAKE_CURRENT_BINARY_DIR}/generated_distilled")
+set(_minimal_supply_header
+  "${_minimal_supply_dir}/embedded_distilled_minimal_app_supply.h")
+# Outside the Gradle .cxx tree so host (MSBuild) object paths stay short.
+set(_minimal_host_export_dir
+  "${APPTRAVERSE_ROOT}/build/android-host-export/${CMAKE_BUILD_TYPE}-${ANDROID_ABI}")
+set(_minimal_host_export_args
+  -DBUILD_TESTING=OFF
+  -DAPPTRAVERSE_BUILD_LINUX_GUI=OFF
+  "-DAPPTRAVERSE_ANDROID_MINIMAL_SUPPLY_HEADER=${_minimal_supply_header}")
+if(CPM_SOURCE_CACHE)
+  list(APPEND _minimal_host_export_args "-DCPM_SOURCE_CACHE=${CPM_SOURCE_CACHE}")
+endif()
+if(DEFINED CPM_aether-miscpp_SOURCE)
+  list(APPEND _minimal_host_export_args
+    "-DCPM_aether-miscpp_SOURCE=${CPM_aether-miscpp_SOURCE}")
+endif()
+add_custom_command(
+  OUTPUT "${_minimal_host_export_dir}/CMakeCache.txt"
+  COMMAND "${CMAKE_COMMAND}" -S "${APPTRAVERSE_ROOT}"
+          -B "${_minimal_host_export_dir}" ${_minimal_host_export_args}
+  VERBATIM
+  COMMENT "Configure build-host MinimalApp supply exporter")
+add_custom_target(minimal_app_android_supply
+  COMMAND "${CMAKE_COMMAND}" --build "${_minimal_host_export_dir}"
+          --config Debug --parallel --target apptraverse_android_minimal_supply
+  DEPENDS "${_minimal_host_export_dir}/CMakeCache.txt"
+  BYPRODUCTS "${_minimal_supply_header}"
+  VERBATIM
+  COMMENT "Build-host export of the Android MinimalApp supply")
+
 add_library(minimal_app_android STATIC
-  ../minimal_app_android_graph.cpp
   ../minimal_app_android_lifecycle.cpp
+  ../minimal_app_android_embedded_profile.cpp
   ../minimal_app_android_cold_load_probe.cpp
   ../minimal_app_android_initial_publication_probe.cpp
   ../minimal_app_android_cold_reload_apply_probe.cpp
@@ -38,10 +73,12 @@ add_library(minimal_app_android STATIC
   ../minimal_app_android_pending_save_race_probe.cpp
   ../minimal_app_android_early_background_save_probe.cpp
 )
+add_dependencies(minimal_app_android minimal_app_android_supply)
 target_include_directories(minimal_app_android PUBLIC
   ${APPTRAVERSE_ROOT}/examples/minimal_app/android
   ${APPTRAVERSE_ROOT}/examples/minimal_app/common
 )
+target_include_directories(minimal_app_android PRIVATE ${_minimal_supply_dir})
 target_link_libraries(minimal_app_android PUBLIC
   minimal_app_common
   apptraverse_ui_android
@@ -74,9 +111,11 @@ set_target_properties(apptraverse_minimal_app PROPERTIES
   VISIBILITY_INLINES_HIDDEN ON
 )
 
-# Instrumented-test fixture; only the debug build type lists this target.
+# Instrumented-test fixture; only the debug build type lists this target. It
+# builds the graph in-test; the app library never links the builder.
 add_library(apptraverse_minimal_app_test_fixture SHARED
   ../app/src/androidTest/cpp/presenter_lifecycle_fixture.cpp
+  ../minimal_app_android_graph.cpp
 )
 target_link_libraries(apptraverse_minimal_app_test_fixture PRIVATE
   minimal_app_android

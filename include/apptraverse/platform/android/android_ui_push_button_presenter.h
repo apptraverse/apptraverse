@@ -1,13 +1,14 @@
 #ifndef APPTRAVERSE_PLATFORM_ANDROID_ANDROID_UI_PUSH_BUTTON_PRESENTER_H_
 #define APPTRAVERSE_PLATFORM_ANDROID_ANDROID_UI_PUSH_BUTTON_PRESENTER_H_
 
-#include <jni.h>
+#include <cstdint>
 
 #include "apptraverse/ui/ui_push_button_presenter.h"
 
 namespace apptraverse::ui::android {
 
 struct AndroidPushButtonViewRefs;
+struct AndroidPresentationHost;
 
 class AndroidPushButtonPresenter : public UiPushButtonPresenter {
   APPTRAVERSE_NAMED_OBJECT(
@@ -38,7 +39,7 @@ class AndroidPushButtonPresenter : public UiPushButtonPresenter {
   void OnUnload() override;
 
  private:
-  void SyncFromMirror();
+  friend struct AndroidPresentationHost;
 
   AndroidPushButtonViewRefs* view_refs_{nullptr};
 };

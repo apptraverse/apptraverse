@@ -154,7 +154,7 @@ void AndroidApplicationHost::HandlePublicationOnMainThread(
     ApplicationPublicationKind kind) {
   if (kind == ApplicationPublicationKind::Initial) {
     std::vector<std::uint8_t> bytes = runtime_.TakePublishedCopyForUiApply();
-    ui_session_.emplace(bytes, &presentation_host_, model_proxy_);
+    ui_session_.emplace(bytes, presentation_host_.presenter_host(), model_proxy_);
     if (callbacks_.after_initial) {
       callbacks_.after_initial(ui_session_->root());
     }

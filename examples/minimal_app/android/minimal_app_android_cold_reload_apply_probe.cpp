@@ -3,10 +3,12 @@
 #include <cstdio>
 
 #include "minimal_application.h"
-#include "minimal_app_prepare.h"
+#include "minimal_app_android_embedded_profile.h"
+#include "minimal_app_controls.h"
 
-#include "apptraverse/directory_domain_storage.h"
-#include "apptraverse/distill.h"
+#include "apptraverse/embedded_distilled_domain.h"
+
+#include "embedded_distilled_minimal_app_supply.h"
 
 namespace apptraverse::example::minimal {
 namespace {
@@ -23,8 +25,8 @@ AndroidColdReloadApplyProbeResult RunAndroidColdReloadApplyStateProbe(
   EnsureObjectRegistration();
   EnsureMinimalApplicationRegistration();
 
-  DirectoryDomainStorage storage{profile_dir};
-  ae::Domain domain{storage};
+  MinimalAppEmbeddedProfile profile{profile_dir};
+  ae::Domain domain{profile.overlay};
   MinimalApplication::ptr application = MinimalApplication::ptr::Declare(
       ae::CreateWith{domain}.with_id(MinimalApplicationRootId()));
   ae::DomainGraph graph{&domain};
@@ -79,8 +81,8 @@ AndroidColdReloadApplyProbeResult RunAndroidColdReloadProfileStateProbe(
   EnsureObjectRegistration();
   EnsureMinimalApplicationRegistration();
 
-  DirectoryDomainStorage storage{profile_dir};
-  ae::Domain domain{storage};
+  MinimalAppEmbeddedProfile profile{profile_dir};
+  ae::Domain domain{profile.overlay};
   MinimalApplication::ptr application = MinimalApplication::ptr::Declare(
       ae::CreateWith{domain}.with_id(MinimalApplicationRootId()));
   ae::DomainGraph graph{&domain};
@@ -125,6 +127,40 @@ AndroidColdReloadApplyProbeResult RunAndroidColdReloadProfileStateProbe(
 
   result.ok = true;
   SetDetail(result, "profile state probe OK");
+  return result;
+}
+
+AndroidColdReloadApplyProbeResult RunAndroidEmbeddedBackingProbe(
+    std::filesystem::path const& profile_dir,
+    std::filesystem::path const& empty_user_dir) {
+  AndroidColdReloadApplyProbeResult result;
+  EnsureObjectRegistration();
+  EnsureMinimalApplicationRegistration();
+
+  {
+    DirectoryDomainStorage user{profile_dir};
+    if (user.Enumerate(MinimalApplyButtonId()).empty()) {
+      SetDetail(result, "USER holds no applied Apply button layer");
+      return result;
+    }
+    EmbeddedDistilledSupply const& supply =
+        embedded_distilled::minimal::kEmbeddedGraph.supply_constant_ids;
+    for (std::size_t i = 0; i < supply.count; ++i) {
+      if (!user.Enumerate(ae::ObjId{supply.ids[i]}).empty()) {
+        SetDetail(result, "USER holds a supply constant layer");
+        return result;
+      }
+    }
+  }
+
+  std::error_code ec;
+  std::filesystem::remove_all(empty_user_dir, ec);
+  result = RunAndroidColdReloadProfileStateProbe(empty_user_dir, -1, true,
+                                                 "Minimal App");
+  std::filesystem::remove_all(empty_user_dir, ec);
+  if (result.ok) {
+    SetDetail(result, "embedded backing probe OK");
+  }
   return result;
 }
 

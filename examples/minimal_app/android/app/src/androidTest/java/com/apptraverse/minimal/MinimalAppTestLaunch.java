@@ -30,7 +30,8 @@ final class MinimalAppTestLaunch {
 
   static final String PKG = "com.apptraverse.minimal";
   static final String LOG_LOADED_FROM_PROFILE = "MINIMAL_APP_LOADED_FROM_PROFILE";
-  static final String LOG_PROFILE_BOOTSTRAP = "MINIMAL_APP_PROFILE_BOOTSTRAP";
+  static final String LOG_LOADED_FROM_EMBEDDED_BACKING =
+      "MINIMAL_APP_LOADED_FROM_EMBEDDED_BACKING";
   static final String LOG_BACKGROUND_SAVE_FINISHED_PREFIX = "background save finished subdir=";
 
   private MinimalAppTestLaunch() {}
@@ -213,9 +214,14 @@ final class MinimalAppTestLaunch {
     return processName.equals(PKG) || processName.equals(PKG + ":demo");
   }
 
-  private static void requestDemoProcessExit(UiDevice device) throws Exception {
-    device.executeShellCommand(
-        "am broadcast -a " + MinimalAppTestControl.ACTION_EXIT_DEMO_PROCESS + " -p " + PKG);
+  /**
+   * Instrumentation shares the app UID, so it may signal {@code :demo} directly; the shell
+   * UID of executeShellCommand cannot.
+   */
+  private static void killDemoPid(UiDevice device, int pid) throws Exception {
+    if (isStrictDemoPidAlive(device, pid)) {
+      Process.killProcess(pid);
+    }
   }
 
   static void killDemoProcessAndWait(Context context, UiDevice device, int pid,
@@ -225,31 +231,28 @@ final class MinimalAppTestLaunch {
       throw new AssertionError(
           "demo pid matches instrumentation pid; cannot kill in-process");
     }
-    requestDemoProcessExit(device);
+    killDemoPid(device, pid);
     long deadline = System.currentTimeMillis() + timeoutMs;
     while (System.currentTimeMillis() < deadline) {
       if (!isStrictDemoPidAlive(device, pid)) {
         return;
       }
-      device.executeShellCommand("kill -9 " + pid);
-      Thread.sleep(400);
+      Thread.sleep(200);
     }
     throw new AssertionError("demo pid still alive after kill: " + pid
         + " " + demoProcessShellDiagnostics(device));
   }
 
-  private static boolean isPidAliveInProc(UiDevice device, int pid) throws Exception {
-    String out =
-        device.executeShellCommand("test -d /proc/" + pid + " && echo yes || echo no").trim();
-    return "yes".equals(out);
-  }
-
+  /** executeShellCommand runs no shell, so the process table is parsed here. */
   static boolean isStrictDemoPidAlive(UiDevice device, int pid) throws Exception {
-    if (!isPidAliveInProc(device, pid)) {
-      return false;
+    String out = device.executeShellCommand("ps -A -o PID,NAME");
+    for (String line : out.split("\n")) {
+      String[] parts = line.trim().split("\\s+");
+      if (parts.length == 2 && parts[0].equals(Integer.toString(pid))) {
+        return parts[1].equals(PKG + ":demo");
+      }
     }
-    String ps = device.executeShellCommand("ps -p " + pid + " -o NAME=").trim();
-    return ps.contains(PKG + ":demo");
+    return false;
   }
 
   static boolean isDemoProcessAlive(Context context, int pid) {
@@ -379,6 +382,30 @@ final class MinimalAppTestLaunch {
     return count;
   }
 
+  /** Lines of the native runtime log tag ({@code android_log.h}). */
+  static int countNativeInfoLines(UiDevice device, String needle) throws Exception {
+    String log = device.executeShellCommand("logcat -d -s AppTraverse:I");
+    int count = 0;
+    for (String line : log.split("\n")) {
+      if (line.contains(needle)) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  static void waitForNativeInfoLineAfter(UiDevice device, String needle, int baselineCount,
+      long timeoutMs) throws Exception {
+    long deadline = System.currentTimeMillis() + timeoutMs;
+    while (System.currentTimeMillis() < deadline) {
+      if (countNativeInfoLines(device, needle) > baselineCount) {
+        return;
+      }
+      Thread.sleep(300);
+    }
+    throw new AssertionError(needle + " not observed (baseline=" + baselineCount + ")");
+  }
+
   private static String backgroundSaveLogNeedle(String profileSubdir) {
     return LOG_BACKGROUND_SAVE_FINISHED_PREFIX + profileSubdir + " result=0";
   }
@@ -491,7 +518,6 @@ final class MinimalAppTestLaunch {
     if (pids.isEmpty()) {
       return;
     }
-    requestDemoProcessExit(device);
     long deadline = System.currentTimeMillis() + 8000;
     while (System.currentTimeMillis() < deadline) {
       Set<Integer> remaining = collectStrictDemoProcessPids(device, instrumentationPid);
@@ -500,9 +526,7 @@ final class MinimalAppTestLaunch {
         return;
       }
       for (int pid : remaining) {
-        if (isStrictDemoPidAlive(device, pid)) {
-          device.executeShellCommand("kill -9 " + pid);
-        }
+        killDemoPid(device, pid);
       }
       Thread.sleep(250);
     }

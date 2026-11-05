@@ -7,6 +7,49 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+<a id="p3t3ae--android-embedded-backing--user-2026-11-04--pass"></a>
+
+## P3.T3.AE — Android MinimalApp: build-time embedded BACKING + USER (post-`3b9aa26`, 2026-11-04) — PASS; regression: 2 открытых pre-existing FAIL
+
+**Base:** `3b9aa26`. **NEXT:** **P3.T3.M — macOS MinimalApp** (Apple не начинался).
+
+### Поставка (build host)
+
+- **Разделение presenters:** portable описание (`OnLoad/OnModelChanged/OnUnload`, регистрация ClassId) — `apptraverse_ui_android_presenters` (все платформы); JNI-реализация — `AndroidPresentationHost : AndroidUiNativeViews` в `apptraverse_ui_android` (только ANDROID). ClassId и сериализация presenters не дублируются.
+- **Exporter:** `examples/minimal_app/android/host_export` → `apptraverse_export_minimal_distilled_graph_android` (штатный `BuildAndroidMinimalApplicationGraph` + `FinalizeDistilledGraph` + `SaveDistilledRoot` + `WriteEmbeddedDistilledSupplyHeader`).
+- **NDK CMake:** вложенная host-сборка `build/android-host-export/<type>-<abi>` → `embedded_distilled_minimal_app_supply.h` перед `minimal_app_android`; пересборка от builder/schema sources. AVD/adb для экспорта не используется; Windows supply не копируется.
+- Production `libapptraverse_minimal_app.so`: builder-символов **0**, есть `InstallEmbeddedDistilledBacking`; builder линкуется только в test fixture `.so`.
+
+### Lifecycle и persist
+
+- `RunMinimalApplicationModel(user_storage, …)` → `RunEmbeddedApplicationModelSession` (BACKING из supply + USER `DirectoryDomainStorage` через overlay); prepare → `PrepareMinimalApplicationForRun` (+ `NormalizeMinimalApplicationAfterEmbeddedUserLoad` при непустом USER). Bootstrap/builder в production не вызываются; `APPTRAVERSE_ENABLE_DISTILLATION` не отключался.
+- **Оба persist пути** — `hooks.persist` и checkpoint `callbacks.persist_model` (model thread, сессия продолжается) — `PersistMinimalApplicationEmbeddedUserOverlay`; `PersistMinimalApplicationFromDomain` удалён. BACKING неизменяем.
+
+### Тесты
+
+- Probes (cold-load label, initial publication, early save, pending race, model-thread start, cold reload/apply) читают BACKING + USER; новый `RunAndroidEmbeddedBackingProbe`: USER содержит изменения, ни один supply constant id не имеет USER-слоя, пустой USER → состояние supply.
+- **`EmbeddedColdStartInstrumentedTest`** (профиль `minimal_app_embedded_cold_start_e2e`): пустой USER → UI из supply (native marker `EMBEDDED_BACKING`) → Row B → Apply → Home + подтверждённый checkpoint → foreground → Row A → Home re-save → kill только `:demo` + подтверждение смерти → новый `:demo` с тем же USER (`LOADED_FROM_PROFILE`) → восстановленное состояние до кликов → новая команда.
+- **Kill `:demo`:** прежний helper liveness (`test -d … && echo`) через `UiDevice.executeShellCommand` без shell всегда давал false — прежние проверки смерти были фиктивными; broadcast к non-exported `DemoProcessExitReceiver` от shell UID не доставлялся, `kill -9` от shell UID не действует. Теперь: liveness по `ps -A -o PID,NAME` (точный pid + `:demo`), kill — `Process.killProcess(pid)` из instrumentation (тот же UID); receiver и `MinimalAppTestControl` (main source set) удалены.
+
+### Прогоны (incremental Debug)
+
+| Контур | Результат |
+| --- | --- |
+| Android `connectedDebugAndroidTest`, **первый прогон** | **13/13 существующих PASS; новый `EmbeddedColdStart` FAIL** (liveness до kill) |
+| Android, второй прогон (реальная liveness) | **10 PASS / 4 FAIL** — `EmbeddedColdStart`, `NewPidColdReload`, `SaveColdReload`×2: «demo pid still alive after kill» |
+| Android, третий прогон (`Process.killProcess`) | **14/14 PASS** |
+| Windows full incremental build | **FAIL** (первый FAIL контура): link `win32_surfaces_demo{,_v1,_load_only}.exe` — `surfaces_demo_win32_registration.cpp` / `_attach.cpp` не в CMake sources; `examples/surfaces_demo` срезом не менялся, на HEAD отдельно не проверялось; остальные цели собраны (`-k 0`) |
+| Windows 14 + embedded export + Android exporter на host | **14/14 PASS**; exporter → `kEmbeddedGraph = {127991809u, …, 224}` |
+| Linux materialization/model runtime/headless/historical base + Android exporter; L3 | **4/4 PASS**, exporter тот же граф, **L3 PASS** |
+| WASM origin facet + MinimalApp / presenter lifecycle / WindowCatalog smoke | **PASS** |
+| `event_version_matrix`, `surfaces_distilled_embedded_matrix` | не запускались; известные **FAIL** без изменений |
+
+### Ограничения
+
+- Один `Bootstrap…` символ остаётся мёртвым кодом в production `.so` (общий объект `minimal_app_persistence.cpp`), не вызывается.
+- Вложенная host-сборка exporter использует host toolchain (на Windows — генератор SDK CMake по умолчанию, VS 2022); первая конфигурация длительная.
+- Разные PID для `:demo` не требуются и не проверяются как критерий; критерий — подтверждённая смерть процесса и cold load того же USER.
+
 <a id="p3t3o1pub3--historical-base-snapshot-scope-2026-11-04--pass"></a>
 
 ## P3.T3.O1pub3 — HistoricalBaseSnapshot: capture vs UI publication (post-`24e989e`, 2026-11-04) — PASS; regression: 2 открытых pre-existing FAIL
@@ -877,7 +920,7 @@ Embedded USER save вызывал **`FinalizeUiNodeState`** (UI publication): с
 
 **Порядок Object Core:** **C0 PASS** → **12R/12B PASS** → **13 IN_PROGRESS** (**13.1–13.2 PASS**, **13.3–13.6 TODO**) → **14–16 TODO**; **17–22** — roadmap ([PLAN §порядок](./PLAN.md#порядок-работ-после-11)).
 
-**Активный порядок (2026-11-04):** **P3.T3.Web6 PASS** (§[P3.T3.Web6](#p3t3web6--web-embedded-backing--idbfs-user-2026-11-04--pass)); **NEXT:** только **Android embedded**; Apple — не NEXT.
+**Активный порядок (2026-11-04):** **P3.T3.Web6 PASS** (§[P3.T3.Web6](#p3t3web6--web-embedded-backing--idbfs-user-2026-11-04--pass)); **NEXT:** только **Android embedded**; Apple — не NEXT. *(Исполнено: §[P3.T3.AE](#p3t3ae--android-embedded-backing--user-2026-11-04--pass); NEXT — macOS MinimalApp.)*
 
 **Активный порядок (2026-11-02, historical):** **P3.T3.L3 PASS** (§P3.T3.L3). **WindowCatalog обязательный граф** — правки продолжаются (§[WindowCatalog required links](./PROGRESS.md#windowcatalog-required-links-fatal-2026-11-02)). **P3.T3.M (macOS)** — **не NEXT**. Полная Android lifecycle matrix — **не начинать**. **P0/P1 DONE** ([PLAN §P0–P6](./PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6)).
 

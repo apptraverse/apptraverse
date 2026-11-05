@@ -10,7 +10,7 @@ namespace apptraverse::example::minimal {
 
 MinimalNativeRuntime::MinimalNativeRuntime(std::filesystem::path state_dir,
                                              android::AndroidUiBridge ui_bridge)
-    : state_dir_{std::move(state_dir)}, ui_bridge_{std::move(ui_bridge)} {}
+    : user_storage_{std::move(state_dir)}, ui_bridge_{std::move(ui_bridge)} {}
 
 MinimalNativeRuntime::~MinimalNativeRuntime() {
   if (host_) {
@@ -23,15 +23,16 @@ void MinimalNativeRuntime::SetPresentationRoot(JNIEnv* env, jobject activity,
   if (!host_) {
     android::AndroidApplicationHostCallbacks callbacks;
     callbacks.run_model = [this](ApplicationPublishedCallback on_published) {
-      return RunMinimalApplicationModel(state_dir_, runtime_,
-                                        std::move(on_published), true);
+      return RunMinimalApplicationModel(user_storage_, runtime_,
+                                        std::move(on_published));
     };
     callbacks.after_initial = [](ae::Obj&) {
       apptraverse::android::LogInfo("MINIMAL_APP_INITIAL_RENDER_OK");
     };
     callbacks.persist_model = [this](ae::Domain& domain) -> int {
       WaitAndroidCheckpointPersistTestGateIfEnabled();
-      return PersistMinimalApplicationFromDomain(domain, state_dir_);
+      return PersistMinimalApplicationEmbeddedUserOverlayFromDomain(
+          domain, user_storage_);
     };
     host_ = std::make_unique<android::AndroidApplicationHost>(
         runtime_, presentation_host_, std::move(ui_bridge_), std::move(callbacks));

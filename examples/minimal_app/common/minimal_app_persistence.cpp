@@ -139,16 +139,12 @@ int PersistMinimalApplicationEmbeddedUserOverlay(
   return 0;
 }
 
-int PersistMinimalApplicationFromDomain(ae::Domain& domain,
-                                        std::filesystem::path const& state_dir) {
+int PersistMinimalApplicationEmbeddedUserOverlayFromDomain(
+    ae::Domain& domain, DirectoryDomainStorage& user_storage) {
   ae::Ptr<ae::Obj> const held = domain.Find(MinimalApplicationRootId());
-  if (!held) {
-    WriteFatalStderr("fatal: MinimalApplication missing from model domain\n");
-    return 1;
-  }
   auto& application = static_cast<MinimalApplication&>(*held);
-  DirectoryDomainStorage storage{state_dir};
-  return PersistMinimalApplication(application, storage);
+  return PersistMinimalApplicationEmbeddedUserOverlay(application,
+                                                      user_storage);
 }
 
 }  // namespace apptraverse::example::minimal

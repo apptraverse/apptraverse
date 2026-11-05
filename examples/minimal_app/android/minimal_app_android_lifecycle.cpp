@@ -2,60 +2,59 @@
 
 #include "minimal_application.h"
 
-#include <vector>
+#include <filesystem>
 
 #include "android_log.h"
 
 #include "apptraverse/application_model_session.h"
-#include "apptraverse/directory_domain_storage.h"
-#include "apptraverse/noninteractive_crt.h"
+#include "apptraverse/embedded_application_model_session.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/platform/android/android_ui_registration.h"
 #include "apptraverse/ui/ui_presenters.h"
 
-#include "minimal_app_android_graph.h"
+#include "embedded_distilled_minimal_app_supply.h"
 #include "minimal_app_persistence.h"
 #include "minimal_app_prepare.h"
 
 namespace apptraverse::example::minimal {
+namespace {
 
-int RunMinimalApplicationModel(
-    std::filesystem::path const& state_dir,
-    ApplicationModelRuntime& runtime,
-    ApplicationPublishedCallback on_published,
-    bool allow_distilled_bootstrap) {
+bool UserProfilePresent(std::filesystem::path const& state_dir) {
+  return std::filesystem::exists(state_dir) &&
+         !std::filesystem::is_empty(state_dir);
+}
+
+}  // namespace
+
+int RunMinimalApplicationModel(DirectoryDomainStorage& user_storage,
+                               ApplicationModelRuntime& runtime,
+                               ApplicationPublishedCallback on_published) {
   EnsureObjectRegistration();
   ui::EnsureUiPresenterRegistration();
   ui::android::EnsureAndroidUiPresenterRegistration();
   EnsureMinimalApplicationRegistration();
 
-#if defined(APPTRAVERSE_ENABLE_DISTILLATION)
-  if (allow_distilled_bootstrap) {
-    bool const bootstrapped = BootstrapMinimalApplicationProfileIfAbsent(
-        state_dir, [](ae::Domain& domain) {
-          return BuildAndroidMinimalApplicationGraph(domain);
-        });
-    if (bootstrapped) {
-      apptraverse::android::LogInfo("MINIMAL_APP_PROFILE_BOOTSTRAP");
-    } else {
-      apptraverse::android::LogInfo("MINIMAL_APP_LOADED_FROM_PROFILE");
-    }
+  bool const user_profile_present = UserProfilePresent(user_storage.root());
+  if (user_profile_present) {
+    apptraverse::android::LogInfo("MINIMAL_APP_LOADED_FROM_PROFILE");
+  } else {
+    apptraverse::android::LogInfo("MINIMAL_APP_LOADED_FROM_EMBEDDED_BACKING");
   }
-#else
-  (void)allow_distilled_bootstrap;
-#endif
 
-  DirectoryDomainStorage durable_storage{state_dir};
   ApplicationModelSessionHooks<MinimalApplication> hooks;
-  hooks.prepare = [](MinimalApplication& application) {
+  hooks.prepare = [user_profile_present](MinimalApplication& application) {
     PrepareMinimalApplicationForRun(application);
+    if (user_profile_present) {
+      NormalizeMinimalApplicationAfterEmbeddedUserLoad(application);
+    }
   };
-  hooks.persist = [&durable_storage](MinimalApplication& application) -> int {
-    return PersistMinimalApplication(application, durable_storage);
+  hooks.persist = [&user_storage](MinimalApplication& application) -> int {
+    return PersistMinimalApplicationEmbeddedUserOverlay(application,
+                                                        user_storage);
   };
 
-  return RunApplicationModelSession(
-      durable_storage, MinimalApplicationRootId(), runtime,
+  return RunEmbeddedApplicationModelSession(
+      user_storage, embedded_distilled::minimal::kEmbeddedGraph, runtime,
       std::move(on_published), hooks);
 }
 

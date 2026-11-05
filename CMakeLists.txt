@@ -160,6 +160,17 @@ if(WIN32)
     apptraverse_ui_windows apptraverse_ui_extended)
 endif()
 
+# Android presenter classes without their JNI Views: the build-host exporter
+# distills the Android MinimalApp supply from these.
+add_library(apptraverse_ui_android_presenters STATIC
+  src/platform/android/android_ui_presenters.cpp
+  src/platform/android/android_ui_registration.cpp
+)
+target_include_directories(apptraverse_ui_android_presenters PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(apptraverse_ui_android_presenters PUBLIC apptraverse)
+target_compile_features(apptraverse_ui_android_presenters PUBLIC cxx_std_20)
+
 if(ANDROID)
   add_library(apptraverse_ui_android STATIC
     src/platform/android/android_jni_util.cpp
@@ -168,12 +179,12 @@ if(ANDROID)
     src/platform/android/android_ui_window_presenter.cpp
     src/platform/android/android_ui_push_button_presenter.cpp
     src/platform/android/android_ui_list_presenter.cpp
-    src/platform/android/android_ui_registration.cpp
   )
   target_include_directories(apptraverse_ui_android PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src/platform/android)
-  target_link_libraries(apptraverse_ui_android PUBLIC apptraverse log)
+  target_link_libraries(apptraverse_ui_android PUBLIC
+    apptraverse_ui_android_presenters apptraverse log)
   target_compile_features(apptraverse_ui_android PUBLIC cxx_std_20)
 endif()
 

@@ -37,9 +37,10 @@ void FinalizeMinimalApplicationNodesForEmbeddedUserOverlay(
 void NormalizeMinimalApplicationAfterEmbeddedUserLoad(
     MinimalApplication& application);
 
-// Model-thread checkpoint persist for the live session root in |domain|.
-int PersistMinimalApplicationFromDomain(
-    ae::Domain& domain, std::filesystem::path const& state_dir);
+// Model-thread checkpoint of the live embedded session root in |domain|; the
+// session writes through its overlay into |user_storage|.
+int PersistMinimalApplicationEmbeddedUserOverlayFromDomain(
+    ae::Domain& domain, DirectoryDomainStorage& user_storage);
 
 }  // namespace apptraverse::example::minimal
 

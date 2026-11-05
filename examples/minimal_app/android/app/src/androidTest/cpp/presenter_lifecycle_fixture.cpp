@@ -38,8 +38,8 @@ class PresenterLifecycleFixture {
     PrepareMinimalApplicationForRun(*model_root_);
     ByteSink initial;
     SerializeInitialPublication(*model_root_, initial);
-    session_ = std::make_unique<ApplicationUiSession>(initial.bytes, &host_,
-                                                      proxy_);
+    session_ = std::make_unique<ApplicationUiSession>(
+        initial.bytes, host_.presenter_host(), proxy_);
   }
 
   ~PresenterLifecycleFixture() {

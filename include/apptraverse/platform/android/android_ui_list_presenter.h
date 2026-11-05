@@ -1,13 +1,14 @@
 #ifndef APPTRAVERSE_PLATFORM_ANDROID_ANDROID_UI_LIST_PRESENTER_H_
 #define APPTRAVERSE_PLATFORM_ANDROID_ANDROID_UI_LIST_PRESENTER_H_
 
-#include <jni.h>
+#include <cstdint>
 
 #include "apptraverse/ui/ui_presenters.h"
 
 namespace apptraverse::ui::android {
 
 struct AndroidListContainerViewRefs;
+struct AndroidPresentationHost;
 
 class AndroidListContainerPresenter : public UiListContainerPresenter {
   APPTRAVERSE_NAMED_OBJECT(
@@ -38,14 +39,14 @@ class AndroidListContainerPresenter : public UiListContainerPresenter {
   void HandleRowClickFromJava(int row_index);
 
  private:
-  void SyncFromMirror();
+  friend struct AndroidPresentationHost;
 
   AndroidListContainerViewRefs* view_refs_{nullptr};
   bool applying_mirror_sync_{false};
 };
 
 void NotifyAndroidListSelectionFromJava(std::int64_t native_presenter,
-                                        jint row_index);
+                                        std::int32_t row_index);
 
 }  // namespace apptraverse::ui::android
 
