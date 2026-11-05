@@ -316,9 +316,11 @@ if(UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN AND
     APPTRAVERSE_BUILD_LINUX_GUI)
   find_package(PkgConfig REQUIRED)
   pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0)
+  pkg_check_modules(X11 IMPORTED_TARGET x11)
   add_library(apptraverse_ui_linux STATIC
     src/platform/linux/linux_fatal.cpp
     src/platform/linux/linux_application_host.cpp
+    src/platform/linux/linux_desktop_window_stack.cpp
     src/platform/linux/linux_ui_window_presenter.cpp
     src/platform/linux/linux_ui_list_presenter.cpp
     src/platform/linux/linux_ui_push_button_presenter.cpp
@@ -327,6 +329,9 @@ if(UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN AND
   target_include_directories(apptraverse_ui_linux PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include)
   target_link_libraries(apptraverse_ui_linux PUBLIC apptraverse PkgConfig::GTK3)
+  if(TARGET PkgConfig::X11)
+    target_link_libraries(apptraverse_ui_linux PUBLIC PkgConfig::X11)
+  endif()
   target_compile_features(apptraverse_ui_linux PUBLIC cxx_std_20)
 endif()
 

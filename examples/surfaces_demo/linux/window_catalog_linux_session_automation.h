@@ -18,6 +18,10 @@ enum class LinuxWindowCatalogSessionAutomation {
   L3ColdVerify,
   L3Cycle2Save,
   L3Cycle2ColdVerify,
+  L3GeomZSave,
+  L3GeomZCold,
+  L3GeomZCycle2Save,
+  L3GeomZCycle2Cold,
 };
 
 LinuxWindowCatalogSessionAutomation ParseLinuxWindowCatalogSessionAutomation(

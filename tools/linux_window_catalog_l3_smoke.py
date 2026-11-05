@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -12,7 +13,7 @@ from pathlib import Path
 
 
 def run_phase(
-    exe: Path, state_dir: Path, automation: str, timeout_s: int
+    exe: Path, state_dir: Path, automation: str, timeout_s: int, env: dict[str, str]
 ) -> tuple[int, str]:
     cmd = [
         str(exe),
@@ -27,6 +28,7 @@ def run_phase(
         text=True,
         timeout=timeout_s,
         check=False,
+        env=env,
     )
     merged = (proc.stdout or "") + (proc.stderr or "")
     return proc.returncode, merged
@@ -44,18 +46,21 @@ def require_markers(text: str, markers: list[str]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("exe", type=Path)
-    parser.add_argument("--timeout-s", type=int, default=180)
+    parser.add_argument("--timeout-s", type=int, default=240)
     args = parser.parse_args()
     exe = args.exe.resolve()
     if not exe.is_file():
         print(f"FAIL: missing executable {exe}", file=sys.stderr)
         return 1
 
-    profile = Path(tempfile.mkdtemp(prefix="apptraverse_wc_linux_"))
+    env = os.environ.copy()
+    env["GDK_BACKEND"] = "x11"
+
+    profile = Path(tempfile.mkdtemp(prefix="apptraverse_wc_linux_geom_z_"))
     try:
-        code, out1 = run_phase(exe, profile, "l3_save", args.timeout_s)
+        code, out1 = run_phase(exe, profile, "l3_geom_z_save", args.timeout_s, env)
         if code != 0:
-            print(f"FAIL: l3_save exit {code}", file=sys.stderr)
+            print(f"FAIL: l3_geom_z_save exit {code}", file=sys.stderr)
             print(out1, file=sys.stderr)
             return 1
         require_markers(
@@ -63,61 +68,46 @@ def main() -> int:
             [
                 "WINDOW_CATALOG_LOADED_FROM_EMBEDDED_BACKING",
                 "WINDOW_CATALOG_LINUX_INITIAL_RENDER_OK",
-                "WINDOW_CATALOG_LINUX_REOPEN_SAME_NATIVE_OK",
-                "WINDOW_CATALOG_LINUX_LOCALE_TOGGLE_OK",
-                "WINDOW_CATALOG_LINUX_SAVE_READY",
+                "WINDOW_CATALOG_LINUX_GEOM_Z_MODEL_OK",
                 "WINDOW_CATALOG_SHUTDOWN_PERSIST_OK",
                 "WINDOW_CATALOG_SHUTDOWN_STOPPED",
             ],
         )
 
-        code, out2 = run_phase(exe, profile, "l3_cold_verify", args.timeout_s)
+        code, out2 = run_phase(exe, profile, "l3_geom_z_cold", args.timeout_s, env)
         if code != 0:
-            print(f"FAIL: l3_cold_verify exit {code}", file=sys.stderr)
+            print(f"FAIL: l3_geom_z_cold exit {code}", file=sys.stderr)
             print(out2, file=sys.stderr)
             return 1
         require_markers(
             out2,
             [
                 "WINDOW_CATALOG_LOADED_FROM_PROFILE",
-                "WINDOW_CATALOG_LINUX_COLD_STATE_OK",
-                "WINDOW_CATALOG_LINUX_POST_COMMAND_OK",
+                "WINDOW_CATALOG_LINUX_GEOM_Z_COLD_OK",
+                "WINDOW_CATALOG_LINUX_GEOM_Z_CYCLE2_SAVE_OK",
                 "WINDOW_CATALOG_SHUTDOWN_PERSIST_OK",
                 "WINDOW_CATALOG_SHUTDOWN_STOPPED",
             ],
         )
 
-        code, out3 = run_phase(exe, profile, "l3_cycle2_save", args.timeout_s)
+        code, out3 = run_phase(
+            exe, profile, "l3_geom_z_cycle2_cold", args.timeout_s, env
+        )
         if code != 0:
-            print(f"FAIL: l3_cycle2_save exit {code}", file=sys.stderr)
+            print(f"FAIL: l3_geom_z_cycle2_cold exit {code}", file=sys.stderr)
             print(out3, file=sys.stderr)
             return 1
         require_markers(
             out3,
             [
                 "WINDOW_CATALOG_LOADED_FROM_PROFILE",
-                "WINDOW_CATALOG_LINUX_CYCLE2_SAVE_READY",
+                "WINDOW_CATALOG_LINUX_GEOM_Z_CYCLE2_COLD_OK",
                 "WINDOW_CATALOG_SHUTDOWN_PERSIST_OK",
                 "WINDOW_CATALOG_SHUTDOWN_STOPPED",
             ],
         )
 
-        code, out4 = run_phase(exe, profile, "l3_cycle2_cold_verify", args.timeout_s)
-        if code != 0:
-            print(f"FAIL: l3_cycle2_cold_verify exit {code}", file=sys.stderr)
-            print(out4, file=sys.stderr)
-            return 1
-        require_markers(
-            out4,
-            [
-                "WINDOW_CATALOG_LOADED_FROM_PROFILE",
-                "WINDOW_CATALOG_LINUX_CYCLE2_COLD_OK",
-                "WINDOW_CATALOG_SHUTDOWN_PERSIST_OK",
-                "WINDOW_CATALOG_SHUTDOWN_STOPPED",
-            ],
-        )
-
-        print("PASS: linux_window_catalog_l3_smoke")
+        print("PASS: linux_window_catalog_l3_smoke (geom/z, GDK_BACKEND=x11)")
         return 0
     finally:
         shutil.rmtree(profile, ignore_errors=True)

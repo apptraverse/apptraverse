@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "window_catalog_lifecycle.h"
+#include "window_catalog_linux_desktop_zorder.h"
 #include "window_catalog_linux_session_automation.h"
 #include "window_catalog_model.h"
 
@@ -88,16 +89,15 @@ int main(int argc, char** argv) {
         auto& catalog =
             static_cast<apptraverse::WindowCatalog&>(application_root);
         if (catalog.main_window.id() == closed_window.obj_id) {
-          std::vector<std::uint32_t> z_order;
-          for (auto const& window_ref : catalog.desktop_z_order) {
-            if (!window_ref.is_valid()) {
-              continue;
-            }
-            z_order.push_back(window_ref.id().id());
+          apptraverse::example::surfaces::FlushCatalogNativeFrames(catalog);
+          std::vector<std::uint32_t> const z_order =
+              apptraverse::example::surfaces::
+                  CaptureCatalogDesktopZOrderTopToBottom(catalog);
+          if (!z_order.empty()) {
+            proxy.Invoke(catalog.obj_id,
+                         &apptraverse::WindowCatalog::SetDesktopZOrderFromObjIds,
+                         z_order);
           }
-          proxy.Invoke(catalog.obj_id,
-                       &apptraverse::WindowCatalog::SetDesktopZOrderFromObjIds,
-                       z_order);
           session.runtime.RequestStop();
           return;
         }
@@ -126,6 +126,9 @@ int main(int argc, char** argv) {
     pending_focus = {};
   };
   callbacks.after_initial = [&automation_hooks](ae::Obj& application_root) {
+    auto& catalog =
+        static_cast<apptraverse::WindowCatalog&>(application_root);
+    apptraverse::example::surfaces::RestoreCatalogDesktopZOrder(catalog);
     automation_hooks.OnAfterInitial(application_root);
   };
 

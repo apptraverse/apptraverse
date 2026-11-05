@@ -68,6 +68,7 @@ target_include_directories(apptraverse_export_window_catalog_distilled_graph_lin
 
 set(_window_catalog_linux_sources
   window_catalog_main.cpp
+  window_catalog_linux_desktop_zorder.cpp
   window_catalog_linux_session_automation.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/../common/window_catalog_lifecycle.cpp
 )

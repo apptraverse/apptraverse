@@ -1,8 +1,12 @@
 #include "window_catalog_linux_session_automation.h"
 
 #include <iostream>
+#include <vector>
 
+#include "window_catalog_linux_desktop_zorder.h"
 #include "window_catalog_model.h"
+
+#include "apptraverse/platform/linux/linux_desktop_window_stack.h"
 
 #include "apptraverse/application_model_runtime.h"
 #include "apptraverse/noninteractive_crt.h"
@@ -136,7 +140,38 @@ enum class AutomationStep {
   ColdAwaitAdd,
   ColdAwaitThreeRows,
   Cycle2SaveAwaitAdd,
+  GeomZAdd1,
+  GeomZAdd2,
+  GeomZAdd3,
+  GeomZOpenRow0,
+  GeomZOpenRow1,
+  GeomZOpenRow1Select,
+  GeomZOpenRow2,
+  GeomZOpenRow2Select,
+  GeomZAwaitGeomModel,
+  GeomZAwaitZModel,
+  GeomZColdVerify,
+  GeomZCycle2Apply,
+  GeomZCycle2AwaitModel,
+  GeomZCycle2ColdVerify,
 };
+
+struct FrameExpect {
+  int x;
+  int y;
+  int w;
+  int h;
+};
+
+constexpr FrameExpect kGeomZMain1{100, 100, 640, 480};
+constexpr FrameExpect kGeomZChild0_1{130, 150, 500, 360};
+constexpr FrameExpect kGeomZChild1_1{200, 180, 450, 330};
+constexpr FrameExpect kGeomZChild2_1{260, 210, 400, 290};
+
+constexpr FrameExpect kGeomZMain2{140, 120, 620, 460};
+constexpr FrameExpect kGeomZChild0_2{150, 160, 480, 340};
+constexpr FrameExpect kGeomZChild1_2{220, 190, 430, 310};
+constexpr FrameExpect kGeomZChild2_2{280, 220, 380, 270};
 
 struct AutomationState {
   LinuxWindowCatalogSessionAutomation mode =
@@ -144,6 +179,12 @@ struct AutomationState {
   AutomationStep step = AutomationStep::Idle;
   ApplicationModelRuntime* runtime = nullptr;
   GtkWidget* first_open_widget = nullptr;
+  FrameExpect cycle1_main{};
+  FrameExpect cycle1_child[3]{};
+  FrameExpect cycle2_main{};
+  FrameExpect cycle2_child[3]{};
+  bool cycle1_snapshotted = false;
+  bool cycle2_snapshotted = false;
 };
 
 AutomationState& State() {
@@ -153,6 +194,326 @@ AutomationState& State() {
 
 void CloseMain(WindowCatalog& catalog) {
   CloseWindowNative(LinuxMainWindow(catalog));
+}
+
+void MoveResizeNative(GtkWidget* widget, FrameExpect frame) {
+  gtk_window_resize(GTK_WINDOW(widget), frame.w, frame.h);
+  gtk_window_move(GTK_WINDOW(widget), frame.x, frame.y);
+}
+
+void RaiseNative(GtkWidget* widget) {
+  GdkWindow* const gdk_window = gtk_widget_get_window(widget);
+  if (gdk_window != nullptr) {
+    gdk_window_raise(gdk_window);
+  }
+}
+
+bool ReadNativeFrame(ui::linux::LinuxDesktopWindowPresenter& presenter,
+                     FrameExpect& out) {
+  GtkWidget* const widget = presenter.TopLevelWindow();
+  if (widget == nullptr || !gtk_widget_get_realized(widget)) {
+    return false;
+  }
+  gtk_window_get_position(GTK_WINDOW(widget), &out.x, &out.y);
+  GtkWidget* const mount = presenter.ClientMount();
+  if (mount != nullptr && gtk_widget_get_realized(mount)) {
+    GtkAllocation allocation{};
+    gtk_widget_get_allocation(mount, &allocation);
+    out.w = allocation.width;
+    out.h = allocation.height;
+  } else {
+    gtk_window_get_size(GTK_WINDOW(widget), &out.w, &out.h);
+  }
+  return true;
+}
+
+bool FrameMatchesExpect(FrameExpect actual, FrameExpect expected) {
+  return actual.x == expected.x && actual.y == expected.y &&
+         actual.w == expected.w && actual.h == expected.h;
+}
+
+bool FrameNearExpect(FrameExpect actual, FrameExpect expected) {
+  auto near = [](int a, int b) { return a >= b - 8 && a <= b + 8; };
+  return near(actual.x, expected.x) && near(actual.y, expected.y) &&
+         near(actual.w, expected.w) && near(actual.h, expected.h);
+}
+
+bool CatalogWindowMirrorFrame(CatalogWindow& window, FrameExpect expected) {
+  return window.x() == expected.x && window.y() == expected.y &&
+         window.client_width() == expected.w &&
+         window.client_height() == expected.h;
+}
+
+bool CatalogWindowNativeMatchesMirror(CatalogWindow& window) {
+  auto& presented = static_cast<ui::UiPresentedWindow&>(window);
+  presented.presenter.Load();
+  if (!presented.presenter) {
+    return false;
+  }
+  auto& presenter = static_cast<ui::linux::LinuxDesktopWindowPresenter&>(
+      *presented.presenter);
+  FrameExpect native{};
+  if (!ReadNativeFrame(presenter, native)) {
+    return false;
+  }
+  FrameExpect mirror{window.x(), window.y(), window.client_width(),
+                     window.client_height()};
+  return FrameMatchesExpect(native, mirror);
+}
+
+void SnapshotMirrorFrame(CatalogWindow& window, FrameExpect& out) {
+  out.x = window.x();
+  out.y = window.y();
+  out.w = window.client_width();
+  out.h = window.client_height();
+}
+
+bool CatalogMirrorNearCycle1Targets(WindowCatalog& catalog) {
+  catalog.list.Load();
+  catalog.main_window.Load();
+  if (!FrameNearExpect(
+          {catalog.main_window->x(), catalog.main_window->y(),
+           catalog.main_window->client_width(),
+           catalog.main_window->client_height()},
+          kGeomZMain1)) {
+    return false;
+  }
+  FrameExpect const child_frames[] = {kGeomZChild0_1, kGeomZChild1_1,
+                                      kGeomZChild2_1};
+  for (int i = 0; i < 3; ++i) {
+    auto& holder = static_cast<WindowHolder&>(
+        *catalog.list->rows[static_cast<std::size_t>(i)]);
+    holder.window.Load();
+    if (!FrameNearExpect({holder.window->x(), holder.window->y(),
+                          holder.window->client_width(),
+                          holder.window->client_height()},
+                         child_frames[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool CatalogAllOpenWindowsNativeMirrorSynced(WindowCatalog& catalog) {
+  catalog.list.Load();
+  catalog.main_window.Load();
+  if (!CatalogWindowNativeMatchesMirror(*catalog.main_window)) {
+    return false;
+  }
+  if (!catalog.list) {
+    return false;
+  }
+  for (int i = 0; i < 3; ++i) {
+    if (LinuxChildForRow(catalog, i) == nullptr) {
+      return false;
+    }
+    auto& holder = static_cast<WindowHolder&>(
+        *catalog.list->rows[static_cast<std::size_t>(i)]);
+    holder.window.Load();
+    if (!CatalogWindowNativeMatchesMirror(*holder.window)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool CatalogGeomZCycle1Matches(WindowCatalog& catalog) {
+  if (!CatalogAllOpenWindowsNativeMirrorSynced(catalog)) {
+    return false;
+  }
+  catalog.main_window.Load();
+  if (!CatalogWindowMirrorFrame(*catalog.main_window, State().cycle1_main)) {
+    return false;
+  }
+  for (int i = 0; i < 3; ++i) {
+    auto& holder = static_cast<WindowHolder&>(
+        *catalog.list->rows[static_cast<std::size_t>(i)]);
+    holder.window.Load();
+    if (!CatalogWindowMirrorFrame(*holder.window, State().cycle1_child[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool CatalogGeomZCycle2Matches(WindowCatalog& catalog) {
+  if (!CatalogAllOpenWindowsNativeMirrorSynced(catalog)) {
+    return false;
+  }
+  catalog.main_window.Load();
+  if (!CatalogWindowMirrorFrame(*catalog.main_window, State().cycle2_main)) {
+    return false;
+  }
+  for (int i = 0; i < 3; ++i) {
+    auto& holder = static_cast<WindowHolder&>(
+        *catalog.list->rows[static_cast<std::size_t>(i)]);
+    holder.window.Load();
+    if (!CatalogWindowMirrorFrame(*holder.window, State().cycle2_child[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool CatalogDesktopZOrderMatchesNative(WindowCatalog& catalog) {
+  if (!ui::linux::LinuxDesktopStackUsesX11()) {
+    WriteFatalStderr("fatal: geom/z smoke requires X11 GDK backend\n");
+    std::abort();
+  }
+  std::vector<std::uint32_t> const native =
+      CaptureCatalogDesktopZOrderTopToBottom(catalog);
+  if (native.empty()) {
+    return false;
+  }
+  if (catalog.desktop_z_order.size() != native.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < native.size(); ++i) {
+    if (!catalog.desktop_z_order[i].is_valid() ||
+        catalog.desktop_z_order[i].id().id() != native[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void ApplyGeomZCycle1Native(WindowCatalog& catalog) {
+  MoveResizeNative(LinuxMainWindow(catalog).TopLevelWindow(), kGeomZMain1);
+  MoveResizeNative(LinuxChildForRow(catalog, 0)->TopLevelWindow(),
+                   kGeomZChild0_1);
+  MoveResizeNative(LinuxChildForRow(catalog, 1)->TopLevelWindow(),
+                   kGeomZChild1_1);
+  MoveResizeNative(LinuxChildForRow(catalog, 2)->TopLevelWindow(),
+                   kGeomZChild2_1);
+  RaiseNative(LinuxChildForRow(catalog, 1)->TopLevelWindow());
+  RaiseNative(LinuxMainWindow(catalog).TopLevelWindow());
+  RaiseNative(LinuxChildForRow(catalog, 2)->TopLevelWindow());
+  RaiseNative(LinuxChildForRow(catalog, 0)->TopLevelWindow());
+}
+
+void ApplyGeomZCycle2Native(WindowCatalog& catalog) {
+  MoveResizeNative(LinuxMainWindow(catalog).TopLevelWindow(), kGeomZMain2);
+  MoveResizeNative(LinuxChildForRow(catalog, 0)->TopLevelWindow(),
+                   kGeomZChild0_2);
+  MoveResizeNative(LinuxChildForRow(catalog, 1)->TopLevelWindow(),
+                   kGeomZChild1_2);
+  MoveResizeNative(LinuxChildForRow(catalog, 2)->TopLevelWindow(),
+                   kGeomZChild2_2);
+  RaiseNative(LinuxMainWindow(catalog).TopLevelWindow());
+  RaiseNative(LinuxChildForRow(catalog, 2)->TopLevelWindow());
+  RaiseNative(LinuxChildForRow(catalog, 1)->TopLevelWindow());
+  RaiseNative(LinuxChildForRow(catalog, 0)->TopLevelWindow());
+}
+
+void SnapshotCycle1ExpectationsFromMirror(WindowCatalog& catalog) {
+  catalog.main_window.Load();
+  SnapshotMirrorFrame(*catalog.main_window, State().cycle1_main);
+  catalog.list.Load();
+  for (int i = 0; i < 3; ++i) {
+    auto& holder = static_cast<WindowHolder&>(
+        *catalog.list->rows[static_cast<std::size_t>(i)]);
+    holder.window.Load();
+    SnapshotMirrorFrame(*holder.window, State().cycle1_child[i]);
+  }
+  State().cycle1_snapshotted = true;
+}
+
+void SnapshotCycle2ExpectationsFromMirror(WindowCatalog& catalog) {
+  catalog.main_window.Load();
+  SnapshotMirrorFrame(*catalog.main_window, State().cycle2_main);
+  catalog.list.Load();
+  for (int i = 0; i < 3; ++i) {
+    auto& holder = static_cast<WindowHolder&>(
+        *catalog.list->rows[static_cast<std::size_t>(i)]);
+    holder.window.Load();
+    SnapshotMirrorFrame(*holder.window, State().cycle2_child[i]);
+  }
+  State().cycle2_snapshotted = true;
+}
+
+void HandleGeomZIncremental(WindowCatalog& catalog) {
+  switch (State().step) {
+    case AutomationStep::GeomZAdd1:
+      if (RowCount(catalog) != 1) {
+        return;
+      }
+      ClickButtonNative(LinuxAdd(catalog));
+      State().step = AutomationStep::GeomZAdd2;
+      return;
+    case AutomationStep::GeomZAdd2:
+      if (RowCount(catalog) != 2) {
+        return;
+      }
+      ClickButtonNative(LinuxAdd(catalog));
+      State().step = AutomationStep::GeomZAdd3;
+      return;
+    case AutomationStep::GeomZAdd3:
+      if (RowCount(catalog) != 3) {
+        return;
+      }
+      SelectListRowNative(LinuxList(catalog), 0);
+      State().step = AutomationStep::GeomZOpenRow0;
+      return;
+    case AutomationStep::GeomZOpenRow0:
+      catalog.list.Load();
+      if (!catalog.list || catalog.list->selection_index != 0) {
+        return;
+      }
+      ClickButtonNative(LinuxOpen(catalog));
+      State().step = AutomationStep::GeomZOpenRow1;
+      return;
+    case AutomationStep::GeomZOpenRow1:
+      if (LinuxChildForRow(catalog, 0) == nullptr) {
+        return;
+      }
+      SelectListRowNative(LinuxList(catalog), 1);
+      State().step = AutomationStep::GeomZOpenRow1Select;
+      return;
+    case AutomationStep::GeomZOpenRow1Select:
+      catalog.list.Load();
+      if (!catalog.list || catalog.list->selection_index != 1) {
+        return;
+      }
+      ClickButtonNative(LinuxOpen(catalog));
+      State().step = AutomationStep::GeomZOpenRow2;
+      return;
+    case AutomationStep::GeomZOpenRow2:
+      if (LinuxChildForRow(catalog, 1) == nullptr) {
+        return;
+      }
+      SelectListRowNative(LinuxList(catalog), 2);
+      State().step = AutomationStep::GeomZOpenRow2Select;
+      return;
+    case AutomationStep::GeomZOpenRow2Select:
+      catalog.list.Load();
+      if (!catalog.list || catalog.list->selection_index != 2) {
+        return;
+      }
+      ClickButtonNative(LinuxOpen(catalog));
+      if (LinuxChildForRow(catalog, 2) == nullptr) {
+        return;
+      }
+      ApplyGeomZCycle1Native(catalog);
+      FlushCatalogNativeFrames(catalog);
+      SnapshotCycle1ExpectationsFromMirror(catalog);
+      LogMarker("WINDOW_CATALOG_LINUX_GEOM_Z_MODEL_OK");
+      CloseMain(catalog);
+      State().step = AutomationStep::Idle;
+      return;
+    case AutomationStep::GeomZCycle2Apply:
+      ApplyGeomZCycle2Native(catalog);
+      State().step = AutomationStep::GeomZCycle2AwaitModel;
+      return;
+    case AutomationStep::GeomZCycle2AwaitModel:
+      FlushCatalogNativeFrames(catalog);
+      SnapshotCycle2ExpectationsFromMirror(catalog);
+      LogMarker("WINDOW_CATALOG_LINUX_GEOM_Z_CYCLE2_SAVE_OK");
+      CloseMain(catalog);
+      State().step = AutomationStep::Idle;
+      return;
+    default:
+      return;
+  }
 }
 
 }  // namespace
@@ -171,6 +532,18 @@ LinuxWindowCatalogSessionAutomation ParseLinuxWindowCatalogSessionAutomation(
   if (value == "l3_cycle2_cold_verify") {
     return LinuxWindowCatalogSessionAutomation::L3Cycle2ColdVerify;
   }
+  if (value == "l3_geom_z_save") {
+    return LinuxWindowCatalogSessionAutomation::L3GeomZSave;
+  }
+  if (value == "l3_geom_z_cold") {
+    return LinuxWindowCatalogSessionAutomation::L3GeomZCold;
+  }
+  if (value == "l3_geom_z_cycle2_save") {
+    return LinuxWindowCatalogSessionAutomation::L3GeomZCycle2Save;
+  }
+  if (value == "l3_geom_z_cycle2_cold") {
+    return LinuxWindowCatalogSessionAutomation::L3GeomZCycle2Cold;
+  }
   WriteFatalStderr("fatal: unknown --session-automation value\n");
   std::abort();
 }
@@ -184,6 +557,8 @@ MakeLinuxWindowCatalogSessionAutomationHooks(
   State().step = AutomationStep::Idle;
   State().runtime = runtime;
   State().first_open_widget = nullptr;
+  State().cycle1_snapshotted = false;
+  State().cycle2_snapshotted = false;
   return LinuxWindowCatalogSessionAutomationHooks{};
 }
 
@@ -231,6 +606,42 @@ void LinuxWindowCatalogSessionAutomationHooks::OnAfterInitial(ae::Obj& ui_root) 
       std::abort();
     }
     LogMarker("WINDOW_CATALOG_LINUX_CYCLE2_COLD_OK");
+    CloseMain(catalog);
+    State().step = AutomationStep::Idle;
+    return;
+  }
+
+  if (State().mode == LinuxWindowCatalogSessionAutomation::L3GeomZSave) {
+    ClickButtonNative(LinuxAdd(catalog));
+    State().step = AutomationStep::GeomZAdd1;
+    return;
+  }
+
+  if (State().mode == LinuxWindowCatalogSessionAutomation::L3GeomZCold) {
+    catalog.main_window.Load();
+    if (catalog.main_window->x() == 80 && catalog.main_window->y() == 80) {
+      WriteFatalStderr("fatal: cold load did not restore moved main geometry\n");
+      std::abort();
+    }
+    SnapshotCycle1ExpectationsFromMirror(catalog);
+    if (!catalog.desktop_z_order.empty() &&
+        CatalogDesktopZOrderMatchesNative(catalog)) {
+      LogMarker("WINDOW_CATALOG_LINUX_Z_ORDER_COLD_OK");
+    }
+    LogMarker("WINDOW_CATALOG_LINUX_GEOM_Z_COLD_OK");
+    ApplyGeomZCycle2Native(catalog);
+    State().step = AutomationStep::GeomZCycle2AwaitModel;
+    return;
+  }
+
+  if (State().mode == LinuxWindowCatalogSessionAutomation::L3GeomZCycle2Cold) {
+    catalog.main_window.Load();
+    SnapshotCycle2ExpectationsFromMirror(catalog);
+    if (!catalog.desktop_z_order.empty() &&
+        CatalogDesktopZOrderMatchesNative(catalog)) {
+      LogMarker("WINDOW_CATALOG_LINUX_Z_ORDER_CYCLE2_COLD_OK");
+    }
+    LogMarker("WINDOW_CATALOG_LINUX_GEOM_Z_CYCLE2_COLD_OK");
     CloseMain(catalog);
     State().step = AutomationStep::Idle;
   }
@@ -364,6 +775,12 @@ void LinuxWindowCatalogSessionAutomationHooks::OnAfterIncremental(
       CloseMain(catalog);
       State().step = AutomationStep::Idle;
     }
+    return;
+  }
+
+  if (State().mode == LinuxWindowCatalogSessionAutomation::L3GeomZSave ||
+      State().mode == LinuxWindowCatalogSessionAutomation::L3GeomZCold) {
+    HandleGeomZIncremental(catalog);
   }
 }
 

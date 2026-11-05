@@ -24,11 +24,88 @@ std::string LinuxDesktopWindowPresenter::ResolveTitleText() const {
   return title->Resolve(locale->language_index());
 }
 
+bool LinuxDesktopWindowPresenter::FramesEqual(ClientFrame a, ClientFrame b) {
+  return a.x == b.x && a.y == b.y && a.client_width == b.client_width &&
+         a.client_height == b.client_height;
+}
+
+LinuxDesktopWindowPresenter::ClientFrame
+LinuxDesktopWindowPresenter::ReadMirrorClientFrame() const {
+  ClientFrame frame{};
+  auto const desktop = desktop_window();
+  if (!desktop) {
+    return frame;
+  }
+  frame.x = desktop->x();
+  frame.y = desktop->y();
+  frame.client_width = desktop->client_width();
+  frame.client_height = desktop->client_height();
+  return frame;
+}
+
+LinuxDesktopWindowPresenter::ClientFrame
+LinuxDesktopWindowPresenter::ReadNativeClientFrame() const {
+  ClientFrame frame{};
+  if (window_ == nullptr || !gtk_widget_get_realized(window_)) {
+    return frame;
+  }
+  gtk_window_get_position(GTK_WINDOW(window_), &frame.x, &frame.y);
+  if (client_mount_ != nullptr && gtk_widget_get_visible(client_mount_)) {
+    GtkAllocation allocation{};
+    gtk_widget_get_allocation(client_mount_, &allocation);
+    frame.client_width = allocation.width;
+    frame.client_height = allocation.height;
+  } else {
+    gtk_window_get_size(GTK_WINDOW(window_), &frame.client_width,
+                        &frame.client_height);
+  }
+  return frame;
+}
+
+void LinuxDesktopWindowPresenter::HandleNativeFrameChanged() {
+  if (applying_mirror_frame_) {
+    return;
+  }
+  auto const desktop = desktop_window();
+  if (window_ == nullptr || !desktop) {
+    return;
+  }
+  ClientFrame const native = ReadNativeClientFrame();
+  if (native.client_width <= 0 || native.client_height <= 0) {
+    return;
+  }
+  SubmitFrameFromNative(native.x, native.y, native.client_width,
+                        native.client_height);
+}
+
+void LinuxDesktopWindowPresenter::ReportNativeClientFrame() {
+  HandleNativeFrameChanged();
+}
+
+gboolean LinuxDesktopWindowPresenter::OnConfigure(GtkWidget* widget,
+                                                    GdkEventConfigure* event,
+                                                    gpointer user_data) {
+  (void)widget;
+  (void)event;
+  auto* self = static_cast<LinuxDesktopWindowPresenter*>(user_data);
+  self->HandleNativeFrameChanged();
+  return FALSE;
+}
+
+void LinuxDesktopWindowPresenter::OnClientMountSizeAllocate(
+    GtkWidget* widget, GdkRectangle* allocation, gpointer user_data) {
+  (void)widget;
+  (void)allocation;
+  auto* self = static_cast<LinuxDesktopWindowPresenter*>(user_data);
+  self->HandleNativeFrameChanged();
+}
+
 gboolean LinuxDesktopWindowPresenter::OnDeleteEvent(GtkWidget* widget,
                                                     GdkEvent* event,
                                                     gpointer user_data) {
   (void)event;
   auto* self = static_cast<LinuxDesktopWindowPresenter*>(user_data);
+  self->HandleNativeFrameChanged();
   auto* host =
       static_cast<LinuxPresentationHost*>(self->presentation_host);
   if (host != nullptr && host->on_desktop_window_user_close != nullptr) {
@@ -37,6 +114,27 @@ gboolean LinuxDesktopWindowPresenter::OnDeleteEvent(GtkWidget* widget,
   }
   (void)widget;
   return TRUE;
+}
+
+void LinuxDesktopWindowPresenter::ApplyRequestedFrameFromMirror() {
+  if (applying_mirror_frame_ || window_ == nullptr ||
+      !gtk_widget_get_realized(window_)) {
+    return;
+  }
+  auto const desktop = desktop_window();
+  if (!desktop) {
+    return;
+  }
+  ClientFrame const mirror = ReadMirrorClientFrame();
+  ClientFrame const native = ReadNativeClientFrame();
+  if (FramesEqual(mirror, native)) {
+    return;
+  }
+  applying_mirror_frame_ = true;
+  gtk_window_resize(GTK_WINDOW(window_), mirror.client_width,
+                    mirror.client_height);
+  gtk_window_move(GTK_WINDOW(window_), mirror.x, mirror.y);
+  applying_mirror_frame_ = false;
 }
 
 void LinuxDesktopWindowPresenter::OnLoad() {
@@ -49,21 +147,27 @@ void LinuxDesktopWindowPresenter::OnLoad() {
   g_object_set_data(G_OBJECT(window_), "apptraverse_presenter", this);
   delete_handler_ = g_signal_connect(window_, "delete-event",
                                      G_CALLBACK(OnDeleteEvent), this);
+  configure_handler_ = g_signal_connect(window_, "configure-event",
+                                        G_CALLBACK(OnConfigure), this);
 
   client_mount_ = gtk_fixed_new();
   if (client_mount_ == nullptr) {
     FatalLinux("gtk_fixed_new");
   }
   gtk_container_add(GTK_CONTAINER(window_), client_mount_);
+  size_allocate_handler_ =
+      g_signal_connect(client_mount_, "size-allocate",
+                       G_CALLBACK(OnClientMountSizeAllocate), this);
 
   int const client_w = desktop->client_width() > 0 ? desktop->client_width()
                                                      : 640;
   int const client_h = desktop->client_height() > 0 ? desktop->client_height()
                                                       : 480;
+  applying_mirror_frame_ = true;
   gtk_window_set_default_size(GTK_WINDOW(window_), client_w, client_h);
-  if (desktop->x() != 0 || desktop->y() != 0) {
-    gtk_window_move(GTK_WINDOW(window_), desktop->x(), desktop->y());
-  }
+  gtk_window_resize(GTK_WINDOW(window_), client_w, client_h);
+  gtk_window_move(GTK_WINDOW(window_), desktop->x(), desktop->y());
+  applying_mirror_frame_ = false;
 
   SyncTitleFromMirror();
   gtk_widget_show_all(window_);
@@ -74,11 +178,18 @@ void LinuxDesktopWindowPresenter::SyncTitleFromMirror() {
   gtk_window_set_title(GTK_WINDOW(window_), title_text.c_str());
 }
 
-void LinuxDesktopWindowPresenter::OnModelChanged() { SyncTitleFromMirror(); }
+void LinuxDesktopWindowPresenter::OnModelChanged() {
+  SyncTitleFromMirror();
+  ApplyRequestedFrameFromMirror();
+}
 
 void LinuxDesktopWindowPresenter::OnUnload() {
   g_signal_handler_disconnect(window_, delete_handler_);
+  g_signal_handler_disconnect(window_, configure_handler_);
+  g_signal_handler_disconnect(client_mount_, size_allocate_handler_);
   delete_handler_ = 0;
+  configure_handler_ = 0;
+  size_allocate_handler_ = 0;
   if (GTK_IS_WIDGET(window_)) {
     gtk_widget_destroy(window_);
   }

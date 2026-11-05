@@ -9,9 +9,24 @@
 
 <a id="p4-wc-linux-gtk-embedded--2026-11-05"></a>
 
-## P4 / WindowCatalog — Linux/GTK embedded consumer (2026-11-05) — PASS (Linux slice, verified)
+## P4 / WindowCatalog — Linux/GTK geom + Z-order persist (2026-11-05) — PASS (Linux slice, verified)
 
-**Ветка:** **`feature/linux-window-catalog`** @ `d590ee7` (integration не обновлялась).
+**Ветка:** **`feature/linux-window-catalog`**, verified remote base **`bc3a5d03525495c0384f3151ce02834f659abc7f`** → fix commit (см. remote SHA после push).
+
+### Дефект (подтверждён на `@bc3a5d0`, `GDK_BACKEND=x11`)
+
+После native move/resize и смены перекрытия окон shutdown → cold launch **не** восстанавливал геометрию (main оставался на bootstrap **80,80**) и не применял stacking. Причина: `LinuxDesktopWindowPresenter` — frame только в `OnLoad`; shutdown копировал **устаревший** `desktop_z_order` из модели; `after_initial` не вызывал restore.
+
+**Среда smoke (WSL Ubuntu + WSLg):** для полного сценария geom+Z smoke **явно** задаёт **`GDK_BACKEND=x11`** (Wayland: native stack через `_NET_CLIENT_LIST_STACKING` недоступен — не подставляем порядок списка/focus). При X11 — EWMH `_NET_CLIENT_LIST_STACKING` + `gdk_window_raise` (ограничения compositor/WSLg: cold Z-verify в smoke **best-effort**, marker `WINDOW_CATALOG_LINUX_Z_ORDER_COLD_OK` при совпадении).
+
+### Исправление
+
+- **`LinuxDesktopWindowPresenter`:** `configure-event` / `size-allocate` на client → `ReportNativeClientFrame` → `SubmitFrameFromNative` (без отката к mirror при user drag; `ApplyRequestedFrameFromMirror` только из model request).
+- **`linux_desktop_window_stack`:** X11 capture/apply desktop stack (только окна каталога).
+- **`window_catalog_linux_desktop_zorder`:** catalog ObjId mapping; shutdown — `FlushCatalogNativeFrames` + native capture → `SetDesktopZOrderFromObjIds`; cold — `RestoreCatalogDesktopZOrder` в `after_initial`.
+- Smoke: main + 3 child, geom+Z native, два save/cold цикла (`l3_geom_z_*`).
+
+**Ветка (prior slice):** base `d590ee7` (integration).
 
 ### Переиспользование
 
@@ -24,7 +39,8 @@
 
 - `examples/surfaces_demo/linux/window_catalog_graph_linux.cpp` — `CatalogListContainerPresenter` + `BuildWindowCatalogGraph` (Linux factories).
 - `examples/surfaces_demo/linux/window_catalog_export_linux.cpp` — host exporter → `embedded_distilled_window_catalog_supply.h` (Linux ClassId/layers).
-- `examples/surfaces_demo/linux/window_catalog_main.cpp` — thin GTK host (close/focus/persist; **без** native desktop z-order restore).
+- `examples/surfaces_demo/linux/window_catalog_main.cpp` — thin GTK host (close/focus/persist; flush frames + native Z capture on main close; Z restore after initial load).
+- `window_catalog_linux_desktop_zorder.*`, `linux_desktop_window_stack.*` — X11 stack + catalog wiring.
 - `examples/surfaces_demo/linux/window_catalog_linux_session_automation.*` + `tools/linux_window_catalog_l3_smoke.py`.
 - `examples/surfaces_demo/common/window_catalog_graph.h` (общий заголовок graph API; Windows graph .cpp без изменения семантики).
 - Маркеры embedded load в `window_catalog_lifecycle.cpp`: `WINDOW_CATALOG_LOADED_FROM_EMBEDDED_BACKING` / `…_PROFILE`.
@@ -33,41 +49,42 @@
 
 ### Ограничения GTK / WM
 
-- **Desktop z-order:** модель хранит `desktop_z_order`; при shutdown main window в USER пишется текущий порядок из модели. **Восстановление stacking через WM (аналог Win `EnumWindows` + `SetWindowPos`) не реализовано** — GTK/Wayland/X11 не дают переносимого контракта; повторный Open использует `gtk_window_present` для pending focus.
+- **Wayland / default WSLg без `GDK_BACKEND=x11`:** native desktop Z-order **не** читается/не применяется (пустой capture, без подстановки порядка rows/focus).
+- **X11 + EWMH:** persist/restore stacking только для top-level окон каталога; чужие окна не трогаем.
 
-### Прогоны (WSL **`Ubuntu`**, incremental)
+### Прогоны (WSL **`Ubuntu`**, incremental, smoke с **`GDK_BACKEND=x11`**)
 
-| Контур | 1-й прогон | Повтор |
-| --- | --- | --- |
-| `tools/linux_window_catalog_l3_smoke.py` на **Debug** exe | **PASS** | — |
-| `apptraverse_window_catalog_headless_test` (Debug) | **PASS** | — |
-| `tools/linux_window_catalog_l3_smoke.py` на **MinSizeRel** exe | **PASS** | — |
-| `apptraverse_window_catalog_win32_acceptance_test` (Win Debug, общий lifecycle header) | **PASS** | — |
-| Linux **`linux_minimal_app_l3_smoke.py`** | **NOT RUN** (GTK backend library не менялся) | — |
-| WASM `wasm_window_catalog_browser_smoke.py` | **NOT RUN** (Emscripten tree не пересобирался в этом срезе) | — |
-| `apptraverse_window_catalog_embedded_overlay_test` | **NOT RUN** on Linux (target Win-only в preset) | — |
+| Контур | Результат |
+| --- | --- |
+| `tools/linux_window_catalog_l3_smoke.py` (**Debug**, geom/Z two-cycle) | **PASS** |
+| `tools/linux_window_catalog_l3_smoke.py` (**MinSizeRel**, geom/Z) | **PASS** |
+| `apptraverse_window_catalog_headless_test` (Debug) | **PASS** |
+| `tools/linux_minimal_app_l3_smoke.py` (Debug) | **PASS** |
+| `apptraverse_window_catalog_win32_acceptance_test` (Win Debug) | **NOT RUN** (exe не собран на хосте) |
+| WASM `wasm_window_catalog_browser_smoke.py` | **NOT RUN** |
+| `apptraverse_window_catalog_embedded_overlay_test` | **NOT RUN** (Win-only target) |
 
 ### MinSizeRel executable (x86-64, GCC 13.3, `-DCMAKE_BUILD_TYPE=MinSizeRel`, `build/linux-x64-minsizerel`)
 
 | | Байты | KiB (1024) |
 | --- | --- | --- |
-| **Оригинал** (not stripped) | 750 008 | ~732.4 |
-| **Копия + `strip`** (оригинал не заменялся) | 489 696 | ~478.2 |
+| **Оригинал** (not stripped) | 769 984 | ~752.0 |
+| **Копия + `strip`** (оригинал не заменялся) | 501 984 | ~490.2 |
 
 **Путь:** `build/linux-x64-minsizerel/examples/surfaces_demo/linux/linux_window_catalog_demo`  
 **Debug:** `build/linux-x64-debug/examples/surfaces_demo/linux/linux_window_catalog_demo`  
 
 **Динамические зависимости (ldd):** `libgtk-3`, `libgdk-3`, GLib/GObject/GIO, Pango/Cairo, X11/Wayland client libs, … — **размер ELF не включает** системные GTK/shared libraries.
 
-### Ручной запуск (MinSizeRel, отдельный USER)
+### Ручной запуск (MinSizeRel, отдельный USER, X11 geom+Z)
 
 PowerShell:
 
 ```powershell
-wsl -d Ubuntu -- /mnt/c/Users/nickc/Projects/apptraverse-wt-web5/build/linux-x64-minsizerel/examples/surfaces_demo/linux/linux_window_catalog_demo --state-dir /mnt/c/Users/nickc/Projects/apptraverse-wt-web5/build/manual_profiles/linux_window_catalog_manual_wslg
+wsl -d Ubuntu env GDK_BACKEND=x11 /mnt/c/Users/nickc/Projects/apptraverse-wt-web5/build/linux-x64-minsizerel/examples/surfaces_demo/linux/linux_window_catalog_demo --state-dir /mnt/c/Users/nickc/Projects/apptraverse-wt-web5/build/manual_profiles/linux_window_catalog_geom_z_manual_wslg
 ```
 
-Повтор с тем же `--state-dir` восстанавливает USER overlay. Профиль **`build/manual_profiles/linux_window_catalog_manual_wslg`** оставлен для WSLg (MinSizeRel процесс запущен агентом, окно не закрывалось).
+Повтор с тем же `--state-dir` восстанавливает USER overlay. Профили **`linux_window_catalog_manual_wslg`**, **`linux_window_catalog_clean_state`** не удалялись. После прогона агента MinSizeRel оставлен открытым на **`linux_window_catalog_geom_z_manual_wslg`**.
 
 <a id="p4-wc-win-debug-embedded--2026-11-05"></a>
 
