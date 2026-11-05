@@ -1117,15 +1117,25 @@ void TestListRowRemoveCommandPublishesIncremental() {
   auto list = ui::UiListContainer::ptr::Create(ae::CreateWith{model_domain});
   list->selection_index = -1;
   InitializeRuntimeNode(*list);
+  auto make_label = [&](char const* text) {
+    auto label =
+        ui::UiLocalizationString::ptr::Create(ae::CreateWith{model_domain});
+    auto string = ui::UiString::ptr::Create(ae::CreateWith{model_domain});
+    string->utf8 = text;
+    label->strings = {string};
+    return label;
+  };
   std::vector<ui::UiListRow::ptr> held;
-  for (int i = 0; i < 3; ++i) {
+  for (int i = 0; i < 2; ++i) {
     auto row = ui::UiListRow::ptr::Create(ae::CreateWith{model_domain});
     InitializeRuntimeNode(*row, *list);
     held.push_back(row);
   }
-  list->rows = {held[0], held[1], held[2]};
+  held[0]->primary_text = make_label("Row A");
+  held[1]->primary_text = make_label("Row B");
+  list->rows = {held[0], held[1]};
   ae::ObjId const list_id = list->obj_id;
-  ae::ObjId const removed_id = held[1]->obj_id;
+  ae::ObjId const removed_id = held[0]->obj_id;
 
   ApplicationModelRuntime runtime;
   Sync sync;
@@ -1166,7 +1176,10 @@ void TestListRowRemoveCommandPublishesIncremental() {
   CHECK(ui_obj);
   auto ui_list = ui::UiListContainer::ptr::MakeFromThis(
       static_cast<ui::UiListContainer*>(ui_obj.get()));
-  CHECK(ui_list->rows.size() == 3);
+  CHECK(ui_list->rows.size() == 2);
+  ae::ObjId const row_b_identity = ui_list->rows[1].id();
+  CHECK(ui::ResolvePresentedListRowPrimaryTexts(*ui_list, 0) ==
+        (std::vector<std::string>{"Row A", "Row B"}));
 
   proxy.EnqueueModelWork([list_id, removed_id](ae::Domain& domain) {
     auto remove =
@@ -1192,18 +1205,18 @@ void TestListRowRemoveCommandPublishesIncremental() {
 
   runtime.RequestStop();
   model_thread.join();
-  CHECK((std::vector<ae::ObjId>{list->rows[0].id(), list->rows[1].id()} ==
-         std::vector<ae::ObjId>{held[0]->obj_id, held[2]->obj_id}));
-  CHECK(list->rows.size() == 2);
+  CHECK(list->rows.size() == 1);
+  CHECK(list->rows[0].id() == held[1]->obj_id);
 
-  CHECK(ui_list->rows.size() == 3);
+  CHECK(ui_list->rows.size() == 2);
   ByteSource incremental_in;
   incremental_in.data = incremental_bytes.data();
   incremental_in.size = incremental_bytes.size();
   ApplyStructuralPublication(incremental_in, ui_domain, ui_storage);
-  CHECK(ui_list->rows.size() == 2);
-  CHECK(ui_list->rows[0].id() == held[0]->obj_id);
-  CHECK(ui_list->rows[1].id() == held[2]->obj_id);
+  CHECK(ui_list->rows.size() == 1);
+  CHECK(ui_list->rows[0].id() == row_b_identity);
+  CHECK(ui::ResolvePresentedListRowPrimaryTexts(*ui_list, 0) ==
+        (std::vector<std::string>{"Row B"}));
   CHECK(ui_list->selection_index == -1);
   CHECK(enqueued == 1);
 }

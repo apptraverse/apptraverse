@@ -1,7 +1,6 @@
-#import "ATMinimalNativeBridge.h"
+#import "apptraverse/platform/macos/ATMacApplicationBridge.h"
 
 #include <cstdint>
-#include <filesystem>
 #include <memory>
 #include <thread>
 #include <utility>
@@ -9,13 +8,11 @@
 
 #include "apptraverse/application_ui_session.h"
 #include "apptraverse/model_object_proxy.h"
+#include "apptraverse/platform/macos/macos_application_bridge.h"
 #include "apptraverse/platform/macos/macos_ui_native_views.h"
 #include "apptraverse/platform/macos/macos_ui_presenters.h"
 #include "apptraverse/ui/ui_list_container.h"
 #include "apptraverse/ui/ui_localization_string.h"
-#include "minimal_app_desktop_close.h"
-#include "minimal_app_lifecycle_macos.h"
-#include "minimal_application.h"
 
 using apptraverse::ui::macos::MacDesktopWindowPresenter;
 using apptraverse::ui::macos::MacListContainerPresenter;
@@ -42,7 +39,7 @@ NSString* ToNSString(std::string const& text) {
 class MacNativeViews final
     : public apptraverse::ui::macos::MacUiNativeViews {
  public:
-  explicit MacNativeViews(ATMinimalNativeBridge* owner) : owner_{owner} {}
+  explicit MacNativeViews(ATMacApplicationBridge* owner) : owner_{owner} {}
 
   void LoadDesktopWindow(MacDesktopWindowPresenter& presenter) override {
     [owner_.delegate bridge:owner_ loadWindow:Token(presenter)];
@@ -73,12 +70,12 @@ class MacNativeViews final
   }
 
  private:
-  __unsafe_unretained ATMinimalNativeBridge* owner_;
+  __unsafe_unretained ATMacApplicationBridge* owner_;
 };
 
 }  // namespace
 
-@interface ATMinimalWindowState ()
+@interface ATMacWindowState ()
 - (instancetype)initWithTitle:(NSString*)title
                             x:(double)x
                             y:(double)y
@@ -86,7 +83,7 @@ class MacNativeViews final
                        height:(double)height;
 @end
 
-@implementation ATMinimalWindowState
+@implementation ATMacWindowState
 - (instancetype)initWithTitle:(NSString*)title
                             x:(double)x
                             y:(double)y
@@ -103,7 +100,7 @@ class MacNativeViews final
 }
 @end
 
-@interface ATMinimalButtonState ()
+@interface ATMacButtonState ()
 - (instancetype)initWithParentToken:(uint64_t)parentToken
                               title:(NSString*)title
                             enabled:(BOOL)enabled
@@ -113,7 +110,7 @@ class MacNativeViews final
                              height:(double)height;
 @end
 
-@implementation ATMinimalButtonState
+@implementation ATMacButtonState
 - (instancetype)initWithParentToken:(uint64_t)parentToken
                               title:(NSString*)title
                             enabled:(BOOL)enabled
@@ -134,9 +131,23 @@ class MacNativeViews final
 }
 @end
 
-@interface ATMinimalListState ()
+@interface ATMacListRowState ()
+- (instancetype)initWithIdentity:(uint64_t)identity text:(NSString*)text;
+@end
+
+@implementation ATMacListRowState
+- (instancetype)initWithIdentity:(uint64_t)identity text:(NSString*)text {
+  if ((self = [super init])) {
+    _identity = identity;
+    _text = text;
+  }
+  return self;
+}
+@end
+
+@interface ATMacListState ()
 - (instancetype)initWithParentToken:(uint64_t)parentToken
-                               rows:(NSArray<NSString*>*)rows
+                               rows:(NSArray<ATMacListRowState*>*)rows
                         selectedRow:(NSInteger)selectedRow
                                   x:(double)x
                                   y:(double)y
@@ -144,9 +155,9 @@ class MacNativeViews final
                              height:(double)height;
 @end
 
-@implementation ATMinimalListState
+@implementation ATMacListState
 - (instancetype)initWithParentToken:(uint64_t)parentToken
-                               rows:(NSArray<NSString*>*)rows
+                               rows:(NSArray<ATMacListRowState*>*)rows
                         selectedRow:(NSInteger)selectedRow
                                   x:(double)x
                                   y:(double)y
@@ -165,8 +176,8 @@ class MacNativeViews final
 }
 @end
 
-@interface ATMinimalNativeBridge () {
-  std::filesystem::path _userDirectory;
+@interface ATMacApplicationBridge () {
+  apptraverse::ui::macos::MacApplicationBridgeCallbacks _callbacks;
   apptraverse::ApplicationModelRuntime _runtime;
   std::unique_ptr<apptraverse::ModelObjectProxy> _proxy;
   std::unique_ptr<MacNativeViews> _nativeViews;
@@ -175,16 +186,21 @@ class MacNativeViews final
   int _modelExitStatus;
 }
 @property(nonatomic, weak, readwrite)
-    id<ATMinimalNativeBridgeDelegate> delegate;
+    id<ATMacApplicationBridgeDelegate> delegate;
+- (instancetype)initWithCallbacks:
+                    (apptraverse::ui::macos::MacApplicationBridgeCallbacks)
+                        callbacks
+                         delegate:(id<ATMacApplicationBridgeDelegate>)delegate;
 @end
 
-@implementation ATMinimalNativeBridge
+@implementation ATMacApplicationBridge
 
-- (instancetype)initWithUserDirectory:(NSString*)userDirectory
-                             delegate:
-                                 (id<ATMinimalNativeBridgeDelegate>)delegate {
+- (instancetype)initWithCallbacks:
+                    (apptraverse::ui::macos::MacApplicationBridgeCallbacks)
+                        callbacks
+                         delegate:(id<ATMacApplicationBridgeDelegate>)delegate {
   if ((self = [super init])) {
-    _userDirectory = std::filesystem::path{userDirectory.fileSystemRepresentation};
+    _callbacks = std::move(callbacks);
     _delegate = delegate;
     _modelExitStatus = 1;
   }
@@ -198,28 +214,26 @@ class MacNativeViews final
       });
   _nativeViews = std::make_unique<MacNativeViews>(self);
   _modelThread = std::thread([self] {
-    _modelExitStatus =
-        apptraverse::example::minimal::RunMacMinimalApplicationModel(
-            _userDirectory, _runtime,
-            [self](apptraverse::ApplicationPublicationKind kind) {
-              dispatch_async(dispatch_get_main_queue(), ^{
-                [self
-                    consumePublication:
-                        kind == apptraverse::ApplicationPublicationKind::Initial
-                            ? ATMinimalPublicationKindInitial
-                            : ATMinimalPublicationKindIncremental];
-              });
-            });
+    _modelExitStatus = _callbacks.run_model(
+        _runtime, [self](apptraverse::ApplicationPublicationKind kind) {
+          dispatch_async(dispatch_get_main_queue(), ^{
+            [self
+                consumePublication:
+                    kind == apptraverse::ApplicationPublicationKind::Initial
+                        ? ATMacPublicationKindInitial
+                        : ATMacPublicationKindIncremental];
+          });
+        });
     dispatch_async(dispatch_get_main_queue(), ^{
       [self.delegate bridgeModelDidFinish:self];
     });
   });
 }
 
-- (void)consumePublication:(ATMinimalPublicationKind)kind {
+- (void)consumePublication:(ATMacPublicationKind)kind {
   std::vector<std::uint8_t> publication =
       _runtime.TakePublishedCopyForUiApply();
-  if (kind == ATMinimalPublicationKindInitial) {
+  if (kind == ATMacPublicationKindInitial) {
     _uiSession = std::make_unique<apptraverse::ApplicationUiSession>(
         publication, _nativeViews.get(), *_proxy);
   } else {
@@ -228,12 +242,12 @@ class MacNativeViews final
   _runtime.NotifyPublicationConsumed();
 }
 
-- (ATMinimalWindowState*)windowState:(uint64_t)token {
+- (ATMacWindowState*)windowState:(uint64_t)token {
   auto& presenter = FromToken<MacDesktopWindowPresenter>(token);
   auto desktop = presenter.desktop_window();
   NSString* title = ToNSString(
       presenter.title->Resolve(presenter.locale->language_index()));
-  return [[ATMinimalWindowState alloc]
+  return [[ATMacWindowState alloc]
       initWithTitle:title
                   x:desktop->x()
                   y:desktop->y()
@@ -241,14 +255,14 @@ class MacNativeViews final
              height:desktop->client_height()];
 }
 
-- (ATMinimalButtonState*)buttonState:(uint64_t)token {
+- (ATMacButtonState*)buttonState:(uint64_t)token {
   auto& presenter = FromToken<MacPushButtonPresenter>(token);
   auto layout = presenter.window_presenter->ResolveChildLayout(
       {presenter.layout_x, presenter.layout_y, presenter.layout_width,
        presenter.layout_height, presenter.control_id});
   NSString* title = ToNSString(presenter.button->label->Resolve(
       presenter.window_presenter->locale->language_index()));
-  return [[ATMinimalButtonState alloc]
+  return [[ATMacButtonState alloc]
       initWithParentToken:Token(*presenter.window_presenter)
                     title:title
                   enabled:presenter.button->enabled()
@@ -258,20 +272,25 @@ class MacNativeViews final
                    height:layout.height];
 }
 
-- (ATMinimalListState*)listState:(uint64_t)token {
+- (ATMacListState*)listState:(uint64_t)token {
   auto& presenter = FromToken<MacListContainerPresenter>(token);
   auto layout = presenter.window_presenter->ResolveChildLayout(
       {presenter.layout_x, presenter.layout_y, presenter.layout_width,
        presenter.layout_height, presenter.control_id});
-  auto labels = apptraverse::ui::ResolvePresentedListRowPrimaryTexts(
-      *presenter.container,
-      presenter.window_presenter->locale->language_index());
-  NSMutableArray<NSString*>* rows =
-      [[NSMutableArray alloc] initWithCapacity:labels.size()];
-  for (auto const& label : labels) {
-    [rows addObject:ToNSString(label)];
+  int const language_index =
+      presenter.window_presenter->locale->language_index();
+  NSMutableArray<ATMacListRowState*>* rows =
+      [[NSMutableArray alloc] initWithCapacity:presenter.container->rows.size()];
+  for (auto const& row : presenter.container->rows) {
+    auto const identity = static_cast<std::uint64_t>(row.id().id());
+    [rows addObject:[[ATMacListRowState alloc]
+                        initWithIdentity:identity
+                                   text:ToNSString(
+                                            apptraverse::ui::
+                                                ResolvePresentedListRowPrimaryText(
+                                                    row, language_index))]];
   }
-  return [[ATMinimalListState alloc]
+  return [[ATMacListState alloc]
       initWithParentToken:Token(*presenter.window_presenter)
                      rows:rows
               selectedRow:presenter.container->selection_index
@@ -302,13 +321,9 @@ class MacNativeViews final
 
 - (BOOL)requestCloseWindow:(uint64_t)token {
   auto& presenter = FromToken<MacDesktopWindowPresenter>(token);
-  bool const main_window =
-      presenter.window->obj_id ==
-      apptraverse::example::minimal::MinimalMainWindowId();
-  apptraverse::example::minimal::HandleMinimalAppDesktopWindowClose(
+  return _callbacks.close_desktop_window(
       _uiSession->root(), *presenter.window, *_proxy,
       [self] { _runtime.RequestStop(); });
-  return main_window;
 }
 
 - (void)requestStop {
@@ -324,3 +339,14 @@ class MacNativeViews final
 }
 
 @end
+
+namespace apptraverse::ui::macos {
+
+ATMacApplicationBridge* MakeMacApplicationBridge(
+    MacApplicationBridgeCallbacks callbacks,
+    id<ATMacApplicationBridgeDelegate> delegate) {
+  return [[ATMacApplicationBridge alloc] initWithCallbacks:std::move(callbacks)
+                                                 delegate:delegate];
+}
+
+}  // namespace apptraverse::ui::macos

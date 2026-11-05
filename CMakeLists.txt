@@ -172,6 +172,19 @@ target_link_libraries(apptraverse_ui_android_presenters PUBLIC apptraverse)
 target_compile_features(apptraverse_ui_android_presenters PUBLIC cxx_std_20)
 
 if(APPLE)
+  enable_language(OBJC OBJCXX)
+  set(CMAKE_OBJCXX_STANDARD 20)
+  set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
+  if(NOT CMAKE_Swift_COMPILER)
+    execute_process(
+      COMMAND xcrun --find swiftc
+      OUTPUT_VARIABLE _apptraverse_swiftc_path
+      OUTPUT_STRIP_TRAILING_WHITESPACE)
+    set(CMAKE_Swift_COMPILER "${_apptraverse_swiftc_path}")
+  endif()
+  set(CMAKE_Swift_FLAGS "-sdk ${CMAKE_OSX_SYSROOT}")
+  enable_language(Swift)
+
   add_library(apptraverse_ui_macos_presenters STATIC
     src/platform/macos/macos_ui_presenters.cpp
   )
@@ -179,6 +192,43 @@ if(APPLE)
     ${CMAKE_CURRENT_SOURCE_DIR}/include)
   target_link_libraries(apptraverse_ui_macos_presenters PUBLIC apptraverse)
   target_compile_features(apptraverse_ui_macos_presenters PUBLIC cxx_std_20)
+
+  add_library(apptraverse_ui_macos_bridge STATIC
+    src/platform/macos/macos_application_bridge.mm)
+  target_include_directories(apptraverse_ui_macos_bridge PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_link_libraries(apptraverse_ui_macos_bridge PUBLIC
+    apptraverse_ui_macos_presenters
+    "-framework Foundation")
+  set_source_files_properties(
+    src/platform/macos/macos_application_bridge.mm
+    PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+  target_compile_options(apptraverse_ui_macos_bridge PRIVATE
+    $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-rtti>
+    $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-objc-exceptions>)
+
+  add_library(apptraverse_ui_macos_swift STATIC
+    src/platform/macos/MacApplicationHost.swift)
+  set_target_properties(apptraverse_ui_macos_swift PROPERTIES
+    Swift_MODULE_NAME AppTraverseMacUI)
+  target_compile_options(apptraverse_ui_macos_swift PRIVATE
+    "SHELL:-I ${CMAKE_CURRENT_SOURCE_DIR}/include/apptraverse/platform/macos"
+    "$<$<CONFIG:Debug>:-enable-testing>")
+  target_include_directories(apptraverse_ui_macos_swift INTERFACE
+    ${CMAKE_CURRENT_BINARY_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/apptraverse/platform/macos)
+
+  add_library(apptraverse_ui_macos INTERFACE)
+  target_link_libraries(apptraverse_ui_macos INTERFACE
+    apptraverse_ui_macos_bridge
+    apptraverse_ui_macos_swift
+    "-framework AppKit"
+    "-framework Foundation"
+    "-framework SwiftUI")
+  target_link_options(apptraverse_ui_macos INTERFACE
+    -L${CMAKE_OSX_SYSROOT}/usr/lib/swift
+    -L/usr/lib/swift
+    -Wl,-rpath,/usr/lib/swift)
 endif()
 
 if(ANDROID)

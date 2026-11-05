@@ -1,7 +1,7 @@
 Status: active
 Progress: Progress.md
 
-**Active (2026-11-05):** **P3.T — библиотечный template/controls на семи backend → P4.C — WindowCatalog → A1**. **P3.T3.M macOS MinimalApp PASS** (Swift/AppKit/SwiftUI, embedded BACKING + USER, native two-process E2E); **NEXT: P3.T3.I iOS/iPadOS**, отдельной итерацией. [PLAN](docs/versioning/PLAN.md), [PROGRESS](docs/versioning/PROGRESS.md).
+**Active (2026-11-05):** **P3.T — библиотечный template/controls на семи backend → P4.C — WindowCatalog → A1**. **P3.T3.M macOS MinimalApp PASS** (reusable Swift/AppKit/SwiftUI library backend, thin bridge, unload/row-identity checks, embedded BACKING + USER, native two-process E2E); **NEXT: P3.T3.I iOS/iPadOS**, отдельной итерацией. [PLAN](docs/versioning/PLAN.md), [PROGRESS](docs/versioning/PROGRESS.md).
 
 **Release versioning (R0–R5):** fixture roadmap in [docs/versioning/PLAN.md](docs/versioning/PLAN.md) / [PROGRESS.md](docs/versioning/PROGRESS.md) — reference; **P0–P6** is the execution order on `integration/unified-application`. Coding-agent rules remain mandatory.
 

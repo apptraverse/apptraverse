@@ -1,0 +1,4 @@
+module AppTraverseMacBridge {
+  header "ATMacApplicationBridge.h"
+  export *
+}

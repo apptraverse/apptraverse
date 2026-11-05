@@ -2,36 +2,36 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-typedef NS_ENUM(NSInteger, ATMinimalPublicationKind) {
-  ATMinimalPublicationKindInitial,
-  ATMinimalPublicationKindIncremental,
+typedef NS_ENUM(NSInteger, ATMacPublicationKind) {
+  ATMacPublicationKindInitial,
+  ATMacPublicationKindIncremental,
 };
 
-@class ATMinimalNativeBridge;
+@class ATMacApplicationBridge;
 
-@protocol ATMinimalNativeBridgeDelegate <NSObject>
-- (void)bridge:(ATMinimalNativeBridge*)bridge
+@protocol ATMacApplicationBridgeDelegate <NSObject>
+- (void)bridge:(ATMacApplicationBridge*)bridge
     loadWindow:(uint64_t)token;
-- (void)bridge:(ATMinimalNativeBridge*)bridge
+- (void)bridge:(ATMacApplicationBridge*)bridge
     syncWindow:(uint64_t)token;
-- (void)bridge:(ATMinimalNativeBridge*)bridge
+- (void)bridge:(ATMacApplicationBridge*)bridge
     unloadWindow:(uint64_t)token;
-- (void)bridge:(ATMinimalNativeBridge*)bridge
+- (void)bridge:(ATMacApplicationBridge*)bridge
     loadButton:(uint64_t)token;
-- (void)bridge:(ATMinimalNativeBridge*)bridge
+- (void)bridge:(ATMacApplicationBridge*)bridge
     syncButton:(uint64_t)token;
-- (void)bridge:(ATMinimalNativeBridge*)bridge
+- (void)bridge:(ATMacApplicationBridge*)bridge
     unloadButton:(uint64_t)token;
-- (void)bridge:(ATMinimalNativeBridge*)bridge
+- (void)bridge:(ATMacApplicationBridge*)bridge
     loadList:(uint64_t)token;
-- (void)bridge:(ATMinimalNativeBridge*)bridge
+- (void)bridge:(ATMacApplicationBridge*)bridge
     syncList:(uint64_t)token;
-- (void)bridge:(ATMinimalNativeBridge*)bridge
+- (void)bridge:(ATMacApplicationBridge*)bridge
     unloadList:(uint64_t)token;
-- (void)bridgeModelDidFinish:(ATMinimalNativeBridge*)bridge;
+- (void)bridgeModelDidFinish:(ATMacApplicationBridge*)bridge;
 @end
 
-@interface ATMinimalWindowState : NSObject
+@interface ATMacWindowState : NSObject
 @property(nonatomic, readonly) NSString* title;
 @property(nonatomic, readonly) double x;
 @property(nonatomic, readonly) double y;
@@ -39,7 +39,7 @@ typedef NS_ENUM(NSInteger, ATMinimalPublicationKind) {
 @property(nonatomic, readonly) double height;
 @end
 
-@interface ATMinimalButtonState : NSObject
+@interface ATMacButtonState : NSObject
 @property(nonatomic, readonly) uint64_t parentToken;
 @property(nonatomic, readonly) NSString* title;
 @property(nonatomic, readonly, getter=isEnabled) BOOL enabled;
@@ -49,9 +49,14 @@ typedef NS_ENUM(NSInteger, ATMinimalPublicationKind) {
 @property(nonatomic, readonly) double height;
 @end
 
-@interface ATMinimalListState : NSObject
+@interface ATMacListRowState : NSObject
+@property(nonatomic, readonly) uint64_t identity;
+@property(nonatomic, readonly) NSString* text;
+@end
+
+@interface ATMacListState : NSObject
 @property(nonatomic, readonly) uint64_t parentToken;
-@property(nonatomic, readonly) NSArray<NSString*>* rows;
+@property(nonatomic, readonly) NSArray<ATMacListRowState*>* rows;
 @property(nonatomic, readonly) NSInteger selectedRow;
 @property(nonatomic, readonly) double x;
 @property(nonatomic, readonly) double y;
@@ -59,16 +64,15 @@ typedef NS_ENUM(NSInteger, ATMinimalPublicationKind) {
 @property(nonatomic, readonly) double height;
 @end
 
-@interface ATMinimalNativeBridge : NSObject
+@interface ATMacApplicationBridge : NSObject
 @property(nonatomic, weak, readonly)
-    id<ATMinimalNativeBridgeDelegate> delegate;
-- (instancetype)initWithUserDirectory:(NSString*)userDirectory
-                             delegate:(id<ATMinimalNativeBridgeDelegate>)delegate;
+    id<ATMacApplicationBridgeDelegate> delegate;
+- (instancetype)init NS_UNAVAILABLE;
 - (void)start;
-- (void)consumePublication:(ATMinimalPublicationKind)kind;
-- (ATMinimalWindowState*)windowState:(uint64_t)token;
-- (ATMinimalButtonState*)buttonState:(uint64_t)token;
-- (ATMinimalListState*)listState:(uint64_t)token;
+- (void)consumePublication:(ATMacPublicationKind)kind;
+- (ATMacWindowState*)windowState:(uint64_t)token;
+- (ATMacButtonState*)buttonState:(uint64_t)token;
+- (ATMacListState*)listState:(uint64_t)token;
 - (void)clickButton:(uint64_t)token;
 - (void)selectListRow:(NSInteger)row token:(uint64_t)token;
 - (void)submitWindowX:(double)x

@@ -925,6 +925,30 @@ if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES AND APPLE AND NOT CMAKE_SYSTEM_NAME STREQUA
   )
 endif()
 
+if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+  add_library(apptraverse_macos_ui_backend_lifecycle_test_swift STATIC
+    macos_ui_backend_lifecycle_test.swift)
+  set_target_properties(
+    apptraverse_macos_ui_backend_lifecycle_test_swift PROPERTIES
+    Swift_MODULE_NAME AppTraverseMacUiBackendLifecycleTest)
+  target_link_libraries(
+    apptraverse_macos_ui_backend_lifecycle_test_swift PRIVATE
+    apptraverse_ui_macos_swift)
+
+  add_executable(apptraverse_macos_ui_backend_lifecycle_test
+    macos_ui_backend_lifecycle_test_link.mm)
+  target_link_libraries(apptraverse_macos_ui_backend_lifecycle_test PRIVATE
+    apptraverse_macos_ui_backend_lifecycle_test_swift
+    apptraverse_ui_macos)
+  target_compile_options(apptraverse_macos_ui_backend_lifecycle_test PRIVATE
+    $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-rtti>)
+  set_target_properties(apptraverse_macos_ui_backend_lifecycle_test PROPERTIES
+    LINKER_LANGUAGE OBJCXX)
+  add_test(
+    NAME apptraverse_macos_ui_backend_lifecycle_test
+    COMMAND apptraverse_macos_ui_backend_lifecycle_test)
+endif()
+
 add_executable(apptraverse_presenter_load_order_test
   presenter_load_order_test.cpp
 )

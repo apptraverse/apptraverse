@@ -1,0 +1,37 @@
+#import "minimal_app_macos_composition.h"
+
+#include <filesystem>
+#include <utility>
+
+#include "apptraverse/platform/macos/macos_application_bridge.h"
+#include "minimal_app_desktop_close.h"
+#include "minimal_app_lifecycle_macos.h"
+#include "minimal_application.h"
+
+ATMacApplicationBridge* ATCreateMinimalApplicationBridge(
+    NSString* userDirectory,
+    id<ATMacApplicationBridgeDelegate> delegate) {
+  std::filesystem::path const state_dir{
+      userDirectory.fileSystemRepresentation};
+
+  apptraverse::ui::macos::MacApplicationBridgeCallbacks callbacks;
+  callbacks.run_model =
+      [state_dir](apptraverse::ApplicationModelRuntime& runtime,
+                  apptraverse::ApplicationPublishedCallback on_published) {
+        return apptraverse::example::minimal::RunMacMinimalApplicationModel(
+            state_dir, runtime, std::move(on_published));
+      };
+  callbacks.close_desktop_window =
+      [](ae::Obj& root, ae::Obj& closed_window,
+         apptraverse::ModelObjectProxy& proxy,
+         std::function<void()> request_stop) {
+        bool const closes_application =
+            closed_window.obj_id ==
+            apptraverse::example::minimal::MinimalMainWindowId();
+        apptraverse::example::minimal::HandleMinimalAppDesktopWindowClose(
+            root, closed_window, proxy, std::move(request_stop));
+        return closes_application;
+      };
+  return apptraverse::ui::macos::MakeMacApplicationBridge(
+      std::move(callbacks), delegate);
+}

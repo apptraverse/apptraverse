@@ -1,17 +1,3 @@
-enable_language(OBJC OBJCXX)
-set(CMAKE_OBJCXX_STANDARD 20)
-set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
-
-if(NOT CMAKE_Swift_COMPILER)
-  execute_process(
-    COMMAND xcrun --find swiftc
-    OUTPUT_VARIABLE _swiftc_path
-    OUTPUT_STRIP_TRAILING_WHITESPACE)
-  set(CMAKE_Swift_COMPILER "${_swiftc_path}")
-endif()
-set(CMAKE_Swift_FLAGS "-sdk ${CMAKE_OSX_SYSROOT}")
-enable_language(Swift)
-
 add_library(minimal_app_macos_graph STATIC
   minimal_app_graph_macos.cpp)
 target_include_directories(minimal_app_macos_graph PUBLIC
@@ -24,44 +10,41 @@ add_executable(apptraverse_export_minimal_distilled_graph_macos
 target_link_libraries(apptraverse_export_minimal_distilled_graph_macos PRIVATE
   minimal_app_macos_graph)
 
-add_library(minimal_app_macos_bridge STATIC
-  ATMinimalNativeBridge.mm
+add_library(minimal_app_macos_composition STATIC
+  minimal_app_macos_composition.mm
   minimal_app_lifecycle_macos.cpp)
-target_include_directories(minimal_app_macos_bridge PUBLIC
+target_include_directories(minimal_app_macos_composition PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(minimal_app_macos_bridge PUBLIC
-  minimal_app_common apptraverse_ui_macos_presenters
+target_link_libraries(minimal_app_macos_composition PUBLIC
+  minimal_app_common apptraverse_ui_macos_bridge
   "-framework Foundation")
-set_source_files_properties(ATMinimalNativeBridge.mm PROPERTIES
+set_source_files_properties(minimal_app_macos_composition.mm PROPERTIES
   COMPILE_FLAGS "-fobjc-arc")
-target_compile_options(minimal_app_macos_bridge PRIVATE
+target_compile_options(minimal_app_macos_composition PRIVATE
   $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-rtti>
   $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-objc-exceptions>)
 
 include(${PROJECT_SOURCE_DIR}/cmake/apptraverse_embed_distilled_supply.cmake)
 apptraverse_embed_distilled_supply(
-  minimal_app_macos_bridge
+  minimal_app_macos_composition
   apptraverse_export_minimal_distilled_graph_macos
   embedded_distilled_minimal_app_macos_supply.h)
 
-add_library(minimal_app_macos_swift STATIC MinimalApp.swift)
-set_target_properties(minimal_app_macos_swift PROPERTIES
-  Swift_MODULE_NAME minimal_app_macos_swift)
-target_compile_options(minimal_app_macos_swift PRIVATE
-  "SHELL:-import-objc-header ${CMAKE_CURRENT_SOURCE_DIR}/ATMinimalNativeBridge.h")
+add_library(minimal_app_macos_entry STATIC MinimalAppMain.swift)
+set_target_properties(minimal_app_macos_entry PROPERTIES
+  Swift_MODULE_NAME MinimalAppMacEntry)
+target_link_libraries(minimal_app_macos_entry PRIVATE
+  apptraverse_ui_macos_swift)
+target_compile_options(minimal_app_macos_entry PRIVATE
+  "SHELL:-import-objc-header ${CMAKE_CURRENT_SOURCE_DIR}/minimal_app_macos_composition.h"
+  "SHELL:-Xcc -I${PROJECT_SOURCE_DIR}/include")
 
 add_executable(apptraverse_minimal_app_macos minimal_app_link.mm)
 target_link_libraries(apptraverse_minimal_app_macos PRIVATE
-  minimal_app_macos_bridge
-  minimal_app_macos_swift
-  "-framework AppKit"
-  "-framework Foundation"
-  "-framework SwiftUI")
+  minimal_app_macos_composition
+  minimal_app_macos_entry
+  apptraverse_ui_macos)
 set_target_properties(apptraverse_minimal_app_macos PROPERTIES
   LINKER_LANGUAGE OBJCXX)
 target_compile_options(apptraverse_minimal_app_macos PRIVATE
   $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-rtti>)
-target_link_options(apptraverse_minimal_app_macos PRIVATE
-  -L${CMAKE_OSX_SYSROOT}/usr/lib/swift
-  -L/usr/lib/swift
-  -Wl,-rpath,/usr/lib/swift)

@@ -36,6 +36,50 @@
 
 **Common changes for other branches:** нет. Изменены только macOS backend/example и platform-gated CMake.
 
+### Corrective library-backend slice (post-`717c1c4`, 2026-11-05) — PASS
+
+- Reusable AppKit/SwiftUI host, Window/List/Button adapters, display snapshots,
+  and the generic Objective-C++ bridge now live in
+  `include/apptraverse/platform/macos/` and `src/platform/macos/`. The library
+  has no MinimalApp headers, fixed application ObjIds, or `examples/`
+  dependency. `examples/minimal_app/macos/` now contains only the Swift entry,
+  USER-directory selection, embedded model composition/lifecycle, and the
+  MinimalApp close callback.
+- Button/List adapters disconnect their weak command sink during presenter
+  unload, so retained controls and bindings cannot reuse a presenter-address
+  token. Window unload clears the delegate and hosting content before closing,
+  breaking the `WindowAdapter → NSWindow → NSHostingView → WindowAdapter`
+  ownership cycle.
+- List snapshots carry each `UiListRow` ObjId as display identity. SwiftUI uses
+  that identity for `ForEach`; selection Events continue to use the row's
+  current index.
+- **First compile FAIL:** extracted public `MacApplicationHost` protocol
+  requirements were not declared `public`. Fixed and repeated incrementally.
+- **Second compile FAIL:** row identity attempted an invalid `ObjId` conversion;
+  importing a Swift module built with a temporary bridging-header PCH failed;
+  and the example bridging header lacked the library include path. Fixed with
+  `ObjId::id()`, a library Clang module map, and the target include path.
+  The next incremental Debug build passed.
+- **Focused checks:** macOS callback-detach/hosting-release/duplicate-label
+  identity test plus application runtime Event/publication row-removal test;
+  prior embedded domain, USER/BACKING overlay, and MinimalApp headless tests:
+  **5/5 PASS**.
+- **Native E2E:** fresh USER loaded embedded BACKING; native Row B and Apply
+  produced `Applied`, disabled Apply, and cleared selection; Detail native
+  open/close passed twice; Main close exited 0. A second process loaded the same
+  USER as `LOADED_FROM_PROFILE`, restored `Applied` before input, then a new
+  Detail open/close command passed and Main close exited 0. Generated BACKING
+  header stayed SHA-256
+  `838983bae2f6b8cb7c3152bea5a42cd6737f7a16cba4a5b340528b9cb7d55bd8`
+  across both processes.
+- **Exporter:** ran successfully. A separately distilled temporary export has
+  different generated ObjIds, so cross-distillation byte equality is not
+  claimed; the application-used generated BACKING remained unchanged.
+- **NOT RUN:** Windows, Android, Web, and Linux backend runners are unavailable
+  in this macOS-only worktree/session. This is not a full cross-backend
+  regression claim. Release, clean build, full CTest, and known matrix failures
+  were not run.
+
 <a id="p3t3ae--android-embedded-backing--user-2026-11-04--pass"></a>
 
 ## P3.T3.AE — Android MinimalApp: build-time embedded BACKING + USER (post-`3b9aa26`, 2026-11-04) — PASS; regression: 2 открытых pre-existing FAIL
