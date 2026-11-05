@@ -164,6 +164,24 @@ def main() -> int:
                     base_tag=P_TAG)
         expect_lazy_origin(priority)
 
+        pub = run(rev1, "publish-ui", backing_r1, user, number=A_VALUE_AFTER_S1)
+        expect(pub["model_a_tag"] == P_TAG, "publish-ui: model A tag")
+        expect(pub["model_b_tag"] == B_TAG, "publish-ui: model B tag")
+        expect(pub["mirror_a_tag_initial"] == pub["model_a_tag"],
+               "publish-ui: A initial mirror tag must match model")
+        expect(pub["mirror_b_tag_initial"] == pub["model_b_tag"],
+               "publish-ui: B initial mirror tag must match model")
+        expect(pub["mirror_a_tag_structural"] == pub["model_a_tag"],
+               "publish-ui: A structural mirror tag must match model")
+        expect(pub["mirror_b_tag_structural"] == pub["model_b_tag"],
+               "publish-ui: B structural mirror tag must match model")
+        expect(pub["model_a_value_after_event"] == A_VALUE_AFTER_S1,
+               "publish-ui: model A value after event")
+        expect(pub["mirror_a_value_structural"] == A_VALUE_AFTER_S1,
+               "publish-ui: A value must reach UI mirror after structural pub")
+        expect(pub["mirror_b_value_structural"] == pub["mirror_b_value_initial"],
+               "publish-ui: B value unchanged in mirror")
+
         after_event = run(rev1, "set-value", backing_r1, user, "a", A_VALUE_AFTER_S1)
         expect_item(after_event, "a", value=A_VALUE_AFTER_S1, tag=P_TAG,
                     journal_len=2)

@@ -7,6 +7,37 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+<a id="p3t3o1pub--origin-s1-ui-publication-2026-11-04--pass"></a>
+
+## P3.T3.O1pub — origin-resolved S1 в UI publication (post-`3dee9fc`, 2026-11-04) — PASS; regression: 2 открытых pre-existing FAIL
+
+**Base:** `3dee9fc`. **NEXT:** без изменений (Android embedded; ссылки внутри S1 — отдельная задача).
+
+### Дефект
+
+После cold load на rev1 экземпляр **A** без собственного USER/S1 читает `tag=252` из prefab (origin lookup); **B** с USER/S1 — `tag=999`. В модели значения верные, но **initial** и **structural** publication (`SerializeInitialPublication` / `SerializeStructuralNodePublication` → UI `RamDomain` без prefab BACKING) теряли S1 у **A**: `mirror.tag` становился **0** при `model.tag=252`. У **B** зеркало совпадало (**999**). Изменение S0 через `EvolutionSetValueEvent` + structural publication доходило до UI — отличало потерю S1 от полного обрыва публикации.
+
+### Воспроизведение (до fix)
+
+Расширены `tests/origin_evolution_fixture.cpp` (`--op publish-ui`) и `tests/origin_evolution_matrix.py` (после `set-tag` на B, до финального `set-value` на A): штатная initial publication обоих экземпляров, Event на S0, structural publication в то же UI-зеркало; проверка `mirror.tag == model.tag` и value на A. **FAIL:** «publish-ui: A initial mirror tag must match model» (252 vs 0).
+
+### Fix
+
+Patch **`aether-objects-should-save-version-scope.patch`** (заменяет **`should-save-version`** в CPM-списке): в `DomainGraph::Save` `ShouldSaveVersion` применяется только вне **`GraphSerializationScope::MaterializedPublication`**. Запись в USER (`LocalPersistent`) по-прежнему не создаёт A/Item/S1 без `own_tag`; publication сериализует материализованное состояние модели (в т.ч. S1, полученный через origin load). `Node::CaptureBaseStateInto` остаётся на том же scope — **PASS** `apptraverse_historical_base_materialization_test`. CPM source dir: `0084` win64/WASM/Android, `596e` Linux; `full patch chain OK (16 patches)`.
+
+### Regression (incremental Debug)
+
+| Контур | Результат |
+| --- | --- |
+| `apptraverse_origin_evolution_matrix` (включая publish-ui) | **PASS** win64 / Linux |
+| `apptraverse_object_origin_facet_test`, checkpoint rehydration + load-cycle | **PASS** win64 |
+| `apptraverse_historical_base_materialization_test` | **PASS** win64 |
+| Windows 14 + headless/materialization | **14/14 PASS** |
+| Linux L3 | **PASS** |
+| WASM facet + ×3 smoke (serve PIDs 35368 / 3144, stop по PID) | **PASS** |
+| Android `connectedDebugAndroidTest` | **13/13 PASS** |
+| `apptraverse_event_version_matrix`, `apptraverse_surfaces_distilled_embedded_matrix` | **FAIL** (без изменений, не в срезе) |
+
 <a id="p3t3o1--origin-objs0--prefab-layers-2026-11-04--pass"></a>
 
 ## P3.T3.O1 — origin в Obj/S0 + слои prefab по origin (post-`6e39ef2`, 2026-11-04) — PASS (срез); regression: 2 открытых pre-existing FAIL

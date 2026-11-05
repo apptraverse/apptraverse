@@ -15,7 +15,7 @@ set(APPTRAVERSE_AETHER_OBJECTS_PATCH_NAMES
   reject-unknown-stored-class
   objptr-reset-flags
   force-materialize
-  should-save-version
+  should-save-version-scope
   origin-s0
   obj-layer-factory
   domain-registered-objects

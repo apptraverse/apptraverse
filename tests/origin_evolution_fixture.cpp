@@ -15,6 +15,7 @@
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_clone.h"
 #include "apptraverse/object_macros.h"
+#include "apptraverse/object_serialization.h"
 #include "apptraverse/overlay_domain_storage.h"
 
 #ifndef APPTRAVERSE_ORIGIN_EVOLUTION_EXE_REVISION
@@ -346,6 +347,103 @@ void OpResave(Args const& args) {
   WriteState(args.op, domain, a, b);
 }
 
+#if APPTRAVERSE_ORIGIN_EVOLUTION_EXE_REVISION >= 1
+
+EvolutionItem::ptr UiItem(ae::Domain& ui_domain, ae::ObjId id) {
+  ae::Ptr<ae::Obj> object = ui_domain.Find(id);
+  if (!object || object->GetClassId() != EvolutionItem::kClassId) {
+    Fail("UI mirror missing EvolutionItem");
+  }
+  return EvolutionItem::ptr::MakeFromThis(
+      static_cast<EvolutionItem*>(&*object));
+}
+
+ae::Ptr<ae::Obj> PublishInitialToUi(EvolutionItem& model, ae::Domain& ui_domain,
+                                    ae::RamDomainStorage& ui_storage) {
+  model.EnsureCurrentGeneration();
+  ByteSink out;
+  SerializeInitialPublication(model, out);
+  ByteSource in;
+  in.data = out.bytes.data();
+  in.size = out.bytes.size();
+  in.pos = 0;
+  return LoadInitialPublication(in, ui_domain, ui_storage);
+}
+
+void PublishStructuralToUi(EvolutionItem& model, ae::Domain& ui_domain,
+                           ae::RamDomainStorage& ui_storage) {
+  model.EnsureCurrentGeneration();
+  ByteSink out;
+  SerializeStructuralNodePublication(model, out);
+  ByteSource in;
+  in.data = out.bytes.data();
+  in.size = out.bytes.size();
+  in.pos = 0;
+  ApplyStructuralPublication(in, ui_domain, ui_storage);
+}
+
+void OpPublishUi(Args const& args) {
+  Stores stores = OpenStores(args);
+  ae::Domain model_domain{*stores.overlay};
+  EvolutionItem::ptr a = LoadItem(model_domain, kInstanceAId);
+  EvolutionItem::ptr b = LoadItem(model_domain, kInstanceBId);
+
+  std::uint32_t const model_a_tag = a->tag;
+  std::uint32_t const model_b_tag = b->tag;
+  std::uint32_t const model_a_value_before = a->value;
+
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+
+  ae::Ptr<ae::Obj> ui_a_obj = PublishInitialToUi(*a, ui_domain, ui_storage);
+  ae::Ptr<ae::Obj> ui_b_obj = PublishInitialToUi(*b, ui_domain, ui_storage);
+  if (!ui_a_obj || ui_a_obj->obj_id != kInstanceAId ||
+      ui_a_obj->GetClassId() != EvolutionItem::kClassId) {
+    Fail("initial publication A");
+  }
+  if (!ui_b_obj || ui_b_obj->obj_id != kInstanceBId ||
+      ui_b_obj->GetClassId() != EvolutionItem::kClassId) {
+    Fail("initial publication B");
+  }
+  EvolutionItem::ptr ui_a = EvolutionItem::ptr::MakeFromThis(
+      static_cast<EvolutionItem*>(&*ui_a_obj));
+  EvolutionItem::ptr ui_b = EvolutionItem::ptr::MakeFromThis(
+      static_cast<EvolutionItem*>(&*ui_b_obj));
+  std::uint32_t const mirror_a_tag_initial = ui_a->tag;
+  std::uint32_t const mirror_b_tag_initial = ui_b->tag;
+  std::uint32_t const mirror_a_value_initial = ui_a->value;
+  std::uint32_t const mirror_b_value_initial = ui_b->value;
+
+  std::uint32_t const next_value =
+      args.number != 0 ? args.number : (model_a_value_before + 100u);
+  auto value_event =
+      EvolutionSetValueEvent::ptr::Create(ae::CreateWith{model_domain});
+  value_event->value = next_value;
+  a->Commit(value_event);
+
+  PublishStructuralToUi(*a, ui_domain, ui_storage);
+  PublishStructuralToUi(*b, ui_domain, ui_storage);
+
+  ui_a = UiItem(ui_domain, kInstanceAId);
+  ui_b = UiItem(ui_domain, kInstanceBId);
+
+  std::cout << "{\"ok\":true,\"op\":\"publish-ui\",\"revision\":"
+            << APPTRAVERSE_ORIGIN_EVOLUTION_EXE_REVISION
+            << ",\"model_a_tag\":" << model_a_tag
+            << ",\"model_b_tag\":" << model_b_tag
+            << ",\"mirror_a_tag_initial\":" << mirror_a_tag_initial
+            << ",\"mirror_b_tag_initial\":" << mirror_b_tag_initial
+            << ",\"mirror_a_tag_structural\":" << ui_a->tag
+            << ",\"mirror_b_tag_structural\":" << ui_b->tag
+            << ",\"model_a_value_after_event\":" << a->value
+            << ",\"mirror_a_value_initial\":" << mirror_a_value_initial
+            << ",\"mirror_b_value_initial\":" << mirror_b_value_initial
+            << ",\"mirror_a_value_structural\":" << ui_a->value
+            << ",\"mirror_b_value_structural\":" << ui_b->value << "}\n";
+}
+
+#endif
+
 ae::ObjId TargetId(Args const& args) {
   if (args.target == "a") {
     return kInstanceAId;
@@ -388,6 +486,8 @@ int Run(int argc, char** argv) {
   } else if (args.op == "set-tag") {
     CommitEvent<EvolutionSetTagEvent>(
         args, [&](EvolutionSetTagEvent& e) { e.tag = args.number; });
+  } else if (args.op == "publish-ui") {
+    OpPublishUi(args);
 #endif
   } else {
     Fail("unknown --op");

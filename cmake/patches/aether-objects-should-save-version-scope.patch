@@ -1,13 +1,15 @@
 diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
-index 9a2b3c4..b4c5d6e7 100644
+index 8c865fc..73df1f6 100644
 --- a/src/aether-objects/obj/domain.h
 +++ b/src/aether-objects/obj/domain.h
-@@ -282,6 +282,11 @@
+@@ -282,6 +282,13 @@ std::optional<seri::SeriResult> DomainGraph::Save(T const& obj, ObjId obj_id) {
            if (result.IsErr()) {
              return;
            }
 +          if constexpr (requires { obj.ShouldSaveVersion(version); }) {
-+            if (!obj.ShouldSaveVersion(version)) {
++            if (serialization_scope !=
++                    GraphSerializationScope::MaterializedPublication &&
++                !obj.ShouldSaveVersion(version)) {
 +              return;
 +            }
 +          }
