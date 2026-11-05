@@ -79,6 +79,10 @@
   in this macOS-only worktree/session. This is not a full cross-backend
   regression claim. Release, clean build, full CTest, and known matrix failures
   were not run.
+- **Correction commit:** `e3d9062fdd94a74818a2bca16fb3025e55b0bbb2`.
+  Push status: the correction was pushed to `feature/macos-minimal-app` and
+  fast-forward integrated into `integration/unified-application`; remote
+  containment was verified.
 
 <a id="p3t3ae--android-embedded-backing--user-2026-11-04--pass"></a>
 
