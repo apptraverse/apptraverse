@@ -11,7 +11,7 @@
 
 ## P4 / WindowCatalog — Linux/GTK geom + Z-order persist (2026-11-05) — PASS (Linux slice, verified)
 
-**Ветка:** **`feature/linux-window-catalog`**, verified remote base **`bc3a5d03525495c0384f3151ce02834f659abc7f`** → fix commit (см. remote SHA после push).
+**Ветка:** **`feature/linux-window-catalog`** @ **`847f8985ee33cf2b57e417a892b435b1be237f41`** (base **`bc3a5d03525495c0384f3151ce02834f659abc7f`**).
 
 ### Дефект (подтверждён на `@bc3a5d0`, `GDK_BACKEND=x11`)
 
