@@ -298,7 +298,7 @@ class Node : public ae::Obj {
     ae::RamDomainStorage scratch;
     ae::Domain scratch_domain{scratch};
     ae::DomainGraph save_graph{
-        &scratch_domain, ae::GraphSerializationScope::MaterializedPublication};
+        &scratch_domain, ae::GraphSerializationScope::LocalPersistent};
     bool const owner_marked =
         save_graph.cycle_detector.Add(ConcreteNode::kClassId, owner_id);
     assert(owner_marked);

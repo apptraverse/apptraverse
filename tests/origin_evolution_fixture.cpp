@@ -382,6 +382,46 @@ void PublishStructuralToUi(EvolutionItem& model, ae::Domain& ui_domain,
   ApplyStructuralPublication(in, ui_domain, ui_storage);
 }
 
+void WriteReplayItem(std::ostream& out, char const* name,
+                     EvolutionItem::ptr const& item) {
+  auto base = EvolutionItem::ptr{item->base};
+  if (!base.is_valid() || !base.is_loaded()) {
+    base.Load();
+  }
+  std::uint32_t const model_tag_before = item->tag;
+  std::uint32_t const base_tag_before = base->tag;
+  bool const replay_ok = item->TryReplayFromBase();
+  out << ",\"" << name << "\":{\"model_tag_before\":" << model_tag_before
+      << ",\"base_tag_before\":" << base_tag_before
+      << ",\"replay_ok\":" << (replay_ok ? "true" : "false")
+      << ",\"model_tag_after\":" << item->tag
+      << ",\"model_value_after\":" << item->value << '}';
+}
+
+void OpReplayBase(Args const& args) {
+  Stores stores = OpenStores(args);
+  ae::Domain domain{*stores.overlay};
+  EvolutionItem::ptr a = LoadItem(domain, kInstanceAId);
+  EvolutionItem::ptr b = LoadItem(domain, kInstanceBId);
+  std::cout << "{\"ok\":true,\"op\":\"replay-base\",\"revision\":"
+            << APPTRAVERSE_ORIGIN_EVOLUTION_EXE_REVISION;
+  WriteReplayItem(std::cout, "a", a);
+  WriteReplayItem(std::cout, "b", b);
+  std::cout << "}\n";
+}
+
+void OpCompactJournal(Args const& args) {
+  Stores stores = OpenStores(args);
+  ae::Domain domain{*stores.overlay};
+  EvolutionItem::ptr a = LoadItem(domain, kInstanceAId);
+  EvolutionItem::ptr b = LoadItem(domain, kInstanceBId);
+  std::uint64_t const now_us = SystemUtcMicros();
+  a->CompactJournal(now_us);
+  b->CompactJournal(now_us);
+  SaveItems(stores, a, b);
+  WriteState("compact-journal", domain, a, b);
+}
+
 void OpPublishUi(Args const& args) {
   Stores stores = OpenStores(args);
   ae::Domain model_domain{*stores.overlay};
@@ -488,6 +528,10 @@ int Run(int argc, char** argv) {
         args, [&](EvolutionSetTagEvent& e) { e.tag = args.number; });
   } else if (args.op == "publish-ui") {
     OpPublishUi(args);
+  } else if (args.op == "replay-base") {
+    OpReplayBase(args);
+  } else if (args.op == "compact-journal") {
+    OpCompactJournal(args);
 #endif
   } else {
     Fail("unknown --op");

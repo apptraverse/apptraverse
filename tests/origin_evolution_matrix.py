@@ -73,6 +73,57 @@ def expect_item(record: dict, name: str, **fields):
                f"expected {want}, got {item.get(key)}")
 
 
+def expect_replay_item(record: dict, name: str, want_tag: int, context: str):
+    item = record[name]
+    expect(item.get("model_tag_before") == want_tag,
+           f"{context}: {name} model tag before replay")
+    expect(item.get("base_tag_before") == want_tag,
+           f"{context}: {name} base tag before replay")
+    expect(item.get("model_tag_after") == want_tag,
+           f"{context}: {name} model tag after replay")
+
+
+def run_fresh_replay_scenario(rev1: Path, work_root: Path):
+    root = Path(tempfile.mkdtemp(prefix="origin-replay-", dir=work_root))
+    user = root / "user"
+    backing = root / "backing"
+    try:
+        run(rev1, "export-backing", backing)
+        run(rev1, "create-instances", backing, user)
+        cold = run(rev1, "inspect", backing, user)
+        expect_item(cold, "a", tag=P_TAG, own_tag=False, value=P_VALUE)
+        expect_item(cold, "b", tag=P_TAG, own_tag=False, value=P_VALUE)
+        replay = run(rev1, "replay-base", backing, user)
+        expect_replay_item(replay, "a", P_TAG, "fresh replay")
+        expect_replay_item(replay, "b", P_TAG, "fresh replay")
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def run_compact_s0_scenario(rev1: Path, work_root: Path):
+    root = Path(tempfile.mkdtemp(prefix="origin-compact-", dir=work_root))
+    user = root / "user"
+    backing = root / "backing"
+    try:
+        run(rev1, "export-backing", backing)
+        run(rev1, "create-instances", backing, user)
+        delivered = run(rev1, "inspect", backing, user)
+        expect_item(delivered, "a", tag=P_TAG, own_tag=False)
+        edited = run(rev1, "set-value", backing, user, "a", A_VALUE)
+        expect_item(edited, "a", value=A_VALUE, tag=P_TAG, own_tag=False)
+        compact = run(rev1, "compact-journal", backing, user)
+        expect_item(compact, "a", value=A_VALUE, tag=P_TAG, own_tag=False)
+        expect_user_layers(user, compact, set(), "compact S0-only")
+        cold = run(rev1, "inspect", backing, user)
+        expect_item(cold, "a", value=A_VALUE, tag=P_TAG, own_tag=False)
+        replay = run(rev1, "replay-base", backing, user)
+        expect_replay_item(replay, "a", P_TAG, "compact S0 replay")
+        expect_replay_item(replay, "b", P_TAG, "compact S0 replay")
+        expect_user_layers(user, cold, set(), "compact cold load")
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def expect_lazy_origin(record: dict):
     expect(not record["p_materialized"],
            f"{record['op']}: prefab P materialized in the instance Domain")
@@ -117,6 +168,9 @@ def main() -> int:
     backing_r1 = root / "backing_r1"
 
     try:
+        run_fresh_replay_scenario(rev1, args.work_root)
+        run_compact_s0_scenario(rev1, args.work_root)
+
         run(rev0, "export-backing", backing_r0)
         r0_manifest = manifest(backing_r0)
 

@@ -7,6 +7,33 @@
 
 **Branch (рабочая):** **integration/unified-application** (merge **4848402**). Baseline: **integration/serialization-surfaces**, **integration/application-versioning**. См. [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+<a id="p3t3o1pub2--historical-base-capture-scope-2026-11-04--pass"></a>
+
+## P3.T3.O1pub2 — historical base capture vs UI publication scope (post-`5e935e7`, 2026-11-04) — PASS; regression: 2 открытых pre-existing FAIL
+
+**Base:** `5e935e7`. **NEXT:** без изменений.
+
+### Регрессия от P3.T3.O1pub
+
+`should-save-version-scope` отключил `ShouldSaveVersion` в **`MaterializedPublication`**, но **`Node::CaptureBaseStateInto`** использовал тот же scope при `InitializeRuntimeNode` → `CaptureBaseState()` на clone. На свежем USER (rev1 export → create-instances, без Event) в USER/base попадал **Item/S1** с `tag=0`, origin lookup при replay больше не подставлял prefab S1 → **`TryReplayFromBase()`** обнулял модель (**252→0**). Модель до replay: **252**, историческая base: **0**, `replay_ok=true`. На **`3dee9fc`** (до scope-fix) replay сохранял **252**.
+
+### Красный тест (до fix CaptureBaseStateInto)
+
+`origin_evolution_matrix`: отдельные сценарии **`fresh replay`** (export → create → cold → `replay-base`) и **`compact S0-only`** (set-value на A → `compact-journal` → cold → replay); проверка `model/base tag` до и после replay, отсутствие USER/Item/S1 без `own_tag`. На **`5e935e7`**: FAIL «fresh replay: a model tag after replay» (0 vs 252).
+
+### Fix
+
+**`Node::CaptureBaseStateInto`:** snapshot исторической base пишется с **`GraphSerializationScope::LocalPersistent`** (правила владения слоями / `ShouldSaveVersion`); UI publication по-прежнему через **`MaterializedPublication`** в `SerializeObjectGraphToBuffer`. Æther chain **без изменений** (`0084` / `596e`).
+
+### Regression
+
+| Контур | Результат |
+| --- | --- |
+| `apptraverse_origin_evolution_matrix` (publish-ui + fresh replay + compact S0) | **PASS** win64 / Linux |
+| `apptraverse_historical_base_materialization_test`, checkpoint rehydration + load-cycle | **PASS** win64 |
+| Windows headless subset (4) | **PASS** |
+| `event_version_matrix`, `surfaces_distilled_embedded_matrix` | **FAIL** (без изменений) |
+
 <a id="p3t3o1pub--origin-s1-ui-publication-2026-11-04--pass"></a>
 
 ## P3.T3.O1pub — origin-resolved S1 в UI publication (post-`3dee9fc`, 2026-11-04) — PASS; regression: 2 открытых pre-existing FAIL
