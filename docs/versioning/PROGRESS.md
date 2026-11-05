@@ -61,6 +61,38 @@
 
 - Embedded subprocess **не** годится для проверки «несовместимый USER-слой без v0»: overlay fallback на BACKING v0 — задокументировано probe; контракт loader — отдельно от WindowCatalog app.
 
+### USER-профиль — read-only аудит (MinSizeRel manual, 2026-11-05)
+
+**Контекст executable / supply (не регенерировали supply для сравнения):**
+
+| | Путь |
+| --- | --- |
+| Exe | `build/win64-ninja-msvc-minsizerel/examples/surfaces_demo/windows/MinSizeRel/win32_window_catalog_demo.exe` (~405 504 B) |
+| Профиль | `…/MinSizeRel/surfaces_catalog_s0_proto_state` — **DefaultStateDir** (явный `--state-dir` не требовался) |
+| Embedded BACKING, linked при сборке exe | `build/win64-ninja-msvc-minsizerel/examples/surfaces_demo/generated_distilled/embedded_distilled_window_catalog_supply.h` — `kEmbeddedGraph` **165** layers, `kSupplyConstantIds[] = {15, 16}` |
+
+**Ограничение снимка «34 файла / 3 окна»:** тот же каталог профиля после ручных сессий **перезаписан** (агентская фиксация ~12:08: **34** layer-файла, **10** ObjId-подкаталогов, ~**300** B; аудит на HEAD того же пути: **302** файла, **89** ObjId-подкаталогов). Пофайловую таблицу для раннего снимка **восстановить нельзя** (копия не сохранялась); ниже — установленные факты и разбор наблюдения **34**.
+
+**Формат USER (DirectoryDomainStorage):** только `ObjId/ClassId/version` (файлы); посторонних имён нет. Supply-constant prefab **15/16 в USER отсутствуют** (`user_dir/15`, `user_dir/16` — нет) — ожидаемо (BACKING-only).
+
+**Почему 34 файла при ~3 окнах — не дефект плотности:** `SaveWindowCatalogPersistentSnapshot` пишет `WindowCatalog` root, `SavePresentedWindow(main)`, на каждый holder — `primary_text.Save()` + `SavePresentedWindow(window)` при loaded; каждое **AddWindow** (Clone prefab) создаёт **несколько** dynamic ObjId (holder, window, presenter, localized strings, Event/journal слои `3527371339`). **34 layer-файла** согласуются с **несколькими** ObjId-подкаталогами (~10) и мелкими v0-слоями (Node `2178182515`, Obj `3486612257`, …), а не с «одним файлом на окно».
+
+**Аудит копии текущего профиля** (read-only, `%TEMP%\\wc_user_audit_copy`; полная таблица **302** строк локально, **не** в git): byte-сравнение с тем же `embedded_distilled_window_catalog_supply.h`:
+
+| vs BACKING (302 слоя) | count |
+| --- | ---: |
+| byte-identical | 110 |
+| USER-only-key (dynamic ObjId) | 176 |
+| BACKING-override (длина/содержимое USER ≠ BACKING) | 16 |
+
+**Overrides без нарушения:** root `1/3486612257/0` и `1/3951442439/0` — USER больше BACKING (catalog state + list/selection после Add); **не** классифицировано как дефект (нет audit `force_materialize`; совпадение байт с BACKING на chrome id 2–13 часто **byte-identical** — штатное сохранение без изменения).
+
+**Состав USER (текущая копия):** dynamic holders/windows (~80 ObjId, ~265 слоёв); chrome enum ObjId 2–13 частично в USER (identical или малые overrides); **EventRecord** 18 слоёв на 18 ObjId; journal/base в USER как сериализованные Node/Event слои, **не** отдельный sidecar.
+
+**Известные места в `window_catalog_model.cpp` (не менялись в аудите):** `MakeHolderTitleString` — fallback `catalog.locale ? … : 0`; `AddWindow` — повторная проверка `list`/`list->domain`.
+
+**Нарушений контракта USER/BACKING в аудите не установлено** (prefab 15/16 не в USER; «34 файла» объясняется моделью persist/Clone).
+
 <a id="p3t3i--ios-minimalapp-prototype-2026-11-05"></a>
 
 ## P3.T3.I — iOS/iPadOS MinimalApp prototype (2026-11-05)
