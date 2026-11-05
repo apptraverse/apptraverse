@@ -794,7 +794,7 @@ void RunRequiredChromeButtonNegativeTests(
   ae::ObjId const button_id = WriteProfileMissingAddButtonObject(dir);
   AssertPresenterObjectAbsent(dir, button_id);
   ExpectEmbeddedOverlayUserTombstone(
-      dir, button_id, example::surfaces::CatalogDeleteButton::kClassId,
+      dir, button_id, example::surfaces::CatalogAddButton::kClassId,
       "missing_chrome_add_button_object");
   auto const result = RunLoadOnlyCaptureStderr(
       load_only, dir, "missing_chrome_add_button_object");
@@ -829,7 +829,7 @@ void RunRequiredLocalizedTextNegativeTests(
   ae::ObjId const text_id = WriteProfileMissingLabelAddObject(dir);
   AssertPresenterObjectAbsent(dir, text_id);
   ExpectEmbeddedOverlayUserTombstone(
-      dir, text_id, apptraverse::ui::UiString::kClassId,
+      dir, text_id, apptraverse::ui::UiLocalizationString::kClassId,
       "missing_localized_text_label_add_object");
   auto const result = RunLoadOnlyCaptureStderr(
       load_only, dir, "missing_localized_text_label_add_object");

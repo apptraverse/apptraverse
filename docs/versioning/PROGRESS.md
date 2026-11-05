@@ -9,9 +9,9 @@
 
 <a id="p4-wc-win-debug-embedded--2026-11-05"></a>
 
-## P4 / WindowCatalog — Windows Debug embedded executable (post-`e96c915`, 2026-11-05) — PASS (Win slice)
+## P4 / WindowCatalog — Windows Debug embedded executable (post-`c9a608f`, 2026-11-05) — PASS (Win slice, verified)
 
-**Ветка:** **`feature/windows-window-catalog-complete`**. **Integration не обновлялась**.
+**Ветка:** **`feature/windows-window-catalog-complete`** → merge в **`integration/unified-application`** после проверки. **iOS runtime:** см. §[P3.T3.I](#p3t3i--ios-minimalapp-prototype-2026-11-05) — **BLOCKED** (Simulator); не отменяется этим срезом.
 
 ### Причина первого timeout (установлено)
 
@@ -35,7 +35,7 @@
 ### Acceptance (покрытие)
 
 - **`RunRestartPersistenceAcceptance`**: Add/Open/native Close/reopen, identity, **два cold-load цикла**.
-- **`RunDeleteAndColdReloadAcceptance`**: Delete chrome → proxy/Event, cold reload, соседняя строка, новая команда.
+- **`RunDeleteAndColdReloadAcceptance`**: Delete chrome → proxy/Event, **состояние списка** и cold reload (соседняя строка, новая команда); **не** проверяет HWND identity открытых окон (это в restart/open-path acceptance).
 - **`RunLanguageAndFocusAcceptance`**: EN→RU→EN **до** negative subprocess (не зависит от порядка negatives).
 - Negatives: **`Remove`/tombstone** — overlay in-process probe + embedded load_only subprocess; **schema/unknown ClassId** — **`--user-only-load-probe`** (USER `DirectoryDomainStorage`, не embedded exe).
 
@@ -45,7 +45,17 @@
 | --- | --- |
 | acceptance после `e96c915` | **SEGFAULT** (overlay probe UAF: overlay outlived stack `backing`/`user`) → **исправлено** |
 | acceptance до USER-only schema probes | **timeout** `unsupported_schema_window_catalog_root` на load_only |
-| **Финальный** acceptance + §W2 (14) + overlay/model/headless + minimal export | **14/14 PASS** / **PASS** |
+| **Финальный** acceptance + §W2 (14) + overlay/model/headless + minimal export (post-`c9a608f`, merge `bcd4dcf`) | **14/14 PASS** (1-й прогон, без retry) |
+| Точность acceptance tombstone ClassId (`CatalogAddButton`, `UiLocalizationString`) | Исправление **только теста** (не loader); включено в интеграционный merge |
+
+### DEFERRED (без изменений)
+
+- Несовместимые USER/schema и расширенное версионирование — **не** входят в этот срез; loader/overlay policy **не** менялись.
+
+### Executable
+
+- `build/win64-ninja-msvc-debug/examples/surfaces_demo/windows/win32_window_catalog_demo.exe`
+- `…/win32_window_catalog_demo_load_only.exe` (`--state-dir`; schema/unknown ClassId negatives — `--user-only-load-probe`, не embedded subprocess).
 
 ### Ограничение (не блокер среза)
 
