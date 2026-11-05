@@ -85,13 +85,20 @@
 | USER-only-key (dynamic ObjId) | 176 |
 | BACKING-override (длина/содержимое USER ≠ BACKING) | 16 |
 
-**Overrides без нарушения:** root `1/3486612257/0` и `1/3951442439/0` — USER больше BACKING (catalog state + list/selection после Add); **не** классифицировано как дефект (нет audit `force_materialize`; совпадение байт с BACKING на chrome id 2–13 часто **byte-identical** — штатное сохранение без изменения).
+**Overrides без нарушения:** root `1/3486612257/0` и `1/3951442439/0` — USER больше BACKING (catalog state + list/selection после Add); **не** классифицировано как дефект. **110 byte-identical** слоёв vs embedded BACKING: **причина записи в USER не установлена**; **нарушение не доказано** (отдельный audit `force_materialize` / оптимизация хранения **не** начинались).
 
 **Состав USER (текущая копия):** dynamic holders/windows (~80 ObjId, ~265 слоёв); chrome enum ObjId 2–13 частично в USER (identical или малые overrides); **EventRecord** 18 слоёв на 18 ObjId; journal/base в USER как сериализованные Node/Event слои, **не** отдельный sidecar.
 
-**Известные места в `window_catalog_model.cpp` (не менялись в аудите):** `MakeHolderTitleString` — fallback `catalog.locale ? … : 0`; `AddWindow` — повторная проверка `list`/`list->domain`.
+**Нарушений контракта USER/BACKING в аудите не установлено** (prefab 15/16 не в USER; «34 файла» объясняется моделью persist/Clone). **Пофайловый снимок на 34 layer-файла отсутствует** (см. ограничение выше).
 
-**Нарушений контракта USER/BACKING в аудите не установлено** (prefab 15/16 не в USER; «34 файла» объясняется моделью persist/Clone).
+### WindowCatalog model — удаление избыточных guard (2026-11-05)
+
+**Scope:** `examples/surfaces_demo/common/window_catalog_model.cpp` only. **Не** исправление воспроизведённого сбоя — снятие дублирующих проверок там, где граф уже гарантирует `locale` и `list`/`domain`.
+
+- **`MakeHolderTitleString`:** `language_index` через `catalog.locale->language_index()` (без `catalog.locale ? … : 0`).
+- **`AddWindow`:** убраны `!list` / `list->domain == nullptr` + fatal/abort; тело без замены guard.
+
+**Regression (incremental Debug, 1-й прогон):** WindowCatalog model / headless / embedded overlay / Win32 acceptance **PASS**; Windows §W2 **14/14 PASS**; WASM `wasm_window_catalog_browser_smoke.py` **PASS** (serve **8765**).
 
 <a id="p3t3i--ios-minimalapp-prototype-2026-11-05"></a>
 

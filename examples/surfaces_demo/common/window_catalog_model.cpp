@@ -97,8 +97,7 @@ ui::UiLocalizationString::ptr MakeHolderTitleString(ae::Domain& domain,
       ae::CreateWith{domain}.with_flags(ae::ObjFlags::kUnloadedByDefault));
   localized->strings = {en_string, ru_string};
   InitializeRuntimeNode(*localized, catalog);
-  int const restore_language =
-      catalog.locale ? catalog.locale->language_index() : 0;
+  int const restore_language = catalog.locale->language_index();
   std::string const en_prefix =
       ReadPrefixText(*catalog.texts.window_title_prefix, 0, restore_language);
   std::string const ru_prefix =
@@ -399,10 +398,6 @@ void WindowCatalog::CloseHolderWindow(WindowHolder& holder) {
   ui::UnloadPresentedWindow(holder.window);
 }
 void WindowCatalog::AddWindow() {
-  if (!list || list->domain == nullptr) {
-    WriteFatalStderr("fatal: WindowCatalog AddWindow without list domain\n");
-    std::abort();
-  }
   ae::Domain& domain = *list->domain;
   std::uint32_t const number = next_window_number;
   auto holder = WindowHolder::ptr::Create(ae::CreateWith{domain});
