@@ -30,6 +30,7 @@ class MacDesktopWindowPresenter : public UiDesktopWindowPresenter {
   void OnLoad() override;
   void OnModelChanged() override;
   void OnUnload() override;
+  void ApplyRequestedFrameFromMirror() override;
 };
 
 class MacPushButtonPresenter : public UiPushButtonPresenter {

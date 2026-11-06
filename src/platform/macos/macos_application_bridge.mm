@@ -260,8 +260,8 @@ class MacNativeViews final
       initWithTitle:title
                   x:desktop->x()
                   y:desktop->y()
-              width:desktop->client_width()
-             height:desktop->client_height()];
+              width:desktop->restore_client_width()
+             height:desktop->restore_client_height()];
 }
 
 - (ATMacButtonState*)buttonState:(uint64_t)token {
@@ -325,7 +325,8 @@ class MacNativeViews final
                 token:(uint64_t)token {
   FromToken<MacDesktopWindowPresenter>(token).SubmitFrameFromNative(
       static_cast<std::int32_t>(x), static_cast<std::int32_t>(y),
-      static_cast<std::int32_t>(width), static_cast<std::int32_t>(height));
+      static_cast<std::int32_t>(width), static_cast<std::int32_t>(height),
+      true);
 }
 
 - (BOOL)requestCloseWindow:(uint64_t)token {

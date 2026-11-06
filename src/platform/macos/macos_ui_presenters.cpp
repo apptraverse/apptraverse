@@ -30,6 +30,13 @@ void MacDesktopWindowPresenter::OnModelChanged() {
   NativeViews(*this).SyncDesktopWindow(*this);
 }
 
+void MacDesktopWindowPresenter::ApplyRequestedFrameFromMirror() {
+  if (!presentation_loaded) {
+    return;
+  }
+  NativeViews(*this).SyncDesktopWindow(*this);
+}
+
 void MacDesktopWindowPresenter::OnUnload() {
   NativeViews(*this).UnloadDesktopWindow(*this);
 }
