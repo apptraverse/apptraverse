@@ -18,25 +18,43 @@ class UiDesktopWindow : public NodeFor<UiDesktopWindow, UiPresentedWindow> {
                            UiDesktopWindow, UiPresentedWindow, 0)
 
  protected:
-  UiDesktopWindow() : frame_request_pending_publication_{false} {}
+  UiDesktopWindow()
+      : restore_client_width_{800},
+        restore_client_height_{600},
+        frame_request_pending_publication_{false} {}
 
  public:
-  explicit UiDesktopWindow(ae::ObjProp prop) : NodeFor{prop}, x_{100}, y_{100}, frame_request_pending_publication_{false} {}
+  explicit UiDesktopWindow(ae::ObjProp prop)
+      : NodeFor{prop},
+        x_{100},
+        y_{100},
+        restore_client_width_{800},
+        restore_client_height_{600},
+        frame_request_pending_publication_{false} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(x_), AE_MMBR(y_))
+  AE_OBJECT_REFLECT(AE_MMBR(x_), AE_MMBR(y_), AE_MMBR(restore_client_width_),
+                    AE_MMBR(restore_client_height_))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, x_, y_);
+    dnv(base_, x_, y_, restore_client_width_, restore_client_height_);
+    if (restore_client_width_ <= 0 || restore_client_height_ <= 0) {
+      restore_client_width_ =
+          client_width() > 0 ? client_width() : restore_client_width_;
+      restore_client_height_ =
+          client_height() > 0 ? client_height() : restore_client_height_;
+    }
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, x_, y_);
+    dnv(base_, x_, y_, restore_client_width_, restore_client_height_);
   }
 
   std::int32_t x() const { return x_; }
   std::int32_t y() const { return y_; }
+  std::int32_t restore_client_width() const { return restore_client_width_; }
+  std::int32_t restore_client_height() const { return restore_client_height_; }
 
   void Apply(SetUiDesktopWindowFrameEvent const& event);
   void Apply(ReportUiDesktopWindowFrameFromNativeEvent const& event);
@@ -44,7 +62,8 @@ class UiDesktopWindow : public NodeFor<UiDesktopWindow, UiPresentedWindow> {
 
   void SubmitFrameFromNative(std::int32_t x, std::int32_t y,
                              std::int32_t client_width,
-                             std::int32_t client_height);
+                             std::int32_t client_height,
+                             bool updates_restore_geometry = false);
   void RequestFrame(std::int32_t x, std::int32_t y, std::int32_t client_width,
                     std::int32_t client_height);
 
@@ -55,11 +74,14 @@ class UiDesktopWindow : public NodeFor<UiDesktopWindow, UiPresentedWindow> {
   }
 
  private:
-  void ApplyFrameGeometry(std::int32_t x, std::int32_t y, std::int32_t width,
-                          std::int32_t height);
+  void ApplyRestoreFrameGeometry(std::int32_t x, std::int32_t y,
+                                 std::int32_t width, std::int32_t height);
+  void ApplyLiveClientSize(std::int32_t width, std::int32_t height);
 
   std::int32_t x_;
   std::int32_t y_;
+  std::int32_t restore_client_width_;
+  std::int32_t restore_client_height_;
   bool frame_request_pending_publication_;
 };
 
@@ -95,15 +117,21 @@ class ReportUiDesktopWindowFrameFromNativeEvent
 
  public:
   explicit ReportUiDesktopWindowFrameFromNativeEvent(ae::ObjProp prop)
-      : EventFor{prop}, x{0}, y{0}, client_width{0}, client_height{0} {}
+      : EventFor{prop},
+        x{0},
+        y{0},
+        client_width{0},
+        client_height{0},
+        updates_restore_geometry{false} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(x), AE_MMBR(y), AE_MMBR(client_width),
-                    AE_MMBR(client_height))
+                    AE_MMBR(client_height), AE_MMBR(updates_restore_geometry))
 
   std::int32_t x;
   std::int32_t y;
   std::int32_t client_width;
   std::int32_t client_height;
+  bool updates_restore_geometry;
 };
 
 class RequestUiDesktopWindowFrameEvent

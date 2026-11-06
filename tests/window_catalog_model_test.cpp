@@ -790,7 +790,7 @@ void TestCatalogWindowFrameSurvivesCloseReload() {
   catalog->AddWindow();
   WindowHolder* holder = AsHolder(catalog->list->rows[0]);
   ae::ObjId const window_id = holder->window.id();
-  holder->window->SubmitFrameFromNative(280, 180, 700, 430);
+  holder->window->SubmitFrameFromNative(280, 180, 700, 430, true);
   catalog->CloseHolderWindow(*holder);
   CHECK(!holder->window.is_loaded());
   CHECK(holder->window.is_valid());
@@ -811,7 +811,7 @@ void TestCatalogWindowFrameSurvivesCloseReload() {
     FinalizeDistilledGraph(*persist_catalog);
     persist_catalog->AddWindow();
     WindowHolder* p_holder = AsHolder(persist_catalog->list->rows[0]);
-    p_holder->window->SubmitFrameFromNative(280, 180, 700, 430);
+    p_holder->window->SubmitFrameFromNative(280, 180, 700, 430, true);
     persist_catalog->CloseHolderWindow(*p_holder);
     ShutdownSaveCatalog(*persist_catalog, persist_storage);
     persist_catalog.Reset();
@@ -952,7 +952,7 @@ void TestWindowCatalogOpenCloseEventJournalPersistence() {
   ae::ObjId const holder2_id = holder2->obj_id;
   ae::ObjId const window1_id = holder1->window.id();
   ae::ObjId const window2_id = holder2->window.id();
-  holder1->window->SubmitFrameFromNative(111, 222, 333, 444);
+  holder1->window->SubmitFrameFromNative(111, 222, 333, 444, true);
 
   catalog->CloseHolderWindow(*holder1);
   CHECK(holder1->window.is_valid());
@@ -1026,8 +1026,8 @@ void TestWindowCatalogOpenCloseEventJournalPersistence() {
     persist->AddWindow();
     WindowHolder* p1 = AsHolder(persist->list->rows[0]);
     WindowHolder* p2 = AsHolder(persist->list->rows[1]);
-    p1->window->SubmitFrameFromNative(111, 222, 333, 444);
-    p2->window->SubmitFrameFromNative(50, 60, 400, 300);
+    p1->window->SubmitFrameFromNative(111, 222, 333, 444, true);
+    p2->window->SubmitFrameFromNative(50, 60, 400, 300, true);
     persist->CloseHolderWindow(*p1);
     persist->OpenHolderWindow(*p1);
     persist->CloseHolderWindow(*p2);

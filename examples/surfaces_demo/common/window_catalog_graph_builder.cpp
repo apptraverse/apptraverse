@@ -74,7 +74,7 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
                              catalog->locale);
   InitializeRuntimeNode(*main_window, *catalog);
   main_window->SubmitFrameFromNative(80, 80, kMainClientWidth,
-                                     kMainClientHeight);
+                                     kMainClientHeight, true);
   catalog->main_window = main_window;
 
   ui::UiListContainerPresenter::ptr list_presenter = factory.create_list(

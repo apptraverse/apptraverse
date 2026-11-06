@@ -112,7 +112,7 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
   };
 
-  void HandleNativeFrameChanged();
+  void HandleNativeFrameChanged(bool updates_restore_geometry = false);
 
   std::wstring ResolveTitleText() const;
 

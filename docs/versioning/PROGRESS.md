@@ -39,6 +39,25 @@
 open -n /Users/nick/Projects/apptraverse-macos-window-catalog/build/macos-x64-mp20-debug/examples/surfaces_demo/macos/macos_window_catalog_demo.app --args --state-dir /tmp/window-catalog-macos-integration-manual
 ```
 
+<a id="window-geometry-contract--2026-11-06"></a>
+
+## Window geometry contract — restore vs live client (2026-11-06) — PASS (headless, verified)
+
+**Ветка:** **`feature/window-geometry-contract`** @ **`d13d7d6`**, base **`d590ee7`** (`origin/integration/unified-application`). **`feature/linux-window-catalog`** @ **`ae8ed7e`** — не вливалась. macOS / Android WC — не трогались.
+
+- Persist: **`x_`/`y_`/`restore_client_width_`/`restore_client_height_`**. Live: **`UiWindow` client size**.
+- **`ReportUiDesktopWindowFrameFromNativeEvent::updates_restore_geometry`**: user vs system; report alone не вызывает `ApplyRequestedFrameFromMirror`.
+- Win32: interactive → restore+live; иначе только live client. Linux `OnLoad`: restore client для GTK size (без merge Linux WC presenter).
+
+| Прогон | Результат |
+| --- | --- |
+| `apptraverse_ui_desktop_window_geometry_test` | **PASS** (Win64 Debug, Linux WSL Debug) |
+| `apptraverse_application_contract_headless_test` | **PASS** (Win + Linux) |
+| `apptraverse_window_catalog_model_test`, `apptraverse_minimal_app_headless_test` | **PASS** |
+| `apptraverse_ui_control_materialization_test`, `apptraverse_presenter_graph_persistence_test` | **PASS** |
+| Embedded export (build-time regenerate) | **PASS** |
+| Linux WC smoke / Android WC | **NOT RUN** |
+
 <a id="p4-wc-win-debug-embedded--2026-11-05"></a>
 
 ## P4 / WindowCatalog — Windows Debug embedded executable (post-`c9a608f`, 2026-11-05) — PASS (Win slice, verified)

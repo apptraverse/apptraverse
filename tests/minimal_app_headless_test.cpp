@@ -373,7 +373,7 @@ void TestMinimalAppEmbeddedBackingUserHeadlessE2e() {
     CHECK(ui_window.presenter.id() == MinimalPresenterId());
 
     UiMainPresenter(ui_app).SubmitFrameFromNative(kReportedX, kReportedY,
-                                                  kReportedW, kReportedH);
+                                                  kReportedW, kReportedH, true);
 
     CHECK(WaitPublication(waiter) == ApplicationPublicationKind::Incremental);
     std::vector<std::uint8_t> incremental_bytes = runtime.TakePublishedCopy();
@@ -521,7 +521,7 @@ void TestMinimalAppHeadlessSessionE2e() {
     CHECK(ui_window.client_height() == kInitialH);
 
     UiMainPresenter(ui_app).SubmitFrameFromNative(kReportedX, kReportedY,
-                                                  kReportedW, kReportedH);
+                                                  kReportedW, kReportedH, true);
 
     CHECK(WaitPublication(waiter) == ApplicationPublicationKind::Incremental);
     std::vector<std::uint8_t> incremental_bytes = runtime.TakePublishedCopy();
@@ -621,7 +621,7 @@ void TestMinimalAppHeadlessSessionE2e() {
 
   UiMainPresenter(cold_ui_app)
       .SubmitFrameFromNative(kSecondSessionX, kSecondSessionY, kSecondSessionW,
-                             kSecondSessionH);
+                             kSecondSessionH, true);
 
   CHECK(WaitPublication(cold_waiter) ==
         ApplicationPublicationKind::Incremental);
