@@ -1,6 +1,5 @@
 #include "window_catalog_actions.h"
 #include "window_catalog_close_button.h"
-#include "window_catalog_mobile_sidecar.h"
 #include "window_catalog_model.h"
 
 namespace apptraverse {
@@ -13,7 +12,6 @@ void EnsureWindowCatalogModelRegistration() {
   example::surfaces::EnsureCatalogCloseButtonRegistration();
   TouchWindowCatalogCoreRegistration();
   TouchWindowCatalogEventsRegistration();
-  EnsureWindowCatalogMobileSidecarRegistration();
 }
 
 }  // namespace apptraverse

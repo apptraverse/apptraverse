@@ -1,6 +1,4 @@
 #include "window_catalog_model.h"
-
-#include "window_catalog_mobile_sidecar.h"
 #include <algorithm>
 #include <cassert>
 #include <unordered_set>
@@ -243,27 +241,39 @@ void WindowCatalog::Apply(SetWindowCatalogDesktopZOrderEvent const& event) {
   desktop_z_order = event.ordered;
   NoteMaterializedChange();
 }
+void WindowCatalog::Apply(SetWindowCatalogMobileActiveEvent const& event) {
+  if (!event.window.is_valid()) {
+    mobile_active_window = main_window;
+  } else {
+    mobile_active_window = event.window;
+  }
+  NoteMaterializedChange();
+}
 CatalogWindow::ptr WindowCatalog::ResolveMobileActiveWindow() {
   if (!mobile_pager) {
     return main_window;
   }
-  WindowCatalogMobileSidecar* sidecar = FindMobileSidecar(*this);
-  if (sidecar == nullptr) {
+  if (!mobile_active_window.is_valid()) {
     return main_window;
   }
-  return sidecar->ResolveActiveWindow();
+  if (mobile_active_window.id() == main_window.id()) {
+    return main_window;
+  }
+  WindowHolder* holder = FindHolderForWindow(mobile_active_window.id());
+  if (holder == nullptr || !holder->window.is_loaded()) {
+    return main_window;
+  }
+  return holder->window;
 }
 void WindowCatalog::SetMobileActiveWindow(CatalogWindow::ptr window) {
   if (!mobile_pager) {
     return;
   }
-  WindowCatalogMobileSidecar* sidecar = FindMobileSidecar(*this);
-  if (sidecar == nullptr) {
-    return;
-  }
-  sidecar->SetActiveWindow(std::move(window));
-  pending_mobile_active_window = sidecar->ResolveActiveWindow();
-  NoteMaterializedChange();
+  auto event = SetWindowCatalogMobileActiveEvent::ptr::Create(
+      ae::CreateWith{*domain});
+  event->window = std::move(window);
+  Commit(std::move(event));
+  pending_mobile_active_window = ResolveMobileActiveWindow();
 }
 std::vector<CatalogWindow::ptr> WindowCatalog::BuildMobileRing() const {
   std::vector<CatalogWindow::ptr> ring;

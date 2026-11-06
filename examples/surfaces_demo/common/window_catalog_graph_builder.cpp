@@ -1,7 +1,6 @@
 #include "window_catalog_graph_builder.h"
 
 #include "window_catalog_actions.h"
-#include "window_catalog_mobile_sidecar.h"
 #include "window_catalog_ids.h"
 #include "window_catalog_localization.h"
 #include "window_catalog_model.h"
@@ -192,7 +191,7 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
 
   catalog->mobile_pager = options.mobile_pager;
   if (catalog->mobile_pager) {
-    (void)CreateWindowCatalogMobileSidecar(domain, *catalog);
+    catalog->mobile_active_window = catalog->main_window;
   }
 
   return catalog;

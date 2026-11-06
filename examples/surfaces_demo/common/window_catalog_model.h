@@ -120,6 +120,8 @@ class SetWindowCatalogOpenEvent;
 
 class SetWindowCatalogDesktopZOrderEvent;
 
+class SetWindowCatalogMobileActiveEvent;
+
 struct WindowCatalogTexts {
 
   ae::ObjPtr<ui::UiLocalizationString> label_add;
@@ -215,7 +217,9 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
         presenters.open_button_presenter, presenters.delete_button_presenter,
 
-        presenters.language_button_presenter, window_prefab, desktop_z_order);
+        presenters.language_button_presenter, window_prefab, desktop_z_order,
+
+        mobile_pager, mobile_active_window);
 
   }
 
@@ -237,7 +241,9 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
         presenters.open_button_presenter, presenters.delete_button_presenter,
 
-        presenters.language_button_presenter, window_prefab, desktop_z_order);
+        presenters.language_button_presenter, window_prefab, desktop_z_order,
+
+        mobile_pager, mobile_active_window);
 
   }
 
@@ -263,6 +269,8 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
   bool mobile_pager;
 
+  CatalogWindow::ptr mobile_active_window;
+
   [[nodiscard]] CatalogWindow::ptr ResolveMobileActiveWindow();
 
   [[nodiscard]] bool CanApply(AddWindowCatalogEntryEvent const& event) const;
@@ -276,6 +284,8 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   void Apply(SetWindowCatalogOpenEvent const& event);
 
   void Apply(SetWindowCatalogDesktopZOrderEvent const& event);
+
+  void Apply(SetWindowCatalogMobileActiveEvent const& event);
 
   void SetDesktopZOrderFromObjIds(std::vector<std::uint32_t> ordered_ids);
 
@@ -475,6 +485,24 @@ class SetWindowCatalogDesktopZOrderEvent
   }
 
   std::vector<CatalogWindow::ptr> ordered;
+};
+
+class SetWindowCatalogMobileActiveEvent
+    : public EventFor<WindowCatalog, SetWindowCatalogMobileActiveEvent> {
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::example::surfaces::SetWindowCatalogMobileActiveEvent",
+      SetWindowCatalogMobileActiveEvent, Event, 0)
+
+ protected:
+  SetWindowCatalogMobileActiveEvent() = default;
+
+ public:
+  explicit SetWindowCatalogMobileActiveEvent(ae::ObjProp prop)
+      : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(window))
+
+  CatalogWindow::ptr window;
 };
 
 class SetWindowCatalogSelectionEvent

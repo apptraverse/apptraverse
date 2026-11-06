@@ -20,6 +20,11 @@ public final class NativeUiBridge {
     }
   }
 
+  /** Called from native AndroidApplicationHost (model thread). */
+  public void onNativePublication(int kind) {
+    onPublication(kind);
+  }
+
   public void onPublication(int kind) {
     if (listener != null) {
       listener.onPublication(kind);
@@ -30,6 +35,11 @@ public final class NativeUiBridge {
     if (listener != null) {
       listener.onMobilePages(windowIds, activeWindowId);
     }
+  }
+
+  /** Called from native AndroidApplicationHost after checkpoint persist. */
+  public void onNativeBackgroundSaveFinished(int persistResult) {
+    onBackgroundSaveFinished(persistResult);
   }
 
   public void onBackgroundSaveFinished(int persistResult) {
