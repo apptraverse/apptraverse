@@ -191,82 +191,20 @@ struct WindowCatalogPresenters {
 
 };
 
-class WindowCatalog : public NodeFor<WindowCatalog> {
+struct WindowCatalogMainClientViewport {
+  std::int32_t width{0};
+  std::int32_t height{0};
+  // DisplayMetrics.densityDpi on Android (160 = mdpi); 160 on Web/Desktop.
+  std::int32_t density_dpi{160};
 
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::WindowCatalog",
+  AE_REFLECT_MEMBERS(width, height, density_dpi)
+};
 
-                           WindowCatalog, Node, 0)
-
- protected:
-
-  WindowCatalog() = default;
-
- public:
-
-  explicit WindowCatalog(ae::ObjProp prop)
-      : NodeFor{prop},
-        next_window_number{1},
-        mobile_pager{false} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(next_window_number), AE_MMBR(selected),
-
-                    AE_MMBR(list), AE_MMBR(main_window), AE_MMBR(locale),
-
-                    AE_MMBR(texts), AE_MMBR(buttons), AE_MMBR(presenters),
-
-                    AE_MMBR(window_prefab), AE_MMBR(desktop_z_order))
-
-  template <typename Dnv>
-
-  void Load(ae::Version<0>, Dnv& dnv) {
-
-    dnv(base_, next_window_number, selected, list, main_window, locale,
-
-        texts.label_add, texts.label_open, texts.label_delete,
-
-        texts.label_language, texts.window_title_prefix, texts.label_close,
-
-        buttons.add_button,
-
-        buttons.open_button, buttons.delete_button, buttons.language_button,
-
-        presenters.list_presenter, presenters.add_button_presenter,
-
-        presenters.open_button_presenter, presenters.delete_button_presenter,
-
-        presenters.language_button_presenter, window_prefab, desktop_z_order,
-
-        mobile_pager, mobile_active_window, main_client_viewport_w,
-        main_client_viewport_h);
-
-  }
-
-  template <typename Dnv>
-
-  void Save(ae::Version<0>, Dnv& dnv) const {
-
-    dnv(base_, next_window_number, selected, list, main_window, locale,
-
-        texts.label_add, texts.label_open, texts.label_delete,
-
-        texts.label_language, texts.window_title_prefix, texts.label_close,
-
-        buttons.add_button,
-
-        buttons.open_button, buttons.delete_button, buttons.language_button,
-
-        presenters.list_presenter, presenters.add_button_presenter,
-
-        presenters.open_button_presenter, presenters.delete_button_presenter,
-
-        presenters.language_button_presenter, window_prefab, desktop_z_order,
-
-        mobile_pager, mobile_active_window, main_client_viewport_w,
-        main_client_viewport_h);
-
-  }
-
-  std::uint32_t next_window_number;
+// Serialized snapshot of the catalog chrome graph. Kept as one reflected member
+// on WindowCatalog so MSVC does not flatten a very wide AE_OBJECT_REFLECT list
+// into an initializer nest that hits compiler limits (C1054).
+struct WindowCatalogPersisted {
+  std::uint32_t next_window_number{1};
 
   WindowHolder::ptr selected;
 
@@ -286,15 +224,56 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
   std::vector<CatalogWindow::ptr> desktop_z_order;
 
-  bool mobile_pager;
+  bool mobile_pager{false};
 
   CatalogWindow::ptr mobile_active_window;
 
-  // Main-window client viewport last reported by a presenter (0 = unknown).
-  // Drives adaptive chrome layout of the list and the four main buttons.
-  std::int32_t main_client_viewport_w{0};
+  // Main-window client viewport last reported by a presenter (0 = unknown
+  // width/height). Drives adaptive chrome layout of the list and the four main
+  // buttons.
+  WindowCatalogMainClientViewport main_client_viewport;
 
-  std::int32_t main_client_viewport_h{0};
+  AE_REFLECT_MEMBERS(next_window_number, selected, list, main_window, locale,
+
+                     texts, buttons, presenters, window_prefab, desktop_z_order,
+
+                     mobile_pager, mobile_active_window, main_client_viewport)
+
+};
+
+class WindowCatalog : public NodeFor<WindowCatalog> {
+
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::WindowCatalog",
+
+                           WindowCatalog, Node, 0)
+
+ protected:
+
+  WindowCatalog() = default;
+
+ public:
+
+  explicit WindowCatalog(ae::ObjProp prop) : NodeFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(persisted))
+
+  template <typename Dnv>
+
+  void Load(ae::Version<0>, Dnv& dnv) {
+
+    dnv(base_, persisted);
+
+  }
+
+  template <typename Dnv>
+
+  void Save(ae::Version<0>, Dnv& dnv) const {
+
+    dnv(base_, persisted);
+
+  }
+
+  WindowCatalogPersisted persisted;
 
   [[nodiscard]] CatalogWindow::ptr ResolveMobileActiveWindow();
 
@@ -315,7 +294,12 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   void Apply(SetWindowCatalogMainClientViewportEvent const& event);
 
   // Presenter -> model: main window client size changed. No-op when unchanged.
-  void SubmitMainClientViewportFromUi(std::int32_t width, std::int32_t height);
+  void SubmitMainClientViewportFromUi(std::int32_t width, std::int32_t height,
+                                      std::int32_t density_dpi = 160);
+
+  void SubmitHolderChildWindowClientSizeFromUi(std::uint32_t window_obj_id,
+                                               std::int32_t width,
+                                               std::int32_t height);
 
   void SetDesktopZOrderFromObjIds(std::vector<std::uint32_t> ordered_ids);
 
@@ -550,10 +534,11 @@ class SetWindowCatalogMainClientViewportEvent
   explicit SetWindowCatalogMainClientViewportEvent(ae::ObjProp prop)
       : EventFor{prop}, width{0}, height{0} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(width), AE_MMBR(height))
+  AE_OBJECT_REFLECT(AE_MMBR(width), AE_MMBR(height), AE_MMBR(density_dpi))
 
   std::int32_t width;
   std::int32_t height;
+  std::int32_t density_dpi{160};
 };
 
 class SetWindowCatalogSelectionEvent

@@ -5,6 +5,7 @@
 #include "window_catalog_ids.h"
 #include "window_catalog_localization.h"
 #include "window_catalog_model.h"
+#include "window_catalog_prefab_sizes.h"
 
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_desktop_window.h"
@@ -30,7 +31,8 @@ ui::UiPushButtonPresenter::ptr MakeButtonPresenter(
       factory.create_button(domain, ae::ObjId{});
   presenter->button = button;
   presenter->window_presenter =
-      static_cast<ui::UiPresentedWindow&>(*catalog.main_window).presenter;
+      static_cast<ui::UiPresentedWindow&>(*catalog.persisted.main_window)
+          .presenter;
   presenter->layout_x = rect.x;
   presenter->layout_y = rect.y;
   presenter->layout_width = rect.width;
@@ -57,7 +59,7 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   auto list = CatalogListContainer::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::CatalogList)));
   list->catalog = catalog;
-  catalog->list = list;
+  catalog->persisted.list = list;
   InitializeRuntimeNode(*list, *catalog);
 
   InstallWindowCatalogLocalization(*catalog, domain);
@@ -67,16 +69,17 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   ui::UiDesktopWindowPresenter::ptr main_presenter = factory.create_window(
       domain, ae::ObjId{ToObjId(ObjId::MainWindowPresenter)});
   ui::ComposePresentedWindow(main_window, main_presenter, main_title,
-                             catalog->locale);
+                             catalog->persisted.locale);
   InitializeRuntimeNode(*main_window, *catalog);
   main_window->SubmitFrameFromNative(80, 80, kMainClientWidth,
                                      kMainClientHeight, true);
-  catalog->main_window = main_window;
+  catalog->persisted.main_window = main_window;
 
   // Initial chrome geometry for the default main client size; the model
   // re-applies it from the real viewport (SetWindowCatalogMainClientViewport).
   WindowCatalogMainChromeLayout const chrome =
-      ComputeWindowCatalogMainChromeLayout(kMainClientWidth, kMainClientHeight);
+      ComputeWindowCatalogMainChromeLayout(kMainClientWidth, kMainClientHeight,
+                                          160);
 
   ui::UiListContainerPresenter::ptr list_presenter = factory.create_list(
       domain, ae::ObjId{ToObjId(ObjId::CatalogListPresenter)}, catalog);
@@ -92,37 +95,37 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   auto add_button = CatalogAddButton::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::AddButton)));
   add_button->catalog = catalog;
-  add_button->label = catalog->texts.label_add;
+  add_button->label = catalog->persisted.texts.label_add;
 
   auto open_button = CatalogOpenButton::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::OpenButton)));
   open_button->catalog = catalog;
-  open_button->label = catalog->texts.label_open;
+  open_button->label = catalog->persisted.texts.label_open;
 
   auto delete_button = CatalogDeleteButton::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::DeleteButton)));
   delete_button->catalog = catalog;
-  delete_button->label = catalog->texts.label_delete;
+  delete_button->label = catalog->persisted.texts.label_delete;
 
   auto language_button = CatalogLanguageButton::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::LanguageButton)));
   language_button->catalog = catalog;
-  language_button->label = catalog->texts.label_language;
+  language_button->label = catalog->persisted.texts.label_language;
 
-  catalog->buttons.add_button = add_button;
-  catalog->buttons.open_button = open_button;
-  catalog->buttons.delete_button = delete_button;
-  catalog->buttons.language_button = language_button;
-  catalog->presenters.list_presenter = list_presenter;
-  catalog->presenters.add_button_presenter =
+  catalog->persisted.buttons.add_button = add_button;
+  catalog->persisted.buttons.open_button = open_button;
+  catalog->persisted.buttons.delete_button = delete_button;
+  catalog->persisted.buttons.language_button = language_button;
+  catalog->persisted.presenters.list_presenter = list_presenter;
+  catalog->persisted.presenters.add_button_presenter =
       MakeButtonPresenter(domain, *catalog, add_button, factory, chrome.add,
                           kAddControlId);
-  catalog->presenters.open_button_presenter = MakeButtonPresenter(
+  catalog->persisted.presenters.open_button_presenter = MakeButtonPresenter(
       domain, *catalog, open_button, factory, chrome.open, kOpenControlId);
-  catalog->presenters.delete_button_presenter = MakeButtonPresenter(
+  catalog->persisted.presenters.delete_button_presenter = MakeButtonPresenter(
       domain, *catalog, delete_button, factory, chrome.delete_button,
       kDeleteControlId);
-  catalog->presenters.language_button_presenter = MakeButtonPresenter(
+  catalog->persisted.presenters.language_button_presenter = MakeButtonPresenter(
       domain, *catalog, language_button, factory, chrome.language,
       kLanguageControlId);
 
@@ -130,8 +133,8 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
 
   constexpr std::int32_t kPrefabFrameX = 160;
   constexpr std::int32_t kPrefabFrameY = 120;
-  constexpr std::int32_t kPrefabClientWidth = 480;
-  constexpr std::int32_t kPrefabClientHeight = 320;
+  constexpr std::int32_t kPrefabClientWidth = kWindowCatalogPrefabClientWidth;
+  constexpr std::int32_t kPrefabClientHeight = kWindowCatalogPrefabClientHeight;
   ae::ObjId const window_prefab_id{ToObjId(ObjId::WindowPrefab)};
   ae::ObjId const window_prefab_presenter_id{
       ToObjId(ObjId::WindowPrefabPresenter)};
@@ -151,8 +154,8 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   ui::UiDesktopWindowPresenter::ptr window_prefab_presenter =
       factory.create_window(domain, ae::ObjId{window_prefab_presenter_id});
   ui::ComposePresentedWindow(window_prefab, window_prefab_presenter,
-                             catalog->texts.window_title_prefix,
-                             catalog->locale);
+                             catalog->persisted.texts.window_title_prefix,
+                             catalog->persisted.locale);
   InitializeRuntimeNode(*window_prefab_body, *catalog);
 
   if (options.mobile_close_in_prefab) {
@@ -170,7 +173,7 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
            .IsOk()) {
     std::abort();
   }
-  catalog->window_prefab = CatalogWindow::ptr::Declare(
+  catalog->persisted.window_prefab = CatalogWindow::ptr::Declare(
       ae::CreateWith{domain}
           .with_id(window_prefab_id)
           .with_flags(lazy_prefab_flags));
@@ -198,16 +201,17 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   InitializeRuntimeNode(*language_button, *catalog);
 
   list->catalog = catalog;
-  catalog->list = list;
+  catalog->persisted.list = list;
   InitializeRuntimeNode(*catalog);
 
-  catalog->desktop_z_order.push_back(catalog->main_window);
+  catalog->persisted.desktop_z_order.push_back(catalog->persisted.main_window);
 
-  catalog->main_client_viewport_w = kMainClientWidth;
-  catalog->main_client_viewport_h = kMainClientHeight;
-  catalog->mobile_pager = options.mobile_pager;
-  if (catalog->mobile_pager) {
-    catalog->mobile_active_window = catalog->main_window;
+  catalog->persisted.main_client_viewport.width = kMainClientWidth;
+  catalog->persisted.main_client_viewport.height = kMainClientHeight;
+  catalog->persisted.main_client_viewport.density_dpi = 160;
+  catalog->persisted.mobile_pager = options.mobile_pager;
+  if (catalog->persisted.mobile_pager) {
+    catalog->persisted.mobile_active_window = catalog->persisted.main_window;
   }
 
   return catalog;

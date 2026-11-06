@@ -21,12 +21,12 @@ void CatalogAddButton::HandlePushButtonClicked() {
 
 void CatalogOpenButton::HandlePushButtonClicked() {
   WindowCatalog& cat = LoadedCatalog(catalog);
-  cat.list.Load();
-  if (cat.list->selection_index >= 0 &&
-      static_cast<std::size_t>(cat.list->selection_index) <
-          cat.list->rows.size()) {
+  cat.persisted.list.Load();
+  if (cat.persisted.list->selection_index >= 0 &&
+      static_cast<std::size_t>(cat.persisted.list->selection_index) <
+          cat.persisted.list->rows.size()) {
     cat.OpenListRowFromUi(
-        static_cast<std::size_t>(cat.list->selection_index));
+        static_cast<std::size_t>(cat.persisted.list->selection_index));
     return;
   }
   cat.OpenSelected();
@@ -38,10 +38,10 @@ void CatalogDeleteButton::HandlePushButtonClicked() {
 
 void CatalogLanguageButton::HandlePushButtonClicked() {
   WindowCatalog& cat = LoadedCatalog(catalog);
-  cat.locale.Load();
-  int const next = 1 - cat.locale->language_index();
+  cat.persisted.locale.Load();
+  int const next = 1 - cat.persisted.locale->language_index();
   cat.MaterializeCatalogStrings(next);
-  cat.locale->SubmitLanguageIndexFromUi(next);
+  cat.persisted.locale->SubmitLanguageIndexFromUi(next);
 }
 
 APPTRAVERSE_REGISTER(CatalogAddButton);
@@ -51,25 +51,26 @@ APPTRAVERSE_REGISTER(CatalogLanguageButton);
 
 void ReportCatalogMainViewportFromMirror(WindowCatalog& mirror_catalog,
                                          ModelObjectProxy* model_proxy) {
-  if (model_proxy == nullptr || !mirror_catalog.main_window.is_valid()) {
+  if (model_proxy == nullptr ||
+      !mirror_catalog.persisted.main_window.is_valid()) {
     return;
   }
-  if (!mirror_catalog.main_window.is_loaded()) {
+  if (!mirror_catalog.persisted.main_window.is_loaded()) {
     return;
   }
-  CatalogWindow const& main = *mirror_catalog.main_window;
+  CatalogWindow const& main = *mirror_catalog.persisted.main_window;
   std::int32_t const width = main.client_width();
   std::int32_t const height = main.client_height();
   if (width <= 0 || height <= 0) {
     return;
   }
-  if (width == mirror_catalog.main_client_viewport_w &&
-      height == mirror_catalog.main_client_viewport_h) {
+  if (width == mirror_catalog.persisted.main_client_viewport.width &&
+      height == mirror_catalog.persisted.main_client_viewport.height) {
     return;
   }
   model_proxy->Invoke(mirror_catalog.obj_id,
                       &WindowCatalog::SubmitMainClientViewportFromUi, width,
-                      height);
+                      height, 160);
 }
 
 void EnsureCatalogActionRegistration() {

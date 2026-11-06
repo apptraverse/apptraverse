@@ -89,9 +89,9 @@ void TryMapCatalogWindowHwnd(apptraverse::CatalogWindow::ptr const& window_ref,
 std::unordered_map<HWND, ae::ObjId::Type> BuildCatalogWindowHwndMap(
     apptraverse::WindowCatalog& catalog) {
   std::unordered_map<HWND, ae::ObjId::Type> map;
-  TryMapCatalogWindowHwnd(catalog.main_window, map);
-  if (catalog.list) {
-    for (auto const& row : catalog.list->rows) {
+  TryMapCatalogWindowHwnd(catalog.persisted.main_window, map);
+  if (catalog.persisted.list) {
+    for (auto const& row : catalog.persisted.list->rows) {
       if (!row) {
         continue;
       }
@@ -152,7 +152,7 @@ std::vector<HWND> HwndsForCatalogDesktopZOrder(
   }
   std::vector<HWND> ordered;
   std::unordered_set<HWND> placed;
-  for (auto const& window_ref : catalog.desktop_z_order) {
+  for (auto const& window_ref : catalog.persisted.desktop_z_order) {
     if (!window_ref.is_valid()) {
       continue;
     }
@@ -175,7 +175,7 @@ std::vector<HWND> HwndsForCatalogDesktopZOrder(
 }
 
 void RestoreCatalogDesktopZOrder(apptraverse::WindowCatalog& catalog) {
-  if (catalog.desktop_z_order.empty()) {
+  if (catalog.persisted.desktop_z_order.empty()) {
     return;
   }
   ApplyDesktopWindowsZOrderTopToBottom(HwndsForCatalogDesktopZOrder(catalog));
@@ -183,7 +183,7 @@ void RestoreCatalogDesktopZOrder(apptraverse::WindowCatalog& catalog) {
 
 apptraverse::ui::windows::WinDesktopWindowPresenter& FindChildWindowPresenter(
     apptraverse::WindowCatalog& catalog, ae::ObjId window_id) {
-  for (auto const& row : catalog.list->rows) {
+  for (auto const& row : catalog.persisted.list->rows) {
     auto* holder = static_cast<apptraverse::WindowHolder*>(&*row);
     if (!holder->window.is_loaded()) {
       continue;
@@ -232,7 +232,7 @@ int main(int argc, char** argv) {
       [&session](ae::Obj& application_root, ae::Obj& closed_window,
                  apptraverse::ModelObjectProxy& proxy) {
         auto& catalog = static_cast<apptraverse::WindowCatalog&>(application_root);
-        if (catalog.main_window.id() == closed_window.obj_id) {
+        if (catalog.persisted.main_window.id() == closed_window.obj_id) {
           std::vector<std::uint32_t> const z_order =
               CaptureCatalogDesktopZOrderTopToBottom(catalog);
           proxy.Invoke(catalog.obj_id,

@@ -70,6 +70,10 @@ void NativeRequestBackgroundSave(JNIEnv*, jclass, jlong handle) {
   FromHandle(handle)->RequestBackgroundSave();
 }
 
+void NativeFlushPendingBackgroundSaves(JNIEnv*, jclass, jlong handle) {
+  FromHandle(handle)->FlushPendingBackgroundSaves();
+}
+
 void NativeMobilePageShown(JNIEnv*, jclass, jlong handle, jlong window_id) {
   FromHandle(handle)->MobilePageShown(static_cast<std::uint32_t>(window_id));
 }
@@ -95,6 +99,8 @@ JNINativeMethod const kNativeMethods[] = {
      reinterpret_cast<void*>(&NativeConsumePublication)},
     {"nativeRequestBackgroundSave", "(J)V",
      reinterpret_cast<void*>(&NativeRequestBackgroundSave)},
+    {"nativeFlushPendingBackgroundSaves", "(J)V",
+     reinterpret_cast<void*>(&NativeFlushPendingBackgroundSaves)},
     {"nativeMobilePageShown", "(JJ)V",
      reinterpret_cast<void*>(&NativeMobilePageShown)},
     {"nativeMobileSwipe", "(JI)V", reinterpret_cast<void*>(&NativeMobileSwipe)},

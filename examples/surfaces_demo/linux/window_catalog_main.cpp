@@ -23,8 +23,8 @@ std::filesystem::path DefaultStateDir() {
 
 apptraverse::ui::linux::LinuxDesktopWindowPresenter& FindChildWindowPresenter(
     apptraverse::WindowCatalog& catalog, ae::ObjId window_id) {
-  catalog.list.Load();
-  for (auto const& row : catalog.list->rows) {
+  catalog.persisted.list.Load();
+  for (auto const& row : catalog.persisted.list->rows) {
     auto* holder = static_cast<apptraverse::WindowHolder*>(&*row);
     if (!holder->window.is_loaded()) {
       continue;
@@ -88,7 +88,7 @@ int main(int argc, char** argv) {
                  apptraverse::ModelObjectProxy& proxy) {
         auto& catalog =
             static_cast<apptraverse::WindowCatalog&>(application_root);
-        if (catalog.main_window.id() == closed_window.obj_id) {
+        if (catalog.persisted.main_window.id() == closed_window.obj_id) {
           apptraverse::example::surfaces::FlushCatalogNativeFrames(catalog);
           std::vector<std::uint32_t> const z_order =
               apptraverse::example::surfaces::

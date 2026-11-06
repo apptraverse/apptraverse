@@ -42,12 +42,12 @@ ae::ObjId const kWindowPrefabCloseButtonPresenterId{
     window_catalog_demo::ToObjId(
         window_catalog_demo::ObjId::WindowPrefabCloseButtonPresenter)};
 void RestoreUnloadedWindowPrefabLink(WindowCatalog& catalog) {
-  ae::ObjId const prefab_id = catalog.window_prefab.id();
-  catalog.window_prefab.Reset();
+  ae::ObjId const prefab_id = catalog.persisted.window_prefab.id();
+  catalog.persisted.window_prefab.Reset();
   if (!prefab_id.is_valid()) {
     return;
   }
-  catalog.window_prefab = CatalogWindow::ptr::Declare(
+  catalog.persisted.window_prefab = CatalogWindow::ptr::Declare(
       ae::CreateWith{*catalog.domain}
           .with_id(prefab_id)
           .with_flags(kLazyPrefabLinkFlags));
@@ -121,7 +121,7 @@ void MarkWindowCloseButtonUnloadedByDefault(CatalogWindow& window) {
       SetUnloadedDefault(window.close_button_presenter.flags()));
 }
 ui::UiPresentedWindow& MainPresented(WindowCatalog const& catalog) {
-  return static_cast<ui::UiPresentedWindow&>(*catalog.main_window);
+  return static_cast<ui::UiPresentedWindow&>(*catalog.persisted.main_window);
 }
 std::string ReadPrefixText(ui::UiLocalizationString& prefix, int language_index,
                            int restore_language_index) {
@@ -151,11 +151,13 @@ ui::UiLocalizationString::ptr MakeHolderTitleString(ae::Domain& domain,
       ae::CreateWith{domain}.with_flags(ae::ObjFlags::kUnloadedByDefault));
   localized->strings = {en_string, ru_string};
   InitializeRuntimeNode(*localized, catalog);
-  int const restore_language = catalog.locale->language_index();
+  int const restore_language = catalog.persisted.locale->language_index();
   std::string const en_prefix =
-      ReadPrefixText(*catalog.texts.window_title_prefix, 0, restore_language);
+      ReadPrefixText(*catalog.persisted.texts.window_title_prefix, 0,
+                     restore_language);
   std::string const ru_prefix =
-      ReadPrefixText(*catalog.texts.window_title_prefix, 1, restore_language);
+      ReadPrefixText(*catalog.persisted.texts.window_title_prefix, 1,
+                     restore_language);
   en_string.Load();
   en_string->utf8 = en_prefix + std::to_string(number);
   PersistUiStringUtf8(en_string);
@@ -173,10 +175,10 @@ void BindLiveWindowNotifiers(WindowCatalog& catalog, CatalogWindow& window) {
   }
 }
 void SaveWindowCatalogPersistentSnapshotImpl(WindowCatalog& catalog) {
-  if (catalog.main_window.is_loaded()) {
-    ui::SavePresentedWindow(catalog.main_window);
+  if (catalog.persisted.main_window.is_loaded()) {
+    ui::SavePresentedWindow(catalog.persisted.main_window);
   }
-  for (auto const& row : catalog.list->rows) {
+  for (auto const& row : catalog.persisted.list->rows) {
     auto* holder = static_cast<WindowHolder*>(&*row);
     if (!holder->primary_text.is_loaded()) {
       holder->primary_text.Load();
@@ -194,8 +196,8 @@ void SaveWindowCatalogPersistentSnapshot(WindowCatalog& catalog) {
   SaveWindowCatalogPersistentSnapshotImpl(catalog);
 }
 void RestoreLoadedCatalogWindows(WindowCatalog& catalog) {
-  int const language = catalog.locale->language_index();
-  for (auto const& row : catalog.list->rows) {
+  int const language = catalog.persisted.locale->language_index();
+  for (auto const& row : catalog.persisted.list->rows) {
     WindowHolder& holder = *static_cast<WindowHolder*>(&*row);
     if (!holder.window.is_loaded()) {
       continue;
@@ -219,11 +221,11 @@ void AssignInitialCatalogWindowBounds(CatalogWindow& window,
                                kHeight, true);
 }
 bool WindowCatalog::CanApply(AddWindowCatalogEntryEvent const& event) const {
-  if (!event.holder.is_valid() || !list) {
+  if (!event.holder.is_valid() || !persisted.list) {
     return false;
   }
   ae::ObjId const incoming_id = event.holder.id();
-  for (auto const& row : list->rows) {
+  for (auto const& row : persisted.list->rows) {
     if (row.is_valid() && row.id() == incoming_id) {
       return false;
     }
@@ -232,35 +234,36 @@ bool WindowCatalog::CanApply(AddWindowCatalogEntryEvent const& event) const {
 }
 void WindowCatalog::Apply(AddWindowCatalogEntryEvent const& event) {
   assert(CanApply(event));
-  list->rows.push_back(event.holder);
-  ++next_window_number;
-  int const language = locale ? locale->language_index() : 0;
+  persisted.list->rows.push_back(event.holder);
+  ++persisted.next_window_number;
+  int const language =
+      persisted.locale ? persisted.locale->language_index() : 0;
   MaterializeHolderListText(*event.holder, language);
   NoteMaterializedChange();
 }
 void WindowCatalog::Apply(RemoveWindowCatalogEntryEvent const& event) {
-  list.Load();
+  persisted.list.Load();
   ae::ObjId const target_id = event.holder.id();
-  auto& rows = list->rows;
+  auto& rows = persisted.list->rows;
   auto const it = std::find_if(rows.begin(), rows.end(),
                                [&](WindowHolder::ptr const& row) {
                                  return row.is_valid() && row.id() == target_id;
                                });
   assert(it != rows.end());
   rows.erase(it);
-  if (selected.is_valid() && selected.id() == target_id) {
-    selected = {};
+  if (persisted.selected.is_valid() && persisted.selected.id() == target_id) {
+    persisted.selected = {};
   }
   NoteMaterializedChange();
 }
 void WindowCatalog::Apply(SetWindowCatalogSelectionEvent const& event) {
-  selected = event.holder;
-  list.Load();
+  persisted.selected = event.holder;
+  persisted.list.Load();
   if (event.holder.is_valid()) {
-    list->selection_index =
+    persisted.list->selection_index =
         static_cast<std::int32_t>(RowIndexForHolder(*event.holder));
   } else {
-    list->selection_index = -1;
+    persisted.list->selection_index = -1;
   }
   RefreshChromeButtonEnabledState();
   NoteMaterializedChange();
@@ -278,8 +281,8 @@ WindowHolder const* AsHolder(ui::UiListRow const& row) {
 }
 WindowHolder* FindListHolderByIdentity(WindowCatalog& catalog,
                                        WindowHolder const& target) {
-  catalog.list.Load();
-  for (auto& row : catalog.list->rows) {
+  catalog.persisted.list.Load();
+  for (auto& row : catalog.persisted.list->rows) {
     row.Load();
     WindowHolder* holder = AsHolder(*row);
     if (holder->obj_id == target.obj_id) {
@@ -290,14 +293,14 @@ WindowHolder* FindListHolderByIdentity(WindowCatalog& catalog,
 }
 }  // namespace
 void WindowCatalog::Apply(SetWindowCatalogDesktopZOrderEvent const& event) {
-  desktop_z_order = event.ordered;
+  persisted.desktop_z_order = event.ordered;
   NoteMaterializedChange();
 }
 void WindowCatalog::Apply(SetWindowCatalogMobileActiveEvent const& event) {
   if (!event.window.is_valid()) {
-    mobile_active_window = main_window;
+    persisted.mobile_active_window = persisted.main_window;
   } else {
-    mobile_active_window = event.window;
+    persisted.mobile_active_window = event.window;
   }
   NoteMaterializedChange();
 }
@@ -326,64 +329,104 @@ void WindowCatalog::Apply(SetWindowCatalogMainClientViewportEvent const& event) 
   if (event.width <= 0 || event.height <= 0) {
     return;
   }
-  if (event.width == main_client_viewport_w &&
-      event.height == main_client_viewport_h) {
+  std::int32_t const dpi =
+      event.density_dpi > 0 ? event.density_dpi : 160;
+  if (event.width == persisted.main_client_viewport.width &&
+      event.height == persisted.main_client_viewport.height &&
+      dpi == persisted.main_client_viewport.density_dpi) {
     return;
   }
-  main_client_viewport_w = event.width;
-  main_client_viewport_h = event.height;
+  persisted.main_client_viewport.width = event.width;
+  persisted.main_client_viewport.height = event.height;
+  persisted.main_client_viewport.density_dpi = dpi;
   WindowCatalogMainChromeLayout const layout =
-      ComputeWindowCatalogMainChromeLayout(event.width, event.height);
+      ComputeWindowCatalogMainChromeLayout(event.width, event.height, dpi);
   // Chrome presenters only: the desktop window frame is owned by the platform.
-  if (presenters.list_presenter.is_valid()) {
-    presenters.list_presenter.Load();
-    auto& list_presenter =
-        static_cast<ui::UiListContainerPresenter&>(*presenters.list_presenter);
+  if (persisted.presenters.list_presenter.is_valid()) {
+    persisted.presenters.list_presenter.Load();
+    auto& list_presenter = static_cast<ui::UiListContainerPresenter&>(
+        *persisted.presenters.list_presenter);
     list_presenter.layout_x = layout.list.x;
     list_presenter.layout_y = layout.list.y;
     list_presenter.layout_width = layout.list.width;
     list_presenter.layout_height = layout.list.height;
   }
-  ApplyButtonChromeRect(presenters.add_button_presenter, layout.add);
-  ApplyButtonChromeRect(presenters.open_button_presenter, layout.open);
-  ApplyButtonChromeRect(presenters.delete_button_presenter, layout.delete_button);
-  ApplyButtonChromeRect(presenters.language_button_presenter, layout.language);
+  ApplyButtonChromeRect(persisted.presenters.add_button_presenter, layout.add);
+  ApplyButtonChromeRect(persisted.presenters.open_button_presenter, layout.open);
+  ApplyButtonChromeRect(persisted.presenters.delete_button_presenter,
+                        layout.delete_button);
+  ApplyButtonChromeRect(persisted.presenters.language_button_presenter,
+                        layout.language);
   NoteMaterializedChange();
 }
 
 void WindowCatalog::SubmitMainClientViewportFromUi(std::int32_t width,
-                                                   std::int32_t height) {
+                                                   std::int32_t height,
+                                                   std::int32_t density_dpi) {
   if (width <= 0 || height <= 0) {
     return;
   }
-  if (width == main_client_viewport_w && height == main_client_viewport_h) {
+  std::int32_t const dpi = density_dpi > 0 ? density_dpi : 160;
+  if (width == persisted.main_client_viewport.width &&
+      height == persisted.main_client_viewport.height &&
+      dpi == persisted.main_client_viewport.density_dpi) {
     return;
   }
   auto event = SetWindowCatalogMainClientViewportEvent::ptr::Create(
       ae::CreateWith{*domain});
   event->width = width;
   event->height = height;
+  event->density_dpi = dpi;
   Commit(std::move(event));
 }
 
+void WindowCatalog::SubmitHolderChildWindowClientSizeFromUi(
+    std::uint32_t window_obj_id, std::int32_t width, std::int32_t height) {
+  if (width <= 0 || height <= 0) {
+    return;
+  }
+  ae::ObjId const wid{window_obj_id};
+  if (!wid.is_valid() || wid == persisted.main_window.id()) {
+    return;
+  }
+  auto window = domain->Find(wid).as<CatalogWindow>();
+  if (window == nullptr) {
+    return;
+  }
+  if (window->client_width() == width && window->client_height() == height) {
+    return;
+  }
+  WindowHolder* holder = FindHolderForWindow(window->obj_id);
+  if (holder == nullptr) {
+    return;
+  }
+  std::int32_t const offset =
+      static_cast<std::int32_t>(holder->window_number > 0
+                                    ? holder->window_number - 1
+                                    : 0) *
+      28;
+  window->SubmitFrameFromNative(160 + offset, 120 + offset, width, height, false);
+}
+
 CatalogWindow::ptr WindowCatalog::ResolveMobileActiveWindow() {
-  if (!mobile_pager) {
-    return main_window;
+  if (!persisted.mobile_pager) {
+    return persisted.main_window;
   }
-  if (!mobile_active_window.is_valid()) {
-    return main_window;
+  if (!persisted.mobile_active_window.is_valid()) {
+    return persisted.main_window;
   }
-  if (mobile_active_window.id() == main_window.id()) {
-    return main_window;
+  if (persisted.mobile_active_window.id() == persisted.main_window.id()) {
+    return persisted.main_window;
   }
-  WindowHolder* holder = FindHolderForWindow(mobile_active_window.id());
+  WindowHolder* holder =
+      FindHolderForWindow(persisted.mobile_active_window.id());
   if (holder == nullptr || !holder->window.is_loaded()) {
-    return main_window;
+    return persisted.main_window;
   }
   return holder->window;
 }
 void WindowCatalog::SetMobileActiveWindow(CatalogWindow::ptr window) {
-  if (!mobile_pager) {
+  if (!persisted.mobile_pager) {
     return;
   }
   auto event = SetWindowCatalogMobileActiveEvent::ptr::Create(
@@ -394,12 +437,12 @@ void WindowCatalog::SetMobileActiveWindow(CatalogWindow::ptr window) {
 }
 std::vector<CatalogWindow::ptr> WindowCatalog::BuildMobileRing() const {
   std::vector<CatalogWindow::ptr> ring;
-  ring.push_back(main_window);
-  if (!list) {
+  ring.push_back(persisted.main_window);
+  if (!persisted.list) {
     return ring;
   }
-  list.Load();
-  for (auto const& row : list->rows) {
+  persisted.list.Load();
+  for (auto const& row : persisted.list->rows) {
     row.Load();
     WindowHolder const* holder = AsHolder(*row);
     if (holder->window.is_valid() && holder->window.is_loaded()) {
@@ -412,7 +455,7 @@ CatalogWindow::ptr WindowCatalog::MobileRingPredecessor(
     CatalogWindow const& window) const {
   std::vector<CatalogWindow::ptr> const ring = BuildMobileRing();
   if (ring.empty()) {
-    return main_window;
+    return persisted.main_window;
   }
   for (std::size_t i = 0; i < ring.size(); ++i) {
     if (ring[i].is_valid() && ring[i].id() == window.obj_id) {
@@ -422,15 +465,15 @@ CatalogWindow::ptr WindowCatalog::MobileRingPredecessor(
       return ring[i - 1];
     }
   }
-  return main_window;
+  return persisted.main_window;
 }
 void WindowCatalog::SubmitMobileActiveFromUi(ae::ObjId window_obj_id) {
-  if (!mobile_pager) {
+  if (!persisted.mobile_pager) {
     return;
   }
-  ae::ObjId const main_id = main_window.id();
+  ae::ObjId const main_id = persisted.main_window.id();
   if (window_obj_id == main_id) {
-    SetMobileActiveWindow(main_window);
+    SetMobileActiveWindow(persisted.main_window);
     return;
   }
   WindowHolder* holder = FindHolderForWindow(window_obj_id);
@@ -440,7 +483,7 @@ void WindowCatalog::SubmitMobileActiveFromUi(ae::ObjId window_obj_id) {
   SetMobileActiveWindow(holder->window);
 }
 void WindowCatalog::SubmitMobileSwipeFromUi(int delta) {
-  if (!mobile_pager || delta == 0) {
+  if (!persisted.mobile_pager || delta == 0) {
     return;
   }
   std::vector<CatalogWindow::ptr> const ring = BuildMobileRing();
@@ -465,7 +508,7 @@ void WindowCatalog::SubmitMobileSwipeFromUi(int delta) {
 }
 void WindowCatalog::SetDesktopZOrderFromObjIds(
     std::vector<std::uint32_t> ordered_ids) {
-  ae::ObjId const main_id = main_window.id();
+  ae::ObjId const main_id = persisted.main_window.id();
   auto const is_open_catalog_window = [&](ae::ObjId id) {
     if (id == main_id) {
       return true;
@@ -492,10 +535,10 @@ void WindowCatalog::SetDesktopZOrderFromObjIds(
             .with_id(id)
             .with_flags(kLazyPrefabLinkFlags)));
   }
-  if (desktop_z_order.size() == ordered.size()) {
+  if (persisted.desktop_z_order.size() == ordered.size()) {
     bool same = true;
     for (std::size_t i = 0; i < ordered.size(); ++i) {
-      if (desktop_z_order[i].id() != ordered[i].id()) {
+      if (persisted.desktop_z_order[i].id() != ordered[i].id()) {
         same = false;
         break;
       }
@@ -525,8 +568,8 @@ void WindowCatalog::Apply(SetWindowCatalogOpenEvent const& event) {
   NoteMaterializedChange();
 }
 WindowHolder* WindowCatalog::FindHolderForWindow(ae::ObjId window_id) {
-  list.Load();
-  for (auto& row : list->rows) {
+  persisted.list.Load();
+  for (auto& row : persisted.list->rows) {
     row.Load();
     WindowHolder* holder = AsHolder(*row);
     if (holder->window.is_valid() && holder->window.id() == window_id) {
@@ -539,8 +582,8 @@ WindowHolder* WindowCatalog::FindHolderForWindow(CatalogWindow const& window) {
   return FindHolderForWindow(window.obj_id);
 }
 std::size_t WindowCatalog::RowIndexForHolder(WindowHolder const& holder) {
-  list.Load();
-  auto& rows = list->rows;
+  persisted.list.Load();
+  auto& rows = persisted.list->rows;
   for (std::size_t i = 0; i < rows.size(); ++i) {
     rows[i].Load();
     if (AsHolder(*rows[i]) == &holder) {
@@ -550,20 +593,20 @@ std::size_t WindowCatalog::RowIndexForHolder(WindowHolder const& holder) {
   return rows.size();
 }
 void WindowCatalog::MaterializeCatalogStrings(int language_index) {
-  texts.label_add->MaterializeLanguage(language_index);
-  texts.label_open->MaterializeLanguage(language_index);
-  texts.label_delete->MaterializeLanguage(language_index);
-  texts.label_language->MaterializeLanguage(language_index);
-  texts.window_title_prefix->MaterializeLanguage(language_index);
-  if (texts.label_close.is_valid()) {
-    texts.label_close.Load();
-    texts.label_close->MaterializeLanguage(language_index);
+  persisted.texts.label_add->MaterializeLanguage(language_index);
+  persisted.texts.label_open->MaterializeLanguage(language_index);
+  persisted.texts.label_delete->MaterializeLanguage(language_index);
+  persisted.texts.label_language->MaterializeLanguage(language_index);
+  persisted.texts.window_title_prefix->MaterializeLanguage(language_index);
+  if (persisted.texts.label_close.is_valid()) {
+    persisted.texts.label_close.Load();
+    persisted.texts.label_close->MaterializeLanguage(language_index);
   }
-  if (main_window.is_loaded()) {
+  if (persisted.main_window.is_loaded()) {
     MainPresented(*this).presenter->title->MaterializeLanguage(language_index);
   }
-  list.Load();
-  for (auto& row : list->rows) {
+  persisted.list.Load();
+  for (auto& row : persisted.list->rows) {
     row.Load();
     MaterializeHolderListText(*AsHolder(*row), language_index);
   }
@@ -586,14 +629,14 @@ void WindowCatalog::SelectHolder(WindowHolder::ptr holder) {
   Commit(std::move(event));
 }
 void WindowCatalog::SubmitSelectionFromUi(std::size_t row_index) {
-  list.Load();
-  if (row_index >= list->rows.size()) {
+  persisted.list.Load();
+  if (row_index >= persisted.list->rows.size()) {
     SelectHolder({});
     return;
   }
-  list->rows[row_index].Load();
-  SelectHolder(
-      WindowHolder::ptr::MakeFromThis(AsHolder(*list->rows[row_index])));
+  persisted.list->rows[row_index].Load();
+  SelectHolder(WindowHolder::ptr::MakeFromThis(
+      AsHolder(*persisted.list->rows[row_index])));
 }
 void WindowCatalog::OpenListRowFromUi(std::size_t row_index) {
   SubmitSelectionFromUi(row_index);
@@ -613,14 +656,14 @@ bool WindowCatalog::IsHolderWindowOpen(WindowHolder const& holder) const {
 void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
   if (IsHolderWindowOpen(holder)) {
     pending_focus_window = holder.window;
-    if (mobile_pager) {
+    if (persisted.mobile_pager) {
       SetMobileActiveWindow(holder.window);
     } else {
       NoteMaterializedChange();
     }
     return;
   }
-  ae::Domain& domain = *list->domain;
+  ae::Domain& domain = *persisted.list->domain;
   ui::LoadPresentedWindow(holder.window);
   LoadWindowCloseButton(*this, *holder.window);
   // An open window persists with its presenter (and Close graph) eager.
@@ -639,11 +682,11 @@ void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
   open_event->holder = WindowHolder::ptr::MakeFromThis(&holder);
   open_event->open = true;
   Commit(std::move(open_event));
-  int const language = locale->language_index();
+  int const language = persisted.locale->language_index();
   MaterializeHolderListText(holder, language);
   BindLiveWindowNotifiers(*this, *holder.window);
   pending_focus_window = holder.window;
-  if (mobile_pager) {
+  if (persisted.mobile_pager) {
     SetMobileActiveWindow(holder.window);
   } else {
     NoteMaterializedChange();
@@ -670,8 +713,8 @@ void WindowCatalog::CloseHolderWindow(WindowHolder& holder) {
   ui::UnloadPresentedWindow(holder.window);
 }
 void WindowCatalog::AddWindow() {
-  ae::Domain& domain = *list->domain;
-  std::uint32_t const number = next_window_number;
+  ae::Domain& domain = *persisted.list->domain;
+  std::uint32_t const number = persisted.next_window_number;
   auto holder = WindowHolder::ptr::Create(ae::CreateWith{domain});
   InitializeRuntimeNode(*holder, *this);
   holder->window_number = number;
@@ -679,11 +722,11 @@ void WindowCatalog::AddWindow() {
   holder->delete_button = {};
   ae::DomainGraph load_graph{&domain};
   ae::Ptr<ae::Obj> prefab_root;
-  if (window_prefab.is_loaded()) {
-    prefab_root = domain.Find(window_prefab.id());
+  if (persisted.window_prefab.is_loaded()) {
+    prefab_root = domain.Find(persisted.window_prefab.id());
   } else {
     ae::seri::SeriResult const load_result =
-        load_graph.LoadRoot(window_prefab.id(), prefab_root);
+        load_graph.LoadRoot(persisted.window_prefab.id(), prefab_root);
     if (load_result.IsErr() || !prefab_root) {
       WriteFatalStderr("fatal: LoadRoot window prefab failed\n");
       std::abort();
@@ -692,7 +735,8 @@ void WindowCatalog::AddWindow() {
   apptraverse::CloneOptions clone_options{};
   clone_options.stable_origin = kWindowPrefabId;
   clone_options.stable_prefab_ids = {kWindowPrefabId, kWindowPrefabPresenterId};
-  clone_options.boundary_ids = {texts.window_title_prefix.id(), locale.id()};
+  clone_options.boundary_ids = {persisted.texts.window_title_prefix.id(),
+                                persisted.locale.id()};
   CatalogWindow& prefab_window = static_cast<CatalogWindow&>(*prefab_root);
   if (prefab_window.close_button.is_valid()) {
     // Close button graph lives in the prefab: clone it with the window, but
@@ -700,7 +744,7 @@ void WindowCatalog::AddWindow() {
     // catalog ref; WireWindowCloseButton assigns it after the clone.
     clone_options.stable_prefab_ids.insert(kWindowPrefabCloseButtonId);
     clone_options.stable_prefab_ids.insert(kWindowPrefabCloseButtonPresenterId);
-    clone_options.boundary_ids.insert(texts.label_close.id());
+    clone_options.boundary_ids.insert(persisted.texts.label_close.id());
   }
   apptraverse::CloneCanonicalResult const cloned =
       apptraverse::CloneCanonicalRoot(domain, *prefab_root, domain,
@@ -734,25 +778,25 @@ void WindowCatalog::AddWindow() {
   OpenHolderWindow(*holder);
 }
 void WindowCatalog::OpenRow(std::size_t row_index) {
-  list.Load();
-  if (row_index >= list->rows.size()) {
+  persisted.list.Load();
+  if (row_index >= persisted.list->rows.size()) {
     return;
   }
-  list->rows[row_index].Load();
-  OpenHolderWindow(*AsHolder(*list->rows[row_index]));
+  persisted.list->rows[row_index].Load();
+  OpenHolderWindow(*AsHolder(*persisted.list->rows[row_index]));
 }
 void WindowCatalog::OpenSelected() {
-  if (!selected.is_valid()) {
+  if (!persisted.selected.is_valid()) {
     return;
   }
-  selected.Load();
-  OpenHolderWindow(*selected);
+  persisted.selected.Load();
+  OpenHolderWindow(*persisted.selected);
 }
 void WindowCatalog::DeleteSelected() {
-  if (!selected.is_valid()) {
+  if (!persisted.selected.is_valid()) {
     return;
   }
-  WindowHolder::ptr target = selected;
+  WindowHolder::ptr target = persisted.selected;
   target.Load();
   if (target->window.is_loaded()) {
     ui::UnloadPresentedWindow(target->window);
@@ -771,11 +815,11 @@ void WindowCatalog::UserCloseWindow(ae::ObjId window_obj_id) {
     return;
   }
   CatalogWindow::ptr predecessor;
-  if (mobile_pager) {
+  if (persisted.mobile_pager) {
     predecessor = MobileRingPredecessor(*holder->window);
   }
   CloseHolderWindow(*holder);
-  if (mobile_pager && predecessor.is_valid()) {
+  if (persisted.mobile_pager && predecessor.is_valid()) {
     SetMobileActiveWindow(predecessor);
   }
 }
@@ -783,10 +827,10 @@ void WindowCatalog::ClearPendingFocusWindow() {
   pending_focus_window = {};
 }
 void WindowCatalog::RefreshChromeButtonEnabledState() {
-  bool const has_selection = selected.is_valid();
-  buttons.open_button.Load();
-  buttons.delete_button.Load();
-  buttons.open_button->MaterializeEnabled(has_selection);
-  buttons.delete_button->MaterializeEnabled(has_selection);
+  bool const has_selection = persisted.selected.is_valid();
+  persisted.buttons.open_button.Load();
+  persisted.buttons.delete_button.Load();
+  persisted.buttons.open_button->MaterializeEnabled(has_selection);
+  persisted.buttons.delete_button->MaterializeEnabled(has_selection);
 }
 }  // namespace apptraverse

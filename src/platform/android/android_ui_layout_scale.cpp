@@ -17,10 +17,23 @@ std::int32_t ScaleCoord(std::int32_t value, std::int32_t model_extent,
 
 }  // namespace
 
+namespace {
+
+std::int32_t DpMinHeightPx(std::int32_t density_dpi) {
+  constexpr std::int32_t kMdpi = 160;
+  constexpr std::int32_t kMinTouchDp = 48;
+  if (density_dpi <= 0) {
+    density_dpi = kMdpi;
+  }
+  return (kMinTouchDp * density_dpi + kMdpi / 2) / kMdpi;
+}
+
+}  // namespace
+
 UiControlLayout ScaleControlLayoutToPresentation(
     UiControlLayout requested, std::int32_t model_client_width,
     std::int32_t model_client_height, std::int32_t presentation_width,
-    std::int32_t presentation_height) {
+    std::int32_t presentation_height, std::int32_t density_dpi) {
   if (model_client_width <= 0 || model_client_height <= 0 ||
       presentation_width <= 0 || presentation_height <= 0) {
     return requested;
@@ -35,6 +48,11 @@ UiControlLayout ScaleControlLayoutToPresentation(
   out.height =
       ScaleCoord(requested.height, model_client_height, presentation_height);
 
+  std::int32_t const min_h = DpMinHeightPx(density_dpi);
+  if (out.height < min_h) {
+    out.height = min_h;
+  }
+
   if (out.width < 1) {
     out.width = 1;
   }
@@ -45,7 +63,11 @@ UiControlLayout ScaleControlLayoutToPresentation(
     out.width = std::max<std::int32_t>(1, presentation_width - out.x);
   }
   if (out.y + out.height > presentation_height) {
-    out.height = std::max<std::int32_t>(1, presentation_height - out.y);
+    std::int32_t const max_h = std::max<std::int32_t>(1, presentation_height - out.y);
+    out.height = std::min(out.height, max_h);
+    if (out.height < min_h && max_h >= min_h) {
+      out.height = min_h;
+    }
   }
   return out;
 }

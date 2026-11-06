@@ -29,52 +29,52 @@ WindowCatalog& AsCatalog(ae::Obj& ui_root) {
 }
 
 ui::linux::LinuxListContainerPresenter& LinuxList(WindowCatalog& catalog) {
-  catalog.presenters.list_presenter.Load();
+  catalog.persisted.presenters.list_presenter.Load();
   return static_cast<ui::linux::LinuxListContainerPresenter&>(
-      *catalog.presenters.list_presenter.operator->());
+      *catalog.persisted.presenters.list_presenter.operator->());
 }
 
 ui::linux::LinuxPushButtonPresenter& LinuxAdd(WindowCatalog& catalog) {
-  catalog.presenters.add_button_presenter.Load();
+  catalog.persisted.presenters.add_button_presenter.Load();
   return static_cast<ui::linux::LinuxPushButtonPresenter&>(
-      *catalog.presenters.add_button_presenter.operator->());
+      *catalog.persisted.presenters.add_button_presenter.operator->());
 }
 
 ui::linux::LinuxPushButtonPresenter& LinuxOpen(WindowCatalog& catalog) {
-  catalog.presenters.open_button_presenter.Load();
+  catalog.persisted.presenters.open_button_presenter.Load();
   return static_cast<ui::linux::LinuxPushButtonPresenter&>(
-      *catalog.presenters.open_button_presenter.operator->());
+      *catalog.persisted.presenters.open_button_presenter.operator->());
 }
 
 ui::linux::LinuxPushButtonPresenter& LinuxDelete(WindowCatalog& catalog) {
-  catalog.presenters.delete_button_presenter.Load();
+  catalog.persisted.presenters.delete_button_presenter.Load();
   return static_cast<ui::linux::LinuxPushButtonPresenter&>(
-      *catalog.presenters.delete_button_presenter.operator->());
+      *catalog.persisted.presenters.delete_button_presenter.operator->());
 }
 
 ui::linux::LinuxPushButtonPresenter& LinuxLanguage(WindowCatalog& catalog) {
-  catalog.presenters.language_button_presenter.Load();
+  catalog.persisted.presenters.language_button_presenter.Load();
   return static_cast<ui::linux::LinuxPushButtonPresenter&>(
-      *catalog.presenters.language_button_presenter.operator->());
+      *catalog.persisted.presenters.language_button_presenter.operator->());
 }
 
 ui::linux::LinuxDesktopWindowPresenter& LinuxMainWindow(WindowCatalog& catalog) {
-  catalog.main_window.Load();
-  catalog.main_window->presenter.Load();
+  catalog.persisted.main_window.Load();
+  catalog.persisted.main_window->presenter.Load();
   return static_cast<ui::linux::LinuxDesktopWindowPresenter&>(
-      *catalog.main_window->presenter.operator->());
+      *catalog.persisted.main_window->presenter.operator->());
 }
 
 ui::linux::LinuxDesktopWindowPresenter* LinuxChildForRow(WindowCatalog& catalog,
                                                          int row_index) {
-  catalog.list.Load();
-  if (!catalog.list ||
+  catalog.persisted.list.Load();
+  if (!catalog.persisted.list ||
       row_index < 0 ||
-      static_cast<std::size_t>(row_index) >= catalog.list->rows.size()) {
+      static_cast<std::size_t>(row_index) >= catalog.persisted.list->rows.size()) {
     return nullptr;
   }
   auto& holder = static_cast<WindowHolder&>(
-      *catalog.list->rows[static_cast<std::size_t>(row_index)]);
+      *catalog.persisted.list->rows[static_cast<std::size_t>(row_index)]);
   if (!holder.window.is_loaded()) {
     return nullptr;
   }
@@ -104,19 +104,19 @@ void CloseWindowNative(ui::linux::LinuxDesktopWindowPresenter& window) {
 }
 
 std::size_t RowCount(WindowCatalog& catalog) {
-  catalog.list.Load();
-  return catalog.list ? catalog.list->rows.size() : 0;
+  catalog.persisted.list.Load();
+  return catalog.persisted.list ? catalog.persisted.list->rows.size() : 0;
 }
 
 bool LocaleIs(WindowCatalog& catalog, int language_index) {
-  catalog.locale.Load();
-  return catalog.locale && catalog.locale->language_index() == language_index;
+  catalog.persisted.locale.Load();
+  return catalog.persisted.locale && catalog.persisted.locale->language_index() == language_index;
 }
 
 bool AddLabelIs(WindowCatalog& catalog, char const* expected) {
-  catalog.texts.label_add.Load();
-  return catalog.texts.label_add &&
-         catalog.texts.label_add->Resolve(catalog.locale->language_index()) ==
+  catalog.persisted.texts.label_add.Load();
+  return catalog.persisted.texts.label_add &&
+         catalog.persisted.texts.label_add->Resolve(catalog.persisted.locale->language_index()) ==
              expected;
 }
 
@@ -281,12 +281,12 @@ void SnapshotMirrorFrame(CatalogWindow& window, FrameExpect& out) {
 }
 
 bool CatalogMirrorNearCycle1Targets(WindowCatalog& catalog) {
-  catalog.list.Load();
-  catalog.main_window.Load();
+  catalog.persisted.list.Load();
+  catalog.persisted.main_window.Load();
   if (!FrameNearExpect(
-          {catalog.main_window->x(), catalog.main_window->y(),
-           catalog.main_window->client_width(),
-           catalog.main_window->client_height()},
+          {catalog.persisted.main_window->x(), catalog.persisted.main_window->y(),
+           catalog.persisted.main_window->client_width(),
+           catalog.persisted.main_window->client_height()},
           kGeomZMain1)) {
     return false;
   }
@@ -294,7 +294,7 @@ bool CatalogMirrorNearCycle1Targets(WindowCatalog& catalog) {
                                       kGeomZChild2_1};
   for (int i = 0; i < 3; ++i) {
     auto& holder = static_cast<WindowHolder&>(
-        *catalog.list->rows[static_cast<std::size_t>(i)]);
+        *catalog.persisted.list->rows[static_cast<std::size_t>(i)]);
     holder.window.Load();
     if (!FrameNearExpect({holder.window->x(), holder.window->y(),
                           holder.window->client_width(),
@@ -307,12 +307,12 @@ bool CatalogMirrorNearCycle1Targets(WindowCatalog& catalog) {
 }
 
 bool CatalogAllOpenWindowsNativeMirrorSynced(WindowCatalog& catalog) {
-  catalog.list.Load();
-  catalog.main_window.Load();
-  if (!CatalogWindowNativeMatchesMirror(*catalog.main_window)) {
+  catalog.persisted.list.Load();
+  catalog.persisted.main_window.Load();
+  if (!CatalogWindowNativeMatchesMirror(*catalog.persisted.main_window)) {
     return false;
   }
-  if (!catalog.list) {
+  if (!catalog.persisted.list) {
     return false;
   }
   for (int i = 0; i < 3; ++i) {
@@ -320,7 +320,7 @@ bool CatalogAllOpenWindowsNativeMirrorSynced(WindowCatalog& catalog) {
       return false;
     }
     auto& holder = static_cast<WindowHolder&>(
-        *catalog.list->rows[static_cast<std::size_t>(i)]);
+        *catalog.persisted.list->rows[static_cast<std::size_t>(i)]);
     holder.window.Load();
     if (!CatalogWindowNativeMatchesMirror(*holder.window)) {
       return false;
@@ -333,13 +333,13 @@ bool CatalogGeomZCycle1Matches(WindowCatalog& catalog) {
   if (!CatalogAllOpenWindowsNativeMirrorSynced(catalog)) {
     return false;
   }
-  catalog.main_window.Load();
-  if (!CatalogWindowMirrorFrame(*catalog.main_window, State().cycle1_main)) {
+  catalog.persisted.main_window.Load();
+  if (!CatalogWindowMirrorFrame(*catalog.persisted.main_window, State().cycle1_main)) {
     return false;
   }
   for (int i = 0; i < 3; ++i) {
     auto& holder = static_cast<WindowHolder&>(
-        *catalog.list->rows[static_cast<std::size_t>(i)]);
+        *catalog.persisted.list->rows[static_cast<std::size_t>(i)]);
     holder.window.Load();
     if (!CatalogWindowMirrorFrame(*holder.window, State().cycle1_child[i])) {
       return false;
@@ -352,13 +352,13 @@ bool CatalogGeomZCycle2Matches(WindowCatalog& catalog) {
   if (!CatalogAllOpenWindowsNativeMirrorSynced(catalog)) {
     return false;
   }
-  catalog.main_window.Load();
-  if (!CatalogWindowMirrorFrame(*catalog.main_window, State().cycle2_main)) {
+  catalog.persisted.main_window.Load();
+  if (!CatalogWindowMirrorFrame(*catalog.persisted.main_window, State().cycle2_main)) {
     return false;
   }
   for (int i = 0; i < 3; ++i) {
     auto& holder = static_cast<WindowHolder&>(
-        *catalog.list->rows[static_cast<std::size_t>(i)]);
+        *catalog.persisted.list->rows[static_cast<std::size_t>(i)]);
     holder.window.Load();
     if (!CatalogWindowMirrorFrame(*holder.window, State().cycle2_child[i])) {
       return false;
@@ -377,12 +377,12 @@ bool CatalogDesktopZOrderMatchesNative(WindowCatalog& catalog) {
   if (native.empty()) {
     return false;
   }
-  if (catalog.desktop_z_order.size() != native.size()) {
+  if (catalog.persisted.desktop_z_order.size() != native.size()) {
     return false;
   }
   for (std::size_t i = 0; i < native.size(); ++i) {
-    if (!catalog.desktop_z_order[i].is_valid() ||
-        catalog.desktop_z_order[i].id().id() != native[i]) {
+    if (!catalog.persisted.desktop_z_order[i].is_valid() ||
+        catalog.persisted.desktop_z_order[i].id().id() != native[i]) {
       return false;
     }
   }
@@ -426,12 +426,12 @@ void RequireThreeCatalogRows(WindowCatalog& catalog) {
 
 void SnapshotCycle1ExpectationsFromMirror(WindowCatalog& catalog) {
   RequireThreeCatalogRows(catalog);
-  catalog.main_window.Load();
-  SnapshotMirrorFrame(*catalog.main_window, State().cycle1_main);
-  catalog.list.Load();
+  catalog.persisted.main_window.Load();
+  SnapshotMirrorFrame(*catalog.persisted.main_window, State().cycle1_main);
+  catalog.persisted.list.Load();
   for (int i = 0; i < 3; ++i) {
     auto& holder = static_cast<WindowHolder&>(
-        *catalog.list->rows[static_cast<std::size_t>(i)]);
+        *catalog.persisted.list->rows[static_cast<std::size_t>(i)]);
     holder.window.Load();
     SnapshotMirrorFrame(*holder.window, State().cycle1_child[i]);
   }
@@ -440,12 +440,12 @@ void SnapshotCycle1ExpectationsFromMirror(WindowCatalog& catalog) {
 
 void SnapshotCycle2ExpectationsFromMirror(WindowCatalog& catalog) {
   RequireThreeCatalogRows(catalog);
-  catalog.main_window.Load();
-  SnapshotMirrorFrame(*catalog.main_window, State().cycle2_main);
-  catalog.list.Load();
+  catalog.persisted.main_window.Load();
+  SnapshotMirrorFrame(*catalog.persisted.main_window, State().cycle2_main);
+  catalog.persisted.list.Load();
   for (int i = 0; i < 3; ++i) {
     auto& holder = static_cast<WindowHolder&>(
-        *catalog.list->rows[static_cast<std::size_t>(i)]);
+        *catalog.persisted.list->rows[static_cast<std::size_t>(i)]);
     holder.window.Load();
     SnapshotMirrorFrame(*holder.window, State().cycle2_child[i]);
   }
@@ -503,8 +503,8 @@ void HandleGeomZIncremental(WindowCatalog& catalog) {
       State().step = AutomationStep::GeomZOpenRow0;
       return;
     case AutomationStep::GeomZOpenRow0:
-      catalog.list.Load();
-      if (!catalog.list || catalog.list->selection_index != 0) {
+      catalog.persisted.list.Load();
+      if (!catalog.persisted.list || catalog.persisted.list->selection_index != 0) {
         return;
       }
       ClickButtonNative(LinuxOpen(catalog));
@@ -518,8 +518,8 @@ void HandleGeomZIncremental(WindowCatalog& catalog) {
       State().step = AutomationStep::GeomZOpenRow1Select;
       return;
     case AutomationStep::GeomZOpenRow1Select:
-      catalog.list.Load();
-      if (!catalog.list || catalog.list->selection_index != 1) {
+      catalog.persisted.list.Load();
+      if (!catalog.persisted.list || catalog.persisted.list->selection_index != 1) {
         return;
       }
       ClickButtonNative(LinuxOpen(catalog));
@@ -533,8 +533,8 @@ void HandleGeomZIncremental(WindowCatalog& catalog) {
       State().step = AutomationStep::GeomZOpenRow2Select;
       return;
     case AutomationStep::GeomZOpenRow2Select:
-      catalog.list.Load();
-      if (!catalog.list || catalog.list->selection_index != 2) {
+      catalog.persisted.list.Load();
+      if (!catalog.persisted.list || catalog.persisted.list->selection_index != 2) {
         return;
       }
       ClickButtonNative(LinuxOpen(catalog));
@@ -593,17 +593,17 @@ bool ReadRawClientFrame(ui::linux::LinuxDesktopWindowPresenter& presenter,
 }
 
 CatalogWindow& RowWindow(WindowCatalog& catalog, int row_index) {
-  catalog.list.Load();
+  catalog.persisted.list.Load();
   auto& holder = static_cast<WindowHolder&>(
-      *catalog.list->rows[static_cast<std::size_t>(row_index)]);
+      *catalog.persisted.list->rows[static_cast<std::size_t>(row_index)]);
   holder.window.Load();
   return *holder.window;
 }
 
 bool CatalogFramesNear(WindowCatalog& catalog, FrameExpect main,
                        FrameExpect const* children) {
-  catalog.main_window.Load();
-  if (!MirrorNear(*catalog.main_window, main)) {
+  catalog.persisted.main_window.Load();
+  if (!MirrorNear(*catalog.persisted.main_window, main)) {
     return false;
   }
   for (int i = 0; i < 3; ++i) {
@@ -710,8 +710,8 @@ void BeginCcListIdentity(WindowCatalog& catalog) {
     GtkListBoxRow* const row = gtk_list_box_get_row_at_index(box, i);
     g_object_set_data(G_OBJECT(row), kCcRowMarker, GINT_TO_POINTER(i + 1));
   }
-  catalog.list.Load();
-  State().cc_selection_index = catalog.list->selection_index;
+  catalog.persisted.list.Load();
+  State().cc_selection_index = catalog.persisted.list->selection_index;
   State().cc_selection_signals = 0;
   State().cc_selection_handler = g_signal_connect(
       box, "row-selected", G_CALLBACK(CountNativeRowSelected), nullptr);
@@ -731,8 +731,8 @@ void FinishCcListIdentity(WindowCatalog& catalog) {
   if (State().cc_selection_signals != 0) {
     FailCc("fatal: geometry publication re-emitted native list selection\n");
   }
-  catalog.list.Load();
-  if (catalog.list->selection_index != State().cc_selection_index) {
+  catalog.persisted.list.Load();
+  if (catalog.persisted.list->selection_index != State().cc_selection_index) {
     FailCc("fatal: geometry publication changed model list selection\n");
   }
   g_signal_handler_disconnect(box, State().cc_selection_handler);
@@ -790,8 +790,8 @@ void HandleChildCloseIncremental(WindowCatalog& catalog) {
       return;
     }
     case AutomationStep::CcAwaitSelect:
-      catalog.list.Load();
-      if (catalog.list->selection_index != State().cc_row) {
+      catalog.persisted.list.Load();
+      if (catalog.persisted.list->selection_index != State().cc_row) {
         return;
       }
       ClickButtonNative(LinuxOpen(catalog));
@@ -829,8 +829,8 @@ void HandleChildCloseIncremental(WindowCatalog& catalog) {
           LinuxChildForRow(catalog, (row + 2) % 3) == nullptr) {
         FailCc("fatal: child close affected main or sibling windows\n");
       }
-      catalog.list.Load();
-      if (catalog.list->selection_index == row) {
+      catalog.persisted.list.Load();
+      if (catalog.persisted.list->selection_index == row) {
         ClickButtonNative(LinuxOpen(catalog));
         State().step = AutomationStep::CcAwaitReopened;
         return;
@@ -840,8 +840,8 @@ void HandleChildCloseIncremental(WindowCatalog& catalog) {
       return;
     }
     case AutomationStep::CcAwaitReselect:
-      catalog.list.Load();
-      if (catalog.list->selection_index != State().cc_row) {
+      catalog.persisted.list.Load();
+      if (catalog.persisted.list->selection_index != State().cc_row) {
         return;
       }
       ClickButtonNative(LinuxOpen(catalog));
@@ -1026,13 +1026,13 @@ void LinuxWindowCatalogSessionAutomationHooks::OnAfterInitial(ae::Obj& ui_root) 
   }
 
   if (State().mode == LinuxWindowCatalogSessionAutomation::L3GeomZCold) {
-    catalog.main_window.Load();
-    if (catalog.main_window->x() == 80 && catalog.main_window->y() == 80) {
+    catalog.persisted.main_window.Load();
+    if (catalog.persisted.main_window->x() == 80 && catalog.persisted.main_window->y() == 80) {
       WriteFatalStderr("fatal: cold load did not restore moved main geometry\n");
       std::abort();
     }
     SnapshotCycle1ExpectationsFromMirror(catalog);
-    if (!catalog.desktop_z_order.empty() &&
+    if (!catalog.persisted.desktop_z_order.empty() &&
         CatalogDesktopZOrderMatchesNative(catalog)) {
       LogMarker("WINDOW_CATALOG_LINUX_Z_ORDER_COLD_OK");
     }
@@ -1043,9 +1043,9 @@ void LinuxWindowCatalogSessionAutomationHooks::OnAfterInitial(ae::Obj& ui_root) 
   }
 
   if (State().mode == LinuxWindowCatalogSessionAutomation::L3GeomZCycle2Cold) {
-    catalog.main_window.Load();
+    catalog.persisted.main_window.Load();
     SnapshotCycle2ExpectationsFromMirror(catalog);
-    if (!catalog.desktop_z_order.empty() &&
+    if (!catalog.persisted.desktop_z_order.empty() &&
         CatalogDesktopZOrderMatchesNative(catalog)) {
       LogMarker("WINDOW_CATALOG_LINUX_Z_ORDER_CYCLE2_COLD_OK");
     }
@@ -1087,8 +1087,8 @@ void LinuxWindowCatalogSessionAutomationHooks::OnAfterIncremental(
         State().step = AutomationStep::SaveAwaitSelectOpen;
         return;
       case AutomationStep::SaveAwaitSelectOpen:
-        catalog.list.Load();
-        if (!catalog.list || catalog.list->selection_index != 0) {
+        catalog.persisted.list.Load();
+        if (!catalog.persisted.list || catalog.persisted.list->selection_index != 0) {
           return;
         }
         ClickButtonNative(LinuxOpen(catalog));
@@ -1146,8 +1146,8 @@ void LinuxWindowCatalogSessionAutomationHooks::OnAfterIncremental(
         State().step = AutomationStep::SaveAwaitSelectDelete;
         return;
       case AutomationStep::SaveAwaitSelectDelete:
-        catalog.list.Load();
-        if (!catalog.list || catalog.list->selection_index != 1) {
+        catalog.persisted.list.Load();
+        if (!catalog.persisted.list || catalog.persisted.list->selection_index != 1) {
           return;
         }
         ClickButtonNative(LinuxDelete(catalog));

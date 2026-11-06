@@ -70,4 +70,32 @@ ViewContentSize ReadViewContentSize(JNIEnv* env, jobject view) {
   return out;
 }
 
+std::int32_t ReadActivityDensityDpi(JNIEnv* env, jobject activity) {
+  if (activity == nullptr) {
+    return 0;
+  }
+  jclass activity_class = env->GetObjectClass(activity);
+  jmethodID get_resources = env->GetMethodID(
+      activity_class, "getResources", "()Landroid/content/res/Resources;");
+  jobject resources = env->CallObjectMethod(activity, get_resources);
+  env->DeleteLocalRef(activity_class);
+  if (resources == nullptr) {
+    return 0;
+  }
+  jclass dm_class = env->FindClass("android/util/DisplayMetrics");
+  jmethodID dm_ctor = env->GetMethodID(dm_class, "<init>", "()V");
+  jobject metrics = env->NewObject(dm_class, dm_ctor);
+  jclass res_class = env->GetObjectClass(resources);
+  jmethodID fill_metrics = env->GetMethodID(
+      res_class, "getDisplayMetrics", "(Landroid/util/DisplayMetrics;)V");
+  env->CallVoidMethod(resources, fill_metrics, metrics);
+  env->DeleteLocalRef(resources);
+  env->DeleteLocalRef(res_class);
+  jfieldID dpi_field = env->GetFieldID(dm_class, "densityDpi", "I");
+  jint const dpi = env->GetIntField(metrics, dpi_field);
+  env->DeleteLocalRef(dm_class);
+  env->DeleteLocalRef(metrics);
+  return static_cast<std::int32_t>(dpi);
+}
+
 }  // namespace apptraverse::ui::android

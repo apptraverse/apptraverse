@@ -1,5 +1,7 @@
 #include "apptraverse/application_model_runtime.h"
 
+#include <chrono>
+#include <condition_variable>
 #include <optional>
 
 #include "apptraverse/node.h"
@@ -17,6 +19,28 @@ void ApplicationModelRuntime::Post(ModelWork work) {
     pending_work_.push_back(std::move(work));
   }
   cv_.notify_all();
+}
+
+void ApplicationModelRuntime::SyncPost(ModelWork work) {
+  {
+    std::lock_guard<std::mutex> lock{mu_};
+    if (stop_) {
+      return;
+    }
+  }
+  std::mutex done_mu;
+  std::condition_variable done_cv;
+  bool ran = false;
+  Post([&](ae::Domain& domain) {
+    work(domain);
+    {
+      std::lock_guard<std::mutex> lock{done_mu};
+      ran = true;
+    }
+    done_cv.notify_all();
+  });
+  std::unique_lock<std::mutex> lock{done_mu};
+  done_cv.wait_for(lock, std::chrono::seconds(30), [&] { return ran; });
 }
 
 void ApplicationModelRuntime::RequestStop() {

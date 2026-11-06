@@ -50,6 +50,9 @@ class AndroidApplicationHost {
   // Queues checkpoint persist on the model thread; completion on the main looper.
   void RequestBackgroundSave();
 
+  // Drains the pending background save queue before teardown (UI thread).
+  void FlushPendingBackgroundSaves();
+
   // RequestStop + join for test/process cold reload (not a lifecycle shutdown API).
   void JoinModelThreadForRelease();
 

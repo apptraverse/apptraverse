@@ -37,17 +37,17 @@ void TryMapGtkWindow(CatalogWindow::ptr const& window_ref,
 
 GtkWidget* GtkForCatalogWindowId(WindowCatalog& catalog,
                                    ae::ObjId::Type window_id) {
-  if (catalog.main_window.is_valid() &&
-      catalog.main_window.id().id() == window_id) {
+  if (catalog.persisted.main_window.is_valid() &&
+      catalog.persisted.main_window.id().id() == window_id) {
     ui::linux::LinuxDesktopWindowPresenter* presenter =
-        CatalogWindowPresenter(*catalog.main_window);
+        CatalogWindowPresenter(*catalog.persisted.main_window);
     return presenter != nullptr ? presenter->TopLevelWindow() : nullptr;
   }
-  catalog.list.Load();
-  if (!catalog.list) {
+  catalog.persisted.list.Load();
+  if (!catalog.persisted.list) {
     return nullptr;
   }
-  for (auto const& row : catalog.list->rows) {
+  for (auto const& row : catalog.persisted.list->rows) {
     if (!row) {
       continue;
     }
@@ -67,10 +67,10 @@ GtkWidget* GtkForCatalogWindowId(WindowCatalog& catalog,
 std::vector<std::uint32_t> CaptureCatalogDesktopZOrderTopToBottom(
     WindowCatalog& catalog) {
   std::unordered_map<GtkWidget*, std::uint32_t> widget_to_id;
-  TryMapGtkWindow(catalog.main_window, widget_to_id);
-  catalog.list.Load();
-  if (catalog.list) {
-    for (auto const& row : catalog.list->rows) {
+  TryMapGtkWindow(catalog.persisted.main_window, widget_to_id);
+  catalog.persisted.list.Load();
+  if (catalog.persisted.list) {
+    for (auto const& row : catalog.persisted.list->rows) {
       if (!row) {
         continue;
       }
@@ -100,11 +100,11 @@ std::vector<std::uint32_t> CaptureCatalogDesktopZOrderTopToBottom(
 }
 
 void RestoreCatalogDesktopZOrder(WindowCatalog& catalog) {
-  if (catalog.desktop_z_order.empty()) {
+  if (catalog.persisted.desktop_z_order.empty()) {
     return;
   }
   std::vector<GtkWidget*> ordered_widgets;
-  for (auto const& window_ref : catalog.desktop_z_order) {
+  for (auto const& window_ref : catalog.persisted.desktop_z_order) {
     if (!window_ref.is_valid()) {
       continue;
     }
@@ -128,10 +128,10 @@ void FlushCatalogNativeFrames(WindowCatalog& catalog) {
       presenter->ReportNativeClientFrame();
     }
   };
-  flush_one(catalog.main_window);
-  catalog.list.Load();
-  if (catalog.list) {
-    for (auto const& row : catalog.list->rows) {
+  flush_one(catalog.persisted.main_window);
+  catalog.persisted.list.Load();
+  if (catalog.persisted.list) {
+    for (auto const& row : catalog.persisted.list->rows) {
       if (!row) {
         continue;
       }

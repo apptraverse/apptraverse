@@ -27,11 +27,11 @@ struct WindowCatalogMainChromeLayout {
 //    a full-width column at the bottom.
 //  * Landscape: list on the left half, the four buttons stacked in a column on
 //    the right half.
-// Margins are ~12 px and button height is ~48 px at a 480 px short side; both
-// grow with the short side (up to 3x) so touch targets stay usable on dense
-// phone viewports reported in physical pixels.
+// Margins/button height follow the same relative geometry on all platforms in
+// model client space. `density_dpi` is DisplayMetrics.densityDpi on Android so
+// chrome matches ~12dp margins and >=48dp row height; on Web/Desktop pass 160.
 [[nodiscard]] WindowCatalogMainChromeLayout ComputeWindowCatalogMainChromeLayout(
-    std::int32_t client_w, std::int32_t client_h);
+    std::int32_t client_w, std::int32_t client_h, std::int32_t density_dpi = 160);
 
 }  // namespace apptraverse
 

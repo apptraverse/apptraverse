@@ -30,6 +30,7 @@ class WindowCatalogNativeRuntime {
   void StartModelThread();
   void ConsumePublication(int kind);
   void RequestBackgroundSave();
+  void FlushPendingBackgroundSaves();
   void MobilePageShown(std::uint32_t window_obj_id);
   void MobileSwipe(int delta);
   // UI thread: measure the main window client mount and post the viewport to
@@ -39,6 +40,7 @@ class WindowCatalogNativeRuntime {
  private:
   void PublishMobilePages();
   void SyncMobilePagerChrome(apptraverse::WindowCatalog& catalog);
+  void SyncChildWindowClientMount(CatalogWindow& window);
 
   std::filesystem::path state_dir_;
   android::WindowCatalogUiBridge ui_bridge_;

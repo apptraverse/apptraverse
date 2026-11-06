@@ -291,8 +291,8 @@ void WebWindowCatalogApp::ViewportChanged(int width, int height) {
   }
   WindowCatalog& mirror =
       static_cast<WindowCatalog&>(host_->ui_session()->root());
-  if (mirror.main_client_viewport_w == width &&
-      mirror.main_client_viewport_h == height) {
+  if (mirror.persisted.main_client_viewport.width == width &&
+      mirror.persisted.main_client_viewport.height == height) {
     return;
   }
   host_->model_proxy().Invoke(CatalogRootId(),
@@ -302,7 +302,7 @@ void WebWindowCatalogApp::ViewportChanged(int width, int height) {
 
 void WebWindowCatalogApp::PublishMobilePages(ae::Obj& application_root) {
   auto& catalog = static_cast<WindowCatalog&>(application_root);
-  if (!catalog.mobile_pager) {
+  if (!catalog.persisted.mobile_pager) {
     return;
   }
   std::vector<CatalogWindow::ptr> const ring = catalog.BuildMobileRing();

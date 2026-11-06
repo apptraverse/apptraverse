@@ -102,8 +102,12 @@ UiControlLayout AndroidDesktopWindowPresenter::ResolveChildLayout(
   if (pres.width <= 0 || pres.height <= 0) {
     return requested;
   }
+  std::int32_t dpi = ReadActivityDensityDpi(env, host->activity);
+  if (dpi <= 0) {
+    dpi = 160;
+  }
   return ScaleControlLayoutToPresentation(requested, model_w, model_h, pres.width,
-                                          pres.height);
+                                          pres.height, dpi);
 }
 
 void AndroidPresentationHost::UnloadDesktopWindow(

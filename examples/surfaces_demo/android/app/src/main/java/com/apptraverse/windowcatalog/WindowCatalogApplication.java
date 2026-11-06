@@ -63,6 +63,12 @@ public final class WindowCatalogApplication extends Application
     }
   }
 
+  public void flushPendingBackgroundSaves() {
+    if (runtimeHandle != 0L) {
+      NativeRuntime.nativeFlushPendingBackgroundSaves(runtimeHandle);
+    }
+  }
+
   public void mobilePageShown(long windowObjId) {
     if (runtimeHandle != 0L) {
       NativeRuntime.nativeMobilePageShown(runtimeHandle, windowObjId);

@@ -44,20 +44,21 @@ ui::UiLocalizationString::ptr MakeCatalogLocalizedString(ae::Domain& domain,
 
 void InstallWindowCatalogLocalization(WindowCatalog& catalog,
                                       ae::Domain& domain) {
-  catalog.locale = ui::UiLocaleSettings::ptr::Create(ae::CreateWith{domain});
-  InitializeRuntimeNode(*catalog.locale, catalog);
+  catalog.persisted.locale =
+      ui::UiLocaleSettings::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*catalog.persisted.locale, catalog);
 
-  catalog.texts.label_add =
+  catalog.persisted.texts.label_add =
       MakeCatalogLocalizedString(domain, catalog, "Add", "Добавить");
-  catalog.texts.label_open =
+  catalog.persisted.texts.label_open =
       CreateCatalogLocalizedString(domain, catalog, "Open", "Открыть");
-  catalog.texts.label_delete =
+  catalog.persisted.texts.label_delete =
       CreateCatalogLocalizedString(domain, catalog, "Delete", "Удалить");
-  catalog.texts.label_language =
+  catalog.persisted.texts.label_language =
       CreateCatalogLocalizedString(domain, catalog, "RU", "EN");
-  catalog.texts.window_title_prefix =
+  catalog.persisted.texts.window_title_prefix =
       CreateCatalogLocalizedString(domain, catalog, "Window ", "Окно ");
-  catalog.texts.label_close =
+  catalog.persisted.texts.label_close =
       CreateCatalogLocalizedString(domain, catalog, "Close", "Закрыть");
 }
 

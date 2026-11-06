@@ -130,6 +130,42 @@ void WindowCatalogNativeRuntime::RequestBackgroundSave() {
   host_->RequestBackgroundSave();
 }
 
+void WindowCatalogNativeRuntime::FlushPendingBackgroundSaves() {
+  if (host_) {
+    host_->FlushPendingBackgroundSaves();
+  }
+}
+
+void WindowCatalogNativeRuntime::SyncChildWindowClientMount(
+    CatalogWindow& window) {
+  if (!host_ || !host_->ui_session()) {
+    return;
+  }
+  auto* presenter = AndroidPresenterForWindow(window);
+  if (presenter == nullptr) {
+    return;
+  }
+  jobject const mount = presentation_host_.ClientMount(*presenter);
+  if (mount == nullptr) {
+    return;
+  }
+  JNIEnv* env = ui::android::RequireUiThreadEnv(presentation_host_);
+  ui::android::ViewContentSize const size =
+      ui::android::ReadViewContentSize(env, mount);
+  if (size.width <= 0 || size.height <= 0) {
+    return;
+  }
+  if (size.width == window.client_width() &&
+      size.height == window.client_height()) {
+    return;
+  }
+  ae::ObjId const catalog_id{
+      window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
+  host_->model_proxy().Invoke(
+      catalog_id, &apptraverse::WindowCatalog::SubmitHolderChildWindowClientSizeFromUi,
+      static_cast<std::uint32_t>(window.obj_id.id()), size.width, size.height);
+}
+
 void WindowCatalogNativeRuntime::MobilePageShown(std::uint32_t window_obj_id) {
   if (reported_active_for_ui_.is_valid() &&
       reported_active_for_ui_.id() == window_obj_id) {
@@ -156,10 +192,11 @@ void WindowCatalogNativeRuntime::ReportMainViewport() {
     return;
   }
   apptraverse::WindowCatalog& catalog = CatalogRoot(host_->ui_session()->root());
-  if (!catalog.main_window.is_valid() || !catalog.main_window.is_loaded()) {
+  if (!catalog.persisted.main_window.is_valid() ||
+      !catalog.persisted.main_window.is_loaded()) {
     return;
   }
-  auto* presenter = AndroidPresenterForWindow(*catalog.main_window);
+  auto* presenter = AndroidPresenterForWindow(*catalog.persisted.main_window);
   if (presenter == nullptr) {
     return;
   }
@@ -170,23 +207,28 @@ void WindowCatalogNativeRuntime::ReportMainViewport() {
   JNIEnv* env = ui::android::RequireUiThreadEnv(presentation_host_);
   ui::android::ViewContentSize const size =
       ui::android::ReadViewContentSize(env, mount);
+  std::int32_t dpi = ui::android::ReadActivityDensityDpi(env, presentation_host_.activity);
+  if (dpi <= 0) {
+    dpi = 160;
+  }
   if (size.width <= 0 || size.height <= 0) {
     return;
   }
-  if (size.width == catalog.main_client_viewport_w &&
-      size.height == catalog.main_client_viewport_h) {
+  if (size.width == catalog.persisted.main_client_viewport.width &&
+      size.height == catalog.persisted.main_client_viewport.height &&
+      dpi == catalog.persisted.main_client_viewport.density_dpi) {
     return;
   }
   ae::ObjId const catalog_id{
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
   host_->model_proxy().Invoke(
       catalog_id, &apptraverse::WindowCatalog::SubmitMainClientViewportFromUi,
-      size.width, size.height);
+      size.width, size.height, dpi);
 }
 
 void WindowCatalogNativeRuntime::SyncMobilePagerChrome(
     apptraverse::WindowCatalog& catalog) {
-  if (!catalog.mobile_pager || !host_->ui_session()) {
+  if (!catalog.persisted.mobile_pager || !host_->ui_session()) {
     return;
   }
   CatalogWindow::ptr active = catalog.ResolveMobileActiveWindow();
@@ -202,11 +244,15 @@ void WindowCatalogNativeRuntime::SyncMobilePagerChrome(
     }
     SetMountVisible(presentation_host_,
                     presentation_host_.ClientMount(*presenter), show);
+    if (show && window_ref.id() != catalog.persisted.main_window.id()) {
+      SyncChildWindowClientMount(*window_ref.Load());
+    }
   };
 
-  sync_one(catalog.main_window, active_id == catalog.main_window.id());
-  catalog.list.Load();
-  for (auto const& row : catalog.list->rows) {
+  sync_one(catalog.persisted.main_window,
+           active_id == catalog.persisted.main_window.id());
+  catalog.persisted.list.Load();
+  for (auto const& row : catalog.persisted.list->rows) {
     row.Load();
     auto* holder = static_cast<WindowHolder*>(&*row);
     if (!holder->window.is_valid()) {
@@ -217,9 +263,10 @@ void WindowCatalogNativeRuntime::SyncMobilePagerChrome(
     sync_one(holder->window, show);
   }
 
-  CatalogWindow& title_window = active_id == catalog.main_window.id()
-                                    ? *catalog.main_window.Load()
-                                    : *active.Load();
+  CatalogWindow& title_window =
+      active_id == catalog.persisted.main_window.id()
+          ? *catalog.persisted.main_window.Load()
+          : *active.Load();
   SetActivityTitle(presentation_host_, ResolveWindowTitle(title_window).c_str());
 }
 
@@ -228,7 +275,7 @@ void WindowCatalogNativeRuntime::PublishMobilePages() {
     return;
   }
   apptraverse::WindowCatalog& catalog = CatalogRoot(host_->ui_session()->root());
-  if (!catalog.mobile_pager) {
+  if (!catalog.persisted.mobile_pager) {
     return;
   }
   std::vector<CatalogWindow::ptr> const ring = catalog.BuildMobileRing();

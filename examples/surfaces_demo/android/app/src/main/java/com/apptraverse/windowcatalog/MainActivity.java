@@ -144,14 +144,14 @@ public final class MainActivity extends Activity {
 
   @Override
   protected void onDestroy() {
-    application().requestBackgroundSave();
+    application().flushPendingBackgroundSaves();
     application().clearActivity(this);
     super.onDestroy();
   }
 
   @Override
   protected void onStop() {
-    application().requestBackgroundSave();
+    application().flushPendingBackgroundSaves();
     super.onStop();
   }
 

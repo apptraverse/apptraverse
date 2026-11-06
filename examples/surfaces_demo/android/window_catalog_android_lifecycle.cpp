@@ -42,7 +42,7 @@ int RunWindowCatalogAndroidModel(WindowCatalogAndroidEmbeddedProfile& profile,
     if (user_profile_present) {
       NormalizeWindowCatalogAfterEmbeddedUserLoad(catalog);
     }
-    catalog.mobile_pager = true;
+    catalog.persisted.mobile_pager = true;
     PrepareWindowCatalogForRun(catalog);
   };
   hooks.persist = [&profile](apptraverse::WindowCatalog& catalog) -> int {

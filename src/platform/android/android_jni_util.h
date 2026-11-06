@@ -23,6 +23,9 @@ struct ViewContentSize {
 
 ViewContentSize ReadViewContentSize(JNIEnv* env, jobject view);
 
+// DisplayMetrics.densityDpi from the Activity context, or 0 on failure.
+std::int32_t ReadActivityDensityDpi(JNIEnv* env, jobject activity);
+
 }  // namespace apptraverse::ui::android
 
 #endif  // APPTRAVERSE_PLATFORM_ANDROID_ANDROID_JNI_UTIL_H_

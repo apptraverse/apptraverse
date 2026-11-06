@@ -6,11 +6,11 @@
 namespace apptraverse::ui::android {
 
 // Maps model client-space chrome layout to the measured Android client mount
-// (physical px). Model sizes are desktop client units, not dp.
+// (physical px). Button row heights are clamped to at least 48dp in px.
 UiControlLayout ScaleControlLayoutToPresentation(
     UiControlLayout requested, std::int32_t model_client_width,
     std::int32_t model_client_height, std::int32_t presentation_width,
-    std::int32_t presentation_height);
+    std::int32_t presentation_height, std::int32_t density_dpi);
 
 }  // namespace apptraverse::ui::android
 

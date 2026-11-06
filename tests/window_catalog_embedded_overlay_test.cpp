@@ -136,11 +136,11 @@ void TestColdLoadEmptyUserFromEmbeddedBacking() {
 
   auto catalog = LoadApplication<WindowCatalog>(domain, catalog_id);
   CHECK(catalog->obj_id == catalog_id);
-  CHECK(catalog->window_prefab.is_valid());
-  CHECK(!catalog->window_prefab.is_loaded());
-  catalog->list.Load();
-  CHECK(catalog->list);
-  CHECK(catalog->list->rows.empty());
+  CHECK(catalog->persisted.window_prefab.is_valid());
+  CHECK(!catalog->persisted.window_prefab.is_loaded());
+  catalog->persisted.list.Load();
+  CHECK(catalog->persisted.list);
+  CHECK(catalog->persisted.list->rows.empty());
   CHECK(backing.state == backing_snapshot);
   CHECK(std::filesystem::is_empty(user_dir));
   ExpectNoPrefabBodiesInUser(user_dir);
@@ -170,10 +170,10 @@ void TestUserOverlayPersistsAddWindow() {
   {
     ae::Domain domain{overlay};
     auto catalog = LoadApplication<WindowCatalog>(domain, catalog_id);
-    catalog->list.Load();
+    catalog->persisted.list.Load();
     catalog->AddWindow();
-    CHECK(catalog->list->rows.size() == 1);
-    WindowHolder* holder = AsHolder(catalog->list->rows[0]);
+    CHECK(catalog->persisted.list->rows.size() == 1);
+    WindowHolder* holder = AsHolder(catalog->persisted.list->rows[0]);
     holder_id = holder->obj_id;
     first_window_id = holder->window.id();
     CHECK(first_window_id != kWindowPrefabId);
@@ -181,7 +181,7 @@ void TestUserOverlayPersistsAddWindow() {
     auto presenter = LoadCatalogWindowPresenter(*holder->window);
     CHECK(presenter.id() != kWindowPrefabPresenterId);
     CHECK(presenter->origin_id() == kWindowPrefabPresenterId);
-    CHECK(!catalog->window_prefab.is_loaded());
+    CHECK(!catalog->persisted.window_prefab.is_loaded());
     ShutdownSaveCatalog(*catalog, user_storage);
     CHECK(!std::filesystem::is_empty(user_dir));
     CHECK(backing.state == backing_snapshot);
@@ -199,23 +199,23 @@ void TestUserOverlayPersistsAddWindow() {
   ae::Domain replay_domain{replay_overlay};
   auto replay_catalog =
       LoadApplication<WindowCatalog>(replay_domain, catalog_id);
-  replay_catalog->list.Load();
-  CHECK(replay_catalog->list->rows.size() == 1);
-  CHECK(AsHolder(replay_catalog->list->rows[0])->obj_id == holder_id);
-  CHECK(AsHolder(replay_catalog->list->rows[0])->window.id() == first_window_id);
-  CHECK(replay_catalog->window_prefab.is_valid());
-  CHECK(!replay_catalog->window_prefab.is_loaded());
+  replay_catalog->persisted.list.Load();
+  CHECK(replay_catalog->persisted.list->rows.size() == 1);
+  CHECK(AsHolder(replay_catalog->persisted.list->rows[0])->obj_id == holder_id);
+  CHECK(AsHolder(replay_catalog->persisted.list->rows[0])->window.id() == first_window_id);
+  CHECK(replay_catalog->persisted.window_prefab.is_valid());
+  CHECK(!replay_catalog->persisted.window_prefab.is_loaded());
 
   replay_catalog->AddWindow();
-  CHECK(replay_catalog->list->rows.size() == 2);
-  WindowHolder* holder2 = AsHolder(replay_catalog->list->rows[1]);
+  CHECK(replay_catalog->persisted.list->rows.size() == 2);
+  WindowHolder* holder2 = AsHolder(replay_catalog->persisted.list->rows[1]);
   second_window_id = holder2->window.id();
   CHECK(second_window_id != first_window_id);
   CHECK(second_window_id != kWindowPrefabId);
   CHECK(holder2->window->origin_id() == kWindowPrefabId);
   auto presenter2 = LoadCatalogWindowPresenter(*holder2->window);
   CHECK(presenter2->origin_id() == kWindowPrefabPresenterId);
-  CHECK(!replay_catalog->window_prefab.is_loaded());
+  CHECK(!replay_catalog->persisted.window_prefab.is_loaded());
 
   ShutdownSaveCatalog(*replay_catalog, replay_user);
   CHECK(replay_backing.state == backing_snapshot);
@@ -240,17 +240,17 @@ void TestEmbeddedModelSessionRoundTrip() {
     hooks.prepare = [&](WindowCatalog& catalog) {
       ++prepare_calls;
       CHECK(std::filesystem::is_empty(user_dir));
-      CHECK(catalog.window_prefab.is_valid());
-      CHECK(!catalog.window_prefab.is_loaded());
-      catalog.list.Load();
-      CHECK(catalog.list->rows.empty());
+      CHECK(catalog.persisted.window_prefab.is_valid());
+      CHECK(!catalog.persisted.window_prefab.is_loaded());
+      catalog.persisted.list.Load();
+      CHECK(catalog.persisted.list->rows.empty());
       runtime.Post([&](ae::Domain&) { catalog.AddWindow(); });
     };
     hooks.persist = [&](WindowCatalog& catalog) -> int {
       ++persist_calls;
-      catalog.list.Load();
-      CHECK(catalog.list->rows.size() == 1);
-      WindowHolder* holder = AsHolder(catalog.list->rows[0]);
+      catalog.persisted.list.Load();
+      CHECK(catalog.persisted.list->rows.size() == 1);
+      WindowHolder* holder = AsHolder(catalog.persisted.list->rows[0]);
       saved_holder_id = holder->obj_id;
       saved_window_id = holder->window.id();
       CHECK(saved_window_id != kWindowPrefabId);
@@ -258,7 +258,7 @@ void TestEmbeddedModelSessionRoundTrip() {
       auto presenter = LoadCatalogWindowPresenter(*holder->window);
       CHECK(presenter.id() != kWindowPrefabPresenterId);
       CHECK(presenter->origin_id() == kWindowPrefabPresenterId);
-      CHECK(!catalog.window_prefab.is_loaded());
+      CHECK(!catalog.persisted.window_prefab.is_loaded());
       ShutdownSaveCatalog(catalog, user_storage);
       ExpectNoPrefabBodiesInUser(user_dir);
       return 0;
@@ -286,18 +286,18 @@ void TestEmbeddedModelSessionRoundTrip() {
     ApplicationModelSessionHooks<WindowCatalog> hooks;
     hooks.prepare = [&](WindowCatalog& catalog) {
       ++prepare_calls_2;
-      catalog.list.Load();
-      CHECK(catalog.list->rows.size() == 1);
-      CHECK(AsHolder(catalog.list->rows[0])->obj_id == saved_holder_id);
-      CHECK(AsHolder(catalog.list->rows[0])->window.id() == saved_window_id);
+      catalog.persisted.list.Load();
+      CHECK(catalog.persisted.list->rows.size() == 1);
+      CHECK(AsHolder(catalog.persisted.list->rows[0])->obj_id == saved_holder_id);
+      CHECK(AsHolder(catalog.persisted.list->rows[0])->window.id() == saved_window_id);
       runtime.Post([&](ae::Domain&) { catalog.AddWindow(); });
     };
     hooks.persist = [&](WindowCatalog& catalog) -> int {
       ++persist_calls_2;
-      catalog.list.Load();
-      CHECK(catalog.list->rows.size() == 2);
-      WindowHolder* holder0 = AsHolder(catalog.list->rows[0]);
-      WindowHolder* holder1 = AsHolder(catalog.list->rows[1]);
+      catalog.persisted.list.Load();
+      CHECK(catalog.persisted.list->rows.size() == 2);
+      WindowHolder* holder0 = AsHolder(catalog.persisted.list->rows[0]);
+      WindowHolder* holder1 = AsHolder(catalog.persisted.list->rows[1]);
       CHECK(holder0->window.id() == saved_window_id);
       CHECK(holder1->window.id() != saved_window_id);
       CHECK(holder0->window->origin_id() == kWindowPrefabId);
@@ -306,7 +306,7 @@ void TestEmbeddedModelSessionRoundTrip() {
       auto presenter1 = LoadCatalogWindowPresenter(*holder1->window);
       CHECK(presenter0->origin_id() == kWindowPrefabPresenterId);
       CHECK(presenter1->origin_id() == kWindowPrefabPresenterId);
-      CHECK(!catalog.window_prefab.is_loaded());
+      CHECK(!catalog.persisted.window_prefab.is_loaded());
       ShutdownSaveCatalog(catalog, user_storage);
       ExpectNoPrefabBodiesInUser(user_dir);
       return 0;

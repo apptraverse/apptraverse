@@ -39,6 +39,8 @@ class ApplicationModelRuntime {
   using ModelWork = ModelObjectProxy::ModelWork;
 
   void Post(ModelWork work);
+  // Blocks until `work` runs on the model thread (unless already stopped).
+  void SyncPost(ModelWork work);
   void RequestStop();
 
   // Blocks on the calling thread until RequestStop and the work queue drain.

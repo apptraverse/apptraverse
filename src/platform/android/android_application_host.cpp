@@ -178,6 +178,7 @@ void AndroidApplicationHost::ConsumePublication(ApplicationPublicationKind kind)
 }
 
 void AndroidApplicationHost::JoinModelThreadForRelease() {
+  FlushPendingBackgroundSaves();
   if (!model_thread_joinable_) {
     ui_session_.reset();
     return;
@@ -207,6 +208,16 @@ void AndroidApplicationHost::JoinModelThreadForRelease() {
   }
   model_thread_live_.store(false, std::memory_order_release);
   ui_session_.reset();
+}
+
+void AndroidApplicationHost::FlushPendingBackgroundSaves() {
+  if (!callbacks_.persist_model) {
+    return;
+  }
+  // Run after any already-queued model work (Invoke, etc.) on the model thread.
+  runtime_.SyncPost([this](ae::Domain& domain) {
+    RunBackgroundSaveOnModelThread(domain);
+  });
 }
 
 void AndroidApplicationHost::EnqueueBackgroundSaveWork() {

@@ -20,6 +20,9 @@ public final class NativeRuntime {
 
   public static native void nativeRequestBackgroundSave(long handle);
 
+  /** Blocks until the model thread finishes a USER checkpoint (UI thread only). */
+  public static native void nativeFlushPendingBackgroundSaves(long handle);
+
   public static native void nativeMobilePageShown(long handle, long windowObjId);
 
   public static native void nativeMobileSwipe(long handle, int delta);
