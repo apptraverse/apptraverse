@@ -6,13 +6,14 @@ namespace apptraverse::ui {
 
 void UiDesktopWindowPresenter::SubmitFrameFromNative(
     std::int32_t x, std::int32_t y, std::int32_t client_width,
-    std::int32_t client_height) {
+    std::int32_t client_height, bool updates_restore_geometry) {
   if (model_proxy == nullptr) {
     return;
   }
   UiDesktopWindow::ptr const desktop = desktop_window();
   model_proxy->Invoke(desktop->obj_id, &UiDesktopWindow::SubmitFrameFromNative,
-                      x, y, client_width, client_height);
+                      x, y, client_width, client_height,
+                      updates_restore_geometry);
 }
 
 bool UiListContainerPresenter::ReadyForPresentation() const {

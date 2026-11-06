@@ -211,8 +211,8 @@ void HeadlessDesktopWindowPresenter::ApplyRequestedFrameFromMirror() {
   }
   simulated_native_x = desktop->x();
   simulated_native_y = desktop->y();
-  simulated_native_cw = desktop->client_width();
-  simulated_native_ch = desktop->client_height();
+  simulated_native_cw = desktop->restore_client_width();
+  simulated_native_ch = desktop->restore_client_height();
 }
 
 void HeadlessDesktopWindowPresenter::RefreshResolvedTitle() {
@@ -585,12 +585,13 @@ void TestNativeFrameReport() {
       h.ui_root->presented_window->client_width();
   std::int32_t const mirror_height_before =
       h.ui_root->presented_window->client_height();
-  h.headless().SubmitFrameFromNative(11, 22, 640, 480);
+  h.headless().SubmitFrameFromNative(11, 22, 640, 480, true);
   h.PumpModel();
   CHECK(h.model_root->presented_window->x() == 11);
   CHECK(h.model_root->presented_window->y() == 22);
   CHECK(h.model_root->presented_window->client_width() == 640);
   CHECK(h.model_root->presented_window->client_height() == 480);
+  CHECK(h.model_root->presented_window->restore_client_width() == 640);
   CHECK(h.ui_root->presented_window->client_width() == mirror_width_before);
   CHECK(h.ui_root->presented_window->client_height() == mirror_height_before);
   CHECK(CountJournalEventsWithClass(
@@ -612,6 +613,26 @@ void TestNativeFrameReport() {
   CHECK(CountJournalEventsWithClass(
             *h.model_root->presented_window,
             ui::ReportUiDesktopWindowFrameFromNativeEvent::kClassId) == 1);
+}
+
+void TestSystemFrameReportPreservesRestoreGeometry() {
+  ContractHarness h{false};
+  h.headless().model_proxy = &h.model_proxy;
+  h.model_root->presented_window->SubmitFrameFromNative(100, 120, 800, 600, true);
+  h.PumpModel();
+  h.headless().SubmitFrameFromNative(0, 0, 1920, 1040, false);
+  h.PumpModel();
+  CHECK(h.model_root->presented_window->client_width() == 1920);
+  CHECK(h.model_root->presented_window->client_height() == 1040);
+  CHECK(h.model_root->presented_window->restore_client_width() == 800);
+  CHECK(h.model_root->presented_window->restore_client_height() == 600);
+  h.headless().SubmitFrameFromNative(0, 0, 1600, 900, false);
+  h.PumpModel();
+  CHECK(h.model_root->presented_window->client_width() == 1600);
+  CHECK(h.model_root->presented_window->client_height() == 900);
+  CHECK(h.model_root->presented_window->restore_client_width() == 800);
+  h.PublishStructuralFromWindow();
+  CHECK(h.headless().apply_requested_frame_count == 0);
 }
 
 void TestModelRequestedFrame() {
@@ -660,7 +681,7 @@ void TestLazyLocalization() {
 
 void TestLazyPresentedWindowUnloadReload() {
   ContractHarness h{true};
-  h.headless().SubmitFrameFromNative(100, 120, 640, 480);
+  h.headless().SubmitFrameFromNative(100, 120, 640, 480, true);
   h.PumpModel();
   h.PublishStructuralFromWindow();
   std::string const title_before = h.headless().last_resolved_localized_text;
@@ -725,6 +746,7 @@ int main() {
   apptraverse::test::TestWindowPresenterSaveLoadRoundtrip();
   apptraverse::test::TestEventModelPublicationUiMirror();
   apptraverse::test::TestNativeFrameReport();
+  apptraverse::test::TestSystemFrameReportPreservesRestoreGeometry();
   apptraverse::test::TestModelRequestedFrame();
   apptraverse::test::TestLazyLocalization();
   apptraverse::test::TestLazyPresentedWindowUnloadReload();

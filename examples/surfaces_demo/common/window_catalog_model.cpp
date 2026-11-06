@@ -161,7 +161,7 @@ void AssignInitialCatalogWindowBounds(CatalogWindow& window,
   std::int32_t const offset =
       static_cast<std::int32_t>((number > 0 ? number - 1 : 0) * kCascade);
   window.SubmitFrameFromNative(kBaseX + offset, kBaseY + offset, kWidth,
-                               kHeight);
+                               kHeight, true);
 }
 bool WindowCatalog::CanApply(AddWindowCatalogEntryEvent const& event) const {
   if (!event.holder.is_valid() || !list) {

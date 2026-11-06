@@ -56,10 +56,14 @@ void LinuxDesktopWindowPresenter::OnLoad() {
   }
   gtk_container_add(GTK_CONTAINER(window_), client_mount_);
 
-  int const client_w = desktop->client_width() > 0 ? desktop->client_width()
-                                                     : 640;
-  int const client_h = desktop->client_height() > 0 ? desktop->client_height()
-                                                      : 480;
+  int const client_w = desktop->restore_client_width() > 0
+                           ? desktop->restore_client_width()
+                           : (desktop->client_width() > 0 ? desktop->client_width()
+                                                          : 640);
+  int const client_h = desktop->restore_client_height() > 0
+                           ? desktop->restore_client_height()
+                           : (desktop->client_height() > 0 ? desktop->client_height()
+                                                           : 480);
   gtk_window_set_default_size(GTK_WINDOW(window_), client_w, client_h);
   if (desktop->x() != 0 || desktop->y() != 0) {
     gtk_window_move(GTK_WINDOW(window_), desktop->x(), desktop->y());
