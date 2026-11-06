@@ -2,59 +2,282 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>AppTraverse WindowCatalog</title>
   <style>
-    body {
+    html, body {
+      height: 100%;
+      margin: 0;
       font-family: system-ui, sans-serif;
-      margin: 24px;
       color: #111;
+      background: #f2f2f2;
+      overscroll-behavior: none;
+    }
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      max-width: 960px;
+      margin: 0 auto;
+      background: #fff;
+    }
+    /* Pager header: title + page indicator + prev/next + save. */
+    #pager-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-bottom: 1px solid #ccc;
       background: #f7f7f7;
     }
-    #catalog-panel {
-      max-width: 720px;
-      padding: 16px;
-      background: #fff;
-      border: 1px solid #ccc;
+    #page-title {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 18px;
+      font-weight: 600;
     }
-    #catalog-title {
-      margin: 0 0 12px;
-      font-size: 22px;
-    }
-    #catalog-list {
-      min-height: 120px;
-      margin: 0 0 16px;
-      padding: 8px 24px;
-      border: 1px solid #ddd;
-      background: #fafafa;
-    }
-    #catalog-buttons {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    button.catalog-button {
-      padding: 8px 14px;
+    #page-indicator { color: #555; font-size: 14px; white-space: nowrap; }
+    #pager-bar button {
+      min-width: 44px;
+      min-height: 44px;
       border: 1px solid #888;
       background: #e8e8e8;
+      font-size: 16px;
+    }
+    #pager-bar button:disabled { opacity: 0.5; }
+
+    /* The UI mirror mounts one .apptraverse-desktop-window per catalog window.
+       Its inline geometry is the desktop frame; the pager makes every window a
+       full-viewport page and shows only the active one. */
+    #catalog-mount {
+      position: relative;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
+      touch-action: pan-y;
+    }
+    #catalog-mount .apptraverse-desktop-window {
+      position: absolute !important;
+      left: 0 !important;
+      top: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+      display: none;
+      box-sizing: border-box;
+      background: #fafafa;
+    }
+    #catalog-mount .apptraverse-desktop-window.page-active { display: block; }
+    #catalog-mount .apptraverse-desktop-client {
+      position: relative;
+      width: 100% !important;
+      height: 100% !important;
+      box-sizing: border-box;
+    }
+    .apptraverse-push-button {
+      box-sizing: border-box;
+      font-size: 16px;
+      border: 1px solid #888;
+      background: #e8e8e8;
+      touch-action: manipulation;
+    }
+    .apptraverse-push-button:disabled { opacity: 0.55; }
+    /* Child page Close button: bottom-left of the page, touch sized. */
+    #catalog-mount .catalog-page:not(.catalog-page-main) .apptraverse-push-button {
+      left: 12px !important;
+      top: auto !important;
+      bottom: 12px;
+      width: 140px !important;
+      height: 48px !important;
+    }
+    .apptraverse-list {
+      box-sizing: border-box;
+      border: 1px solid #ccc;
+      background: #fff;
+      -webkit-overflow-scrolling: touch;
+    }
+    .apptraverse-list-row {
+      padding: 12px 10px;
+      min-height: 20px;
       cursor: default;
+      user-select: none;
+      border-bottom: 1px solid #eee;
     }
-    button.catalog-button:disabled {
-      opacity: 0.55;
+    .apptraverse-list-row-selected { background: #dbeafe; }
+
+    #page-dots { display: flex; justify-content: center; gap: 6px; padding: 6px; }
+    #page-dots button {
+      width: 14px;
+      height: 14px;
+      padding: 0;
+      border: 1px solid #888;
+      border-radius: 50%;
+      background: #ddd;
     }
-    #status { margin-top: 16px; color: #444; min-height: 1.2em; }
+    #page-dots button.dot-active { background: #2563eb; border-color: #2563eb; }
+    #status { padding: 4px 12px 8px; color: #444; min-height: 1.2em; font-size: 13px; }
   </style>
 </head>
 <body>
-  <h1>WindowCatalog (Web)</h1>
-  <div id="catalog-panel">
-    <h2 id="catalog-title">Loading…</h2>
-    <ul id="catalog-list"></ul>
-    <div id="catalog-buttons"></div>
+  <div id="app">
+    <div id="pager-bar">
+      <button id="prev-page" type="button" aria-label="Previous page">&#9664;</button>
+      <div id="page-title">Loading…</div>
+      <div id="page-indicator"></div>
+      <button id="next-page" type="button" aria-label="Next page">&#9654;</button>
+      <button id="save-button" type="button">Save</button>
+    </div>
+    <div id="catalog-mount"></div>
+    <div id="page-dots"></div>
+    <div id="status"></div>
   </div>
-  <div id="status"></div>
 
   <script>
+    // Shell side of the WindowCatalog web port. Native state lives in the
+    // model; this object only reflects the pager (ring ids + active id pushed
+    // from native after each publication) and forwards user input to the
+    // exported bridge functions (swipe, page click, viewport, save).
+    var AtCatalog = (function() {
+      var pageIds = [];
+      var activeId = 0;
+      var SWIPE_MIN_PX = 60;
+
+      function el(id) { return document.getElementById(id); }
+      function mount() { return el('catalog-mount'); }
+      function pageEl(id) {
+        return mount().querySelector(
+            '.catalog-page[data-window-id="' + id + '"]');
+      }
+      function bridge(name) {
+        var fn = Module['_' + name];
+        return typeof fn === 'function' ? fn : null;
+      }
+
+      function render() {
+        var pages = mount().querySelectorAll('.catalog-page');
+        for (var i = 0; i < pages.length; ++i) {
+          var on = Number(pages[i].dataset.windowId) === activeId;
+          pages[i].classList.toggle('page-active', on);
+        }
+        var index = Math.max(0, pageIds.indexOf(activeId));
+        var active = pageEl(activeId);
+        el('page-title').textContent =
+            (active && active.dataset.apptraverseWindowTitle) || '';
+        el('page-indicator').textContent =
+            pageIds.length ? (index + 1) + ' / ' + pageIds.length : '';
+        var multi = pageIds.length > 1;
+        el('prev-page').disabled = !multi;
+        el('next-page').disabled = !multi;
+
+        var dots = el('page-dots');
+        dots.textContent = '';
+        if (multi) {
+          pageIds.forEach(function(id, n) {
+            var dot = document.createElement('button');
+            dot.type = 'button';
+            dot.setAttribute('aria-label', 'Page ' + (n + 1));
+            if (id === activeId) { dot.className = 'dot-active'; }
+            dot.addEventListener('click', function() { showPage(id); });
+            dots.appendChild(dot);
+          });
+        }
+      }
+
+      function showPage(id) {
+        if (id === activeId) { return; }
+        activeId = id;
+        render();
+        var fn = bridge('ApptraverseWindowCatalogMobilePageShown');
+        if (fn) { fn(id >>> 0); }
+      }
+
+      function swipe(delta) {
+        var fn = bridge('ApptraverseWindowCatalogMobileSwipe');
+        if (fn && pageIds.length > 1) { fn(delta); }
+      }
+
+      function save() {
+        var fn = bridge('ApptraverseWindowCatalogRequestSave');
+        if (fn) { fn(); }
+      }
+
+      function installInput() {
+        el('prev-page').addEventListener('click', function() { swipe(-1); });
+        el('next-page').addEventListener('click', function() { swipe(1); });
+        el('save-button').addEventListener('click', save);
+
+        // Swipe: horizontal drag on the page area. Taps still reach list rows
+        // and buttons because only drags past the threshold are consumed.
+        var startX = 0, startY = 0, tracking = false;
+        var m = mount();
+        m.addEventListener('touchstart', function(ev) {
+          if (ev.touches.length !== 1) { tracking = false; return; }
+          startX = ev.touches[0].clientX;
+          startY = ev.touches[0].clientY;
+          tracking = true;
+        }, {passive: true});
+        m.addEventListener('touchend', function(ev) {
+          if (!tracking) { return; }
+          tracking = false;
+          var t = ev.changedTouches[0];
+          var dx = t.clientX - startX;
+          var dy = t.clientY - startY;
+          if (Math.abs(dx) >= SWIPE_MIN_PX && Math.abs(dx) > Math.abs(dy)) {
+            swipe(dx < 0 ? 1 : -1);
+          }
+        }, {passive: true});
+
+        // Keyboard paging for desktop browsers.
+        document.addEventListener('keydown', function(ev) {
+          if (ev.target && /^(INPUT|TEXTAREA)$/.test(ev.target.tagName)) { return; }
+          if (ev.key === 'ArrowLeft') { swipe(-1); }
+          if (ev.key === 'ArrowRight') { swipe(1); }
+        });
+
+        // Main client viewport -> model (adaptive chrome layout).
+        var report = function() {
+          var fn = bridge('ApptraverseWindowCatalogViewportChanged');
+          if (!fn) { return; }
+          var r = m.getBoundingClientRect();
+          fn(Math.round(r.width), Math.round(r.height));
+        };
+        if (typeof ResizeObserver !== 'undefined') {
+          new ResizeObserver(report).observe(m);
+        } else {
+          window.addEventListener('resize', report);
+        }
+        report();
+
+        // Persist the USER profile when the page goes to background.
+        document.addEventListener('visibilitychange', function() {
+          if (document.visibilityState === 'hidden') { save(); }
+        });
+        window.addEventListener('pagehide', save);
+      }
+
+      return {
+        setPages: function(csv, active) {
+          pageIds = csv ? csv.split(',').map(Number) : [];
+          activeId = active >>> 0;
+          render();
+        },
+        setStatus: function(text) { el('status').textContent = text; },
+        setInputBlocked: function(blocked) {
+          mount().inert = blocked;
+          ['prev-page', 'next-page', 'save-button'].forEach(function(id) {
+            el(id).disabled = blocked ||
+                (id !== 'save-button' && pageIds.length <= 1);
+          });
+        },
+        shutdownDone: function(ok) {
+          el('status').textContent = ok ? 'Stopped' : 'Stop failed';
+        },
+        installInput: installInput
+      };
+    })();
+
     var Module = {
       print: function(text) { console.log(text); },
       printErr: function(text) { console.error(text); },
@@ -65,22 +288,10 @@
         if (typeof SharedArrayBuffer === 'undefined') {
           throw new Error('SharedArrayBuffer unavailable');
         }
-        FS.mkdir('/persistent');
-        FS.mount(IDBFS, {}, '/persistent');
-        Module['addRunDependency']('idbfs-sync');
-        FS.syncfs(true, function(err) {
-          if (err) {
-            console.error('IDBFS syncfs(true) failed', err);
-            document.getElementById('status').textContent =
-                'IndexedDB load failed: ' + err;
-          } else {
-            console.log('WINDOW_CATALOG_IDBFS_LOADED');
-          }
-          Module['removeRunDependency']('idbfs-sync');
-        });
       }],
       onRuntimeInitialized: function() {
         console.log('WINDOW_CATALOG_WASM_READY crossOriginIsolated=' + crossOriginIsolated);
+        AtCatalog.installInput();
       }
     };
   </script>

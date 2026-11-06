@@ -1,39 +1,44 @@
 #ifndef APPTRAVERSE_WINDOW_CATALOG_WEB_APP_H_
 #define APPTRAVERSE_WINDOW_CATALOG_WEB_APP_H_
 
-#include <cstdint>
 #include <filesystem>
 #include <memory>
-#include <mutex>
-#include <optional>
-#include <thread>
-#include <vector>
 
 #include "apptraverse/application_model_runtime.h"
-#include "apptraverse/application_ui_session.h"
-#include "apptraverse/model_object_proxy.h"
+#include "apptraverse/directory_domain_storage.h"
+#include "apptraverse/platform/web/web_application_host.h"
+#include "apptraverse/platform/web/web_presentation_host.h"
 
 namespace apptraverse {
 
+// Web WindowCatalog host: model thread + main-thread UI mirror via
+// web::WebApplicationHost, mobile pager (same model as Android), USER profile
+// persisted to IDBFS (/persistent) on Save and shutdown.
 class WebWindowCatalogApp {
  public:
   static WebWindowCatalogApp& Instance();
 
   void Start(std::filesystem::path state_dir);
-  void OnPublicationFromModel(int kind_flag);
+
+  // Main-thread bridge entry points (see extern "C" exports in the .cpp).
+  void RequestSave();
+  void RequestShutdown();
+  void MobileSwipe(int delta);
+  void MobilePageShown(unsigned window_obj_id);
+  void ViewportChanged(int width, int height);
+  void FinishTeardown(bool shutdown_succeeded);
 
  private:
   WebWindowCatalogApp() = default;
 
+  int PersistCatalog(ae::Domain& domain);
+  void PublishMobilePages(ae::Obj& application_root);
+
   std::filesystem::path state_dir_;
   ApplicationModelRuntime runtime_;
-  std::optional<ModelObjectProxy> model_proxy_;
-  std::unique_ptr<ApplicationUiSession> ui_session_;
-  std::thread model_thread_;
-
-  std::mutex publication_mu_;
-  std::vector<std::uint8_t> pending_publication_bytes_;
-  int pending_publication_kind_{-1};
+  ui::web::WebPresentationHost presentation_host_;
+  std::unique_ptr<DirectoryDomainStorage> storage_;
+  std::unique_ptr<web::WebApplicationHost> host_;
 };
 
 }  // namespace apptraverse

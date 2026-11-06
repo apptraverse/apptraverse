@@ -94,6 +94,7 @@ add_executable(web_window_catalog_demo
 
 target_compile_definitions(web_window_catalog_demo PRIVATE
   APPTRAVERSE_ENABLE_DISTILLATION
+  EMSCRIPTEN_HAS_UNBOUND_TYPE_NAMES=0
 )
 
 target_include_directories(web_window_catalog_demo PRIVATE
@@ -103,6 +104,7 @@ target_include_directories(web_window_catalog_demo PRIVATE
 
 target_link_libraries(web_window_catalog_demo PRIVATE
   surfaces_demo_window_catalog_common
+  apptraverse_ui_web
   apptraverse
 )
 
@@ -118,8 +120,10 @@ target_link_options(web_window_catalog_demo PRIVATE
   -sFORCE_FILESYSTEM=1
   -sEXIT_RUNTIME=0
   -lidbfs.js
-  -sEXPORTED_FUNCTIONS=_main
-  -sEXPORTED_RUNTIME_METHODS=FS,addRunDependency,removeRunDependency,ccall,cwrap,UTF8ToString
+  --bind
+  -sEXPORTED_FUNCTIONS=_main,_ApptraverseWebUiPushButtonClicked,_ApptraverseWebUiListSelectionChanged,_ApptraverseWebUiListRowActivated,_ApptraverseWebIdbfsLoadDone,_ApptraverseWebIdbfsLoadFailed,_ApptraverseWebIdbfsStoreDone,_ApptraverseWebIdbfsStoreFailed,_ApptraverseWindowCatalogRequestSave,_ApptraverseWindowCatalogRequestShutdown,_ApptraverseWindowCatalogMobileSwipe,_ApptraverseWindowCatalogMobilePageShown,_ApptraverseWindowCatalogViewportChanged
+  -sALLOW_TABLE_GROWTH=1
+  -sEXPORTED_RUNTIME_METHODS=FS,addRunDependency,removeRunDependency,ccall,cwrap,UTF8ToString,count_emval_handles
   --shell-file=${CMAKE_CURRENT_SOURCE_DIR}/window_catalog_shell.html
 )
 
