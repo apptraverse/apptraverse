@@ -2,6 +2,9 @@ package com.apptraverse.ui.android;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.res.ColorStateList;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
@@ -137,11 +140,14 @@ public final class AppTraverseAndroidUi {
 
   public static void bindListRow(LinearLayout list, int rowIndex, String label,
       boolean selected, long nativePresenter) {
+    Context ctx = list.getContext();
+    float padPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 12f,
+        ctx.getResources().getDisplayMetrics());
     TextView row;
     if (rowIndex < list.getChildCount()) {
       row = (TextView) list.getChildAt(rowIndex);
     } else {
-      row = new TextView(list.getContext());
+      row = new TextView(ctx);
       row.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
       row.setClickable(true);
       row.setFocusable(true);
@@ -161,6 +167,32 @@ public final class AppTraverseAndroidUi {
     row.setText(label);
     row.setContentDescription(label);
     row.setSelected(selected);
+
+    // Visible selection from mirror `selected` (no separate Java selection state).
+    int fgSelected = Color.parseColor("#FFFFFF");
+    int fgNormal = Color.parseColor("#E8EAF0");
+    row.setTextColor(new ColorStateList(
+        new int[][] {
+            new int[] {android.R.attr.state_selected},
+            new int[] {}
+        },
+        new int[] {fgSelected, fgNormal}));
+
+    GradientDrawable bg = new GradientDrawable();
+    bg.setShape(GradientDrawable.RECTANGLE);
+    bg.setCornerRadius(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 6f,
+        ctx.getResources().getDisplayMetrics()));
+    if (selected) {
+      bg.setColor(Color.parseColor("#1E3A5F"));
+      bg.setStroke((int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 1f,
+          ctx.getResources().getDisplayMetrics()),
+          Color.parseColor("#4A90D9"));
+    } else {
+      bg.setColor(Color.parseColor("#2B2F38"));
+      bg.setStroke(0, Color.TRANSPARENT);
+    }
+    row.setBackground(bg);
+    row.setPadding((int) padPx, (int) padPx, (int) padPx, (int) padPx);
   }
 
   public static void clearListRows(LinearLayout list, int keepCount) {

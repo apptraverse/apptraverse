@@ -82,15 +82,18 @@ std::int32_t ReadActivityDensityDpi(JNIEnv* env, jobject activity) {
   if (resources == nullptr) {
     return 0;
   }
-  jclass dm_class = env->FindClass("android/util/DisplayMetrics");
-  jmethodID dm_ctor = env->GetMethodID(dm_class, "<init>", "()V");
-  jobject metrics = env->NewObject(dm_class, dm_ctor);
   jclass res_class = env->GetObjectClass(resources);
-  jmethodID fill_metrics = env->GetMethodID(
-      res_class, "getDisplayMetrics", "(Landroid/util/DisplayMetrics;)V");
-  env->CallVoidMethod(resources, fill_metrics, metrics);
+  // API 34+ removed Resources#getDisplayMetrics(DisplayMetrics out).
+  // Use the no-arg overload that returns the shared DisplayMetrics instance.
+  jmethodID get_metrics = env->GetMethodID(
+      res_class, "getDisplayMetrics", "()Landroid/util/DisplayMetrics;");
+  jobject metrics = env->CallObjectMethod(resources, get_metrics);
   env->DeleteLocalRef(resources);
   env->DeleteLocalRef(res_class);
+  if (metrics == nullptr) {
+    return 0;
+  }
+  jclass dm_class = env->GetObjectClass(metrics);
   jfieldID dpi_field = env->GetFieldID(dm_class, "densityDpi", "I");
   jint const dpi = env->GetIntField(metrics, dpi_field);
   env->DeleteLocalRef(dm_class);

@@ -1,4 +1,5 @@
 # Build
+b/
 build/
 build-linux/
 build-gnu/
@@ -49,6 +50,7 @@ compile_flags.txt
 build-p2p-*/
 
 # Runner artifacts (full logs stay out of git / Cursor context)
+docs/smoke_artifacts/window_catalog_android_accept_20251106/
 .artifacts/
 artifacts/presence-monitor/
 
