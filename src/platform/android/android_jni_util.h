@@ -3,6 +3,7 @@
 
 #include <jni.h>
 
+#include <cstdint>
 #include <string>
 
 #include "apptraverse/platform/android/android_presentation_host.h"
@@ -14,6 +15,13 @@ void ClearGlobalRef(AndroidPresentationHost const& host, jobject& ref);
 
 std::string JstringToUtf8(JNIEnv* env, jstring value);
 jstring Utf8ToJstring(JNIEnv* env, char const* utf8);
+
+struct ViewContentSize {
+  std::int32_t width{0};
+  std::int32_t height{0};
+};
+
+ViewContentSize ReadViewContentSize(JNIEnv* env, jobject view);
 
 }  // namespace apptraverse::ui::android
 

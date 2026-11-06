@@ -2,6 +2,7 @@ package com.apptraverse.ui.android;
 
 import android.app.Activity;
 import android.content.Context;
+import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
@@ -62,6 +63,59 @@ public final class AppTraverseAndroidUi {
     button.setContentDescription(label);
   }
 
+  public static void updatePushButtonLayout(Button button, int x, int y, int width,
+      int height) {
+    ViewGroup.LayoutParams params = button.getLayoutParams();
+    if (!(params instanceof FrameLayout.LayoutParams)) {
+      return;
+    }
+    FrameLayout.LayoutParams frame = (FrameLayout.LayoutParams) params;
+    frame.leftMargin = x;
+    frame.topMargin = y;
+    frame.width = width;
+    frame.height = height;
+    button.setLayoutParams(frame);
+  }
+
+  public static void updateListContainerLayout(LinearLayout list, int x, int y,
+      int width, int height) {
+    ViewGroup.LayoutParams params = list.getLayoutParams();
+    if (!(params instanceof FrameLayout.LayoutParams)) {
+      return;
+    }
+    FrameLayout.LayoutParams frame = (FrameLayout.LayoutParams) params;
+    frame.leftMargin = x;
+    frame.topMargin = y;
+    frame.width = width;
+    frame.height = height;
+    list.setLayoutParams(frame);
+  }
+
+  /** Content size of a view in physical pixels (measures against parent if needed). */
+  public static int[] contentSizeForView(View view) {
+    int width = view.getWidth();
+    int height = view.getHeight();
+    if (width > 0 && height > 0) {
+      return new int[] {width, height};
+    }
+    int parentWidth = 0;
+    int parentHeight = 0;
+    ViewParent parent = view.getParent();
+    if (parent instanceof View) {
+      View parentView = (View) parent;
+      parentWidth = parentView.getWidth();
+      parentHeight = parentView.getHeight();
+    }
+    if (parentWidth <= 0 || parentHeight <= 0) {
+      parentWidth = view.getResources().getDisplayMetrics().widthPixels;
+      parentHeight = view.getResources().getDisplayMetrics().heightPixels;
+    }
+    view.measure(
+        View.MeasureSpec.makeMeasureSpec(parentWidth, View.MeasureSpec.EXACTLY),
+        View.MeasureSpec.makeMeasureSpec(parentHeight, View.MeasureSpec.EXACTLY));
+    return new int[] {view.getMeasuredWidth(), view.getMeasuredHeight()};
+  }
+
   public static void releasePushButton(Button button) {
     button.setOnClickListener(null);
     detachFromParent(button);
@@ -88,6 +142,7 @@ public final class AppTraverseAndroidUi {
       row = (TextView) list.getChildAt(rowIndex);
     } else {
       row = new TextView(list.getContext());
+      row.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
       list.addView(row, new LinearLayout.LayoutParams(
           ViewGroup.LayoutParams.MATCH_PARENT,
           ViewGroup.LayoutParams.WRAP_CONTENT));

@@ -59,6 +59,15 @@ void AndroidPresentationHost::SyncPushButton(
   env->CallStaticVoidMethod(ui_class, update, presenter.view_refs_->button,
                             jlabel,
                             presenter.button->enabled() ? JNI_TRUE : JNI_FALSE);
+  ui::UiControlLayout const layout =
+      presenter.window_presenter->ResolveChildLayout(
+          {presenter.layout_x, presenter.layout_y, presenter.layout_width,
+           presenter.layout_height, presenter.control_id});
+  jmethodID update_layout = env->GetStaticMethodID(
+      ui_class, "updatePushButtonLayout",
+      "(Landroid/widget/Button;IIII)V");
+  env->CallStaticVoidMethod(ui_class, update_layout, presenter.view_refs_->button,
+                            layout.x, layout.y, layout.width, layout.height);
   env->DeleteLocalRef(jlabel);
   env->DeleteLocalRef(ui_class);
 }

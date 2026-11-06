@@ -300,6 +300,7 @@ if(ANDROID)
     src/platform/android/android_jni_util.cpp
     src/platform/android/android_ui_bridge.cpp
     src/platform/android/android_application_host.cpp
+    src/platform/android/android_ui_layout_scale.cpp
     src/platform/android/android_ui_window_presenter.cpp
     src/platform/android/android_ui_push_button_presenter.cpp
     src/platform/android/android_ui_list_presenter.cpp

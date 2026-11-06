@@ -34,6 +34,8 @@ class AndroidDesktopWindowPresenter : public UiDesktopWindowPresenter {
   void OnModelChanged() override;
   void OnUnload() override;
 
+  UiControlLayout ResolveChildLayout(UiControlLayout requested) const override;
+
  private:
   friend struct AndroidPresentationHost;
 

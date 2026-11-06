@@ -4,6 +4,7 @@
 
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/platform/android/android_presentation_host.h"
+#include "apptraverse/platform/android/android_ui_layout_scale.h"
 #include "apptraverse/ui/ui_desktop_window.h"
 #include "apptraverse/ui/ui_localization_string.h"
 
@@ -63,6 +64,46 @@ void AndroidPresentationHost::SyncDesktopWindow(
   env->CallStaticVoidMethod(ui_class, set_title, activity, jtitle);
   env->DeleteLocalRef(jtitle);
   env->DeleteLocalRef(ui_class);
+}
+
+UiControlLayout AndroidDesktopWindowPresenter::ResolveChildLayout(
+    UiControlLayout requested) const {
+  auto* host = static_cast<AndroidPresentationHost*>(presentation_host);
+  if (host == nullptr || host->content_root == nullptr) {
+    return requested;
+  }
+  auto desktop = desktop_window();
+  if (!desktop.is_valid()) {
+    return requested;
+  }
+  if (!desktop.is_loaded()) {
+    desktop.Load();
+  }
+  std::int32_t model_w = desktop->client_width();
+  std::int32_t model_h = desktop->client_height();
+  if (model_w <= 0) {
+    model_w = desktop->restore_client_width();
+  }
+  if (model_h <= 0) {
+    model_h = desktop->restore_client_height();
+  }
+  if (model_w <= 0 || model_h <= 0) {
+    return requested;
+  }
+  JNIEnv* env = RequireUiThreadEnv(*host);
+  jobject measure_target = host->content_root;
+  if (view_refs_ != nullptr && view_refs_->client_mount != nullptr) {
+    measure_target = view_refs_->client_mount;
+  }
+  ViewContentSize pres = ReadViewContentSize(env, measure_target);
+  if (pres.width <= 0 || pres.height <= 0) {
+    pres = ReadViewContentSize(env, host->content_root);
+  }
+  if (pres.width <= 0 || pres.height <= 0) {
+    return requested;
+  }
+  return ScaleControlLayoutToPresentation(requested, model_w, model_h, pres.width,
+                                          pres.height);
 }
 
 void AndroidPresentationHost::UnloadDesktopWindow(

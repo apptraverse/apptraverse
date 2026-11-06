@@ -72,6 +72,15 @@ void AndroidPresentationHost::SyncListContainer(
   env->CallStaticVoidMethod(
       ui_class, clear_rows, presenter.view_refs_->list,
       static_cast<jint>(presenter.container->rows.size()));
+  ui::UiControlLayout const layout =
+      presenter.window_presenter->ResolveChildLayout(
+          {presenter.layout_x, presenter.layout_y, presenter.layout_width,
+           presenter.layout_height, presenter.control_id});
+  jmethodID update_layout = env->GetStaticMethodID(
+      ui_class, "updateListContainerLayout",
+      "(Landroid/widget/LinearLayout;IIII)V");
+  env->CallStaticVoidMethod(ui_class, update_layout, presenter.view_refs_->list,
+                            layout.x, layout.y, layout.width, layout.height);
   env->DeleteLocalRef(ui_class);
   presenter.applying_mirror_sync_ = false;
 }
