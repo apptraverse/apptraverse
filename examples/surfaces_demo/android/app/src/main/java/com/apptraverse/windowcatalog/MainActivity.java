@@ -20,6 +20,10 @@ public final class MainActivity extends Activity {
   private static final String TAG = "AppTraverseWindowCatalog";
   private static final int SWIPE_MIN_DISTANCE_PX = 80;
 
+  /** Intent extra: USER profile directory name under app {@code files/}. */
+  public static final String EXTRA_STATE_SUBDIR = "stateSubdir";
+  public static final String DEFAULT_STATE_SUBDIR = "window_catalog_state";
+
   private TextView pageIndicator;
   private TextView loading;
   private FrameLayout pageContainer;
@@ -48,6 +52,12 @@ public final class MainActivity extends Activity {
 
     WindowCatalogApplication app = application();
     app.setActivity(this);
+
+    String stateSubdir = getIntent().getStringExtra(EXTRA_STATE_SUBDIR);
+    if (stateSubdir == null || stateSubdir.isEmpty()) {
+      stateSubdir = DEFAULT_STATE_SUBDIR;
+    }
+    app.initRuntime(getFilesDir().getAbsolutePath(), stateSubdir);
 
     if (app.runtimeHandle() == 0L) {
       Log.e(TAG, "Runtime missing");

@@ -26,7 +26,8 @@ WindowCatalogNativeRuntime* FromHandle(jlong handle) {
   return reinterpret_cast<WindowCatalogNativeRuntime*>(handle);
 }
 
-jlong NativeCreate(JNIEnv* env, jclass, jstring files_dir, jobject ui_bridge) {
+jlong NativeCreate(JNIEnv* env, jclass, jstring files_dir, jstring state_subdir,
+                 jobject ui_bridge) {
   EnsureObjectRegistration();
   ui::EnsureUiPresenterRegistration();
   ui::android::EnsureAndroidUiPresenterRegistration();
@@ -38,10 +39,11 @@ jlong NativeCreate(JNIEnv* env, jclass, jstring files_dir, jobject ui_bridge) {
     return 0;
   }
 
-  auto const* chars = env->GetStringUTFChars(files_dir, nullptr);
-  auto state_dir =
-      std::filesystem::path{chars} / "window_catalog_state";
-  env->ReleaseStringUTFChars(files_dir, chars);
+  auto const* files_chars = env->GetStringUTFChars(files_dir, nullptr);
+  auto const* subdir_chars = env->GetStringUTFChars(state_subdir, nullptr);
+  auto state_dir = std::filesystem::path{files_chars} / subdir_chars;
+  env->ReleaseStringUTFChars(files_dir, files_chars);
+  env->ReleaseStringUTFChars(state_subdir, subdir_chars);
 
   auto* runtime = new WindowCatalogNativeRuntime(
       std::move(state_dir), std::move(wc_bridge), std::move(android_bridge));
@@ -77,7 +79,8 @@ void NativeMobileSwipe(JNIEnv*, jclass, jlong handle, jint delta) {
 void NativeDestroy(JNIEnv*, jclass, jlong handle) { delete FromHandle(handle); }
 
 JNINativeMethod const kNativeMethods[] = {
-    {"nativeCreate", "(Ljava/lang/String;Lcom/apptraverse/windowcatalog/NativeUiBridge;)J",
+    {"nativeCreate",
+     "(Ljava/lang/String;Ljava/lang/String;Lcom/apptraverse/windowcatalog/NativeUiBridge;)J",
      reinterpret_cast<void*>(&NativeCreate)},
     {"nativeSetPresentationRoot", "(JLandroid/app/Activity;Landroid/view/ViewGroup;)V",
      reinterpret_cast<void*>(&NativeSetPresentationRoot)},

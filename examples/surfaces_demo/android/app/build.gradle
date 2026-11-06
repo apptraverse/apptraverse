@@ -54,6 +54,18 @@ android {
     targetCompatibility JavaVersion.VERSION_17
   }
 
+  def releaseKeystore = file("${rootDir}/.local/release-test.keystore")
+  if (releaseKeystore.exists()) {
+    signingConfigs {
+      release {
+        storeFile releaseKeystore
+        storePassword "android"
+        keyAlias "release-test"
+        keyPassword "android"
+      }
+    }
+  }
+
   buildTypes {
     debug {
       debuggable true
@@ -63,6 +75,9 @@ android {
       minifyEnabled false
       proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"),
                     "proguard-rules.pro"
+      if (releaseKeystore.exists()) {
+        signingConfig signingConfigs.release
+      }
     }
   }
 

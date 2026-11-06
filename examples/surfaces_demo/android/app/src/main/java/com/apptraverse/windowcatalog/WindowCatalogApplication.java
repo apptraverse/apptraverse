@@ -21,12 +21,18 @@ public final class WindowCatalogApplication extends Application
   @Override
   public void onCreate() {
     super.onCreate();
-    String filesDir = getFilesDir().getAbsolutePath();
-    runtimeHandle = NativeRuntime.nativeCreate(filesDir, uiBridge);
+    uiBridge.attach(this);
+  }
+
+  /** One native runtime per process; {@code stateSubdir} is under {@code files/}. */
+  public void initRuntime(String filesDir, String stateSubdir) {
+    if (runtimeHandle != 0L) {
+      return;
+    }
+    runtimeHandle = NativeRuntime.nativeCreate(filesDir, stateSubdir, uiBridge);
     if (runtimeHandle == 0L) {
       Log.e(TAG, "Native runtime create failed");
     }
-    uiBridge.attach(this);
   }
 
   public void setActivity(MainActivity mainActivity) {
