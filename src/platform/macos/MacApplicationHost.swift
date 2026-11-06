@@ -110,6 +110,9 @@ final class MacWindowAdapter: ObservableObject, Identifiable {
     @Published var buttons: [MacButtonAdapter] = []
     @Published var lists: [MacListAdapter] = []
     var applyingMirrorFrame = false
+    var userAdjustingFrame = false
+    var pendingNativeReport = false
+    var lastReportedClient: NSRect?
 
     init(token: UInt64, commandSink: MacUiCommandSink,
          delegate: NSWindowDelegate) {
@@ -129,23 +132,42 @@ final class MacWindowAdapter: ObservableObject, Identifiable {
     func sync(_ state: ATMacWindowState) {
         title = state.title
         window.title = state.title
-        let frame = NSRect(x: state.x, y: state.y,
-                           width: state.width, height: state.height)
-        if window.contentLayoutRect.size != frame.size ||
-            window.frame.origin != frame.origin {
+        let client = NSRect(x: state.x, y: state.y,
+                            width: state.width, height: state.height)
+        if userAdjustingFrame { return }
+        if pendingNativeReport, let last = lastReportedClient {
+            if !Self.rectsMatch(client, last) { return }
+            pendingNativeReport = false
+            lastReportedClient = nil
+        }
+        let targetFrame = window.frameRect(forContentRect: client)
+        if !framesMatchClient(client) {
             applyingMirrorFrame = true
-            window.setContentSize(frame.size)
-            window.setFrameOrigin(frame.origin)
+            window.setFrame(targetFrame, display: true)
             applyingMirrorFrame = false
         }
     }
 
+    private static func rectsMatch(_ a: NSRect, _ b: NSRect) -> Bool {
+        abs(a.origin.x - b.origin.x) < 0.5 &&
+            abs(a.origin.y - b.origin.y) < 0.5 &&
+            abs(a.width - b.width) < 0.5 &&
+            abs(a.height - b.height) < 0.5
+    }
+
+    private func framesMatchClient(_ client: NSRect) -> Bool {
+        let current = window.contentRect(forFrameRect: window.frame)
+        return Self.rectsMatch(current, client)
+    }
+
     func reportFrame() {
         guard !applyingMirrorFrame else { return }
-        let content = window.contentLayoutRect
+        let client = window.contentRect(forFrameRect: window.frame)
+        lastReportedClient = client
+        pendingNativeReport = true
         commandSink?.submitWindowFrame(
-            CGRect(x: window.frame.origin.x, y: window.frame.origin.y,
-                   width: content.width, height: content.height), token: id)
+            CGRect(x: client.origin.x, y: client.origin.y,
+                   width: client.width, height: client.height), token: id)
     }
 
     func disconnect() {
@@ -247,12 +269,58 @@ public final class MacApplicationHost: NSObject,
         return false
     }
 
+    public func windowWillMove(_ notification: Notification) {
+        adapter(for: notification)?.userAdjustingFrame = true
+    }
+
     public func windowDidMove(_ notification: Notification) {
-        adapter(for: notification)?.reportFrame()
+        guard let adapter = adapter(for: notification) else { return }
+        adapter.reportFrame()
+        if !adapter.window.inLiveResize {
+            adapter.userAdjustingFrame = false
+        }
+    }
+
+    public func windowWillStartLiveResize(_ notification: Notification) {
+        adapter(for: notification)?.userAdjustingFrame = true
+    }
+
+    public func windowDidEndLiveResize(_ notification: Notification) {
+        guard let adapter = adapter(for: notification) else { return }
+        adapter.reportFrame()
+        adapter.userAdjustingFrame = false
     }
 
     public func windowDidResize(_ notification: Notification) {
-        adapter(for: notification)?.reportFrame()
+        guard let adapter = adapter(for: notification) else { return }
+        adapter.reportFrame()
+        if !adapter.window.inLiveResize {
+            adapter.userAdjustingFrame = false
+        }
+    }
+
+    public func capturePresenterTokensFrontToBack() -> [UInt64] {
+        NSApp.windows.compactMap { window in
+            windows.values.first { $0.window === window }?.id
+        }
+    }
+
+    public func restoreDesktopZOrder(presenterTokensFrontToBack: [UInt64]) {
+        for token in presenterTokensFrontToBack.reversed() {
+            windows[token]?.window.orderBack(nil)
+        }
+        for token in presenterTokensFrontToBack {
+            windows[token]?.window.orderFront(nil)
+        }
+    }
+
+    public func focusPresenter(token: UInt64) {
+        guard let adapter = windows[token] else { return }
+        if adapter.window.isMiniaturized {
+            adapter.window.deminiaturize(nil)
+        }
+        adapter.window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     public func bridge(_ bridge: ATMacApplicationBridge,
@@ -261,8 +329,7 @@ public final class MacApplicationHost: NSObject,
                                        delegate: self)
         windows[token] = adapter
         adapter.sync(bridge.windowState(token))
-        adapter.window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        adapter.window.orderFront(nil)
     }
 
     public func bridge(_ bridge: ATMacApplicationBridge,
@@ -330,6 +397,23 @@ public final class MacApplicationHost: NSObject,
         if terminating {
             NSApp.terminate(nil)
         }
+    }
+
+    @objc public func bridgeCaptureDesktopPresenterTokensFrontToBack()
+        -> [NSNumber] {
+        capturePresenterTokensFrontToBack().map { NSNumber(value: $0) }
+    }
+
+    @objc public func bridgeRestoreDesktopZOrder(
+        _ presenterTokensFrontToBack: [NSNumber]) {
+        restoreDesktopZOrder(
+            presenterTokensFrontToBack: presenterTokensFrontToBack.map {
+                $0.uint64Value
+            })
+    }
+
+    @objc public func bridgeFocusDesktopPresenter(_ token: UInt64) {
+        focusPresenter(token: token)
     }
 
     private func adapter(for notification: Notification) -> MacWindowAdapter? {

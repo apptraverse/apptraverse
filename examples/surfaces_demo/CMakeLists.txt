@@ -222,6 +222,57 @@ if(APPTRAVERSE_BUILD_LINUX_GUI AND UNIX AND NOT APPLE AND NOT ANDROID AND NOT EM
 endif()
 
 if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+  add_library(surfaces_demo_window_catalog_macos STATIC
+    macos/window_catalog_graph_macos.cpp
+  )
+  target_include_directories(surfaces_demo_window_catalog_macos PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/common
+    ${CMAKE_CURRENT_SOURCE_DIR}/macos)
+  target_link_libraries(surfaces_demo_window_catalog_macos PUBLIC
+    surfaces_demo_window_catalog_common
+    apptraverse_ui_macos_presenters)
+  target_compile_features(surfaces_demo_window_catalog_macos PUBLIC cxx_std_20)
+
+  if(BUILD_TESTING OR APPTRAVERSE_BUILD_EXAMPLES)
+    add_executable(apptraverse_export_window_catalog_distilled_graph_macos
+      macos/window_catalog_export_macos.cpp
+    )
+    target_link_libraries(apptraverse_export_window_catalog_distilled_graph_macos PRIVATE
+      surfaces_demo_window_catalog_macos
+      apptraverse
+    )
+    target_include_directories(apptraverse_export_window_catalog_distilled_graph_macos PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/common
+      ${CMAKE_CURRENT_SOURCE_DIR}/macos
+    )
+    target_compile_features(apptraverse_export_window_catalog_distilled_graph_macos PRIVATE cxx_std_20)
+
+    set(_window_catalog_mac_embed_graph_sources
+      ${CMAKE_CURRENT_SOURCE_DIR}/macos/window_catalog_graph_macos.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/common/window_catalog_graph_builder.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/common/window_catalog_model.cpp
+    )
+    if(NOT APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR)
+      set(_window_catalog_mac_embed_dir
+          "${CMAKE_CURRENT_BINARY_DIR}/generated_distilled")
+      set(_window_catalog_mac_embed_header
+          "${_window_catalog_mac_embed_dir}/embedded_distilled_window_catalog_supply.h")
+      file(MAKE_DIRECTORY "${_window_catalog_mac_embed_dir}")
+      add_custom_command(
+        OUTPUT "${_window_catalog_mac_embed_header}"
+        COMMAND $<TARGET_FILE:apptraverse_export_window_catalog_distilled_graph_macos>
+                "${_window_catalog_mac_embed_header}"
+        DEPENDS apptraverse_export_window_catalog_distilled_graph_macos
+                ${_window_catalog_mac_embed_graph_sources}
+        VERBATIM
+        COMMENT "Generate WindowCatalog macOS embedded supply header")
+      add_custom_target(apptraverse_window_catalog_embedded_supply_macos
+        DEPENDS "${_window_catalog_mac_embed_header}")
+      set(APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR
+          "${_window_catalog_mac_embed_dir}" CACHE INTERNAL "")
+    endif()
+  endif()
+
   add_subdirectory(macos)
 endif()
 

@@ -231,15 +231,24 @@ class MacNativeViews final
 }
 
 - (void)consumePublication:(ATMacPublicationKind)kind {
-  std::vector<std::uint8_t> publication =
-      _runtime.TakePublishedCopyForUiApply();
+  std::vector<std::uint8_t> publication;
   if (kind == ATMacPublicationKindInitial) {
+    publication = _runtime.TakePublishedCopyForUiApply();
     _uiSession = std::make_unique<apptraverse::ApplicationUiSession>(
         publication, _nativeViews.get(), *_proxy);
-  } else {
-    _uiSession->ApplyStructural(publication);
+    _runtime.NotifyPublicationConsumed();
+    if (_callbacks.after_initial_ui_apply) {
+      _callbacks.after_initial_ui_apply(_uiSession->root());
+    }
+    return;
   }
+  publication = _runtime.TakePublishedCopyForUiApply(
+      _callbacks.take_incremental_sidecar);
+  _uiSession->ApplyStructural(publication);
   _runtime.NotifyPublicationConsumed();
+  if (_callbacks.after_incremental_ui_apply) {
+    _callbacks.after_incremental_ui_apply(_uiSession->root());
+  }
 }
 
 - (ATMacWindowState*)windowState:(uint64_t)token {

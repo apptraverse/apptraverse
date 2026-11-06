@@ -5,6 +5,8 @@
 
 #include <functional>
 
+#include "aether-objects/obj/obj.h"
+
 #include "apptraverse/application_model_runtime.h"
 #include "apptraverse/model_object_proxy.h"
 
@@ -16,6 +18,9 @@ struct MacApplicationBridgeCallbacks {
   std::function<bool(ae::Obj&, ae::Obj&, ModelObjectProxy&,
                      std::function<void()>)>
       close_desktop_window;
+  TakePublishedSidecarCallback take_incremental_sidecar;
+  std::function<void(ae::Obj& application_root)> after_initial_ui_apply;
+  std::function<void(ae::Obj& application_root)> after_incremental_ui_apply;
 };
 
 ATMacApplicationBridge* MakeMacApplicationBridge(

@@ -29,6 +29,10 @@ typedef NS_ENUM(NSInteger, ATMacPublicationKind) {
 - (void)bridge:(ATMacApplicationBridge*)bridge
     unloadList:(uint64_t)token;
 - (void)bridgeModelDidFinish:(ATMacApplicationBridge*)bridge;
+- (NSArray<NSNumber*>*)bridgeCaptureDesktopPresenterTokensFrontToBack;
+- (void)bridgeRestoreDesktopZOrder:
+    (NSArray<NSNumber*>*)presenterTokensFrontToBack;
+- (void)bridgeFocusDesktopPresenter:(uint64_t)token;
 @end
 
 @interface ATMacWindowState : NSObject

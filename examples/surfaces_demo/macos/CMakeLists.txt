@@ -74,3 +74,67 @@ foreach(_surfaces_demo macos_surfaces_demo macos_surfaces_demo_load_only)
     -Wl,-rpath,/usr/lib/swift
   )
 endforeach()
+
+add_library(window_catalog_macos_composition STATIC
+  window_catalog_macos_composition.mm
+  window_catalog_lifecycle_macos.cpp)
+target_include_directories(window_catalog_macos_composition PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common
+  ${APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR})
+target_link_libraries(window_catalog_macos_composition PUBLIC
+  surfaces_demo_window_catalog_common
+  surfaces_demo_window_catalog_macos
+  apptraverse_ui_macos_bridge
+  "-framework Foundation")
+set_source_files_properties(window_catalog_macos_composition.mm PROPERTIES
+  COMPILE_FLAGS "-fobjc-arc")
+target_compile_options(window_catalog_macos_composition PRIVATE
+  $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-rtti>
+  $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-objc-exceptions>)
+target_compile_definitions(window_catalog_macos_composition PRIVATE
+  APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
+
+include(${PROJECT_SOURCE_DIR}/cmake/apptraverse_embed_distilled_supply.cmake)
+if(TARGET apptraverse_window_catalog_embedded_supply_macos)
+  add_dependencies(window_catalog_macos_composition
+    apptraverse_window_catalog_embedded_supply_macos)
+elseif(TARGET apptraverse_window_catalog_embedded_supply)
+  add_dependencies(window_catalog_macos_composition
+    apptraverse_window_catalog_embedded_supply)
+endif()
+apptraverse_embed_distilled_supply(
+  window_catalog_macos_composition
+  apptraverse_export_window_catalog_distilled_graph_macos
+  embedded_distilled_window_catalog_supply.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/window_catalog_graph_macos.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common/window_catalog_graph_builder.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common/window_catalog_model.cpp)
+
+add_library(window_catalog_macos_entry STATIC WindowCatalogMain.swift)
+set_target_properties(window_catalog_macos_entry PROPERTIES
+  Swift_MODULE_NAME WindowCatalogMacEntry)
+target_link_libraries(window_catalog_macos_entry PRIVATE
+  apptraverse_ui_macos_swift)
+target_compile_options(window_catalog_macos_entry PRIVATE
+  "SHELL:-import-objc-header ${CMAKE_CURRENT_SOURCE_DIR}/window_catalog_macos_composition.h"
+  "SHELL:-Xcc -I${PROJECT_SOURCE_DIR}/include"
+  "SHELL:-Xcc -I${CMAKE_CURRENT_SOURCE_DIR}/../common")
+
+add_executable(macos_window_catalog_demo
+  window_catalog_link.mm)
+set_target_properties(macos_window_catalog_demo PROPERTIES
+  MACOSX_BUNDLE TRUE
+  MACOSX_BUNDLE_GUI_IDENTIFIER com.apptraverse.windowcatalog.macos
+  MACOSX_BUNDLE_BUNDLE_NAME macos_window_catalog_demo
+  OUTPUT_NAME macos_window_catalog_demo)
+target_link_libraries(macos_window_catalog_demo PRIVATE
+  window_catalog_macos_composition
+  window_catalog_macos_entry
+  apptraverse_ui_macos)
+set_target_properties(macos_window_catalog_demo PROPERTIES LINKER_LANGUAGE OBJCXX)
+target_link_options(macos_window_catalog_demo PRIVATE
+  -L${CMAKE_OSX_SYSROOT}/usr/lib/swift
+  -L/usr/lib/swift
+  -Wl,-rpath,/usr/lib/swift
+  -Wl,-rpath,${CMAKE_OSX_SYSROOT}/usr/lib/swift)
