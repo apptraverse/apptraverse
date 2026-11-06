@@ -22,6 +22,9 @@ enum class ObjId : ae::ObjId::Type {
   Locale = 14,
   WindowPrefab = 15,
   WindowPrefabPresenter = 16,
+  WindowPrefabCloseButton = 17,
+  WindowPrefabCloseButtonPresenter = 18,
+  MobileSidecar = 19,
 };
 
 inline constexpr ae::ObjId::Type ToObjId(ObjId id) {

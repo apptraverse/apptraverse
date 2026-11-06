@@ -22,8 +22,20 @@ struct WindowCatalogPresenterFactory {
   std::function<ui::UiPushButtonPresenter::ptr(ae::Domain&)> create_button;
 };
 
+struct WindowCatalogGraphOptions {
+  bool mobile_pager = false;
+  bool mobile_close_in_prefab = false;
+};
+
 WindowCatalog::ptr BuildWindowCatalogGraph(
-    ae::Domain& domain, WindowCatalogPresenterFactory const& factory);
+    ae::Domain& domain, WindowCatalogPresenterFactory const& factory,
+    WindowCatalogGraphOptions options = {});
+
+void AppendMobileCloseButtonToWindowPrefab(
+    ae::Domain& domain, WindowCatalog& catalog,
+    CatalogWindow::ptr const& window_prefab,
+    ui::UiDesktopWindowPresenter::ptr const& window_prefab_presenter,
+    WindowCatalogPresenterFactory const& factory, std::int32_t prefab_client_height);
 
 }  // namespace apptraverse
 

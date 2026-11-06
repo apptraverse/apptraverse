@@ -115,9 +115,14 @@ add_library(surfaces_demo_window_catalog_common STATIC
   common/window_catalog_model.cpp
   common/window_catalog_localization.cpp
   common/window_catalog_registration.cpp
+  common/window_catalog_core_registration.cpp
+  common/window_catalog_events_registration.cpp
   common/window_catalog_actions.cpp
+  common/window_catalog_close_button.cpp
   common/window_catalog_graph_builder.cpp
   common/window_catalog_prepare.cpp
+  common/window_catalog_mobile_sidecar.cpp
+  common/window_catalog_graph_mobile_prefab.cpp
 )
 target_include_directories(surfaces_demo_window_catalog_common PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/common
@@ -125,7 +130,7 @@ target_include_directories(surfaces_demo_window_catalog_common PUBLIC
 target_link_libraries(surfaces_demo_window_catalog_common PUBLIC apptraverse)
 target_compile_features(surfaces_demo_window_catalog_common PUBLIC cxx_std_20)
 if(MSVC)
-  target_compile_options(surfaces_demo_window_catalog_common PRIVATE /utf-8)
+  target_compile_options(surfaces_demo_window_catalog_common PRIVATE /utf-8 /bigobj)
 endif()
 
 add_library(surfaces_demo_window_catalog_headless STATIC
@@ -227,4 +232,8 @@ endif()
 
 if(IOS)
   add_subdirectory(ios)
+endif()
+
+if(NOT ANDROID AND NOT EMSCRIPTEN AND APPTRAVERSE_BUILD_EXAMPLES)
+  add_subdirectory(android/host_export)
 endif()

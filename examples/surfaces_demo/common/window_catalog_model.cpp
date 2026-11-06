@@ -1,4 +1,6 @@
 #include "window_catalog_model.h"
+
+#include "window_catalog_mobile_sidecar.h"
 #include <algorithm>
 #include <cassert>
 #include <unordered_set>
@@ -34,6 +36,9 @@ ae::ObjId const kWindowPrefabId{
     window_catalog_demo::ToObjId(window_catalog_demo::ObjId::WindowPrefab)};
 ae::ObjId const kWindowPrefabPresenterId{window_catalog_demo::ToObjId(
     window_catalog_demo::ObjId::WindowPrefabPresenter)};
+ae::ObjId const kWindowPrefabCloseButtonPresenterId{
+    window_catalog_demo::ToObjId(
+        window_catalog_demo::ObjId::WindowPrefabCloseButtonPresenter)};
 void RestoreUnloadedWindowPrefabLink(WindowCatalog& catalog) {
   ae::ObjId const prefab_id = catalog.window_prefab.id();
   catalog.window_prefab.Reset();
@@ -238,6 +243,99 @@ void WindowCatalog::Apply(SetWindowCatalogDesktopZOrderEvent const& event) {
   desktop_z_order = event.ordered;
   NoteMaterializedChange();
 }
+CatalogWindow::ptr WindowCatalog::ResolveMobileActiveWindow() {
+  if (!mobile_pager) {
+    return main_window;
+  }
+  WindowCatalogMobileSidecar* sidecar = FindMobileSidecar(*this);
+  if (sidecar == nullptr) {
+    return main_window;
+  }
+  return sidecar->ResolveActiveWindow();
+}
+void WindowCatalog::SetMobileActiveWindow(CatalogWindow::ptr window) {
+  if (!mobile_pager) {
+    return;
+  }
+  WindowCatalogMobileSidecar* sidecar = FindMobileSidecar(*this);
+  if (sidecar == nullptr) {
+    return;
+  }
+  sidecar->SetActiveWindow(std::move(window));
+  pending_mobile_active_window = sidecar->ResolveActiveWindow();
+  NoteMaterializedChange();
+}
+std::vector<CatalogWindow::ptr> WindowCatalog::BuildMobileRing() const {
+  std::vector<CatalogWindow::ptr> ring;
+  ring.push_back(main_window);
+  if (!list) {
+    return ring;
+  }
+  list.Load();
+  for (auto const& row : list->rows) {
+    row.Load();
+    WindowHolder const* holder = AsHolder(*row);
+    if (holder->window.is_valid() && holder->window.is_loaded()) {
+      ring.push_back(holder->window);
+    }
+  }
+  return ring;
+}
+CatalogWindow::ptr WindowCatalog::MobileRingPredecessor(
+    CatalogWindow const& window) const {
+  std::vector<CatalogWindow::ptr> const ring = BuildMobileRing();
+  if (ring.empty()) {
+    return main_window;
+  }
+  for (std::size_t i = 0; i < ring.size(); ++i) {
+    if (ring[i].is_valid() && ring[i].id() == window.obj_id) {
+      if (i == 0) {
+        return ring.back();
+      }
+      return ring[i - 1];
+    }
+  }
+  return main_window;
+}
+void WindowCatalog::SubmitMobileActiveFromUi(ae::ObjId window_obj_id) {
+  if (!mobile_pager) {
+    return;
+  }
+  ae::ObjId const main_id = main_window.id();
+  if (window_obj_id == main_id) {
+    SetMobileActiveWindow(main_window);
+    return;
+  }
+  WindowHolder* holder = FindHolderForWindow(window_obj_id);
+  if (holder == nullptr || !holder->window.is_loaded()) {
+    return;
+  }
+  SetMobileActiveWindow(holder->window);
+}
+void WindowCatalog::SubmitMobileSwipeFromUi(int delta) {
+  if (!mobile_pager || delta == 0) {
+    return;
+  }
+  std::vector<CatalogWindow::ptr> const ring = BuildMobileRing();
+  if (ring.size() <= 1) {
+    return;
+  }
+  CatalogWindow::ptr const current = ResolveMobileActiveWindow();
+  std::size_t index = 0;
+  for (std::size_t i = 0; i < ring.size(); ++i) {
+    if (ring[i].is_valid() && ring[i].id() == current.id()) {
+      index = i;
+      break;
+    }
+  }
+  std::size_t next_index = index;
+  if (delta > 0) {
+    next_index = (index + 1) % ring.size();
+  } else {
+    next_index = index == 0 ? ring.size() - 1 : index - 1;
+  }
+  SetMobileActiveWindow(ring[next_index]);
+}
 void WindowCatalog::SetDesktopZOrderFromObjIds(
     std::vector<std::uint32_t> ordered_ids) {
   ae::ObjId const main_id = main_window.id();
@@ -373,7 +471,11 @@ void WindowCatalog::OpenListRowFromUi(std::size_t row_index) {
 void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
   if (holder.window.is_loaded()) {
     pending_focus_window = holder.window;
-    NoteMaterializedChange();
+    if (mobile_pager) {
+      SetMobileActiveWindow(holder.window);
+    } else {
+      NoteMaterializedChange();
+    }
     return;
   }
   ae::Domain& domain = *list->domain;
@@ -387,7 +489,11 @@ void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
   MaterializeHolderListText(holder, language);
   BindLiveWindowNotifiers(*this, *holder.window);
   pending_focus_window = holder.window;
-  NoteMaterializedChange();
+  if (mobile_pager) {
+    SetMobileActiveWindow(holder.window);
+  } else {
+    NoteMaterializedChange();
+  }
 }
 void WindowCatalog::CloseHolderWindow(WindowHolder& holder) {
   auto close_event = SetWindowCatalogOpenEvent::ptr::Create(
@@ -420,6 +526,9 @@ void WindowCatalog::AddWindow() {
   apptraverse::CloneOptions clone_options{};
   clone_options.stable_origin = kWindowPrefabId;
   clone_options.stable_prefab_ids = {kWindowPrefabId, kWindowPrefabPresenterId};
+  if (mobile_pager) {
+    clone_options.stable_prefab_ids.insert(kWindowPrefabCloseButtonPresenterId);
+  }
   clone_options.boundary_ids = {texts.window_title_prefix.id(), locale.id()};
   apptraverse::CloneCanonicalResult const cloned =
       apptraverse::CloneCanonicalRoot(domain, *prefab_root, domain,
@@ -444,6 +553,9 @@ void WindowCatalog::AddWindow() {
   add->holder = holder;
   Commit(std::move(add));
   SelectHolder(holder);
+  if (mobile_pager) {
+    SetMobileActiveWindow(holder->window);
+  }
 }
 void WindowCatalog::OpenRow(std::size_t row_index) {
   list.Load();
@@ -482,7 +594,14 @@ void WindowCatalog::UserCloseWindow(ae::ObjId window_obj_id) {
   if (!holder->window.is_loaded()) {
     return;
   }
+  CatalogWindow::ptr predecessor;
+  if (mobile_pager) {
+    predecessor = MobileRingPredecessor(*holder->window);
+  }
   CloseHolderWindow(*holder);
+  if (mobile_pager && predecessor.is_valid()) {
+    SetMobileActiveWindow(predecessor);
+  }
 }
 void WindowCatalog::ClearPendingFocusWindow() {
   pending_focus_window = {};

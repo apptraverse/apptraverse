@@ -1,14 +1,10 @@
-# Native library of the Android surfaces demo. Gradle externalNativeBuild is
-# the only entry point; the desktop CMake tree never adds this directory.
-
 cmake_minimum_required(VERSION 3.25)
 
-project(apptraverse_surfaces_native LANGUAGES C CXX)
+project(apptraverse_window_catalog_native LANGUAGES C CXX)
 
-# ANDROID comes from the NDK toolchain file, loaded with the first project().
 if(NOT ANDROID)
   message(FATAL_ERROR
-    "This project is built by Gradle for Android only, ANDROID is not set")
+    "WindowCatalog Android native build requires ANDROID")
 endif()
 
 set(CMAKE_CXX_STANDARD 20)
@@ -19,8 +15,6 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 get_filename_component(APPTRAVERSE_ROOT
   "${CMAKE_CURRENT_LIST_DIR}/../../../.." REALPATH)
 
-# One CPM download cache shared with the other Android examples on this host.
-# Short path on Windows so dependency clones stay below MAX_PATH.
 if(NOT DEFINED CPM_SOURCE_CACHE AND NOT DEFINED ENV{CPM_SOURCE_CACHE})
   if(CMAKE_HOST_WIN32)
     set(CPM_SOURCE_CACHE "C:/cpm-cache" CACHE PATH "CPM.cmake download cache")
@@ -30,40 +24,60 @@ if(NOT DEFINED CPM_SOURCE_CACHE AND NOT DEFINED ENV{CPM_SOURCE_CACHE})
   endif()
 endif()
 
-# The surfaces demo needs the object graph only, not the Aether network client.
 set(APPTRAVERSE_BUILD_AETHER_DEMOS OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 add_subdirectory(${APPTRAVERSE_ROOT} ${CMAKE_CURRENT_BINARY_DIR}/apptraverse)
 
-# Gradle/JNI shared object (libapptraverse_surfaces.so). Target name must differ
-# from the static apptraverse_surfaces library in the root CMake tree.
-add_library(apptraverse_surfaces_jni SHARED
-  android_surface_presenter.cpp
+set(_wc_supply_header
+  "${CMAKE_CURRENT_LIST_DIR}/../generated/embedded_distilled_window_catalog_android_supply.h")
+if(NOT EXISTS "${_wc_supply_header}")
+  message(FATAL_ERROR
+    "Missing ${_wc_supply_header}. Run apptraverse_export_window_catalog_distilled_graph_android on the build host.")
+endif()
+
+add_library(window_catalog_android STATIC
+  ../window_catalog_android_lifecycle.cpp
+  ../window_catalog_android_embedded_profile.cpp
+  ../window_catalog_android_persistence.cpp
+  ../window_catalog_graph_android.cpp
+)
+target_include_directories(window_catalog_android PUBLIC
+  ${APPTRAVERSE_ROOT}/examples/surfaces_demo/android
+  ${APPTRAVERSE_ROOT}/examples/surfaces_demo/common
+  ${APPTRAVERSE_ROOT}/examples/surfaces_demo/android/native
+)
+target_include_directories(window_catalog_android PRIVATE
+  ${CMAKE_CURRENT_LIST_DIR}/../generated)
+target_link_libraries(window_catalog_android PUBLIC
+  surfaces_demo_window_catalog_common
+  apptraverse_ui_android
+)
+target_compile_definitions(window_catalog_android PUBLIC
+  APPTRAVERSE_ENABLE_DISTILLATION)
+
+add_library(apptraverse_window_catalog_jni SHARED
   jni_bridge.cpp
-  native_runtime.cpp
-  surfaces_ui_bridge.cpp
-  ${APPTRAVERSE_ROOT}/examples/surfaces_demo/common/surfaces_lifecycle.cpp
-  ${APPTRAVERSE_ROOT}/examples/surfaces_demo/common/surfaces_shutdown_trace.cpp
+  window_catalog_native_runtime.cpp
+  window_catalog_ui_bridge.cpp
 )
 
-# Dev build: create the initial graph when the state directory is empty.
-target_compile_definitions(apptraverse_surfaces_jni PRIVATE
-  APPTRAVERSE_ENABLE_DISTILLATION
-)
-
-target_include_directories(apptraverse_surfaces_jni PRIVATE
+target_include_directories(apptraverse_window_catalog_jni PRIVATE
   ${CMAKE_CURRENT_LIST_DIR}
+  ${APPTRAVERSE_ROOT}/examples/surfaces_demo/android
+  ${APPTRAVERSE_ROOT}/examples/surfaces_demo/common
+  ${APPTRAVERSE_ROOT}/src/platform/android
+  ${CMAKE_CURRENT_LIST_DIR}/../generated
 )
 
-target_link_libraries(apptraverse_surfaces_jni PRIVATE
-  surfaces_demo_distill
-  surfaces_demo_mobile
+target_link_libraries(apptraverse_window_catalog_jni PRIVATE
+  window_catalog_android
+  surfaces_demo_window_catalog_common
+  apptraverse_ui_android
   log
 )
 
-# Only JNI_OnLoad is exported, the natives are bound with RegisterNatives.
-set_target_properties(apptraverse_surfaces_jni PROPERTIES
-  OUTPUT_NAME "apptraverse_surfaces"
+set_target_properties(apptraverse_window_catalog_jni PROPERTIES
+  OUTPUT_NAME "apptraverse_window_catalog"
   POSITION_INDEPENDENT_CODE ON
   CXX_VISIBILITY_PRESET hidden
   VISIBILITY_INLINES_HIDDEN ON

@@ -185,7 +185,9 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
  public:
 
   explicit WindowCatalog(ae::ObjProp prop)
-      : NodeFor{prop}, next_window_number{1} {}
+      : NodeFor{prop},
+        next_window_number{1},
+        mobile_pager{false} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(next_window_number), AE_MMBR(selected),
 
@@ -203,7 +205,9 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
         texts.label_add, texts.label_open, texts.label_delete,
 
-        texts.label_language, texts.window_title_prefix, buttons.add_button,
+        texts.label_language, texts.window_title_prefix,
+
+        buttons.add_button,
 
         buttons.open_button, buttons.delete_button, buttons.language_button,
 
@@ -223,7 +227,9 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
         texts.label_add, texts.label_open, texts.label_delete,
 
-        texts.label_language, texts.window_title_prefix, buttons.add_button,
+        texts.label_language, texts.window_title_prefix,
+
+        buttons.add_button,
 
         buttons.open_button, buttons.delete_button, buttons.language_button,
 
@@ -255,6 +261,10 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
   std::vector<CatalogWindow::ptr> desktop_z_order;
 
+  bool mobile_pager;
+
+  [[nodiscard]] CatalogWindow::ptr ResolveMobileActiveWindow();
+
   [[nodiscard]] bool CanApply(AddWindowCatalogEntryEvent const& event) const;
 
   void Apply(AddWindowCatalogEntryEvent const& event);
@@ -268,6 +278,18 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   void Apply(SetWindowCatalogDesktopZOrderEvent const& event);
 
   void SetDesktopZOrderFromObjIds(std::vector<std::uint32_t> ordered_ids);
+
+  void SetMobileActiveWindow(CatalogWindow::ptr window);
+
+  [[nodiscard]] std::vector<CatalogWindow::ptr> BuildMobileRing() const;
+
+  [[nodiscard]] CatalogWindow::ptr MobileRingPredecessor(
+
+      CatalogWindow const& window) const;
+
+  void SubmitMobileActiveFromUi(ae::ObjId window_obj_id);
+
+  void SubmitMobileSwipeFromUi(int delta);
 
   void AddWindow();
 
@@ -306,6 +328,8 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   // Model-thread one-shot focus request (runtime-only); copied to UI on publish.
 
   CatalogWindow::ptr pending_focus_window;
+
+  CatalogWindow::ptr pending_mobile_active_window;
 
 };
 

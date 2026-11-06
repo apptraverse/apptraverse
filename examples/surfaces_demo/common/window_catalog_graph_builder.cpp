@@ -1,6 +1,7 @@
 #include "window_catalog_graph_builder.h"
 
 #include "window_catalog_actions.h"
+#include "window_catalog_mobile_sidecar.h"
 #include "window_catalog_ids.h"
 #include "window_catalog_localization.h"
 #include "window_catalog_model.h"
@@ -47,7 +48,8 @@ ui::UiPushButtonPresenter::ptr MakeButtonPresenter(
 }  // namespace
 
 WindowCatalog::ptr BuildWindowCatalogGraph(
-    ae::Domain& domain, WindowCatalogPresenterFactory const& factory) {
+    ae::Domain& domain, WindowCatalogPresenterFactory const& factory,
+    WindowCatalogGraphOptions options) {
   using example::surfaces::CatalogAddButton;
   using example::surfaces::CatalogDeleteButton;
   using example::surfaces::CatalogLanguageButton;
@@ -155,6 +157,12 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
                              catalog->locale);
   InitializeRuntimeNode(*window_prefab_body, *catalog);
 
+  if (options.mobile_close_in_prefab) {
+    AppendMobileCloseButtonToWindowPrefab(domain, *catalog, window_prefab,
+                                          window_prefab_presenter, factory,
+                                          kPrefabClientHeight);
+  }
+
   ae::DomainGraph distill_save{&domain};
   ae::Ptr<ui::UiDesktopWindowPresenter> window_prefab_presenter_body =
       window_prefab_presenter.Load();
@@ -181,6 +189,11 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   InitializeRuntimeNode(*catalog);
 
   catalog->desktop_z_order.push_back(catalog->main_window);
+
+  catalog->mobile_pager = options.mobile_pager;
+  if (catalog->mobile_pager) {
+    (void)CreateWindowCatalogMobileSidecar(domain, *catalog);
+  }
 
   return catalog;
 }

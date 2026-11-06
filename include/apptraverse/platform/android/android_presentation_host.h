@@ -29,7 +29,6 @@ struct AndroidPresentationHost final : AndroidUiNativeViews {
   void SyncListContainer(AndroidListContainerPresenter& presenter) override;
   void UnloadListContainer(AndroidListContainerPresenter& presenter) override;
 
- private:
   static jobject ClientMount(AndroidDesktopWindowPresenter const& desktop);
 };
 

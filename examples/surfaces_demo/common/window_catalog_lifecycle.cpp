@@ -81,6 +81,14 @@ int WindowCatalogModelSession::Run(
                                ? catalog.pending_focus_window.id()
                                : ae::ObjId{};
     catalog.pending_focus_window = {};
+    if (catalog.mobile_pager) {
+      if (catalog.pending_mobile_active_window.is_valid()) {
+        pending_mobile_active_for_ui = catalog.pending_mobile_active_window.id();
+      } else {
+        pending_mobile_active_for_ui = catalog.ResolveMobileActiveWindow().id();
+      }
+      catalog.pending_mobile_active_window = {};
+    }
   };
 
 #if defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)

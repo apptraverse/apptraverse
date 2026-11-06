@@ -1,0 +1,28 @@
+add_executable(apptraverse_export_window_catalog_distilled_graph_android
+  window_catalog_export_android.cpp
+  ../window_catalog_graph_android.cpp
+)
+target_link_libraries(apptraverse_export_window_catalog_distilled_graph_android PRIVATE
+  surfaces_demo_window_catalog_common
+  apptraverse
+  apptraverse_ui_android_presenters
+)
+target_include_directories(apptraverse_export_window_catalog_distilled_graph_android PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../common
+)
+if(MSVC)
+  target_compile_options(apptraverse_export_window_catalog_distilled_graph_android PRIVATE /utf-8)
+endif()
+
+if(APPTRAVERSE_ANDROID_WINDOW_CATALOG_SUPPLY_HEADER)
+  add_custom_command(
+    OUTPUT "${APPTRAVERSE_ANDROID_WINDOW_CATALOG_SUPPLY_HEADER}"
+    COMMAND apptraverse_export_window_catalog_distilled_graph_android
+            "${APPTRAVERSE_ANDROID_WINDOW_CATALOG_SUPPLY_HEADER}"
+    DEPENDS apptraverse_export_window_catalog_distilled_graph_android
+    VERBATIM
+    COMMENT "Embed distilled Android WindowCatalog supply")
+  add_custom_target(apptraverse_android_window_catalog_supply
+    DEPENDS "${APPTRAVERSE_ANDROID_WINDOW_CATALOG_SUPPLY_HEADER}")
+endif()

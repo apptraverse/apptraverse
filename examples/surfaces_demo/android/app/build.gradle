@@ -10,17 +10,18 @@ def abiFilterList = ((project.findProperty("apptraverse.abiFilters") ?: "x86_64"
     .findAll { !it.isEmpty() }
 
 android {
-  namespace "com.apptraverse.surfaces"
+  namespace "com.apptraverse.windowcatalog"
   compileSdk compileSdkVersion
   buildToolsVersion = "36.0.0"
   ndkVersion "29.0.14206865"
 
   defaultConfig {
-    applicationId "com.apptraverse.surfaces"
+    applicationId "com.apptraverse.windowcatalog"
     minSdk 24
     targetSdk compileSdkVersion
     versionCode 1
     versionName "0.1.0"
+    testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
     ndk {
       abiFilters.addAll(abiFilterList)
@@ -30,7 +31,7 @@ android {
       cmake {
         arguments "-DANDROID_STL=c++_static",
                   "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
-        targets "apptraverse_surfaces_jni"
+        targets "apptraverse_window_catalog_jni"
       }
     }
   }
@@ -39,6 +40,12 @@ android {
     cmake {
       path file("../native/CMakeLists.txt")
       version cmakeVersion
+    }
+  }
+
+  sourceSets {
+    main {
+      java.srcDirs += ["../../../../src/platform/android/java"]
     }
   }
 
@@ -62,4 +69,11 @@ android {
   lint {
     abortOnError false
   }
+}
+
+dependencies {
+  androidTestImplementation "androidx.test:runner:1.6.1"
+  androidTestImplementation "androidx.test:rules:1.6.1"
+  androidTestImplementation "androidx.test.ext:junit:1.2.1"
+  androidTestImplementation "androidx.test.uiautomator:uiautomator:2.3.0"
 }

@@ -18,6 +18,10 @@ inline void LogError(std::string const& line) {
   __android_log_write(ANDROID_LOG_ERROR, kLogTag, line.c_str());
 }
 
+inline void LogInfo(char const* message) {
+  __android_log_write(ANDROID_LOG_INFO, kLogTag, message);
+}
+
 }  // namespace apptraverse::android
 
 #endif  // APPTRAVERSE_SURFACES_ANDROID_LOG_H_

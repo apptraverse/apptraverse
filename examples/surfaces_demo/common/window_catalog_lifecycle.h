@@ -13,6 +13,7 @@ struct WindowCatalogModelSession {
   std::filesystem::path state_dir;
   ApplicationModelRuntime runtime;
   ae::ObjId pending_focus_for_ui{};
+  ae::ObjId pending_mobile_active_for_ui{};
 
   int Run(ApplicationPublishedCallback on_published);
 };
