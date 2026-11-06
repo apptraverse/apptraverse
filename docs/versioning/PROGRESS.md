@@ -5,7 +5,39 @@
 1. Google Doc: [AppTraverse — версионирование состояния и жизненный цикл поставок](https://docs.google.com/document/d/196STRvU1QMbMu0ArGRLahPpgnTb6HQoldUV-7tOIcfo/edit) — **прямая сверка не выполнена** (403 при fetch).
 2. Архитектурный контракт и roadmap: [PLAN.md](./PLAN.md) — **AppTraverse Libraries Architecture RU v0.3 (25.10.2026)** + Object Core **`01_Object_Core_Versioning_PLAN.md` (25.10.2026)** ([share](https://chatgpt.com/library/share/libfile_c97b08ed7af88191a916944ac06566f7?account_id=personal)).
 
-**Branch (рабочая):** **feature/ios-minimal-app**, base `e94899255ab779df8d9d625b13b958d919eb64d5` (`origin/integration/unified-application`). Историческая координация: [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
+**Branch (рабочая):** **feature/macos-window-catalog** @ **`865e7a84548107f5e95da8bf23124f23a50c1d2c`**, base `d590ee7` (`integration/unified-application`). Историческая координация: [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
+
+<a id="p4-wc-macos-library-host--2026-11-06"></a>
+
+## P4 / WindowCatalog — macOS library host + embedded `.app` (2026-11-06) — PASS (build + headless); native E2E manual
+
+**Worktree:** `/Users/nick/Projects/apptraverse-macos-window-catalog`. **Старый experiment binary** (`experiment/window-catalog-apple-swiftui-982b473` @ `8d59ab1`, `CatalogContentView` / `AppleCatalogModel`) **не** является этой поставкой.
+
+### Причины пользовательских дефектов (experiment → integration)
+
+| Симптом | Причина | Fix (integration) |
+| --- | --- | --- |
+| Координаты, `none`, лишняя Save | Локальная Swift-проекция и debug-поля, не UI mirror | Общие `MacList`/`MacButton` + layout из presenter; подписи/enabled из mirror |
+| Прыжок при drag | Mirror frame применялся во время native move и по запоздавшей публикации | Client rect (`frameRect`/`contentRect`); `userAdjustingFrame` + `pendingNativeReport` до совпадения mirror с last native report |
+| Z-order после restart | Не читался native stack; `makeKeyAndOrderFront` на каждом load ломал порядок | Capture `NSApp.windows` → `SetDesktopZOrderFromObjIds` на close main; `after_initial` restore; load — только `orderFront` |
+
+### Общие границы (library)
+
+- `ATMacApplicationBridge.h` / `macos_application_bridge.h`: `take_incremental_sidecar`, `after_initial_ui_apply`, `after_incremental_ui_apply`.
+- `MacApplicationHost.swift`: geometry sync, Z-order/focus delegate hooks.
+- Example: `window_catalog_macos_composition.mm` — только catalog mapping (tokens ↔ ObjId), без второй модели.
+
+### Build / tests
+
+- **Build PASS:** `build/macos-x64-mp20-debug`, MacPorts `clang++-mp-20`, Xcode `swiftc`, SDK 14.2.
+- **PASS:** `apptraverse_window_catalog_headless_test`.
+- **NOT RUN:** `apptraverse_window_catalog_win32_acceptance_test`, `apptraverse_window_catalog_embedded_overlay_test` (Win-only targets), full CTest, macOS MinimalApp headless (не запускался в этом проходе).
+
+### Manual launch
+
+```bash
+open -n /Users/nick/Projects/apptraverse-macos-window-catalog/build/macos-x64-mp20-debug/examples/surfaces_demo/macos/macos_window_catalog_demo.app --args --state-dir /tmp/window-catalog-macos-integration-manual
+```
 
 <a id="p4-wc-win-debug-embedded--2026-11-05"></a>
 
