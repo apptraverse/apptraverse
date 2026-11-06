@@ -310,36 +310,40 @@ WindowHolder* FindListHolderByIdentity(WindowCatalog& catalog,
 }  // namespace
 
 void RefreshHolderListRowDisplayText(WindowHolder& holder,
-                                     WindowCatalog& catalog) {
+                                     WindowCatalog& catalog,
+                                     int language_index) {
   catalog.persisted.texts.window_title_prefix.Load();
-  catalog.persisted.texts.label_list_unloaded.Load();
+  if (!catalog.IsHolderWindowOpen(holder) &&
+      catalog.persisted.texts.label_list_unloaded.is_valid()) {
+    catalog.persisted.texts.label_list_unloaded.Load();
+  }
   holder.primary_text.Load();
-  int const restore_lang =
+  int const restore_prefix_lang =
       catalog.persisted.locale ? catalog.persisted.locale->language_index() : 0;
-  for (int lang = 0; lang < ui::UiLanguageCount(); ++lang) {
-    // Resolve() only reads the materialized slot; materialize each language so
-    // per-slot utf8 rows match distillation (prefix/suffix are not all loaded).
-    catalog.persisted.texts.window_title_prefix->MaterializeLanguage(lang);
-    if (!catalog.IsHolderWindowOpen(holder)) {
-      catalog.persisted.texts.label_list_unloaded->MaterializeLanguage(lang);
-    }
-    std::string line = FormatCatalogWindowTitle(
-        *catalog.persisted.texts.window_title_prefix, lang, holder.window_number);
-    if (!catalog.IsHolderWindowOpen(holder)) {
-      line += " (" +
-              catalog.persisted.texts.label_list_unloaded->Resolve(lang) + ")";
-    }
-    auto& slot = holder.primary_text->strings[static_cast<std::size_t>(lang)];
-    if (!slot.is_loaded()) {
-      slot.Load();
-    }
-    slot->utf8 = std::move(line);
-    PersistUiStringUtf8(slot);
+  catalog.persisted.texts.window_title_prefix->MaterializeLanguage(language_index);
+  if (!catalog.IsHolderWindowOpen(holder) &&
+      catalog.persisted.texts.label_list_unloaded.is_valid()) {
+    catalog.persisted.texts.label_list_unloaded->MaterializeLanguage(language_index);
   }
-  catalog.persisted.texts.window_title_prefix->MaterializeLanguage(restore_lang);
+  std::string line = FormatCatalogWindowTitle(
+      *catalog.persisted.texts.window_title_prefix, language_index,
+      holder.window_number);
+  if (!catalog.IsHolderWindowOpen(holder) &&
+      catalog.persisted.texts.label_list_unloaded.is_valid()) {
+    line +=
+        " (" + catalog.persisted.texts.label_list_unloaded->Resolve(language_index) +
+        ")";
+  }
+  catalog.persisted.texts.window_title_prefix->MaterializeLanguage(restore_prefix_lang);
   if (catalog.persisted.texts.label_list_unloaded.is_valid()) {
-    catalog.persisted.texts.label_list_unloaded->MaterializeLanguage(restore_lang);
+    catalog.persisted.texts.label_list_unloaded->MaterializeLanguage(restore_prefix_lang);
   }
+  auto& slot =
+      holder.primary_text->strings[static_cast<std::size_t>(language_index)];
+  if (!slot.is_loaded()) {
+    slot.Load();
+  }
+  slot->utf8 = std::move(line);
 }
 
 void WindowCatalog::Apply(SetWindowCatalogDesktopZOrderEvent const& event) {
@@ -617,7 +621,6 @@ void WindowCatalog::Apply(SetWindowCatalogOpenEvent const& event) {
   }
   int const language =
       persisted.locale ? persisted.locale->language_index() : 0;
-  RefreshHolderListRowDisplayText(*holder, *this);
   MaterializeHolderListText(*holder, language);
   NoteMaterializedChange();
 }
@@ -674,7 +677,7 @@ void WindowCatalog::MaterializeHolderListText(WindowHolder& holder,
   if (!holder.primary_text.is_loaded()) {
     holder.primary_text.Load();
   }
-  RefreshHolderListRowDisplayText(holder, *this);
+  RefreshHolderListRowDisplayText(holder, *this, language_index);
   holder.primary_text->MaterializeLanguage(language_index);
   if (holder.window.is_loaded()) {
     Presented(*holder.window).presenter->title->MaterializeLanguage(
