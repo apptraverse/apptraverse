@@ -1037,6 +1037,8 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
   CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
     return ControlEnabled(main, kOpenControlId);
   }));
+  // AddWindow now opens each new window, so focus applies already happened.
+  int const focus_before_reopen = ReadFocusApplyCount(focus_count_file);
   ClickControl(main, kOpenControlId);
   HWND child1_reopened = nullptr;
   CHECK(WaitUntil(std::chrono::seconds{15}, [&] {
@@ -1050,14 +1052,14 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
   // Window 1 is already open, so HWND identity holds before the second Open;
   // the pending-focus apply count confirms that Open itself completed.
   CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
-    return ReadFocusApplyCount(focus_count_file) >= 1;
+    return ReadFocusApplyCount(focus_count_file) >= focus_before_reopen + 1;
   }));
-  CHECK(ReadFocusApplyCount(focus_count_file) == 1);
+  CHECK(ReadFocusApplyCount(focus_count_file) == focus_before_reopen + 1);
   ClickControl(main, kOpenControlId);
   CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
-    return ReadFocusApplyCount(focus_count_file) >= 2;
+    return ReadFocusApplyCount(focus_count_file) >= focus_before_reopen + 2;
   }));
-  CHECK(ReadFocusApplyCount(focus_count_file) == 2);
+  CHECK(ReadFocusApplyCount(focus_count_file) == focus_before_reopen + 2);
   ExpectSameTopLevelWithTitle(pid, child1_reopened, L"Window 1",
                               "after_second_open_window1");
   CHECK(FramesNearEqual(ReadCatalogFrame(child1_reopened), saved_frame));
@@ -1197,6 +1199,7 @@ void RunLanguageAndFocusAcceptance() {
     return !IsWindow(child2_before);
   }));
   SelectListIndex(main, 1);
+  int const focus_before_reopen = ReadFocusApplyCount(focus_count_file);
   ClickControl(main, kOpenControlId);
   HWND child2_reopened = nullptr;
   CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
@@ -1205,18 +1208,18 @@ void RunLanguageAndFocusAcceptance() {
   }));
   CHECK(child2_reopened != child2_before);
 
-  // First Open already applied pending-focus (count==1). Foreground==child2 can
+  // First Open already applied pending-focus (count==baseline+1). Foreground==child2 can
   // be true before the second Open, so wait on test-only apply counter instead.
   CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
-    return ReadFocusApplyCount(focus_count_file) >= 1;
+    return ReadFocusApplyCount(focus_count_file) >= focus_before_reopen + 1;
   }));
-  CHECK(ReadFocusApplyCount(focus_count_file) == 1);
+  CHECK(ReadFocusApplyCount(focus_count_file) == focus_before_reopen + 1);
 
   ClickControl(main, kOpenControlId);
   CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
-    return ReadFocusApplyCount(focus_count_file) >= 2;
+    return ReadFocusApplyCount(focus_count_file) >= focus_before_reopen + 2;
   }));
-  CHECK(ReadFocusApplyCount(focus_count_file) == 2);
+  CHECK(ReadFocusApplyCount(focus_count_file) == focus_before_reopen + 2);
 
   ShowWindow(child2_reopened, SW_MINIMIZE);
   {
