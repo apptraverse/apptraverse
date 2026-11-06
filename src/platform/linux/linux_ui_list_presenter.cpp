@@ -1,5 +1,7 @@
 #include "apptraverse/platform/linux/linux_ui_list_presenter.h"
 
+#include <algorithm>
+
 #include "apptraverse/platform/linux/linux_fatal.h"
 #include "apptraverse/platform/linux/linux_ui_window_presenter.h"
 #include "apptraverse/ui/ui_list_container.h"
@@ -57,37 +59,82 @@ void LinuxListContainerPresenter::OnLoad() {
   SyncFromMirror();
 }
 
+LinuxListContainerPresenter::NativeRow
+LinuxListContainerPresenter::CreateNativeRow(ae::ObjId row_id,
+                                             std::string const& label) {
+  NativeRow native{};
+  native.row_id = row_id;
+  native.row = gtk_list_box_row_new();
+  native.label = gtk_label_new(label.c_str());
+  native.text = label;
+  gtk_widget_set_halign(native.label, GTK_ALIGN_START);
+  gtk_widget_set_tooltip_text(native.row, label.c_str());
+  gtk_container_add(GTK_CONTAINER(native.row), native.label);
+  gtk_widget_show_all(native.row);
+  return native;
+}
+
 void LinuxListContainerPresenter::SyncFromMirror() {
   applying_mirror_sync_ = true;
   int const language_index = window_presenter->locale->language_index();
-  std::vector<std::string> const labels =
-      ResolvePresentedListRowPrimaryTexts(*container, language_index);
-
   GtkListBox* const box = GTK_LIST_BOX(list_box_);
-  while (GtkListBoxRow* row = gtk_list_box_get_row_at_index(box, 0)) {
-    gtk_widget_destroy(GTK_WIDGET(row));
+
+  std::vector<NativeRow> previous = std::move(native_rows_);
+  native_rows_.clear();
+  native_rows_.reserve(container->rows.size());
+  for (UiListRow::ptr const& row : container->rows) {
+    ae::ObjId const row_id = row.id();
+    std::string const label =
+        ResolvePresentedListRowPrimaryText(row, language_index);
+    auto existing = std::find_if(
+        previous.begin(), previous.end(),
+        [&](NativeRow const& native) { return native.row_id == row_id; });
+    if (existing == previous.end()) {
+      native_rows_.push_back(CreateNativeRow(row_id, label));
+      continue;
+    }
+    NativeRow native = *existing;
+    previous.erase(existing);
+    if (native.text != label) {
+      gtk_label_set_text(GTK_LABEL(native.label), label.c_str());
+      gtk_widget_set_tooltip_text(native.row, label.c_str());
+      native.text = label;
+    }
+    native_rows_.push_back(native);
+  }
+  for (NativeRow const& removed : previous) {
+    gtk_widget_destroy(removed.row);
   }
 
-  for (std::string const& label : labels) {
-    GtkWidget* row = gtk_list_box_row_new();
-    GtkWidget* text = gtk_label_new(label.c_str());
-    gtk_widget_set_halign(text, GTK_ALIGN_START);
-    gtk_widget_set_tooltip_text(row, label.c_str());
-    gtk_container_add(GTK_CONTAINER(row), text);
-    gtk_list_box_insert(box, row, -1);
-    gtk_widget_show_all(row);
+  for (std::size_t i = 0; i < native_rows_.size(); ++i) {
+    GtkWidget* const row = native_rows_[i].row;
+    int const index = static_cast<int>(i);
+    if (gtk_widget_get_parent(row) == nullptr) {
+      gtk_list_box_insert(box, row, index);
+      continue;
+    }
+    if (gtk_list_box_row_get_index(GTK_LIST_BOX_ROW(row)) == index) {
+      continue;
+    }
+    g_object_ref(row);
+    gtk_container_remove(GTK_CONTAINER(box), row);
+    gtk_list_box_insert(box, row, index);
+    g_object_unref(row);
   }
 
   if (notify_list_selection_change) {
     std::int32_t const desired = container->selection_index;
-    if (desired >= 0 &&
-        desired < static_cast<std::int32_t>(labels.size())) {
-      GtkListBoxRow* row = gtk_list_box_get_row_at_index(box, desired);
-      if (row != nullptr) {
-        gtk_list_box_select_row(box, row);
+    GtkListBoxRow* const current = gtk_list_box_get_selected_row(box);
+    GtkListBoxRow* const target =
+        desired >= 0 && desired < static_cast<std::int32_t>(native_rows_.size())
+            ? GTK_LIST_BOX_ROW(native_rows_[static_cast<std::size_t>(desired)].row)
+            : nullptr;
+    if (target != current) {
+      if (target != nullptr) {
+        gtk_list_box_select_row(box, target);
+      } else {
+        gtk_list_box_unselect_all(box);
       }
-    } else {
-      gtk_list_box_unselect_all(box);
     }
   }
 
@@ -108,6 +155,7 @@ void LinuxListContainerPresenter::OnUnload() {
     gtk_widget_destroy(list_box_);
   }
   list_box_ = nullptr;
+  native_rows_.clear();
 }
 
 }  // namespace apptraverse::ui::linux

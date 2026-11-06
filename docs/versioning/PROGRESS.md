@@ -7,6 +7,55 @@
 
 **Branch (рабочая):** **feature/linux-window-catalog**, base `d590ee7f932d1f6df82c196f36c99e3b5e0b9102` (`origin/integration/unified-application`). Историческая координация: [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+<a id="p4-wc-linux-child-close-list-identity--2026-11-05"></a>
+
+## P4 / WindowCatalog — Linux child close SIGSEGV, list identity, frame request (2026-11-05) — PASS (Linux slice, verified)
+
+**Ветка:** **`feature/linux-window-catalog`**, base remote **`59e54bb`** (production-код **`847f898`**).
+
+### Подтверждено (core dump / GDB / проба)
+
+- **SIGSEGV exit 139 (ручной MinSizeRel):** core `wsl-crash-…-28334-…linux_window_catalog_demo-11.dmp`. Модельный поток: `LinuxDesktopWindowPresenter` → `ModelObjectProxy::Invoke<UiDesktopWindow,int×4>` → `UiDesktopWindow::SubmitFrameFromNative+49` (`cmp …,0x108(%rdi)`, **`rdi=0`**). UI-поток в это время — штатный `ApplyStructuralPublication`. Это обращение к цели, которой нет в домене (`domain.Find(id) == nullptr`), а не UAF: окно уже выгружено `UserCloseWindow` / `CloseHolderWindow` (`UnloadPresentedWindow`). В MinSizeRel `assert` отсутствует, поэтому происходит null-разыменование.
+- **Debug-воспроизведение под GDB** (main + 3 child, move + close child): срабатывает `assert("model proxy target must exist")`. Порядок: `OnDeleteEvent` → `UserCloseWindow` в очереди модели → далее `configure-event` того же presenter-а → `SubmitFrameFromNative` для уже выгруженного окна.
+- **«Закрытие child завершает приложение»** — это то же падение. Breakpoint на `RequestStop` при закрытии child **не срабатывает**. Время работы (~50 мин) причиной не является: достаточно одного move + close.
+- **WSLg X11 (Weston xwm), проба `gtk_window_move`:** client оказывается в `(x+6, y+27)`, а `_NET_FRAME_EXTENTS` = l38 t59, то есть смещение не описано extents. До размещения WM приходят `configure` с позициями 0,0 / −32768. Прежний presenter отправлял их в модель как кадры.
+- **Случайная позиция main на cold:** у main не было `USPosition`/`PPosition` (`XGetWMNormalHints`), у child был `PPosition`. WM размещал окно, запрошенное в (0,0), по своему усмотрению. С `GDK_HINT_USER_POS` main 3 из 3 раз оказывается в (6,27), raw-кадры save и cold совпадают.
+- **Мерцание selection:** `UpdatePresentersAfterStructuralPublication` вызывает `OnModelChanged` на каждую publication, включая отчёты о геометрии. `LinuxListContainerPresenter::SyncFromMirror` пересоздавал все `GtkListBoxRow` и заново выставлял selection. Тест identity на прежнем presenter-е падает: `fatal: geometry publication recreated GTK list rows`.
+- **Падения Weston во время прогонов:** дампы `_usr_bin_weston-6.dmp` (17:24:19, 17:29:57) содержат `window-manager.c:1387: weston_wm_handle_map_request: Assertion '!window->shsurf' failed`, WSLg 1.0.79. Первое падение произошло во время цикла чистой GTK-пробы, без процессов приложения. Вместе с Weston завершился ручной процесс пользователя (pid 28430). Профиль `linux_window_catalog_geom_z_manual_wslg` не изменялся.
+
+### Исправление
+
+- **`LinuxDesktopWindowPresenter`:**
+  - `OnDeleteEvent` отправляет последний кадр, затем выставляет `user_close_requested_` и отключает `configure-event`/`size-allocate` **до** команды закрытия. После команды, которая может удалить окно из модели, presenter больше не шлёт отчёты.
+  - Кадры отправляются только после размещения WM: окно mapped, client-прямоугольник на мониторе. Координаты переводятся в систему `gtk_window_move` через смещение первого размещения относительно последнего запроса.
+  - `OnModelChanged` обновляет только title. Кадр применяется только по request-sidecar (`ApplyRequestedFrameFromMirror`), поэтому запоздавший отражённый report не становится командой.
+  - `GDK_HINT_USER_POS` при `OnLoad`.
+- **`LinuxListContainerPresenter`:** native rows хранятся по `ObjId`. Text, порядок и selection обновляются адресно, selection — только если целевая строка отличается от текущей. Программный sync не порождает selection-команду.
+- **Automation/smoke:**
+  - `l3_child_close_save`/`_cold`: 6 итераций move + close child с проверкой, что main и соседи не затронуты, и повторное открытие.
+  - Identity строк и отсутствие `row-selected` при move/resize.
+  - Raw-кадры save == cold, язык RU после cold.
+  - `l3_geom_z_*` ждут, пока окна устоятся, перед move и перед close. Раньше тест проходил только за счёт отчётов, пришедших после delete.
+  - Между запусками процессов в smoke пауза 3 с (см. гипотезы).
+
+### Гипотезы (не подтверждены)
+
+- **Delete кнопкой во время in-flight `configure` удаляемого child:** `DeleteSelected` выгружает окно до unload presenter-а, и тот же класс null-target теоретически возможен. **Не воспроизведено** и не исправлено.
+- **Механизм падения Weston:** предположительно повторное использование XID окнами последовательных процессов, пока у xwm ещё есть запись с `shsurf`. Доказана только корреляция: без пауз 1 полное прохождение из 3 и 2 падения Weston, с паузой 3 с — 36/36 фаз и 5/5 smoke без падений.
+
+### Прогоны (WSL Ubuntu, incremental, `GDK_BACKEND=x11`)
+
+| Контур | Debug | MinSizeRel |
+| --- | --- | --- |
+| `tools/linux_window_catalog_l3_smoke.py` (child close + L3 + geom/Z) | **PASS** (2/2 повтора) | **PASS** (3/3 повтора) |
+| `tools/linux_minimal_app_l3_smoke.py` | **PASS** | **PASS** |
+| `apptraverse_window_catalog_headless_test` | **PASS** | **PASS** |
+| `apptraverse_minimal_app_headless_test` | **PASS** | **PASS** |
+| `apptraverse_ui_control_materialization_test` | **PASS** | **PASS** |
+| Win32 / WASM / Android | **NOT RUN** (изменены только Linux-файлы) | |
+
+**MinSizeRel exe:** 792 192 B; stripped-копия 518 568 B.
+
 <a id="p4-wc-linux-gtk-embedded--2026-11-05"></a>
 
 ## P4 / WindowCatalog — Linux/GTK geom + Z-order persist (2026-11-05) — PASS (Linux slice, verified)

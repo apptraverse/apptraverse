@@ -53,26 +53,39 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
   };
 
   static bool FramesEqual(ClientFrame a, ClientFrame b);
+  static bool ClientRectOnMonitor(GtkWidget* window, gint origin_x,
+                                  gint origin_y);
 
   std::string ResolveTitleText() const;
   void SyncTitleFromMirror();
   ClientFrame ReadMirrorClientFrame() const;
   ClientFrame ReadNativeClientFrame() const;
   void HandleNativeFrameChanged();
+  void DisconnectNativeFrameReports();
 
   static gboolean OnDeleteEvent(GtkWidget* widget, GdkEvent* event,
                                 gpointer user_data);
   static gboolean OnConfigure(GtkWidget* widget, GdkEventConfigure* event,
                               gpointer user_data);
+  static gboolean OnMapEvent(GtkWidget* widget, GdkEvent* event,
+                             gpointer user_data);
   static void OnClientMountSizeAllocate(GtkWidget* widget, GdkRectangle* allocation,
                                         gpointer user_data);
 
   GtkWidget* window_{nullptr};
   GtkWidget* client_mount_{nullptr};
   gulong delete_handler_{0};
+  gulong map_handler_{0};
   gulong configure_handler_{0};
   gulong size_allocate_handler_{0};
   bool applying_mirror_frame_{false};
+  bool user_close_requested_{false};
+  bool mapped_{false};
+  bool placement_known_{false};
+  std::int32_t placement_request_x_{0};
+  std::int32_t placement_request_y_{0};
+  std::int32_t placement_dx_{0};
+  std::int32_t placement_dy_{0};
 };
 
 }  // namespace apptraverse::ui::linux

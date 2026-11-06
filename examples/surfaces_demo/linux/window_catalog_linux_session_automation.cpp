@@ -151,9 +151,16 @@ enum class AutomationStep {
   GeomZAwaitGeomModel,
   GeomZAwaitZModel,
   GeomZColdVerify,
-  GeomZCycle2Apply,
-  GeomZCycle2AwaitModel,
   GeomZCycle2ColdVerify,
+  CcAwaitRows,
+  CcAwaitSelect,
+  CcAwaitOpen,
+  CcAwaitIdentityFrames,
+  CcAwaitClosed,
+  CcAwaitReselect,
+  CcAwaitReopened,
+  CcAwaitFinalFrames,
+  CcAwaitLanguage,
 };
 
 struct FrameExpect {
@@ -185,6 +192,11 @@ struct AutomationState {
   FrameExpect cycle2_child[3]{};
   bool cycle1_snapshotted = false;
   bool cycle2_snapshotted = false;
+  int cc_row = 0;
+  int cc_iteration = 0;
+  int cc_selection_signals = 0;
+  gulong cc_selection_handler = 0;
+  std::int32_t cc_selection_index = -1;
 };
 
 AutomationState& State() {
@@ -405,7 +417,15 @@ void ApplyGeomZCycle2Native(WindowCatalog& catalog) {
   RaiseNative(LinuxChildForRow(catalog, 0)->TopLevelWindow());
 }
 
+void RequireThreeCatalogRows(WindowCatalog& catalog) {
+  if (RowCount(catalog) != 3) {
+    WriteFatalStderr("fatal: geom/z expected three catalog rows\n");
+    std::abort();
+  }
+}
+
 void SnapshotCycle1ExpectationsFromMirror(WindowCatalog& catalog) {
+  RequireThreeCatalogRows(catalog);
   catalog.main_window.Load();
   SnapshotMirrorFrame(*catalog.main_window, State().cycle1_main);
   catalog.list.Load();
@@ -419,6 +439,7 @@ void SnapshotCycle1ExpectationsFromMirror(WindowCatalog& catalog) {
 }
 
 void SnapshotCycle2ExpectationsFromMirror(WindowCatalog& catalog) {
+  RequireThreeCatalogRows(catalog);
   catalog.main_window.Load();
   SnapshotMirrorFrame(*catalog.main_window, State().cycle2_main);
   catalog.list.Load();
@@ -429,6 +450,33 @@ void SnapshotCycle2ExpectationsFromMirror(WindowCatalog& catalog) {
     SnapshotMirrorFrame(*holder.window, State().cycle2_child[i]);
   }
   State().cycle2_snapshotted = true;
+}
+
+void WhenCatalogWindowsSettled(WindowCatalog& catalog,
+                               void (*then)(WindowCatalog&));
+
+void FinishGeomZCycle1Save(WindowCatalog& catalog) {
+  FlushCatalogNativeFrames(catalog);
+  SnapshotCycle1ExpectationsFromMirror(catalog);
+  LogMarker("WINDOW_CATALOG_LINUX_GEOM_Z_MODEL_OK");
+  CloseMain(catalog);
+}
+
+void ApplyGeomZCycle1WhenSettled(WindowCatalog& catalog) {
+  ApplyGeomZCycle1Native(catalog);
+  WhenCatalogWindowsSettled(catalog, &FinishGeomZCycle1Save);
+}
+
+void FinishGeomZCycle2Save(WindowCatalog& catalog) {
+  FlushCatalogNativeFrames(catalog);
+  SnapshotCycle2ExpectationsFromMirror(catalog);
+  LogMarker("WINDOW_CATALOG_LINUX_GEOM_Z_CYCLE2_SAVE_OK");
+  CloseMain(catalog);
+}
+
+void ApplyGeomZCycle2WhenSettled(WindowCatalog& catalog) {
+  ApplyGeomZCycle2Native(catalog);
+  WhenCatalogWindowsSettled(catalog, &FinishGeomZCycle2Save);
 }
 
 void HandleGeomZIncremental(WindowCatalog& catalog) {
@@ -490,30 +538,372 @@ void HandleGeomZIncremental(WindowCatalog& catalog) {
         return;
       }
       ClickButtonNative(LinuxOpen(catalog));
+      State().step = AutomationStep::GeomZAwaitGeomModel;
+      return;
+    case AutomationStep::GeomZAwaitGeomModel:
       if (LinuxChildForRow(catalog, 2) == nullptr) {
         return;
       }
-      ApplyGeomZCycle1Native(catalog);
-      FlushCatalogNativeFrames(catalog);
-      SnapshotCycle1ExpectationsFromMirror(catalog);
-      LogMarker("WINDOW_CATALOG_LINUX_GEOM_Z_MODEL_OK");
-      CloseMain(catalog);
       State().step = AutomationStep::Idle;
+      WhenCatalogWindowsSettled(catalog, &ApplyGeomZCycle1WhenSettled);
       return;
-    case AutomationStep::GeomZCycle2Apply:
-      ApplyGeomZCycle2Native(catalog);
-      State().step = AutomationStep::GeomZCycle2AwaitModel;
+    default:
       return;
-    case AutomationStep::GeomZCycle2AwaitModel:
-      FlushCatalogNativeFrames(catalog);
-      SnapshotCycle2ExpectationsFromMirror(catalog);
-      LogMarker("WINDOW_CATALOG_LINUX_GEOM_Z_CYCLE2_SAVE_OK");
+  }
+}
+
+constexpr int kCcIterations = 6;
+constexpr char const* kCcRowMarker = "apptraverse_cc_identity_row";
+
+constexpr FrameExpect kCcIdentityMain{90, 70, 660, 500};
+constexpr FrameExpect kCcIdentityChild[3] = {
+    {300, 140, 420, 300}, {360, 200, 440, 320}, {420, 260, 460, 340}};
+constexpr FrameExpect kCcCloseFrames[kCcIterations] = {
+    {500, 120, 380, 260}, {520, 160, 400, 280}, {540, 200, 420, 300},
+    {320, 300, 360, 250}, {340, 320, 380, 270}, {360, 340, 400, 290}};
+constexpr FrameExpect kCcFinalMain{0, 0, 600, 450};
+constexpr FrameExpect kCcFinalChild[3] = {
+    {610, 40, 350, 240}, {640, 300, 370, 260}, {200, 470, 390, 280}};
+
+void FailCc(char const* message) {
+  WriteFatalStderr(message);
+  std::abort();
+}
+
+bool MirrorNear(CatalogWindow& window, FrameExpect expected) {
+  return FrameNearExpect({window.x(), window.y(), window.client_width(),
+                          window.client_height()},
+                         expected);
+}
+
+// Raw client-area origin in root coordinates and client size, independent of
+// the presenter's report conversion; compared across processes by the smoke.
+bool ReadRawClientFrame(ui::linux::LinuxDesktopWindowPresenter& presenter,
+                        FrameExpect& out) {
+  GtkWidget* const widget = presenter.TopLevelWindow();
+  if (widget == nullptr || !gtk_widget_get_mapped(widget)) {
+    return false;
+  }
+  gdk_window_get_origin(gtk_widget_get_window(widget), &out.x, &out.y);
+  GtkAllocation allocation{};
+  gtk_widget_get_allocation(presenter.ClientMount(), &allocation);
+  out.w = allocation.width;
+  out.h = allocation.height;
+  return out.x > -30000 && out.y > -30000;
+}
+
+CatalogWindow& RowWindow(WindowCatalog& catalog, int row_index) {
+  catalog.list.Load();
+  auto& holder = static_cast<WindowHolder&>(
+      *catalog.list->rows[static_cast<std::size_t>(row_index)]);
+  holder.window.Load();
+  return *holder.window;
+}
+
+bool CatalogFramesNear(WindowCatalog& catalog, FrameExpect main,
+                       FrameExpect const* children) {
+  catalog.main_window.Load();
+  if (!MirrorNear(*catalog.main_window, main)) {
+    return false;
+  }
+  for (int i = 0; i < 3; ++i) {
+    if (LinuxChildForRow(catalog, i) == nullptr ||
+        !MirrorNear(RowWindow(catalog, i), children[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool ReadCatalogRawFrames(WindowCatalog& catalog, FrameExpect out[4]) {
+  if (!ReadRawClientFrame(LinuxMainWindow(catalog), out[0])) {
+    return false;
+  }
+  for (int i = 0; i < 3; ++i) {
+    ui::linux::LinuxDesktopWindowPresenter* child = LinuxChildForRow(catalog, i);
+    if (child == nullptr || !ReadRawClientFrame(*child, out[i + 1])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void LogCatalogRawFrames(FrameExpect const frames[4]) {
+  char const* const names[4] = {"main", "child0", "child1", "child2"};
+  for (int i = 0; i < 4; ++i) {
+    std::cerr << "WINDOW_CATALOG_LINUX_RAW_FRAME " << names[i] << ' '
+              << frames[i].x << ' ' << frames[i].y << ' ' << frames[i].w << ' '
+              << frames[i].h << '\n';
+  }
+}
+
+void MoveAllCatalogWindowsNative(WindowCatalog& catalog, FrameExpect main,
+                                 FrameExpect const* children) {
+  MoveResizeNative(LinuxMainWindow(catalog).TopLevelWindow(), main);
+  for (int i = 0; i < 3; ++i) {
+    MoveResizeNative(LinuxChildForRow(catalog, i)->TopLevelWindow(),
+                     children[i]);
+  }
+}
+
+constexpr int kSettlePollMs = 100;
+constexpr int kSettlePollLimit = 100;
+constexpr int kSettleStablePolls = 5;
+
+struct SettlePoll {
+  WindowCatalog* catalog = nullptr;
+  void (*then)(WindowCatalog&) = nullptr;
+  int polls = 0;
+  int stable = 0;
+  FrameExpect last[4]{};
+};
+
+gboolean PollCatalogWindowsSettled(gpointer data) {
+  auto* poll = static_cast<SettlePoll*>(data);
+  FrameExpect raw[4]{};
+  bool const readable = ReadCatalogRawFrames(*poll->catalog, raw);
+  bool same = readable;
+  for (int i = 0; readable && i < 4; ++i) {
+    same = same && FrameMatchesExpect(raw[i], poll->last[i]);
+    poll->last[i] = raw[i];
+  }
+  poll->stable = same ? poll->stable + 1 : 0;
+  if (poll->stable < kSettleStablePolls) {
+    if (++poll->polls >= kSettlePollLimit) {
+      for (int i = -1; i < 3; ++i) {
+        ui::linux::LinuxDesktopWindowPresenter* const presenter =
+            i < 0 ? &LinuxMainWindow(*poll->catalog)
+                  : LinuxChildForRow(*poll->catalog, i);
+        FrameExpect frame{};
+        bool const ok = presenter != nullptr && ReadRawClientFrame(*presenter, frame);
+        std::cerr << "settle window " << i << " presenter="
+                  << (presenter != nullptr) << " readable=" << ok << " frame "
+                  << frame.x << ' ' << frame.y << ' ' << frame.w << ' '
+                  << frame.h << '\n';
+      }
+      FailCc("fatal: catalog native windows never settled\n");
+    }
+    return G_SOURCE_CONTINUE;
+  }
+  poll->then(*poll->catalog);
+  delete poll;
+  return G_SOURCE_REMOVE;
+}
+
+// Window-manager placement after map does not publish when it matches the
+// model, so settling is observed by polling the native windows.
+void WhenCatalogWindowsSettled(WindowCatalog& catalog,
+                               void (*then)(WindowCatalog&)) {
+  auto* poll = new SettlePoll{};
+  poll->catalog = &catalog;
+  poll->then = then;
+  g_timeout_add(kSettlePollMs, &PollCatalogWindowsSettled, poll);
+}
+
+void CountNativeRowSelected(GtkListBox*, GtkListBoxRow*, gpointer) {
+  ++State().cc_selection_signals;
+}
+
+void BeginCcListIdentity(WindowCatalog& catalog) {
+  GtkListBox* const box = GTK_LIST_BOX(LinuxList(catalog).ListWidget());
+  for (int i = 0; i < 3; ++i) {
+    GtkListBoxRow* const row = gtk_list_box_get_row_at_index(box, i);
+    g_object_set_data(G_OBJECT(row), kCcRowMarker, GINT_TO_POINTER(i + 1));
+  }
+  catalog.list.Load();
+  State().cc_selection_index = catalog.list->selection_index;
+  State().cc_selection_signals = 0;
+  State().cc_selection_handler = g_signal_connect(
+      box, "row-selected", G_CALLBACK(CountNativeRowSelected), nullptr);
+  MoveAllCatalogWindowsNative(catalog, kCcIdentityMain, kCcIdentityChild);
+  State().step = AutomationStep::CcAwaitIdentityFrames;
+}
+
+void FinishCcListIdentity(WindowCatalog& catalog) {
+  GtkListBox* const box = GTK_LIST_BOX(LinuxList(catalog).ListWidget());
+  for (int i = 0; i < 3; ++i) {
+    GtkListBoxRow* const row = gtk_list_box_get_row_at_index(box, i);
+    if (row == nullptr ||
+        g_object_get_data(G_OBJECT(row), kCcRowMarker) != GINT_TO_POINTER(i + 1)) {
+      FailCc("fatal: geometry publication recreated GTK list rows\n");
+    }
+  }
+  if (State().cc_selection_signals != 0) {
+    FailCc("fatal: geometry publication re-emitted native list selection\n");
+  }
+  catalog.list.Load();
+  if (catalog.list->selection_index != State().cc_selection_index) {
+    FailCc("fatal: geometry publication changed model list selection\n");
+  }
+  g_signal_handler_disconnect(box, State().cc_selection_handler);
+  State().cc_selection_handler = 0;
+  LogMarker("WINDOW_CATALOG_LINUX_LIST_ROW_IDENTITY_OK");
+}
+
+void FinishCcSaveFrames(WindowCatalog& catalog) {
+  FrameExpect raw[4]{};
+  if (!ReadCatalogRawFrames(catalog, raw)) {
+    FailCc("fatal: child-close save could not read native frames\n");
+  }
+  if (!CatalogFramesNear(catalog, kCcFinalMain, kCcFinalChild)) {
+    FailCc("fatal: child-close save model geometry changed after settle\n");
+  }
+  LogCatalogRawFrames(raw);
+  LogMarker("WINDOW_CATALOG_LINUX_CHILD_CLOSE_FRAMES_MODEL_OK");
+  ClickButtonNative(LinuxLanguage(catalog));
+  State().step = AutomationStep::CcAwaitLanguage;
+}
+
+void MoveAndCloseCcChild(WindowCatalog& catalog) {
+  int const row = State().cc_iteration % 3;
+  State().cc_row = row;
+  ui::linux::LinuxDesktopWindowPresenter* child = LinuxChildForRow(catalog, row);
+  if (child == nullptr) {
+    FailCc("fatal: child-close iteration expected open child\n");
+  }
+  MoveResizeNative(child->TopLevelWindow(), kCcCloseFrames[State().cc_iteration]);
+  ui::linux::LinuxDesktopWindowPresenter* sibling =
+      LinuxChildForRow(catalog, (row + 1) % 3);
+  FrameExpect sibling_frame = kCcCloseFrames[State().cc_iteration];
+  sibling_frame.x += 40;
+  sibling_frame.y += 40;
+  MoveResizeNative(sibling->TopLevelWindow(), sibling_frame);
+  CloseWindowNative(*child);
+  State().step = AutomationStep::CcAwaitClosed;
+}
+
+void HandleChildCloseIncremental(WindowCatalog& catalog) {
+  switch (State().step) {
+    case AutomationStep::CcAwaitRows: {
+      std::size_t const rows = RowCount(catalog);
+      if (rows < 3) {
+        if (rows == static_cast<std::size_t>(State().cc_row)) {
+          return;
+        }
+        State().cc_row = static_cast<int>(rows);
+        ClickButtonNative(LinuxAdd(catalog));
+        return;
+      }
+      State().cc_row = 0;
+      SelectListRowNative(LinuxList(catalog), 0);
+      State().step = AutomationStep::CcAwaitSelect;
+      return;
+    }
+    case AutomationStep::CcAwaitSelect:
+      catalog.list.Load();
+      if (catalog.list->selection_index != State().cc_row) {
+        return;
+      }
+      ClickButtonNative(LinuxOpen(catalog));
+      State().step = AutomationStep::CcAwaitOpen;
+      return;
+    case AutomationStep::CcAwaitOpen:
+      if (LinuxChildForRow(catalog, State().cc_row) == nullptr) {
+        return;
+      }
+      if (State().cc_row < 2) {
+        ++State().cc_row;
+        SelectListRowNative(LinuxList(catalog), State().cc_row);
+        State().step = AutomationStep::CcAwaitSelect;
+        return;
+      }
+      LogMarker("WINDOW_CATALOG_LINUX_CHILD_CLOSE_THREE_OPEN");
+      State().cc_iteration = 0;
+      MoveAndCloseCcChild(catalog);
+      return;
+    case AutomationStep::CcAwaitIdentityFrames:
+      if (!CatalogFramesNear(catalog, kCcIdentityMain, kCcIdentityChild)) {
+        return;
+      }
+      FinishCcListIdentity(catalog);
+      MoveAllCatalogWindowsNative(catalog, kCcFinalMain, kCcFinalChild);
+      State().step = AutomationStep::CcAwaitFinalFrames;
+      return;
+    case AutomationStep::CcAwaitClosed: {
+      int const row = State().cc_row;
+      if (LinuxChildForRow(catalog, row) != nullptr) {
+        return;
+      }
+      if (LinuxMainWindow(catalog).TopLevelWindow() == nullptr ||
+          LinuxChildForRow(catalog, (row + 1) % 3) == nullptr ||
+          LinuxChildForRow(catalog, (row + 2) % 3) == nullptr) {
+        FailCc("fatal: child close affected main or sibling windows\n");
+      }
+      catalog.list.Load();
+      if (catalog.list->selection_index == row) {
+        ClickButtonNative(LinuxOpen(catalog));
+        State().step = AutomationStep::CcAwaitReopened;
+        return;
+      }
+      SelectListRowNative(LinuxList(catalog), row);
+      State().step = AutomationStep::CcAwaitReselect;
+      return;
+    }
+    case AutomationStep::CcAwaitReselect:
+      catalog.list.Load();
+      if (catalog.list->selection_index != State().cc_row) {
+        return;
+      }
+      ClickButtonNative(LinuxOpen(catalog));
+      State().step = AutomationStep::CcAwaitReopened;
+      return;
+    case AutomationStep::CcAwaitReopened:
+      if (LinuxChildForRow(catalog, State().cc_row) == nullptr) {
+        return;
+      }
+      ++State().cc_iteration;
+      if (State().cc_iteration < kCcIterations) {
+        MoveAndCloseCcChild(catalog);
+        return;
+      }
+      LogMarker("WINDOW_CATALOG_LINUX_CHILD_CLOSE_REOPEN_OK");
+      State().step = AutomationStep::Idle;
+      WhenCatalogWindowsSettled(catalog, &BeginCcListIdentity);
+      return;
+    case AutomationStep::CcAwaitFinalFrames:
+      if (!CatalogFramesNear(catalog, kCcFinalMain, kCcFinalChild)) {
+        return;
+      }
+      State().step = AutomationStep::Idle;
+      WhenCatalogWindowsSettled(catalog, &FinishCcSaveFrames);
+      return;
+    case AutomationStep::CcAwaitLanguage:
+      if (!LocaleIs(catalog, 1) || !AddLabelIs(catalog, "Добавить")) {
+        return;
+      }
+      LogMarker("WINDOW_CATALOG_LINUX_CHILD_CLOSE_SAVE_READY");
       CloseMain(catalog);
       State().step = AutomationStep::Idle;
       return;
     default:
       return;
   }
+}
+
+void FinishChildCloseCold(WindowCatalog& catalog) {
+  FrameExpect raw[4]{};
+  if (!ReadCatalogRawFrames(catalog, raw)) {
+    FailCc("fatal: child-close cold could not read native frames\n");
+  }
+  LogCatalogRawFrames(raw);
+  if (!CatalogFramesNear(catalog, kCcFinalMain, kCcFinalChild)) {
+    FailCc("fatal: child-close cold model geometry changed after placement\n");
+  }
+  LogMarker("WINDOW_CATALOG_LINUX_CHILD_CLOSE_COLD_OK");
+  CloseMain(catalog);
+}
+
+void VerifyChildCloseCold(WindowCatalog& catalog) {
+  if (RowCount(catalog) != 3) {
+    FailCc("fatal: child-close cold expected three rows\n");
+  }
+  if (!LocaleIs(catalog, 1) || !AddLabelIs(catalog, "Добавить")) {
+    FailCc("fatal: child-close cold expected Russian locale\n");
+  }
+  if (!CatalogFramesNear(catalog, kCcFinalMain, kCcFinalChild)) {
+    FailCc("fatal: child-close cold model geometry not restored\n");
+  }
+  WhenCatalogWindowsSettled(catalog, &FinishChildCloseCold);
 }
 
 }  // namespace
@@ -543,6 +933,12 @@ LinuxWindowCatalogSessionAutomation ParseLinuxWindowCatalogSessionAutomation(
   }
   if (value == "l3_geom_z_cycle2_cold") {
     return LinuxWindowCatalogSessionAutomation::L3GeomZCycle2Cold;
+  }
+  if (value == "l3_child_close_save") {
+    return LinuxWindowCatalogSessionAutomation::L3ChildCloseSave;
+  }
+  if (value == "l3_child_close_cold") {
+    return LinuxWindowCatalogSessionAutomation::L3ChildCloseCold;
   }
   WriteFatalStderr("fatal: unknown --session-automation value\n");
   std::abort();
@@ -617,6 +1013,18 @@ void LinuxWindowCatalogSessionAutomationHooks::OnAfterInitial(ae::Obj& ui_root) 
     return;
   }
 
+  if (State().mode == LinuxWindowCatalogSessionAutomation::L3ChildCloseSave) {
+    State().cc_row = 0;
+    ClickButtonNative(LinuxAdd(catalog));
+    State().step = AutomationStep::CcAwaitRows;
+    return;
+  }
+
+  if (State().mode == LinuxWindowCatalogSessionAutomation::L3ChildCloseCold) {
+    VerifyChildCloseCold(catalog);
+    return;
+  }
+
   if (State().mode == LinuxWindowCatalogSessionAutomation::L3GeomZCold) {
     catalog.main_window.Load();
     if (catalog.main_window->x() == 80 && catalog.main_window->y() == 80) {
@@ -629,8 +1037,8 @@ void LinuxWindowCatalogSessionAutomationHooks::OnAfterInitial(ae::Obj& ui_root) 
       LogMarker("WINDOW_CATALOG_LINUX_Z_ORDER_COLD_OK");
     }
     LogMarker("WINDOW_CATALOG_LINUX_GEOM_Z_COLD_OK");
-    ApplyGeomZCycle2Native(catalog);
-    State().step = AutomationStep::GeomZCycle2AwaitModel;
+    State().step = AutomationStep::Idle;
+    WhenCatalogWindowsSettled(catalog, &ApplyGeomZCycle2WhenSettled);
     return;
   }
 
@@ -781,6 +1189,9 @@ void LinuxWindowCatalogSessionAutomationHooks::OnAfterIncremental(
   if (State().mode == LinuxWindowCatalogSessionAutomation::L3GeomZSave ||
       State().mode == LinuxWindowCatalogSessionAutomation::L3GeomZCold) {
     HandleGeomZIncremental(catalog);
+  }
+  if (State().mode == LinuxWindowCatalogSessionAutomation::L3ChildCloseSave) {
+    HandleChildCloseIncremental(catalog);
   }
 }
 

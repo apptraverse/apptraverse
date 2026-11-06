@@ -1,6 +1,9 @@
 #ifndef APPTRAVERSE_PLATFORM_LINUX_LINUX_UI_LIST_PRESENTER_H_
 #define APPTRAVERSE_PLATFORM_LINUX_LINUX_UI_LIST_PRESENTER_H_
 
+#include <string>
+#include <vector>
+
 #include <gtk/gtk.h>
 
 #include "apptraverse/ui/ui_presenters.h"
@@ -38,12 +41,21 @@ class LinuxListContainerPresenter : public UiListContainerPresenter {
   GtkWidget* ListWidget() const { return list_box_; }
 
  private:
+  struct NativeRow {
+    ae::ObjId row_id{};
+    GtkWidget* row{nullptr};
+    GtkWidget* label{nullptr};
+    std::string text;
+  };
+
+  static NativeRow CreateNativeRow(ae::ObjId row_id, std::string const& label);
   void SyncFromMirror();
   void HandleRowSelected(GtkListBoxRow* row);
   static void OnRowSelected(GtkListBox* box, GtkListBoxRow* row, gpointer user_data);
   LinuxDesktopWindowPresenter* Desktop() const;
 
   GtkWidget* list_box_{nullptr};
+  std::vector<NativeRow> native_rows_;
   gulong row_selected_handler_{0};
   bool applying_mirror_sync_{false};
 };

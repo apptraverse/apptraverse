@@ -9,12 +9,23 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
+
+# With X clients started back to back, WSLg 1.0.79 Weston xwm has been seen to
+# leave windows unplaced and to abort in weston_wm_handle_map_request
+# (`!window->shsurf`); phases are spaced out.
+PHASE_GAP_S = 3.0
+_phase_started = False
 
 
 def run_phase(
     exe: Path, state_dir: Path, automation: str, timeout_s: int, env: dict[str, str]
 ) -> tuple[int, str]:
+    global _phase_started
+    if _phase_started:
+        time.sleep(PHASE_GAP_S)
+    _phase_started = True
     cmd = [
         str(exe),
         "--state-dir",
@@ -43,6 +54,44 @@ def require_markers(text: str, markers: list[str]) -> None:
         sys.exit(1)
 
 
+SHUTDOWN_MARKERS = [
+    "WINDOW_CATALOG_SHUTDOWN_PERSIST_OK",
+    "WINDOW_CATALOG_SHUTDOWN_STOPPED",
+]
+
+
+def run_profile_phases(
+    exe: Path,
+    prefix: str,
+    phases: list[tuple[str, list[str]]],
+    timeout_s: int,
+    env: dict[str, str],
+) -> list[str] | None:
+    profile = Path(tempfile.mkdtemp(prefix=prefix))
+    outputs: list[str] = []
+    try:
+        for automation, markers in phases:
+            code, out = run_phase(exe, profile, automation, timeout_s, env)
+            if code != 0:
+                print(f"FAIL: {automation} exit {code}", file=sys.stderr)
+                print(out, file=sys.stderr)
+                return None
+            require_markers(out, markers + SHUTDOWN_MARKERS)
+            outputs.append(out)
+        return outputs
+    finally:
+        shutil.rmtree(profile, ignore_errors=True)
+
+
+def raw_frames(text: str) -> dict[str, tuple[int, ...]]:
+    frames: dict[str, tuple[int, ...]] = {}
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) == 6 and parts[0] == "WINDOW_CATALOG_LINUX_RAW_FRAME":
+            frames[parts[1]] = tuple(int(v) for v in parts[2:])
+    return frames
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("exe", type=Path)
@@ -55,6 +104,70 @@ def main() -> int:
 
     env = os.environ.copy()
     env["GDK_BACKEND"] = "x11"
+
+    child_close = run_profile_phases(
+        exe,
+        "apptraverse_wc_linux_child_close_",
+        [
+            (
+                "l3_child_close_save",
+                [
+                    "WINDOW_CATALOG_LOADED_FROM_EMBEDDED_BACKING",
+                    "WINDOW_CATALOG_LINUX_LIST_ROW_IDENTITY_OK",
+                    "WINDOW_CATALOG_LINUX_CHILD_CLOSE_REOPEN_OK",
+                    "WINDOW_CATALOG_LINUX_CHILD_CLOSE_FRAMES_MODEL_OK",
+                    "WINDOW_CATALOG_LINUX_CHILD_CLOSE_SAVE_READY",
+                ],
+            ),
+            (
+                "l3_child_close_cold",
+                [
+                    "WINDOW_CATALOG_LOADED_FROM_PROFILE",
+                    "WINDOW_CATALOG_LINUX_CHILD_CLOSE_COLD_OK",
+                ],
+            ),
+        ],
+        args.timeout_s,
+        env,
+    )
+    if child_close is None:
+        return 1
+    saved_frames = raw_frames(child_close[0])
+    cold_frames = raw_frames(child_close[1])
+    if len(saved_frames) != 4 or saved_frames != cold_frames:
+        print("FAIL: native frames differ after cold reload", file=sys.stderr)
+        print(f"  saved: {saved_frames}", file=sys.stderr)
+        print(f"  cold:  {cold_frames}", file=sys.stderr)
+        return 1
+
+    if run_profile_phases(
+        exe,
+        "apptraverse_wc_linux_l3_",
+        [
+            (
+                "l3_save",
+                [
+                    "WINDOW_CATALOG_LOADED_FROM_EMBEDDED_BACKING",
+                    "WINDOW_CATALOG_LINUX_REOPEN_SAME_NATIVE_OK",
+                    "WINDOW_CATALOG_LINUX_LOCALE_TOGGLE_OK",
+                    "WINDOW_CATALOG_LINUX_SAVE_READY",
+                ],
+            ),
+            (
+                "l3_cold_verify",
+                [
+                    "WINDOW_CATALOG_LOADED_FROM_PROFILE",
+                    "WINDOW_CATALOG_LINUX_COLD_STATE_OK",
+                    "WINDOW_CATALOG_LINUX_POST_COMMAND_OK",
+                ],
+            ),
+            ("l3_cycle2_save", ["WINDOW_CATALOG_LINUX_CYCLE2_SAVE_READY"]),
+            ("l3_cycle2_cold_verify", ["WINDOW_CATALOG_LINUX_CYCLE2_COLD_OK"]),
+        ],
+        args.timeout_s,
+        env,
+    ) is None:
+        return 1
 
     profile = Path(tempfile.mkdtemp(prefix="apptraverse_wc_linux_geom_z_"))
     try:
@@ -107,7 +220,10 @@ def main() -> int:
             ],
         )
 
-        print("PASS: linux_window_catalog_l3_smoke (geom/z, GDK_BACKEND=x11)")
+        print(
+            "PASS: linux_window_catalog_l3_smoke "
+            "(child close, l3, geom/z, GDK_BACKEND=x11)"
+        )
         return 0
     finally:
         shutil.rmtree(profile, ignore_errors=True)
