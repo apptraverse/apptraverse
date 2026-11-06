@@ -97,11 +97,13 @@ void WindowCatalogNativeRuntime::SetPresentationRoot(JNIEnv* env,
     };
     callbacks.after_initial = [this](ae::Obj& root) {
       SyncMobilePagerChrome(CatalogRoot(root));
+      ReportMainViewport();
       PublishMobilePages();
       apptraverse::android::LogInfo("WINDOW_CATALOG_INITIAL_RENDER_OK");
     };
     callbacks.after_incremental = [this](ae::Obj& root) {
       SyncMobilePagerChrome(CatalogRoot(root));
+      ReportMainViewport();
       PublishMobilePages();
     };
     callbacks.persist_model = [this](ae::Domain& domain) -> int {
@@ -147,6 +149,39 @@ void WindowCatalogNativeRuntime::MobileSwipe(int delta) {
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
   host_->model_proxy().Invoke(
       catalog_id, &apptraverse::WindowCatalog::SubmitMobileSwipeFromUi, delta);
+}
+
+void WindowCatalogNativeRuntime::ReportMainViewport() {
+  if (!host_ || !host_->ui_session()) {
+    return;
+  }
+  apptraverse::WindowCatalog& catalog = CatalogRoot(host_->ui_session()->root());
+  if (!catalog.main_window.is_valid() || !catalog.main_window.is_loaded()) {
+    return;
+  }
+  auto* presenter = AndroidPresenterForWindow(*catalog.main_window);
+  if (presenter == nullptr) {
+    return;
+  }
+  jobject const mount = presentation_host_.ClientMount(*presenter);
+  if (mount == nullptr) {
+    return;
+  }
+  JNIEnv* env = ui::android::RequireUiThreadEnv(presentation_host_);
+  ui::android::ViewContentSize const size =
+      ui::android::ReadViewContentSize(env, mount);
+  if (size.width <= 0 || size.height <= 0) {
+    return;
+  }
+  if (size.width == catalog.main_client_viewport_w &&
+      size.height == catalog.main_client_viewport_h) {
+    return;
+  }
+  ae::ObjId const catalog_id{
+      window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
+  host_->model_proxy().Invoke(
+      catalog_id, &apptraverse::WindowCatalog::SubmitMainClientViewportFromUi,
+      size.width, size.height);
 }
 
 void WindowCatalogNativeRuntime::SyncMobilePagerChrome(

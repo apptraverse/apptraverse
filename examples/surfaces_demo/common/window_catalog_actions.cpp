@@ -1,5 +1,6 @@
 #include "window_catalog_actions.h"
 
+#include "apptraverse/model_object_proxy.h"
 #include "apptraverse/object_macros.h"
 
 namespace apptraverse::example::surfaces {
@@ -47,6 +48,29 @@ APPTRAVERSE_REGISTER(CatalogAddButton);
 APPTRAVERSE_REGISTER(CatalogOpenButton);
 APPTRAVERSE_REGISTER(CatalogDeleteButton);
 APPTRAVERSE_REGISTER(CatalogLanguageButton);
+
+void ReportCatalogMainViewportFromMirror(WindowCatalog& mirror_catalog,
+                                         ModelObjectProxy* model_proxy) {
+  if (model_proxy == nullptr || !mirror_catalog.main_window.is_valid()) {
+    return;
+  }
+  if (!mirror_catalog.main_window.is_loaded()) {
+    return;
+  }
+  CatalogWindow const& main = *mirror_catalog.main_window;
+  std::int32_t const width = main.client_width();
+  std::int32_t const height = main.client_height();
+  if (width <= 0 || height <= 0) {
+    return;
+  }
+  if (width == mirror_catalog.main_client_viewport_w &&
+      height == mirror_catalog.main_client_viewport_h) {
+    return;
+  }
+  model_proxy->Invoke(mirror_catalog.obj_id,
+                      &WindowCatalog::SubmitMainClientViewportFromUi, width,
+                      height);
+}
 
 void EnsureCatalogActionRegistration() {
   (void)&g_apptraverse_registrar_CatalogAddButton;

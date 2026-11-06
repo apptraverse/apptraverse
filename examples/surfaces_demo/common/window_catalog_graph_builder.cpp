@@ -1,6 +1,7 @@
 #include "window_catalog_graph_builder.h"
 
 #include "window_catalog_actions.h"
+#include "window_catalog_chrome_layout.h"
 #include "window_catalog_ids.h"
 #include "window_catalog_localization.h"
 #include "window_catalog_model.h"
@@ -15,13 +16,6 @@ namespace {
 
 constexpr std::int32_t kMainClientWidth = 640;
 constexpr std::int32_t kMainClientHeight = 480;
-constexpr std::int32_t kListX = 12;
-constexpr std::int32_t kListY = 12;
-constexpr std::int32_t kListW = 400;
-constexpr std::int32_t kListH = 380;
-constexpr std::int32_t kButtonY = 400;
-constexpr std::int32_t kButtonW = 90;
-constexpr std::int32_t kButtonH = 28;
 constexpr std::uint32_t kListControlId = 5001;
 constexpr std::uint32_t kAddControlId = 5002;
 constexpr std::uint32_t kOpenControlId = 5003;
@@ -30,16 +24,17 @@ constexpr std::uint32_t kLanguageControlId = 5005;
 
 ui::UiPushButtonPresenter::ptr MakeButtonPresenter(
     ae::Domain& domain, WindowCatalog& catalog, ui::UiPushButton::ptr button,
-    WindowCatalogPresenterFactory const& factory, std::int32_t x,
-    std::uint32_t control_id) {
-  ui::UiPushButtonPresenter::ptr presenter = factory.create_button(domain);
+    WindowCatalogPresenterFactory const& factory,
+    WindowCatalogChromeRect const& rect, std::uint32_t control_id) {
+  ui::UiPushButtonPresenter::ptr presenter =
+      factory.create_button(domain, ae::ObjId{});
   presenter->button = button;
   presenter->window_presenter =
       static_cast<ui::UiPresentedWindow&>(*catalog.main_window).presenter;
-  presenter->layout_x = x;
-  presenter->layout_y = kButtonY;
-  presenter->layout_width = kButtonW;
-  presenter->layout_height = kButtonH;
+  presenter->layout_x = rect.x;
+  presenter->layout_y = rect.y;
+  presenter->layout_width = rect.width;
+  presenter->layout_height = rect.height;
   presenter->control_id = control_id;
   return presenter;
 }
@@ -78,14 +73,19 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
                                      kMainClientHeight, true);
   catalog->main_window = main_window;
 
+  // Initial chrome geometry for the default main client size; the model
+  // re-applies it from the real viewport (SetWindowCatalogMainClientViewport).
+  WindowCatalogMainChromeLayout const chrome =
+      ComputeWindowCatalogMainChromeLayout(kMainClientWidth, kMainClientHeight);
+
   ui::UiListContainerPresenter::ptr list_presenter = factory.create_list(
       domain, ae::ObjId{ToObjId(ObjId::CatalogListPresenter)}, catalog);
   list_presenter->container = list;
   list_presenter->window_presenter = main_presenter;
-  list_presenter->layout_x = kListX;
-  list_presenter->layout_y = kListY;
-  list_presenter->layout_width = kListW;
-  list_presenter->layout_height = kListH;
+  list_presenter->layout_x = chrome.list.x;
+  list_presenter->layout_y = chrome.list.y;
+  list_presenter->layout_width = chrome.list.width;
+  list_presenter->layout_height = chrome.list.height;
   list_presenter->control_id = kListControlId;
   list_presenter->notify_list_selection_change = true;
 
@@ -115,16 +115,15 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   catalog->buttons.language_button = language_button;
   catalog->presenters.list_presenter = list_presenter;
   catalog->presenters.add_button_presenter =
-      MakeButtonPresenter(domain, *catalog, add_button, factory, 12,
+      MakeButtonPresenter(domain, *catalog, add_button, factory, chrome.add,
                           kAddControlId);
   catalog->presenters.open_button_presenter = MakeButtonPresenter(
-      domain, *catalog, open_button, factory, 12 + kButtonW + 8,
-      kOpenControlId);
+      domain, *catalog, open_button, factory, chrome.open, kOpenControlId);
   catalog->presenters.delete_button_presenter = MakeButtonPresenter(
-      domain, *catalog, delete_button, factory, 12 + 2 * (kButtonW + 8),
+      domain, *catalog, delete_button, factory, chrome.delete_button,
       kDeleteControlId);
   catalog->presenters.language_button_presenter = MakeButtonPresenter(
-      domain, *catalog, language_button, factory, 12 + 3 * (kButtonW + 8),
+      domain, *catalog, language_button, factory, chrome.language,
       kLanguageControlId);
 
   catalog->RefreshChromeButtonEnabledState();
@@ -175,8 +174,23 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
       ae::CreateWith{domain}
           .with_id(window_prefab_id)
           .with_flags(lazy_prefab_flags));
+  // Close button graph (mobile prefab) was saved transitively with the prefab.
+  ae::Ptr<ae::Obj> close_button_body;
+  ae::Ptr<ae::Obj> close_presenter_body;
+  if (window_prefab_body->close_button.is_valid()) {
+    close_button_body = window_prefab_body->close_button.Load();
+  }
+  if (window_prefab_body->close_button_presenter.is_valid()) {
+    close_presenter_body = window_prefab_body->close_button_presenter.Load();
+  }
   domain.RemoveObject(window_prefab_body.get());
   domain.RemoveObject(window_prefab_presenter_body.get());
+  if (close_button_body) {
+    domain.RemoveObject(close_button_body.get());
+  }
+  if (close_presenter_body) {
+    domain.RemoveObject(close_presenter_body.get());
+  }
 
   InitializeRuntimeNode(*add_button, *catalog);
   InitializeRuntimeNode(*open_button, *catalog);
@@ -189,6 +203,8 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
 
   catalog->desktop_z_order.push_back(catalog->main_window);
 
+  catalog->main_client_viewport_w = kMainClientWidth;
+  catalog->main_client_viewport_h = kMainClientHeight;
   catalog->mobile_pager = options.mobile_pager;
   if (catalog->mobile_pager) {
     catalog->mobile_active_window = catalog->main_window;

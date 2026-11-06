@@ -58,6 +58,11 @@ APPTRAVERSE_REGISTER(HeadlessCatalogListContainerPresenter);
 namespace apptraverse {
 
 WindowCatalog::ptr BuildHeadlessWindowCatalogGraph(ae::Domain& domain) {
+  return BuildHeadlessWindowCatalogGraph(domain, WindowCatalogGraphOptions{});
+}
+
+WindowCatalog::ptr BuildHeadlessWindowCatalogGraph(
+    ae::Domain& domain, WindowCatalogGraphOptions options) {
   ui::EnsureUiPresenterRegistration();
 
   WindowCatalogPresenterFactory factory;
@@ -74,11 +79,13 @@ WindowCatalog::ptr BuildHeadlessWindowCatalogGraph(ae::Domain& domain) {
         presenter->catalog = catalog;
         return presenter;
       };
-  factory.create_button = [](ae::Domain& build_domain) {
-    return ui::UiPushButtonPresenter::ptr::Create(ae::CreateWith{build_domain});
+  factory.create_button = [](ae::Domain& build_domain, ae::ObjId presenter_id) {
+    return ui::UiPushButtonPresenter::ptr::Create(presenter_id.is_valid()
+            ? ae::CreateWith{build_domain}.with_id(presenter_id)
+            : ae::CreateWith{build_domain});
   };
 
-  return BuildWindowCatalogGraph(domain, factory);
+  return BuildWindowCatalogGraph(domain, factory, options);
 }
 
 void EnsureHeadlessWindowCatalogGraphRegistration() {

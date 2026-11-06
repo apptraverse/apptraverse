@@ -32,6 +32,9 @@ class WindowCatalogNativeRuntime {
   void RequestBackgroundSave();
   void MobilePageShown(std::uint32_t window_obj_id);
   void MobileSwipe(int delta);
+  // UI thread: measure the main window client mount and post the viewport to
+  // the model when it differs from the catalog's current viewport.
+  void ReportMainViewport();
 
  private:
   void PublishMobilePages();

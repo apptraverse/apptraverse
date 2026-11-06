@@ -27,6 +27,9 @@ void PrepareWindowCatalogForRun(WindowCatalog& catalog) {
   localized_texts.label_delete.Load();
   localized_texts.label_language.Load();
   localized_texts.window_title_prefix.Load();
+  if (localized_texts.label_close.is_valid()) {
+    localized_texts.label_close.Load();
+  }
   int const language = catalog.locale->language_index();
   catalog.MaterializeCatalogStrings(language);
   catalog.RefreshChromeButtonEnabledState();

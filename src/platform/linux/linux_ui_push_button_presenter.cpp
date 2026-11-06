@@ -40,6 +40,16 @@ void LinuxPushButtonPresenter::SyncFromMirror() {
   std::string const label = button->label->Resolve(language_index);
   gtk_button_set_label(GTK_BUTTON(button_), label.c_str());
   gtk_widget_set_sensitive(button_, button->enabled() ? TRUE : FALSE);
+
+  // Layout may change after load (adaptive catalog chrome).
+  ui::UiControlLayout const layout =
+      window_presenter->ResolveChildLayout({layout_x, layout_y, layout_width,
+                                            layout_height, control_id});
+  gtk_widget_set_size_request(button_, layout.width, layout.height);
+  GtkWidget* const parent = gtk_widget_get_parent(button_);
+  if (parent != nullptr && GTK_IS_FIXED(parent)) {
+    gtk_fixed_move(GTK_FIXED(parent), button_, layout.x, layout.y);
+  }
 }
 
 void LinuxPushButtonPresenter::OnModelChanged() { SyncFromMirror(); }

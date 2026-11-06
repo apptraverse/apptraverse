@@ -1,8 +1,6 @@
 #include "window_catalog_graph_builder.h"
 
-#include "window_catalog_close_button.h"
 #include "window_catalog_ids.h"
-#include "window_catalog_localization.h"
 #include "window_catalog_model.h"
 
 #include "apptraverse/runtime_node.h"
@@ -16,6 +14,9 @@ constexpr std::int32_t kButtonW = 90;
 
 }  // namespace
 
+// Builds the Close button graph and attaches it to the prefab window body
+// (CatalogWindow::close_button / close_button_presenter). The button objects
+// are persisted as part of the prefab graph save done by the builder.
 void AppendMobileCloseButtonToWindowPrefab(
     ae::Domain& domain, WindowCatalog& catalog,
     CatalogWindow::ptr const& window_prefab,
@@ -27,14 +28,17 @@ void AppendMobileCloseButtonToWindowPrefab(
 
   std::int32_t const kCloseY = prefab_client_height - kButtonH - 12;
   constexpr std::uint32_t kCloseControlId = 5006;
+
   auto close_button = CatalogCloseButton::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::WindowPrefabCloseButton)));
-  close_button->catalog = WindowCatalog::ptr::MakeFromThis(&catalog);
+  // close_button->catalog stays unset in the prefab graph; AddWindow wires it
+  // (and window) for every cloned holder window.
   close_button->window = window_prefab;
-  close_button->label =
-      CreateCatalogLocalizedString(domain, catalog, "Close", "Закрыть");
+  close_button->label = catalog.texts.label_close;
   InitializeRuntimeNode(*close_button, catalog);
-  ui::UiPushButtonPresenter::ptr close_presenter = factory.create_button(domain);
+
+  ui::UiPushButtonPresenter::ptr close_presenter = factory.create_button(
+      domain, ae::ObjId{ToObjId(ObjId::WindowPrefabCloseButtonPresenter)});
   close_presenter->button = close_button;
   close_presenter->window_presenter = window_prefab_presenter;
   close_presenter->layout_x = 12;
@@ -42,20 +46,11 @@ void AppendMobileCloseButtonToWindowPrefab(
   close_presenter->layout_width = kButtonW;
   close_presenter->layout_height = kButtonH;
   close_presenter->control_id = kCloseControlId;
-  ae::DomainGraph close_distill{&domain};
-  ae::Ptr<ui::UiPushButtonPresenter> close_presenter_body = close_presenter.Load();
-  ae::Ptr<CatalogCloseButton> close_button_body = close_button.Load();
-  if (!close_distill
-           .SaveRoot(close_presenter_body,
-                     ToObjId(ObjId::WindowPrefabCloseButtonPresenter))
-           .IsOk() ||
-      !close_distill
-           .SaveRoot(close_button_body, ToObjId(ObjId::WindowPrefabCloseButton))
-           .IsOk()) {
-    std::abort();
-  }
-  domain.RemoveObject(close_presenter_body.get());
-  domain.RemoveObject(close_button_body.get());
+
+  CatalogWindow::ptr prefab_ref = window_prefab;
+  ae::Ptr<CatalogWindow> const window_body = prefab_ref.Load();
+  window_body->close_button = close_button;
+  window_body->close_button_presenter = close_presenter;
 }
 
 }  // namespace apptraverse

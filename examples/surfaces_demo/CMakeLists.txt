@@ -122,6 +122,7 @@ add_library(surfaces_demo_window_catalog_common STATIC
   common/window_catalog_graph_builder.cpp
   common/window_catalog_prepare.cpp
   common/window_catalog_graph_mobile_prefab.cpp
+  common/window_catalog_chrome_layout.cpp
 )
 target_include_directories(surfaces_demo_window_catalog_common PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/common
@@ -194,6 +195,7 @@ if(WIN32 AND NOT EMSCRIPTEN)
       ${CMAKE_CURRENT_SOURCE_DIR}/windows/window_catalog_graph.cpp
       ${CMAKE_CURRENT_SOURCE_DIR}/common/window_catalog_graph_builder.cpp
       ${CMAKE_CURRENT_SOURCE_DIR}/common/window_catalog_model.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/common/window_catalog_chrome_layout.cpp
     )
     set(_window_catalog_embed_dir
         "${CMAKE_CURRENT_BINARY_DIR}/generated_distilled")

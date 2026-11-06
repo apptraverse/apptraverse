@@ -28,7 +28,15 @@
 
 #include "apptraverse/ui/ui_push_button.h"
 
+#include "apptraverse/ui/ui_push_button_presenter.h"
+
 namespace apptraverse {
+
+namespace example::surfaces {
+
+class CatalogCloseButton;
+
+}  // namespace example::surfaces
 
 class CatalogListContainer;
 
@@ -52,13 +60,13 @@ class CatalogWindow : public ui::UiDesktopWindow {
 
   explicit CatalogWindow(ae::ObjProp prop) : UiDesktopWindow{prop} {}
 
-  AE_OBJECT_REFLECT()
+  AE_OBJECT_REFLECT(AE_MMBR(close_button), AE_MMBR(close_button_presenter))
 
   template <typename Dnv>
 
   void Load(ae::Version<0>, Dnv& dnv) {
 
-    dnv(base_);
+    dnv(base_, close_button, close_button_presenter);
 
   }
 
@@ -66,9 +74,14 @@ class CatalogWindow : public ui::UiDesktopWindow {
 
   void Save(ae::Version<0>, Dnv& dnv) const {
 
-    dnv(base_);
+    dnv(base_, close_button, close_button_presenter);
 
   }
+
+  // Mobile pager child windows only: Close lives in the window prefab graph.
+  ae::ObjPtr<example::surfaces::CatalogCloseButton> close_button;
+
+  ui::UiPushButtonPresenter::ptr close_button_presenter;
 
 };
 
@@ -122,6 +135,8 @@ class SetWindowCatalogDesktopZOrderEvent;
 
 class SetWindowCatalogMobileActiveEvent;
 
+class SetWindowCatalogMainClientViewportEvent;
+
 struct WindowCatalogTexts {
 
   ae::ObjPtr<ui::UiLocalizationString> label_add;
@@ -134,9 +149,11 @@ struct WindowCatalogTexts {
 
   ae::ObjPtr<ui::UiLocalizationString> window_title_prefix;
 
+  ae::ObjPtr<ui::UiLocalizationString> label_close;
+
   AE_REFLECT_MEMBERS(label_add, label_open, label_delete, label_language,
 
-                     window_title_prefix)
+                     window_title_prefix, label_close)
 
 };
 
@@ -207,7 +224,7 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
         texts.label_add, texts.label_open, texts.label_delete,
 
-        texts.label_language, texts.window_title_prefix,
+        texts.label_language, texts.window_title_prefix, texts.label_close,
 
         buttons.add_button,
 
@@ -219,7 +236,8 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
         presenters.language_button_presenter, window_prefab, desktop_z_order,
 
-        mobile_pager, mobile_active_window);
+        mobile_pager, mobile_active_window, main_client_viewport_w,
+        main_client_viewport_h);
 
   }
 
@@ -231,7 +249,7 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
         texts.label_add, texts.label_open, texts.label_delete,
 
-        texts.label_language, texts.window_title_prefix,
+        texts.label_language, texts.window_title_prefix, texts.label_close,
 
         buttons.add_button,
 
@@ -243,7 +261,8 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
         presenters.language_button_presenter, window_prefab, desktop_z_order,
 
-        mobile_pager, mobile_active_window);
+        mobile_pager, mobile_active_window, main_client_viewport_w,
+        main_client_viewport_h);
 
   }
 
@@ -271,6 +290,12 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
   CatalogWindow::ptr mobile_active_window;
 
+  // Main-window client viewport last reported by a presenter (0 = unknown).
+  // Drives adaptive chrome layout of the list and the four main buttons.
+  std::int32_t main_client_viewport_w{0};
+
+  std::int32_t main_client_viewport_h{0};
+
   [[nodiscard]] CatalogWindow::ptr ResolveMobileActiveWindow();
 
   [[nodiscard]] bool CanApply(AddWindowCatalogEntryEvent const& event) const;
@@ -286,6 +311,11 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   void Apply(SetWindowCatalogDesktopZOrderEvent const& event);
 
   void Apply(SetWindowCatalogMobileActiveEvent const& event);
+
+  void Apply(SetWindowCatalogMainClientViewportEvent const& event);
+
+  // Presenter -> model: main window client size changed. No-op when unchanged.
+  void SubmitMainClientViewportFromUi(std::int32_t width, std::int32_t height);
 
   void SetDesktopZOrderFromObjIds(std::vector<std::uint32_t> ordered_ids);
 
@@ -507,6 +537,25 @@ class SetWindowCatalogMobileActiveEvent
   CatalogWindow::ptr window;
 };
 
+class SetWindowCatalogMainClientViewportEvent
+    : public EventFor<WindowCatalog, SetWindowCatalogMainClientViewportEvent> {
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::example::surfaces::SetWindowCatalogMainClientViewportEvent",
+      SetWindowCatalogMainClientViewportEvent, Event, 0)
+
+ protected:
+  SetWindowCatalogMainClientViewportEvent() = default;
+
+ public:
+  explicit SetWindowCatalogMainClientViewportEvent(ae::ObjProp prop)
+      : EventFor{prop}, width{0}, height{0} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(width), AE_MMBR(height))
+
+  std::int32_t width;
+  std::int32_t height;
+};
+
 class SetWindowCatalogSelectionEvent
 
     : public EventFor<WindowCatalog, SetWindowCatalogSelectionEvent> {
@@ -530,6 +579,40 @@ class SetWindowCatalogSelectionEvent
   WindowHolder::ptr holder;
 
 };
+
+namespace example::surfaces {
+
+// Child-window Close button (mobile pager). Defined here so CatalogWindow can
+// own it as part of the window prefab graph.
+class CatalogCloseButton : public ui::UiPushButton {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::CatalogCloseButton",
+                           CatalogCloseButton, ui::UiPushButton, 0)
+
+ protected:
+  CatalogCloseButton() = default;
+
+ public:
+  explicit CatalogCloseButton(ae::ObjProp prop) : UiPushButton{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(catalog), AE_MMBR(window))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, catalog, window);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, catalog, window);
+  }
+
+  WindowCatalog::ptr catalog;
+  CatalogWindow::ptr window;
+
+  void HandlePushButtonClicked() override;
+};
+
+}  // namespace example::surfaces
 
 void AssignInitialCatalogWindowBounds(CatalogWindow& window,
 

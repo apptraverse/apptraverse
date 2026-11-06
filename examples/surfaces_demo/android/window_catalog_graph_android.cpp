@@ -15,6 +15,42 @@
 
 namespace apptraverse::example::surfaces {
 
+// Main catalog window: chrome layout is computed by the model in main client
+// viewport space (SetWindowCatalogMainClientViewportEvent), which the native
+// runtime reports in mount pixels, so no model->presentation rescale applies.
+// Child windows keep AndroidDesktopWindowPresenter::ResolveChildLayout scaling.
+class AndroidCatalogMainWindowPresenter
+    : public ui::android::AndroidDesktopWindowPresenter {
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::example::surfaces::AndroidCatalogMainWindowPresenter",
+      AndroidCatalogMainWindowPresenter,
+      ui::android::AndroidDesktopWindowPresenter, 0)
+
+ protected:
+  AndroidCatalogMainWindowPresenter() = default;
+
+ public:
+  explicit AndroidCatalogMainWindowPresenter(ae::ObjProp prop)
+      : AndroidDesktopWindowPresenter{prop} {}
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_);
+  }
+
+  ui::UiControlLayout ResolveChildLayout(
+      ui::UiControlLayout requested) const override {
+    return requested;
+  }
+};
+
+APPTRAVERSE_REGISTER(AndroidCatalogMainWindowPresenter);
+
 class AndroidCatalogListContainerPresenter
     : public ui::android::AndroidListContainerPresenter {
   APPTRAVERSE_NAMED_OBJECT(
@@ -70,7 +106,14 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
 
   WindowCatalogPresenterFactory factory;
   factory.create_window =
-      [](ae::Domain& build_domain, ae::ObjId presenter_id) {
+      [](ae::Domain& build_domain, ae::ObjId presenter_id)
+          -> ui::UiDesktopWindowPresenter::ptr {
+        if (presenter_id.id() ==
+            window_catalog_demo::ToObjId(
+                window_catalog_demo::ObjId::MainWindowPresenter)) {
+          return example::surfaces::AndroidCatalogMainWindowPresenter::ptr::
+              Create(ae::CreateWith{build_domain}.with_id(presenter_id));
+        }
         return ui::android::AndroidDesktopWindowPresenter::ptr::Create(
             ae::CreateWith{build_domain}.with_id(presenter_id));
       };
@@ -83,9 +126,11 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
         presenter->catalog = catalog;
         return presenter;
       };
-  factory.create_button = [](ae::Domain& build_domain) {
+  factory.create_button = [](ae::Domain& build_domain, ae::ObjId presenter_id) {
     return ui::android::AndroidPushButtonPresenter::ptr::Create(
-        ae::CreateWith{build_domain});
+        presenter_id.is_valid()
+            ? ae::CreateWith{build_domain}.with_id(presenter_id)
+            : ae::CreateWith{build_domain});
   };
 
   WindowCatalogGraphOptions options;
@@ -100,6 +145,8 @@ void EnsureWindowCatalogAndroidGraphRegistration() {
   ui::android::EnsureAndroidUiPresenterRegistration();
   (void)&example::surfaces::
       g_apptraverse_registrar_AndroidCatalogListContainerPresenter;
+  (void)&example::surfaces::
+      g_apptraverse_registrar_AndroidCatalogMainWindowPresenter;
 }
 
 }  // namespace apptraverse

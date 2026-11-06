@@ -165,6 +165,7 @@ endif()
 add_library(apptraverse_ui_android_presenters STATIC
   src/platform/android/android_ui_presenters.cpp
   src/platform/android/android_ui_registration.cpp
+  src/platform/android/android_ui_window_presenter_host.cpp
 )
 target_include_directories(apptraverse_ui_android_presenters PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include)

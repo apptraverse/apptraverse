@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cassert>
 #include <unordered_set>
+#include "window_catalog_chrome_layout.h"
 #include "window_catalog_ids.h"
 #include "window_catalog_localization.h"
 #include "apptraverse/object_clone.h"
@@ -11,6 +12,7 @@
 #include "apptraverse/ui/ui_string.h"
 #include "apptraverse/ui/ui_presented_window_lifecycle.h"
 #include "apptraverse/noninteractive_crt.h"
+#include "apptraverse/ui/ui_presenters.h"
 #include "apptraverse/ui/ui_window_presenter.h"
 namespace apptraverse {
 namespace {
@@ -34,6 +36,11 @@ ae::ObjId const kWindowPrefabId{
     window_catalog_demo::ToObjId(window_catalog_demo::ObjId::WindowPrefab)};
 ae::ObjId const kWindowPrefabPresenterId{window_catalog_demo::ToObjId(
     window_catalog_demo::ObjId::WindowPrefabPresenter)};
+ae::ObjId const kWindowPrefabCloseButtonId{window_catalog_demo::ToObjId(
+    window_catalog_demo::ObjId::WindowPrefabCloseButton)};
+ae::ObjId const kWindowPrefabCloseButtonPresenterId{
+    window_catalog_demo::ToObjId(
+        window_catalog_demo::ObjId::WindowPrefabCloseButtonPresenter)};
 void RestoreUnloadedWindowPrefabLink(WindowCatalog& catalog) {
   ae::ObjId const prefab_id = catalog.window_prefab.id();
   catalog.window_prefab.Reset();
@@ -61,10 +68,57 @@ void EvictTransientPrefabObjects(ae::Domain& domain,
       presenter_obj = presenter_loaded.get();
     }
   }
+  // Mobile prefab graph also owns the Close button and its presenter.
+  ae::Ptr<ae::Obj> close_button_keepalive;
+  if (prefab_window.close_button.is_valid()) {
+    close_button_keepalive = prefab_window.close_button.Load();
+  }
+  ae::Ptr<ae::Obj> close_presenter_keepalive;
+  if (prefab_window.close_button_presenter.is_valid()) {
+    close_presenter_keepalive = prefab_window.close_button_presenter.Load();
+  }
   domain.RemoveObject(&prefab_window);
   if (presenter_obj != nullptr) {
     domain.RemoveObject(presenter_obj);
   }
+  if (close_button_keepalive) {
+    domain.RemoveObject(close_button_keepalive.get());
+  }
+  if (close_presenter_keepalive) {
+    domain.RemoveObject(close_presenter_keepalive.get());
+  }
+}
+
+// Points the window-owned Close button graph at this window: close_button ->
+// {catalog, window}, close_button_presenter -> window presenter.
+void WireWindowCloseButton(WindowCatalog& catalog, CatalogWindow& window) {
+  if (!window.close_button.is_valid()) {
+    return;
+  }
+  window.close_button.Load();
+  window.close_button->catalog = WindowCatalog::ptr::MakeFromThis(&catalog);
+  window.close_button->window = CatalogWindow::ptr::MakeFromThis(&window);
+  if (window.close_button_presenter.is_valid()) {
+    window.close_button_presenter.Load();
+    window.close_button_presenter->window_presenter =
+        Presented(window).presenter;
+  }
+}
+
+void LoadWindowCloseButton(WindowCatalog& catalog, CatalogWindow& window) {
+  if (window.close_button.is_valid()) {
+    window.close_button.Load();
+  }
+  if (window.close_button_presenter.is_valid()) {
+    window.close_button_presenter.Load();
+  }
+  WireWindowCloseButton(catalog, window);
+}
+
+void MarkWindowCloseButtonUnloadedByDefault(CatalogWindow& window) {
+  window.close_button.SetFlags(SetUnloadedDefault(window.close_button.flags()));
+  window.close_button_presenter.SetFlags(
+      SetUnloadedDefault(window.close_button_presenter.flags()));
 }
 ui::UiPresentedWindow& MainPresented(WindowCatalog const& catalog) {
   return static_cast<ui::UiPresentedWindow&>(*catalog.main_window);
@@ -147,6 +201,7 @@ void RestoreLoadedCatalogWindows(WindowCatalog& catalog) {
       continue;
     }
     ui::LoadPresentedWindow(holder.window);
+    LoadWindowCloseButton(catalog, *holder.window);
     catalog.MaterializeHolderListText(holder, language);
     BindLiveWindowNotifiers(catalog, *holder.window);
   }
@@ -246,6 +301,71 @@ void WindowCatalog::Apply(SetWindowCatalogMobileActiveEvent const& event) {
   }
   NoteMaterializedChange();
 }
+namespace {
+
+void ApplyChromeRect(ui::UiPushButtonPresenter& presenter,
+                     WindowCatalogChromeRect const& rect) {
+  presenter.layout_x = rect.x;
+  presenter.layout_y = rect.y;
+  presenter.layout_width = rect.width;
+  presenter.layout_height = rect.height;
+}
+
+void ApplyButtonChromeRect(Presenter::ptr& presenter,
+                           WindowCatalogChromeRect const& rect) {
+  if (!presenter.is_valid()) {
+    return;
+  }
+  presenter.Load();
+  ApplyChromeRect(static_cast<ui::UiPushButtonPresenter&>(*presenter), rect);
+}
+
+}  // namespace
+
+void WindowCatalog::Apply(SetWindowCatalogMainClientViewportEvent const& event) {
+  if (event.width <= 0 || event.height <= 0) {
+    return;
+  }
+  if (event.width == main_client_viewport_w &&
+      event.height == main_client_viewport_h) {
+    return;
+  }
+  main_client_viewport_w = event.width;
+  main_client_viewport_h = event.height;
+  WindowCatalogMainChromeLayout const layout =
+      ComputeWindowCatalogMainChromeLayout(event.width, event.height);
+  // Chrome presenters only: the desktop window frame is owned by the platform.
+  if (presenters.list_presenter.is_valid()) {
+    presenters.list_presenter.Load();
+    auto& list_presenter =
+        static_cast<ui::UiListContainerPresenter&>(*presenters.list_presenter);
+    list_presenter.layout_x = layout.list.x;
+    list_presenter.layout_y = layout.list.y;
+    list_presenter.layout_width = layout.list.width;
+    list_presenter.layout_height = layout.list.height;
+  }
+  ApplyButtonChromeRect(presenters.add_button_presenter, layout.add);
+  ApplyButtonChromeRect(presenters.open_button_presenter, layout.open);
+  ApplyButtonChromeRect(presenters.delete_button_presenter, layout.delete_button);
+  ApplyButtonChromeRect(presenters.language_button_presenter, layout.language);
+  NoteMaterializedChange();
+}
+
+void WindowCatalog::SubmitMainClientViewportFromUi(std::int32_t width,
+                                                   std::int32_t height) {
+  if (width <= 0 || height <= 0) {
+    return;
+  }
+  if (width == main_client_viewport_w && height == main_client_viewport_h) {
+    return;
+  }
+  auto event = SetWindowCatalogMainClientViewportEvent::ptr::Create(
+      ae::CreateWith{*domain});
+  event->width = width;
+  event->height = height;
+  Commit(std::move(event));
+}
+
 CatalogWindow::ptr WindowCatalog::ResolveMobileActiveWindow() {
   if (!mobile_pager) {
     return main_window;
@@ -435,6 +555,10 @@ void WindowCatalog::MaterializeCatalogStrings(int language_index) {
   texts.label_delete->MaterializeLanguage(language_index);
   texts.label_language->MaterializeLanguage(language_index);
   texts.window_title_prefix->MaterializeLanguage(language_index);
+  if (texts.label_close.is_valid()) {
+    texts.label_close.Load();
+    texts.label_close->MaterializeLanguage(language_index);
+  }
   if (main_window.is_loaded()) {
     MainPresented(*this).presenter->title->MaterializeLanguage(language_index);
   }
@@ -479,8 +603,11 @@ bool WindowCatalog::IsHolderWindowOpen(WindowHolder const& holder) const {
   if (!holder.window.is_valid()) {
     return false;
   }
+  // Open == neither lazy bit set. Add and Close mark the window lazy
+  // (kUnloadedByDefault, then kUnloaded after Reset); OpenObjFlags clears both.
   ae::ObjFlags const flags = holder.window.flags();
-  return (flags & ae::ObjFlags::kUnloaded) == ae::ObjFlags{};
+  return (flags & ae::ObjFlags::kUnloaded) == ae::ObjFlags{} &&
+         (flags & ae::ObjFlags::kUnloadedByDefault) == ae::ObjFlags{};
 }
 
 void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
@@ -495,6 +622,18 @@ void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
   }
   ae::Domain& domain = *list->domain;
   ui::LoadPresentedWindow(holder.window);
+  LoadWindowCloseButton(*this, *holder.window);
+  // An open window persists with its presenter (and Close graph) eager.
+  Presented(*holder.window).presenter.SetFlags(
+      OpenObjFlags(Presented(*holder.window).presenter.flags()));
+  if (holder.window->close_button.is_valid()) {
+    holder.window->close_button.SetFlags(
+        OpenObjFlags(holder.window->close_button.flags()));
+  }
+  if (holder.window->close_button_presenter.is_valid()) {
+    holder.window->close_button_presenter.SetFlags(
+        OpenObjFlags(holder.window->close_button_presenter.flags()));
+  }
   auto open_event = SetWindowCatalogOpenEvent::ptr::Create(
       ae::CreateWith{domain});
   open_event->holder = WindowHolder::ptr::MakeFromThis(&holder);
@@ -511,6 +650,18 @@ void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
   }
 }
 void WindowCatalog::CloseHolderWindow(WindowHolder& holder) {
+  // One-shot runtime requests must not keep a closing window alive.
+  if (holder.window.is_valid()) {
+    ae::ObjId const closing_id = holder.window.id();
+    if (pending_focus_window.is_valid() &&
+        pending_focus_window.id() == closing_id) {
+      pending_focus_window = {};
+    }
+    if (pending_mobile_active_window.is_valid() &&
+        pending_mobile_active_window.id() == closing_id) {
+      pending_mobile_active_window = {};
+    }
+  }
   auto close_event = SetWindowCatalogOpenEvent::ptr::Create(
       ae::CreateWith{*domain});
   close_event->holder = WindowHolder::ptr::MakeFromThis(&holder);
@@ -542,6 +693,15 @@ void WindowCatalog::AddWindow() {
   clone_options.stable_origin = kWindowPrefabId;
   clone_options.stable_prefab_ids = {kWindowPrefabId, kWindowPrefabPresenterId};
   clone_options.boundary_ids = {texts.window_title_prefix.id(), locale.id()};
+  CatalogWindow& prefab_window = static_cast<CatalogWindow&>(*prefab_root);
+  if (prefab_window.close_button.is_valid()) {
+    // Close button graph lives in the prefab: clone it with the window, but
+    // keep the shared Close label outside the clone. The prefab button has no
+    // catalog ref; WireWindowCloseButton assigns it after the clone.
+    clone_options.stable_prefab_ids.insert(kWindowPrefabCloseButtonId);
+    clone_options.stable_prefab_ids.insert(kWindowPrefabCloseButtonPresenterId);
+    clone_options.boundary_ids.insert(texts.label_close.id());
+  }
   apptraverse::CloneCanonicalResult const cloned =
       apptraverse::CloneCanonicalRoot(domain, *prefab_root, domain,
                                       clone_options);
@@ -549,7 +709,7 @@ void WindowCatalog::AddWindow() {
     WriteFatalStderr("fatal: CloneCanonicalRoot catalog window failed\n");
     std::abort();
   }
-  EvictTransientPrefabObjects(domain, static_cast<CatalogWindow&>(*prefab_root));
+  EvictTransientPrefabObjects(domain, prefab_window);
   RestoreUnloadedWindowPrefabLink(*this);
   ae::Ptr<CatalogWindow> window_body{ae::Ptr<ae::Obj>{cloned.root.Load()}};
   CatalogWindow::ptr window =
@@ -560,6 +720,12 @@ void WindowCatalog::AddWindow() {
   holder->window.SetFlags(SetUnloadedDefault(holder->window.flags()));
   Presented(*window_body).presenter.SetFlags(
       SetUnloadedDefault(Presented(*window_body).presenter.flags()));
+  if (window_body->close_button.is_valid()) {
+    // Clone gave the window its own Close graph; point it at this holder's
+    // window + catalog before it is first presented.
+    LoadWindowCloseButton(*this, *window_body);
+    MarkWindowCloseButtonUnloadedByDefault(*window_body);
+  }
   BindLiveWindowNotifiers(*this, *window_body);
   auto add = AddWindowCatalogEntryEvent::ptr::Create(ae::CreateWith{domain});
   add->holder = holder;

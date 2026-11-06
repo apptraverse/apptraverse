@@ -19,7 +19,9 @@ struct WindowCatalogPresenterFactory {
   std::function<ui::UiListContainerPresenter::ptr(
       ae::Domain&, ae::ObjId, WindowCatalog::ptr const&)>
       create_list;
-  std::function<ui::UiPushButtonPresenter::ptr(ae::Domain&)> create_button;
+  // Invalid ObjId -> generated id; valid -> stable id (prefab Close presenter).
+  std::function<ui::UiPushButtonPresenter::ptr(ae::Domain&, ae::ObjId)>
+      create_button;
 };
 
 struct WindowCatalogGraphOptions {

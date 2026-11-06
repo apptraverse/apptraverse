@@ -24,5 +24,7 @@ public final class NativeRuntime {
 
   public static native void nativeMobileSwipe(long handle, int delta);
 
+  public static native void nativeMainViewportChanged(long handle);
+
   public static native void nativeDestroy(long handle);
 }

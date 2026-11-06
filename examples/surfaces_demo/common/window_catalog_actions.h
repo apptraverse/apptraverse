@@ -6,6 +6,12 @@
 #include "apptraverse/object_macros.h"
 #include "apptraverse/ui/ui_push_button.h"
 
+namespace apptraverse {
+
+class ModelObjectProxy;
+
+}  // namespace apptraverse
+
 namespace apptraverse::example::surfaces {
 
 class CatalogAddButton : public ui::UiPushButton {
@@ -119,6 +125,12 @@ class CatalogLanguageButton : public ui::UiPushButton {
 };
 
 void EnsureCatalogActionRegistration();
+
+// UI thread (Windows/Linux presenters): the platform already reports the main
+// window client frame to the model. When the mirror shows a client size that
+// differs from the catalog viewport, post the viewport to the model.
+void ReportCatalogMainViewportFromMirror(WindowCatalog& mirror_catalog,
+                                         ModelObjectProxy* model_proxy);
 
 }  // namespace apptraverse::example::surfaces
 

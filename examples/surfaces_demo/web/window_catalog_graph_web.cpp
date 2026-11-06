@@ -196,9 +196,11 @@ WindowCatalog::ptr BuildWebWindowCatalogGraph(ae::Domain& domain) {
         presenter->catalog = catalog;
         return presenter;
       };
-  factory.create_button = [](ae::Domain& build_domain) {
+  factory.create_button = [](ae::Domain& build_domain, ae::ObjId presenter_id) {
     return example::surfaces::WebCatalogPushButtonPresenter::ptr::Create(
-        ae::CreateWith{build_domain});
+        presenter_id.is_valid()
+            ? ae::CreateWith{build_domain}.with_id(presenter_id)
+            : ae::CreateWith{build_domain});
   };
 
   return BuildWindowCatalogGraph(domain, factory);

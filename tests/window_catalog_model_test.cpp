@@ -980,7 +980,8 @@ void TestWindowCatalogOpenCloseEventJournalPersistence() {
   CHECK(!ram_domain.Find(window2_id));
 
   CHECK(CountSetWindowCatalogOpenEvents(*catalog, false) == 2);
-  CHECK(CountSetWindowCatalogOpenEvents(*catalog, true) == 1);
+  // AddWindow opens each new holder window (2 adds) + the explicit reopen.
+  CHECK(CountSetWindowCatalogOpenEvents(*catalog, true) == 3);
   CHECK(holder1->window.is_loaded());
   CHECK(!holder2->window.is_loaded());
 
@@ -994,7 +995,7 @@ void TestWindowCatalogOpenCloseEventJournalPersistence() {
     }
     open_close_event_ids.push_back(record.event->obj_id);
   }
-  CHECK(open_close_event_ids.size() == 3);
+  CHECK(open_close_event_ids.size() == 5);
 
   auto const dir = TestDir("apptraverse_window_catalog_open_close_journal");
   ae::ObjId const catalog_id{
@@ -1046,7 +1047,7 @@ void TestWindowCatalogOpenCloseEventJournalPersistence() {
       }
       persisted_open_close_event_ids.push_back(record.event->obj_id);
     }
-    CHECK(persisted_open_close_event_ids.size() == 3);
+    CHECK(persisted_open_close_event_ids.size() == 5);
 
     saved_journal_size = persist->journal.size();
     ShutdownSaveCatalog(*persist, persist_storage);
@@ -1094,7 +1095,7 @@ void TestWindowCatalogOpenCloseEventJournalPersistence() {
     }
     CHECK(found);
   }
-  CHECK(persisted_open_events == 1);
+  CHECK(persisted_open_events == 3);
 
   loaded->OpenHolderWindow(*l2);
   CHECK(l2->window.is_loaded());

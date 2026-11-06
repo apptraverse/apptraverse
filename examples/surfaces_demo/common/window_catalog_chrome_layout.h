@@ -1,0 +1,38 @@
+#ifndef APPTRAVERSE_WINDOW_CATALOG_CHROME_LAYOUT_H_
+#define APPTRAVERSE_WINDOW_CATALOG_CHROME_LAYOUT_H_
+
+#include <cstdint>
+
+namespace apptraverse {
+
+struct WindowCatalogChromeRect {
+  std::int32_t x{0};
+  std::int32_t y{0};
+  std::int32_t width{0};
+  std::int32_t height{0};
+};
+
+// Layout of the main catalog window chrome in main-window client coordinates.
+// Pure geometry: no platform types, no model access.
+struct WindowCatalogMainChromeLayout {
+  WindowCatalogChromeRect list;
+  WindowCatalogChromeRect add;
+  WindowCatalogChromeRect open;
+  WindowCatalogChromeRect delete_button;
+  WindowCatalogChromeRect language;
+};
+
+// Adaptive main chrome layout.
+//  * Portrait (client_h >= client_w): list on top, the four buttons stacked in
+//    a full-width column at the bottom.
+//  * Landscape: list on the left half, the four buttons stacked in a column on
+//    the right half.
+// Margins are ~12 px and button height is ~48 px at a 480 px short side; both
+// grow with the short side (up to 3x) so touch targets stay usable on dense
+// phone viewports reported in physical pixels.
+[[nodiscard]] WindowCatalogMainChromeLayout ComputeWindowCatalogMainChromeLayout(
+    std::int32_t client_w, std::int32_t client_h);
+
+}  // namespace apptraverse
+
+#endif  // APPTRAVERSE_WINDOW_CATALOG_CHROME_LAYOUT_H_

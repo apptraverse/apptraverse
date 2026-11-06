@@ -57,6 +57,8 @@ void InstallWindowCatalogLocalization(WindowCatalog& catalog,
       CreateCatalogLocalizedString(domain, catalog, "RU", "EN");
   catalog.texts.window_title_prefix =
       CreateCatalogLocalizedString(domain, catalog, "Window ", "Окно ");
+  catalog.texts.label_close =
+      CreateCatalogLocalizedString(domain, catalog, "Close", "Закрыть");
 }
 
 ui::UiLocalizationString::ptr CreateMainWindowTitle(WindowCatalog& catalog,

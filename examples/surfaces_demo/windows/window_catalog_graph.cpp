@@ -42,6 +42,7 @@ class CatalogListContainerPresenter
 
   void SubmitListRowSelectionChangedFromUi(std::size_t row_index) override;
   void SubmitListRowActivatedFromUi(std::size_t row_index) override;
+  void OnModelChanged() override;
 };
 
 void CatalogListContainerPresenter::SubmitListRowSelectionChangedFromUi(
@@ -53,6 +54,16 @@ void CatalogListContainerPresenter::SubmitListRowSelectionChangedFromUi(
 void CatalogListContainerPresenter::SubmitListRowActivatedFromUi(
     std::size_t row_index) {
   model_proxy->Invoke(catalog->obj_id, &WindowCatalog::OpenRow, row_index);
+}
+
+// Main client size is reported to the model by the desktop window presenter
+// (WM_SIZE / client mount size-allocate); mirror it into the catalog viewport
+// so chrome layout adapts.
+void CatalogListContainerPresenter::OnModelChanged() {
+  WinListContainerPresenter::OnModelChanged();
+  if (catalog.is_loaded()) {
+    ReportCatalogMainViewportFromMirror(*catalog, model_proxy);
+  }
 }
 
 APPTRAVERSE_REGISTER(CatalogListContainerPresenter);
@@ -80,9 +91,11 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
         presenter->catalog = catalog;
         return presenter;
       };
-  factory.create_button = [](ae::Domain& build_domain) {
+  factory.create_button = [](ae::Domain& build_domain, ae::ObjId presenter_id) {
     return ui::windows::WinPushButtonPresenter::ptr::Create(
-        ae::CreateWith{build_domain});
+        presenter_id.is_valid()
+            ? ae::CreateWith{build_domain}.with_id(presenter_id)
+            : ae::CreateWith{build_domain});
   };
 
   return BuildWindowCatalogGraph(domain, factory);

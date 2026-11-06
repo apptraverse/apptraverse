@@ -78,6 +78,10 @@ void NativeMobileSwipe(JNIEnv*, jclass, jlong handle, jint delta) {
   FromHandle(handle)->MobileSwipe(static_cast<int>(delta));
 }
 
+void NativeMainViewportChanged(JNIEnv*, jclass, jlong handle) {
+  FromHandle(handle)->ReportMainViewport();
+}
+
 void NativeDestroy(JNIEnv*, jclass, jlong handle) { delete FromHandle(handle); }
 
 JNINativeMethod const kNativeMethods[] = {
@@ -94,6 +98,8 @@ JNINativeMethod const kNativeMethods[] = {
     {"nativeMobilePageShown", "(JJ)V",
      reinterpret_cast<void*>(&NativeMobilePageShown)},
     {"nativeMobileSwipe", "(JI)V", reinterpret_cast<void*>(&NativeMobileSwipe)},
+    {"nativeMainViewportChanged", "(J)V",
+     reinterpret_cast<void*>(&NativeMainViewportChanged)},
     {"nativeDestroy", "(J)V", reinterpret_cast<void*>(&NativeDestroy)},
 };
 

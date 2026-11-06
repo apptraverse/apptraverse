@@ -6,6 +6,7 @@
 #include <thread>
 #include <vector>
 
+#include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
 
 #include "apptraverse/application_model_runtime.h"
@@ -23,6 +24,7 @@
 #include "apptraverse/ui/ui_push_button_presenter.h"
 
 #include "window_catalog_graph_headless.h"
+#include "window_catalog_chrome_layout.h"
 #include "window_catalog_graph_builder.h"
 #include "window_catalog_ids.h"
 #include "window_catalog_prepare.h"
@@ -527,12 +529,87 @@ void TestHeadlessCatalogChromeE2e() {
   CHECK(!cold->window_prefab.is_loaded());
 }
 
+void TestMobileCloseButtonAndAdaptiveLayout() {
+  EnsureObjectRegistration();
+  EnsureHeadlessWindowCatalogGraphRegistration();
+
+  using window_catalog_demo::ObjId;
+  using window_catalog_demo::ToObjId;
+
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  WindowCatalogGraphOptions options;
+  options.mobile_pager = true;
+  options.mobile_close_in_prefab = true;
+  auto catalog = BuildHeadlessWindowCatalogGraph(domain, options);
+  FinalizeDistilledGraph(*catalog);
+
+  CHECK(catalog->texts.label_close.is_valid());
+  catalog->AddWindow();
+  CHECK(catalog->list->rows.size() == 1);
+  WindowHolder* holder = AsHolder(catalog->list->rows[0]);
+  CHECK(catalog->IsHolderWindowOpen(*holder));
+  CHECK(holder->window.is_loaded());
+  CatalogWindow& window = *holder->window;
+  CHECK(window.close_button.is_valid());
+  CHECK(window.close_button.is_loaded());
+  CHECK(window.close_button_presenter.is_valid());
+  CHECK(window.close_button_presenter.is_loaded());
+  // Clone: new objects, not the prefab ones.
+  CHECK(window.close_button.id() != ae::ObjId{ToObjId(ObjId::WindowPrefabCloseButton)});
+  CHECK(window.close_button_presenter.id() !=
+        ae::ObjId{ToObjId(ObjId::WindowPrefabCloseButtonPresenter)});
+  CHECK(window.close_button->window.id() == window.obj_id);
+  CHECK(window.close_button->catalog.id() == catalog->obj_id);
+  CHECK(window.close_button_presenter->button.id() == window.close_button.id());
+  CHECK(window.close_button_presenter->window_presenter.id() ==
+        CatalogWindowPresented(window).presenter.id());
+  CHECK(window.close_button->label.id() == catalog->texts.label_close.id());
+
+  // Close through the button path, then reopen: Close graph is rewired.
+  ae::ObjId const window_id = window.obj_id;
+  window.close_button->HandlePushButtonClicked();
+  CHECK(!holder->window.is_loaded());
+  CHECK(!catalog->IsHolderWindowOpen(*holder));
+  catalog->OpenHolderWindow(*holder);
+  CHECK(holder->window.is_loaded());
+  CHECK(holder->window.id() == window_id);
+  CHECK(holder->window->close_button.is_loaded());
+  CHECK(holder->window->close_button->window.id() == window_id);
+  CHECK(holder->window->close_button->catalog.id() == catalog->obj_id);
+
+  // Adaptive main chrome: portrait, then landscape; unchanged size is a no-op.
+  catalog->SubmitMainClientViewportFromUi(360, 800);
+  CHECK(catalog->main_client_viewport_w == 360);
+  CHECK(catalog->main_client_viewport_h == 800);
+  auto const portrait = ComputeWindowCatalogMainChromeLayout(360, 800);
+  CHECK(portrait.list.y < portrait.add.y);
+  CHECK(portrait.add.width == 360 - 2 * 12);
+  auto& add_presenter = static_cast<ui::UiPushButtonPresenter&>(
+      *catalog->presenters.add_button_presenter);
+  CHECK(add_presenter.layout_x == portrait.add.x);
+  CHECK(add_presenter.layout_y == portrait.add.y);
+  CHECK(add_presenter.layout_width == portrait.add.width);
+  CHECK(add_presenter.layout_height == portrait.add.height);
+  auto& list_presenter = static_cast<ui::UiListContainerPresenter&>(
+      *catalog->presenters.list_presenter);
+  CHECK(list_presenter.layout_width == portrait.list.width);
+  CHECK(list_presenter.layout_height == portrait.list.height);
+
+  auto const landscape = ComputeWindowCatalogMainChromeLayout(800, 360);
+  CHECK(landscape.list.x < landscape.add.x);
+  catalog->SubmitMainClientViewportFromUi(800, 360);
+  CHECK(add_presenter.layout_x == landscape.add.x);
+  CHECK(list_presenter.layout_width == landscape.list.width);
+  CHECK(list_presenter.layout_height == landscape.list.height);
+}
 }  // namespace
 }  // namespace apptraverse::test
 
 int main() {
   apptraverse::EnableNoninteractiveCrt();
   apptraverse::test::TestHeadlessCatalogChromeE2e();
+  apptraverse::test::TestMobileCloseButtonAndAdaptiveLayout();
   std::cout << "window_catalog_headless_test OK\n";
   return 0;
 }

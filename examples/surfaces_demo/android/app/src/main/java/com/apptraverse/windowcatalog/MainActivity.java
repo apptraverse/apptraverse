@@ -88,6 +88,23 @@ public final class MainActivity extends Activity {
           }
         });
 
+    pageContainer.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+      @Override
+      public void onLayoutChange(View v, int left, int top, int right,
+                                 int bottom, int oldLeft, int oldTop,
+                                 int oldRight, int oldBottom) {
+        if (right - left != oldRight - oldLeft
+            || bottom - top != oldBottom - oldTop) {
+          v.post(new Runnable() {
+            @Override
+            public void run() {
+              application().mainViewportChanged();
+            }
+          });
+        }
+      }
+    });
+
     pageContainer.setOnTouchListener(new View.OnTouchListener() {
       @Override
       public boolean onTouch(View view, MotionEvent event) {

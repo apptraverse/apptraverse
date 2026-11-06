@@ -69,6 +69,12 @@ public final class WindowCatalogApplication extends Application
     }
   }
 
+  public void mainViewportChanged() {
+    if (runtimeHandle != 0L) {
+      NativeRuntime.nativeMainViewportChanged(runtimeHandle);
+    }
+  }
+
   public void mobileSwipe(int delta) {
     if (runtimeHandle != 0L) {
       NativeRuntime.nativeMobileSwipe(runtimeHandle, delta);

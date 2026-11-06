@@ -79,6 +79,16 @@ void LinuxListContainerPresenter::SyncFromMirror() {
   int const language_index = window_presenter->locale->language_index();
   GtkListBox* const box = GTK_LIST_BOX(list_box_);
 
+  // Layout may change after load (adaptive catalog chrome).
+  ui::UiControlLayout const layout =
+      window_presenter->ResolveChildLayout({layout_x, layout_y, layout_width,
+                                            layout_height, control_id});
+  gtk_widget_set_size_request(list_box_, layout.width, layout.height);
+  GtkWidget* const parent = gtk_widget_get_parent(list_box_);
+  if (parent != nullptr && GTK_IS_FIXED(parent)) {
+    gtk_fixed_move(GTK_FIXED(parent), list_box_, layout.x, layout.y);
+  }
+
   std::vector<NativeRow> previous = std::move(native_rows_);
   native_rows_.clear();
   native_rows_.reserve(container->rows.size());

@@ -52,6 +52,7 @@ set(_window_catalog_linux_embed_graph_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/window_catalog_graph_linux.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/../common/window_catalog_graph_builder.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/../common/window_catalog_model.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common/window_catalog_chrome_layout.cpp
 )
 
 add_executable(apptraverse_export_window_catalog_distilled_graph_linux
