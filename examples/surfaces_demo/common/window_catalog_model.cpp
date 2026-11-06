@@ -254,6 +254,22 @@ void WindowCatalog::Apply(RemoveWindowCatalogEntryEvent const& event) {
   if (persisted.selected.is_valid() && persisted.selected.id() == target_id) {
     persisted.selected = {};
   }
+  // Keep list selection_index consistent with persisted.selected after the row
+  // vector shrinks (indices shift; a stale index makes Open follow the list path
+  // while selected is empty or points elsewhere).
+  if (persisted.selected.is_valid()) {
+    persisted.selected.Load();
+    std::size_t const idx = RowIndexForHolder(*persisted.selected);
+    if (idx >= rows.size()) {
+      persisted.selected = {};
+      persisted.list->selection_index = -1;
+    } else {
+      persisted.list->selection_index = static_cast<std::int32_t>(idx);
+    }
+  } else {
+    persisted.list->selection_index = -1;
+  }
+  RefreshChromeButtonEnabledState();
   NoteMaterializedChange();
 }
 void WindowCatalog::Apply(SetWindowCatalogSelectionEvent const& event) {

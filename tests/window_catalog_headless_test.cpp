@@ -42,6 +42,13 @@ namespace {
     }                                                                        \
   } while (false)
 
+void ShutdownSaveCatalog(WindowCatalog& catalog,
+                         DirectoryDomainStorage& storage) {
+  storage.BeginSaveSession();
+  SaveWindowCatalogPersistentSnapshot(catalog);
+  CHECK(!storage.SaveSessionHadFailure());
+}
+
 ae::ObjId const kWindowPrefabId{
     window_catalog_demo::ToObjId(window_catalog_demo::ObjId::WindowPrefab)};
 ae::ObjId const kWindowPrefabPresenterId{window_catalog_demo::ToObjId(
@@ -96,6 +103,267 @@ void WaitPublication(PublicationWaiter& waiter) {
   std::unique_lock<std::mutex> lock{waiter.mu};
   waiter.cv.wait(lock, [&] { return waiter.pending > 0; });
   --waiter.pending;
+}
+
+void ExpectChromeOpenDeleteDisabled(WindowCatalog& catalog) {
+  catalog.persisted.buttons.open_button.Load();
+  catalog.persisted.buttons.delete_button.Load();
+  CHECK(!catalog.persisted.buttons.open_button->enabled());
+  CHECK(!catalog.persisted.buttons.delete_button->enabled());
+}
+
+void ExpectChromeOpenDeleteEnabled(WindowCatalog& catalog) {
+  catalog.persisted.buttons.open_button.Load();
+  catalog.persisted.buttons.delete_button.Load();
+  CHECK(catalog.persisted.buttons.open_button->enabled());
+  CHECK(catalog.persisted.buttons.delete_button->enabled());
+}
+
+void ExpectNoSelectionOneRow(WindowCatalog& catalog,
+                             ae::ObjId const& expected_holder_id,
+                             ae::ObjId const& expected_window_id) {
+  catalog.persisted.list.Load();
+  CHECK(catalog.persisted.list->rows.size() == 1);
+  CHECK(catalog.persisted.list->selection_index == -1);
+  CHECK(!catalog.persisted.selected.is_valid());
+  WindowHolder* only = AsHolder(catalog.persisted.list->rows[0]);
+  CHECK(only->obj_id == expected_holder_id);
+  CHECK(only->window.id() == expected_window_id);
+  CHECK(!only->window.is_loaded());
+  ExpectChromeOpenDeleteDisabled(catalog);
+}
+
+void RunDeleteMatrixScenario(ae::Domain& domain, WindowCatalog& catalog,
+                             int window_count, int close_index, int select_index) {
+  (void)domain;
+  while (static_cast<int>(catalog.persisted.list->rows.size()) < window_count) {
+    catalog.AddWindow();
+  }
+  catalog.persisted.list.Load();
+  CHECK(catalog.persisted.list->rows.size() ==
+        static_cast<std::size_t>(window_count));
+  for (int i = 0; i < window_count; ++i) {
+    if (i == close_index) {
+      WindowHolder* h = AsHolder(catalog.persisted.list->rows[static_cast<std::size_t>(i)]);
+      h->window.Load();
+      catalog.UserCloseWindow(h->window.id());
+      CHECK(!h->window.is_loaded());
+    }
+  }
+  catalog.SubmitSelectionFromUi(static_cast<std::size_t>(select_index));
+  catalog.persisted.list.Load();
+  CHECK(catalog.persisted.list->selection_index ==
+        static_cast<std::int32_t>(select_index));
+  catalog.DeleteSelected();
+  catalog.persisted.list.Load();
+  CHECK(catalog.persisted.list->rows.size() ==
+        static_cast<std::size_t>(window_count - 1));
+  CHECK(catalog.persisted.list->selection_index == -1);
+  CHECK(!catalog.persisted.selected.is_valid());
+  ExpectChromeOpenDeleteDisabled(catalog);
+  // Open without a new selection must not load any child window.
+  int loaded_before = 0;
+  for (auto const& row : catalog.persisted.list->rows) {
+    auto* h = AsHolder(row);
+    if (h->window.is_loaded()) {
+      ++loaded_before;
+    }
+  }
+  catalog.OpenSelected();
+  int loaded_after = 0;
+  for (auto const& row : catalog.persisted.list->rows) {
+    auto* h = AsHolder(row);
+    if (h->window.is_loaded()) {
+      ++loaded_after;
+    }
+  }
+  CHECK(loaded_after == loaded_before);
+}
+
+void TestHeadlessDeleteClearsSelectionIndexRam() {
+  EnsureObjectRegistration();
+  EnsureHeadlessWindowCatalogGraphRegistration();
+
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto catalog = BuildHeadlessWindowCatalogGraph(domain);
+  FinalizeDistilledGraph(*catalog);
+
+  // A, B; close B; select A; delete A -> only B, no selection.
+  RunDeleteMatrixScenario(domain, *catalog, 2, 1, 0);
+
+  // Three rows: close middle, delete first -> two remain, no selection.
+  catalog->AddWindow();
+  catalog->AddWindow();
+  catalog->persisted.list.Load();
+  CHECK(catalog->persisted.list->rows.size() == 3);
+  WindowHolder* r0 = AsHolder(catalog->persisted.list->rows[0]);
+  WindowHolder* r1 = AsHolder(catalog->persisted.list->rows[1]);
+  WindowHolder* r2 = AsHolder(catalog->persisted.list->rows[2]);
+  r0->window.Load();
+  r1->window.Load();
+  r2->window.Load();
+  catalog->UserCloseWindow(r1->window.id());
+  CHECK(!r1->window.is_loaded());
+  catalog->SubmitSelectionFromUi(0);
+  catalog->DeleteSelected();
+  catalog->persisted.list.Load();
+  CHECK(catalog->persisted.list->rows.size() == 2);
+  CHECK(catalog->persisted.list->selection_index == -1);
+  CHECK(!catalog->persisted.selected.is_valid());
+  ExpectChromeOpenDeleteDisabled(*catalog);
+
+  // Two rows: select last, delete -> one row, no selection.
+  catalog->SubmitSelectionFromUi(1);
+  catalog->DeleteSelected();
+  catalog->persisted.list.Load();
+  CHECK(catalog->persisted.list->rows.size() == 1);
+  CHECK(catalog->persisted.list->selection_index == -1);
+  CHECK(!catalog->persisted.selected.is_valid());
+  ExpectChromeOpenDeleteDisabled(*catalog);
+
+  // One row left: select and delete -> empty list.
+  catalog->SubmitSelectionFromUi(0);
+  catalog->DeleteSelected();
+  catalog->persisted.list.Load();
+  CHECK(catalog->persisted.list->rows.empty());
+  CHECK(catalog->persisted.list->selection_index == -1);
+  CHECK(!catalog->persisted.selected.is_valid());
+  ExpectChromeOpenDeleteDisabled(*catalog);
+}
+
+void TestHeadlessDeleteSelectionAbPersistAndColdLoad() {
+  EnsureObjectRegistration();
+  EnsureHeadlessWindowCatalogGraphRegistration();
+
+  ae::ObjId const catalog_id{
+      window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
+  auto const profile_dir = TestDir("window_catalog_headless_delete_ab");
+
+  {
+    DirectoryDomainStorage bootstrap{profile_dir};
+    ae::Domain bootstrap_domain{bootstrap};
+    auto catalog = BuildHeadlessWindowCatalogGraph(bootstrap_domain);
+    FinalizeDistilledGraph(*catalog);
+    SaveDistilledRoot(*catalog);
+  }
+
+  DirectoryDomainStorage model_storage{profile_dir};
+  ApplicationModelRuntime runtime;
+  PublicationWaiter waiter;
+  std::unique_ptr<ApplicationUiSession> ui_session;
+  ae::ObjId holder_b_id{};
+  ae::ObjId window_b_id{};
+  int session_result = 1;
+
+  ModelObjectProxy model_proxy{[&runtime](ModelObjectProxy::ModelWork work) {
+    runtime.Post(std::move(work));
+  }};
+
+  ApplicationModelSessionHooks<WindowCatalog> hooks;
+  hooks.prepare = PrepareWindowCatalogForRun;
+  hooks.persist = [&](WindowCatalog& catalog) -> int {
+    catalog.persisted.list.Load();
+    CHECK(catalog.persisted.list->rows.size() == 1);
+    CHECK(catalog.persisted.list->selection_index == -1);
+    CHECK(!catalog.persisted.selected.is_valid());
+    WindowHolder* b = AsHolder(catalog.persisted.list->rows[0]);
+    CHECK(b->obj_id == holder_b_id);
+    CHECK(b->window.id() == window_b_id);
+    CHECK(!b->window.is_loaded());
+    ShutdownSaveCatalog(catalog, model_storage);
+    return 0;
+  };
+
+  std::thread model_thread{[&] {
+    session_result = RunApplicationModelSession(
+        model_storage, catalog_id, runtime,
+        [&](ApplicationPublicationKind kind) {
+          std::vector<std::uint8_t> bytes = runtime.TakePublishedCopy();
+          runtime.NotifyPublicationConsumed();
+          {
+            std::lock_guard<std::mutex> lock{waiter.mu};
+            waiter.kind = kind;
+            waiter.bytes = std::move(bytes);
+            ++waiter.pending;
+          }
+          waiter.cv.notify_one();
+        },
+        hooks);
+  }};
+
+  WaitPublication(waiter);
+  CHECK(waiter.kind == ApplicationPublicationKind::Initial);
+  ui_session = std::make_unique<ApplicationUiSession>(waiter.bytes, nullptr,
+                                                      model_proxy);
+  WindowCatalog& ui_catalog =
+      static_cast<WindowCatalog&>(ui_session->root());
+
+  auto apply_incremental = [&] {
+    WaitPublication(waiter);
+    CHECK(waiter.kind == ApplicationPublicationKind::Incremental);
+    ui_session->ApplyStructural(waiter.bytes);
+  };
+
+  ChromeButtonPresenter(ui_catalog, ui_catalog.persisted.presenters.add_button_presenter)
+      .NotifyClickedFromUi();
+  apply_incremental();
+  ChromeButtonPresenter(ui_catalog, ui_catalog.persisted.presenters.add_button_presenter)
+      .NotifyClickedFromUi();
+  apply_incremental();
+  ui_catalog.persisted.list.Load();
+  CHECK(ui_catalog.persisted.list->rows.size() == 2);
+  WindowHolder* holder_a = AsHolder(ui_catalog.persisted.list->rows[0]);
+  WindowHolder* holder_b = AsHolder(ui_catalog.persisted.list->rows[1]);
+  holder_b->window.Load();
+  ae::ObjId const window_b = holder_b->window.id();
+  model_proxy.Invoke(ui_catalog.obj_id, &WindowCatalog::UserCloseWindow, window_b);
+  apply_incremental();
+  CHECK(!holder_b->window.is_loaded());
+  CHECK(holder_b->window.is_valid());
+
+  ListPresenter(ui_catalog).SubmitListRowSelectionChangedFromUi(0);
+  apply_incremental();
+  ExpectChromeOpenDeleteEnabled(ui_catalog);
+
+  ChromeButtonPresenter(ui_catalog, ui_catalog.persisted.presenters.delete_button_presenter)
+      .NotifyClickedFromUi();
+  apply_incremental();
+
+  holder_b_id = holder_b->obj_id;
+  window_b_id = holder_b->window.id();
+  ExpectNoSelectionOneRow(ui_catalog, holder_b_id, window_b_id);
+
+  runtime.RequestStop();
+  model_thread.join();
+  ui_session.reset();
+  CHECK(session_result == 0);
+
+  ae::Domain cold_domain{model_storage};
+  auto cold = LoadApplication<WindowCatalog>(cold_domain, catalog_id);
+  cold->persisted.list.Load();
+  cold->persisted.buttons.open_button.Load();
+  cold->persisted.buttons.delete_button.Load();
+  CHECK(cold->persisted.list->rows.size() == 1);
+  CHECK(cold->persisted.list->selection_index == -1);
+  CHECK(!cold->persisted.selected.is_valid());
+  CHECK(!cold->persisted.buttons.open_button->enabled());
+  CHECK(!cold->persisted.buttons.delete_button->enabled());
+  WindowHolder* cold_b = AsHolder(cold->persisted.list->rows[0]);
+  CHECK(cold_b->obj_id == holder_b_id);
+  CHECK(cold_b->window.id() == window_b_id);
+
+  cold->SubmitSelectionFromUi(0);
+  cold->persisted.list.Load();
+  CHECK(cold->persisted.list->selection_index == 0);
+  CHECK(cold->persisted.selected.is_valid());
+  cold->persisted.buttons.open_button.Load();
+  CHECK(cold->persisted.buttons.open_button->enabled());
+  cold->OpenSelected();
+  cold->persisted.list.Load();
+  cold_b = AsHolder(cold->persisted.list->rows[0]);
+  CHECK(cold_b->window.is_loaded());
+  CHECK(cold_b->window.id() == window_b_id);
 }
 
 ui::UiPresentedWindow& MainWindowPresented(WindowCatalog& catalog) {
@@ -616,6 +884,8 @@ void TestMobileCloseButtonAndAdaptiveLayout() {
 
 int main() {
   apptraverse::EnableNoninteractiveCrt();
+  apptraverse::test::TestHeadlessDeleteClearsSelectionIndexRam();
+  apptraverse::test::TestHeadlessDeleteSelectionAbPersistAndColdLoad();
   apptraverse::test::TestHeadlessCatalogChromeE2e();
   apptraverse::test::TestMobileCloseButtonAndAdaptiveLayout();
   std::cout << "window_catalog_headless_test OK\n";
