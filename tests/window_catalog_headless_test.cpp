@@ -133,6 +133,18 @@ void ExpectNoSelectionOneRow(WindowCatalog& catalog,
   ExpectChromeOpenDeleteDisabled(catalog);
 }
 
+int CountLoadedCatalogChildWindows(WindowCatalog& catalog) {
+  catalog.persisted.list.Load();
+  int n = 0;
+  for (auto const& row : catalog.persisted.list->rows) {
+    auto* h = AsHolder(row);
+    if (h->window.is_loaded()) {
+      ++n;
+    }
+  }
+  return n;
+}
+
 void RunDeleteMatrixScenario(ae::Domain& domain, WindowCatalog& catalog,
                              int window_count, int close_index, int select_index) {
   (void)domain;
@@ -333,37 +345,90 @@ void TestHeadlessDeleteSelectionAbPersistAndColdLoad() {
   holder_b_id = holder_b->obj_id;
   window_b_id = holder_b->window.id();
   ExpectNoSelectionOneRow(ui_catalog, holder_b_id, window_b_id);
+  int const loaded_after_delete = CountLoadedCatalogChildWindows(ui_catalog);
+  // Disabled Open: presenter returns without posting model work (no publication).
+  ChromeButtonPresenter(ui_catalog,
+                        ui_catalog.persisted.presenters.open_button_presenter)
+      .NotifyClickedFromUi();
+  CHECK(CountLoadedCatalogChildWindows(ui_catalog) == loaded_after_delete);
+  WindowHolder* after_noop_open = AsHolder(ui_catalog.persisted.list->rows[0]);
+  CHECK(!after_noop_open->window.is_loaded());
 
   runtime.RequestStop();
   model_thread.join();
   ui_session.reset();
   CHECK(session_result == 0);
 
-  ae::Domain cold_domain{model_storage};
-  auto cold = LoadApplication<WindowCatalog>(cold_domain, catalog_id);
-  cold->persisted.list.Load();
-  cold->persisted.buttons.open_button.Load();
-  cold->persisted.buttons.delete_button.Load();
-  CHECK(cold->persisted.list->rows.size() == 1);
-  CHECK(cold->persisted.list->selection_index == -1);
-  CHECK(!cold->persisted.selected.is_valid());
-  CHECK(!cold->persisted.buttons.open_button->enabled());
-  CHECK(!cold->persisted.buttons.delete_button->enabled());
-  WindowHolder* cold_b = AsHolder(cold->persisted.list->rows[0]);
-  CHECK(cold_b->obj_id == holder_b_id);
-  CHECK(cold_b->window.id() == window_b_id);
+  ApplicationModelRuntime runtime_cold;
+  PublicationWaiter waiter_cold;
+  std::unique_ptr<ApplicationUiSession> ui_session_cold;
+  int cold_session_result = 1;
+  ModelObjectProxy model_proxy_cold{[&runtime_cold](ModelObjectProxy::ModelWork work) {
+    runtime_cold.Post(std::move(work));
+  }};
+  ApplicationModelSessionHooks<WindowCatalog> hooks_cold;
+  hooks_cold.prepare = PrepareWindowCatalogForRun;
+  hooks_cold.persist = [](WindowCatalog&) -> int { return 0; };
 
-  cold->SubmitSelectionFromUi(0);
-  cold->persisted.list.Load();
-  CHECK(cold->persisted.list->selection_index == 0);
-  CHECK(cold->persisted.selected.is_valid());
-  cold->persisted.buttons.open_button.Load();
-  CHECK(cold->persisted.buttons.open_button->enabled());
-  cold->OpenSelected();
-  cold->persisted.list.Load();
-  cold_b = AsHolder(cold->persisted.list->rows[0]);
-  CHECK(cold_b->window.is_loaded());
-  CHECK(cold_b->window.id() == window_b_id);
+  std::thread cold_thread{[&] {
+    cold_session_result = RunApplicationModelSession(
+        model_storage, catalog_id, runtime_cold,
+        [&](ApplicationPublicationKind kind) {
+          std::vector<std::uint8_t> bytes = runtime_cold.TakePublishedCopy();
+          runtime_cold.NotifyPublicationConsumed();
+          {
+            std::lock_guard<std::mutex> lock{waiter_cold.mu};
+            waiter_cold.kind = kind;
+            waiter_cold.bytes = std::move(bytes);
+            ++waiter_cold.pending;
+          }
+          waiter_cold.cv.notify_one();
+        },
+        hooks_cold);
+  }};
+
+  WaitPublication(waiter_cold);
+  CHECK(waiter_cold.kind == ApplicationPublicationKind::Initial);
+  ui_session_cold = std::make_unique<ApplicationUiSession>(waiter_cold.bytes,
+                                                           nullptr,
+                                                           model_proxy_cold);
+  WindowCatalog& cold_ui =
+      static_cast<WindowCatalog&>(ui_session_cold->root());
+
+  auto apply_cold_incremental = [&] {
+    WaitPublication(waiter_cold);
+    CHECK(waiter_cold.kind == ApplicationPublicationKind::Incremental);
+    ui_session_cold->ApplyStructural(waiter_cold.bytes);
+  };
+
+  cold_ui.persisted.list.Load();
+  CHECK(cold_ui.persisted.list->rows.size() == 1);
+  ExpectNoSelectionOneRow(cold_ui, holder_b_id, window_b_id);
+  int const cold_loaded_before_open =
+      CountLoadedCatalogChildWindows(cold_ui);
+  ChromeButtonPresenter(cold_ui,
+                        cold_ui.persisted.presenters.open_button_presenter)
+      .NotifyClickedFromUi();
+  CHECK(CountLoadedCatalogChildWindows(cold_ui) == cold_loaded_before_open);
+
+  ListPresenter(cold_ui).SubmitListRowSelectionChangedFromUi(0);
+  apply_cold_incremental();
+  ExpectChromeOpenDeleteEnabled(cold_ui);
+
+  ChromeButtonPresenter(cold_ui,
+                        cold_ui.persisted.presenters.open_button_presenter)
+      .NotifyClickedFromUi();
+  apply_cold_incremental();
+  cold_ui.persisted.list.Load();
+  WindowHolder* opened_b = AsHolder(cold_ui.persisted.list->rows[0]);
+  CHECK(opened_b->window.is_loaded());
+  CHECK(opened_b->obj_id == holder_b_id);
+  CHECK(opened_b->window.id() == window_b_id);
+
+  runtime_cold.RequestStop();
+  cold_thread.join();
+  ui_session_cold.reset();
+  CHECK(cold_session_result == 0);
 }
 
 ui::UiPresentedWindow& MainWindowPresented(WindowCatalog& catalog) {
