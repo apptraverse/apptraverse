@@ -56,8 +56,8 @@ LinuxDesktopWindowPresenter::ReadMirrorClientFrame() const {
   }
   frame.x = desktop->x();
   frame.y = desktop->y();
-  frame.client_width = desktop->client_width();
-  frame.client_height = desktop->client_height();
+  frame.client_width = desktop->restore_client_width();
+  frame.client_height = desktop->restore_client_height();
   return frame;
 }
 
@@ -98,7 +98,7 @@ void LinuxDesktopWindowPresenter::HandleNativeFrameChanged() {
     return;
   }
   SubmitFrameFromNative(native.x, native.y, native.client_width,
-                        native.client_height);
+                        native.client_height, !applying_mirror_frame_);
 }
 
 void LinuxDesktopWindowPresenter::ReportNativeClientFrame() {
@@ -227,10 +227,14 @@ void LinuxDesktopWindowPresenter::OnLoad() {
       g_signal_connect(client_mount_, "size-allocate",
                        G_CALLBACK(OnClientMountSizeAllocate), this);
 
-  int const client_w = desktop->client_width() > 0 ? desktop->client_width()
-                                                     : 640;
-  int const client_h = desktop->client_height() > 0 ? desktop->client_height()
-                                                      : 480;
+  int const client_w = desktop->restore_client_width() > 0
+                           ? desktop->restore_client_width()
+                           : (desktop->client_width() > 0 ? desktop->client_width()
+                                                          : 640);
+  int const client_h = desktop->restore_client_height() > 0
+                           ? desktop->restore_client_height()
+                           : (desktop->client_height() > 0 ? desktop->client_height()
+                                                           : 480);
   applying_mirror_frame_ = true;
   gtk_window_set_default_size(GTK_WINDOW(window_), client_w, client_h);
   gtk_window_resize(GTK_WINDOW(window_), client_w, client_h);

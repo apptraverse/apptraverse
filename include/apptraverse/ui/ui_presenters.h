@@ -43,7 +43,8 @@ class UiDesktopWindowPresenter : public UiWindowPresenter {
   // Native frame report: presenter → ModelObjectProxy → UiDesktopWindow Event.
   void SubmitFrameFromNative(std::int32_t x, std::int32_t y,
                              std::int32_t client_width,
-                             std::int32_t client_height);
+                             std::int32_t client_height,
+                             bool updates_restore_geometry = false);
 
   virtual void ApplyRequestedFrameFromMirror() {}
 };
