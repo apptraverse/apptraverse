@@ -54,6 +54,17 @@ final class MacButtonAdapter: ObservableObject, Identifiable {
     }
 }
 
+private struct TopLeadingLayout: ViewModifier {
+    let frame: MacControlFrame
+
+    func body(content: Content) -> some View {
+        content
+            .frame(width: frame.width, height: frame.height,
+                   alignment: .topLeading)
+            .offset(x: frame.x, y: frame.y)
+    }
+}
+
 struct MacListRowSnapshot: Identifiable, Equatable {
     let id: UInt64
     let text: String
@@ -87,14 +98,9 @@ final class MacListAdapter: ObservableObject, Identifiable {
         self.frame = frame
     }
 
-    var selection: Binding<Int?> {
-        Binding(
-            get: { self.selectedRow },
-            set: { value in
-                if let row = value {
-                    self.commandSink?.selectListRow(row, token: self.id)
-                }
-            })
+    func selectRow(_ row: Int) {
+        selectedRow = row
+        commandSink?.selectListRow(row, token: id)
     }
 
     func disconnect() {
@@ -185,9 +191,7 @@ private struct MacButtonControl: View {
     var body: some View {
         Button(adapter.title) { adapter.click() }
             .disabled(!adapter.enabled)
-            .frame(width: adapter.frame.width, height: adapter.frame.height)
-            .position(x: adapter.frame.x + adapter.frame.width / 2,
-                      y: adapter.frame.y + adapter.frame.height / 2)
+            .modifier(TopLeadingLayout(frame: adapter.frame))
     }
 }
 
@@ -195,15 +199,22 @@ private struct MacListControl: View {
     @ObservedObject var adapter: MacListAdapter
 
     var body: some View {
-        List(selection: adapter.selection) {
+        List {
             ForEach(Array(adapter.rows.enumerated()),
                     id: \.element.id) { row in
-                Text(row.element.text).tag(Optional(row.offset))
+                Text(row.element.text)
+                    .contentShape(Rectangle())
+                    .listRowBackground(rowBackground(for: row.offset))
+                    .onTapGesture { adapter.selectRow(row.offset) }
             }
         }
-        .frame(width: adapter.frame.width, height: adapter.frame.height)
-        .position(x: adapter.frame.x + adapter.frame.width / 2,
-                  y: adapter.frame.y + adapter.frame.height / 2)
+        .listStyle(.bordered(alternatesRowBackgrounds: true))
+        .modifier(TopLeadingLayout(frame: adapter.frame))
+    }
+
+    private func rowBackground(for row: Int) -> some View {
+        adapter.selectedRow == row
+            ? Color.accentColor.opacity(0.25) : Color.clear
     }
 }
 
