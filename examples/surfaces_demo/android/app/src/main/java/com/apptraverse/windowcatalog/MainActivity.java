@@ -91,22 +91,50 @@ public final class MainActivity extends Activity {
     pageContainer.setOnTouchListener(new View.OnTouchListener() {
       @Override
       public boolean onTouch(View view, MotionEvent event) {
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+          View target = findViewAt(view, (int) event.getX(), (int) event.getY());
+          if (target != null && target != view && target.isClickable()) {
+            return false;
+          }
+        }
         return swipeDetector.onTouchEvent(event);
       }
     });
   }
 
+  private static View findViewAt(View root, int x, int y) {
+    if (!(root instanceof ViewGroup)) {
+      return root;
+    }
+    ViewGroup group = (ViewGroup) root;
+    for (int i = group.getChildCount() - 1; i >= 0; --i) {
+      View child = group.getChildAt(i);
+      float cx = x - child.getLeft();
+      float cy = y - child.getTop();
+      if (cx < 0 || cy < 0 || cx >= child.getWidth() || cy >= child.getHeight()) {
+        continue;
+      }
+      if (child instanceof ViewGroup) {
+        View deeper = findViewAt(child, (int) cx, (int) cy);
+        if (deeper != null) {
+          return deeper;
+        }
+      }
+      return child;
+    }
+    return root;
+  }
+
   @Override
   protected void onDestroy() {
+    application().requestBackgroundSave();
     application().clearActivity(this);
     super.onDestroy();
   }
 
   @Override
   protected void onStop() {
-    if (!isFinishing()) {
-      application().requestBackgroundSave();
-    }
+    application().requestBackgroundSave();
     super.onStop();
   }
 

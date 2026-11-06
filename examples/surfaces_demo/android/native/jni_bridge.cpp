@@ -8,6 +8,8 @@
 
 #include "apptraverse/object_macros.h"
 #include "apptraverse/platform/android/android_ui_bridge.h"
+#include "apptraverse/platform/android/android_ui_list_presenter.h"
+#include "apptraverse/platform/android/android_ui_push_button_presenter.h"
 #include "apptraverse/platform/android/android_ui_registration.h"
 #include "apptraverse/ui/ui_presenters.h"
 
@@ -95,6 +97,42 @@ JNINativeMethod const kNativeMethods[] = {
     {"nativeDestroy", "(J)V", reinterpret_cast<void*>(&NativeDestroy)},
 };
 
+constexpr char const kAndroidUiClass[] =
+    "com/apptraverse/ui/android/AppTraverseAndroidUi";
+
+void NativeOnPushButtonClick(JNIEnv*, jclass, jlong native_presenter) {
+  ui::android::NotifyAndroidPushButtonClickedFromJava(native_presenter);
+}
+
+void NativeOnListSelection(JNIEnv*, jclass, jlong native_presenter,
+                           jint row_index) {
+  ui::android::NotifyAndroidListSelectionFromJava(native_presenter, row_index);
+}
+
+JNINativeMethod const kUiMethods[] = {
+    {"nativeOnPushButtonClick", "(J)V",
+     reinterpret_cast<void*>(&NativeOnPushButtonClick)},
+    {"nativeOnListSelection", "(JI)V",
+     reinterpret_cast<void*>(&NativeOnListSelection)},
+};
+
+bool RegisterNatives(JNIEnv* env, char const* class_name,
+                     JNINativeMethod const* methods, jint count) {
+  jclass local = env->FindClass(class_name);
+  if (local == nullptr) {
+    env->ExceptionClear();
+    apptraverse::android::LogError("JNI_OnLoad: FindClass failed");
+    return false;
+  }
+  jint const rc = env->RegisterNatives(local, methods, count);
+  env->DeleteLocalRef(local);
+  if (rc != JNI_OK) {
+    env->ExceptionClear();
+    return false;
+  }
+  return true;
+}
+
 }  // namespace
 }  // namespace apptraverse::example::surfaces
 
@@ -105,24 +143,24 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
     return JNI_ERR;
   }
 
-  auto* runtime_class =
-      env->FindClass(apptraverse::example::surfaces::kNativeRuntimeClass);
-  if (runtime_class == nullptr) {
-    env->ExceptionClear();
-    apptraverse::android::LogError("JNI_OnLoad failed to find NativeRuntime");
+  using apptraverse::example::surfaces::kAndroidUiClass;
+  using apptraverse::example::surfaces::kNativeMethods;
+  using apptraverse::example::surfaces::kNativeRuntimeClass;
+  using apptraverse::example::surfaces::kUiMethods;
+  using apptraverse::example::surfaces::RegisterNatives;
+
+  if (!RegisterNatives(
+          env, kNativeRuntimeClass, kNativeMethods,
+          static_cast<jint>(sizeof(kNativeMethods) / sizeof(kNativeMethods[0])))) {
+    apptraverse::android::LogError(
+        "JNI_OnLoad: NativeRuntime RegisterNatives failed");
     return JNI_ERR;
   }
-
-  auto const method_count =
-      static_cast<jint>(sizeof(apptraverse::example::surfaces::kNativeMethods) /
-                        sizeof(apptraverse::example::surfaces::kNativeMethods[0]));
-  auto const result = env->RegisterNatives(
-      runtime_class, apptraverse::example::surfaces::kNativeMethods,
-      method_count);
-  env->DeleteLocalRef(runtime_class);
-  if (result != JNI_OK) {
-    env->ExceptionClear();
-    apptraverse::android::LogError("JNI_OnLoad failed to register natives");
+  if (!RegisterNatives(
+          env, kAndroidUiClass, kUiMethods,
+          static_cast<jint>(sizeof(kUiMethods) / sizeof(kUiMethods[0])))) {
+    apptraverse::android::LogError(
+        "JNI_OnLoad: AppTraverseAndroidUi RegisterNatives failed");
     return JNI_ERR;
   }
 

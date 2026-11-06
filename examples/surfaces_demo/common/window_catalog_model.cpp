@@ -34,9 +34,6 @@ ae::ObjId const kWindowPrefabId{
     window_catalog_demo::ToObjId(window_catalog_demo::ObjId::WindowPrefab)};
 ae::ObjId const kWindowPrefabPresenterId{window_catalog_demo::ToObjId(
     window_catalog_demo::ObjId::WindowPrefabPresenter)};
-ae::ObjId const kWindowPrefabCloseButtonPresenterId{
-    window_catalog_demo::ToObjId(
-        window_catalog_demo::ObjId::WindowPrefabCloseButtonPresenter)};
 void RestoreUnloadedWindowPrefabLink(WindowCatalog& catalog) {
   ae::ObjId const prefab_id = catalog.window_prefab.id();
   catalog.window_prefab.Reset();
@@ -478,8 +475,16 @@ void WindowCatalog::OpenListRowFromUi(std::size_t row_index) {
   SubmitSelectionFromUi(row_index);
   OpenRow(row_index);
 }
+bool WindowCatalog::IsHolderWindowOpen(WindowHolder const& holder) const {
+  if (!holder.window.is_valid()) {
+    return false;
+  }
+  ae::ObjFlags const flags = holder.window.flags();
+  return (flags & ae::ObjFlags::kUnloaded) == ae::ObjFlags{};
+}
+
 void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
-  if (holder.window.is_loaded()) {
+  if (IsHolderWindowOpen(holder)) {
     pending_focus_window = holder.window;
     if (mobile_pager) {
       SetMobileActiveWindow(holder.window);
@@ -536,9 +541,6 @@ void WindowCatalog::AddWindow() {
   apptraverse::CloneOptions clone_options{};
   clone_options.stable_origin = kWindowPrefabId;
   clone_options.stable_prefab_ids = {kWindowPrefabId, kWindowPrefabPresenterId};
-  if (mobile_pager) {
-    clone_options.stable_prefab_ids.insert(kWindowPrefabCloseButtonPresenterId);
-  }
   clone_options.boundary_ids = {texts.window_title_prefix.id(), locale.id()};
   apptraverse::CloneCanonicalResult const cloned =
       apptraverse::CloneCanonicalRoot(domain, *prefab_root, domain,
@@ -555,17 +557,15 @@ void WindowCatalog::AddWindow() {
   Presented(*window_body).presenter->title = holder->primary_text;
   AssignInitialCatalogWindowBounds(*window_body, number);
   holder->window = window;
-  holder->window.SetFlags(OpenObjFlags(holder->window.flags()));
+  holder->window.SetFlags(SetUnloadedDefault(holder->window.flags()));
   Presented(*window_body).presenter.SetFlags(
-      OpenObjFlags(Presented(*window_body).presenter.flags()));
+      SetUnloadedDefault(Presented(*window_body).presenter.flags()));
   BindLiveWindowNotifiers(*this, *window_body);
   auto add = AddWindowCatalogEntryEvent::ptr::Create(ae::CreateWith{domain});
   add->holder = holder;
   Commit(std::move(add));
   SelectHolder(holder);
-  if (mobile_pager) {
-    SetMobileActiveWindow(holder->window);
-  }
+  OpenHolderWindow(*holder);
 }
 void WindowCatalog::OpenRow(std::size_t row_index) {
   list.Load();

@@ -143,16 +143,21 @@ public final class AppTraverseAndroidUi {
     } else {
       row = new TextView(list.getContext());
       row.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+      row.setClickable(true);
+      row.setFocusable(true);
       list.addView(row, new LinearLayout.LayoutParams(
           ViewGroup.LayoutParams.MATCH_PARENT,
           ViewGroup.LayoutParams.WRAP_CONTENT));
-      row.setOnClickListener(new View.OnClickListener() {
-        @Override
-        public void onClick(View v) {
-          nativeOnListSelection(nativePresenter, rowIndex);
-        }
-      });
     }
+    row.setOnClickListener(new View.OnClickListener() {
+      @Override
+      public void onClick(View v) {
+        int index = list.indexOfChild(v);
+        if (index >= 0) {
+          nativeOnListSelection(nativePresenter, index);
+        }
+      }
+    });
     row.setText(label);
     row.setContentDescription(label);
     row.setSelected(selected);

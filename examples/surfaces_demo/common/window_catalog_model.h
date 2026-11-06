@@ -321,6 +321,8 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
   void OpenHolderWindow(WindowHolder& holder);
 
+  [[nodiscard]] bool IsHolderWindowOpen(WindowHolder const& holder) const;
+
   void CloseHolderWindow(WindowHolder& holder);
 
   void MaterializeCatalogStrings(int language_index);
