@@ -525,7 +525,6 @@ void TestCatalogLocalizationUtf8Persisted() {
   catalog->AddWindow();
   catalog->AddWindow();
   catalog->SelectHolder(catalog->persisted.list->rows[0]);
-
   catalog->MaterializeCatalogStrings(1);
   catalog->persisted.locale->SubmitLanguageIndexFromUi(1);
   CHECK(catalog->persisted.texts.label_add->Resolve(1) == "Добавить");
@@ -693,7 +692,7 @@ void TestCatalogRuntimeSavePreservesOpenWindowLoadedState() {
   int const language = catalog->persisted.locale->language_index();
   catalog->MaterializeCatalogStrings(language);
   CHECK(r0->primary_text->Resolve(0) == "Window 1");
-  CHECK(r1->primary_text->Resolve(0) == "Window 2");
+  CHECK(r1->primary_text->Resolve(0) == "Window 2 (Unloaded)");
   CHECK(r2->primary_text->Resolve(0) == "Window 3");
   catalog->RefreshChromeButtonEnabledState();
   RestoreLoadedCatalogWindows(*catalog);
@@ -719,8 +718,11 @@ void TestCatalogRuntimeSavePreservesOpenWindowLoadedState() {
     if (!ui_holder->primary_text.is_loaded()) {
       ui_holder->primary_text.Load();
     }
+    std::string const open_suffix =
+        ui_catalog->IsHolderWindowOpen(*ui_holder) ? "" : " (Unloaded)";
     std::string const title = ui_holder->primary_text->Resolve(ui_language);
-    CHECK(title == ("Window " + std::to_string(ui_holder->window_number)));
+    CHECK(title ==
+          ("Window " + std::to_string(ui_holder->window_number) + open_suffix));
   }
 }
 

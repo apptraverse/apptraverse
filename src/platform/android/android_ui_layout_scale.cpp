@@ -65,8 +65,19 @@ UiControlLayout ScaleControlLayoutToPresentation(
   if (out.y + out.height > presentation_height) {
     std::int32_t const max_h = std::max<std::int32_t>(1, presentation_height - out.y);
     out.height = std::min(out.height, max_h);
-    if (out.height < min_h && max_h >= min_h) {
-      out.height = min_h;
+    // Keep at least a readable control height when the viewport clips the bottom;
+    // shrink width first so the label can wrap instead of crushing height to a hairline.
+    if (out.height < min_h) {
+      std::int32_t const deficit = min_h - out.height;
+      std::int32_t target_w = out.width - deficit;
+      if (target_w < min_h) {
+        target_w = min_h;
+      }
+      if (out.x + target_w > presentation_width) {
+        target_w = std::max<std::int32_t>(min_h, presentation_width - out.x);
+      }
+      out.width = target_w;
+      out.height = std::min(min_h, presentation_height - out.y);
     }
   }
   return out;

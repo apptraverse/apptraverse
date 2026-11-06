@@ -471,13 +471,13 @@ void ProbeProfileListRows(
       domain,
       ae::ObjId{window_catalog_demo::ToObjId(
           window_catalog_demo::ObjId::Catalog)});
-  CHECK(catalog->list.is_valid());
-  CHECK(catalog->list->rows.size() == expected_rows);
+  CHECK(catalog->persisted.list.is_valid());
+  CHECK(catalog->persisted.list->rows.size() == expected_rows);
   if (expected_holder_prefix != nullptr) {
     CHECK(expected_holder_prefix->size() <= expected_rows);
     for (std::size_t i = 0; i < expected_holder_prefix->size(); ++i) {
-      auto* h =
-          static_cast<WindowHolder*>(catalog->list->rows[i].operator->());
+      auto* h = static_cast<WindowHolder*>(
+          catalog->persisted.list->rows[i].operator->());
       CHECK(h->obj_id == (*expected_holder_prefix)[i]);
     }
   }
@@ -486,10 +486,14 @@ void ProbeProfileListRows(
     out_holder_ids->reserve(expected_rows);
   }
   for (std::size_t i = 0; i < expected_rows; ++i) {
-    auto* h = static_cast<WindowHolder*>(catalog->list->rows[i].operator->());
+    auto* h = static_cast<WindowHolder*>(
+        catalog->persisted.list->rows[i].operator->());
     CHECK(h->window_number == static_cast<std::uint32_t>(i + 1));
     std::string const title = ProbeRowPrimaryUtf8(*h, 0);
-    CHECK(title == ("Window " + std::to_string(h->window_number)));
+    std::string const open_suffix =
+        catalog->IsHolderWindowOpen(*h) ? "" : " (Unloaded)";
+    CHECK(title ==
+          ("Window " + std::to_string(h->window_number) + open_suffix));
     if (out_holder_ids != nullptr) {
       out_holder_ids->push_back(h->obj_id);
     }
@@ -499,7 +503,7 @@ void ProbeProfileListRows(
       CHECK(domain.Find(h->window.id()) == nullptr);
     }
   }
-  CHECK(catalog->next_window_number ==
+  CHECK(catalog->persisted.next_window_number ==
         static_cast<std::uint32_t>(expected_rows + 1));
 }
 
@@ -719,9 +723,9 @@ ae::ObjId LoadCatalogLocaleObjId(std::filesystem::path const& state_dir) {
   WindowCatalog::ptr loaded =
       LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
   ae::Ptr<WindowCatalog> catalog = loaded.Load();
-  catalog->locale.Load();
-  CHECK(catalog->locale.is_valid());
-  return catalog->locale.id();
+  catalog->persisted.locale.Load();
+  CHECK(catalog->persisted.locale.is_valid());
+  return catalog->persisted.locale.id();
 }
 
 ae::ObjId WriteProfileMissingLocaleObject(
@@ -746,9 +750,9 @@ ae::ObjId LoadAddButtonPresenterObjId(std::filesystem::path const& state_dir) {
   WindowCatalog::ptr loaded =
       LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
   ae::Ptr<WindowCatalog> catalog = loaded.Load();
-  catalog->presenters.add_button_presenter.Load();
-  CHECK(catalog->presenters.add_button_presenter.is_valid());
-  return catalog->presenters.add_button_presenter.id();
+  catalog->persisted.presenters.add_button_presenter.Load();
+  CHECK(catalog->persisted.presenters.add_button_presenter.is_valid());
+  return catalog->persisted.presenters.add_button_presenter.id();
 }
 
 ae::ObjId WriteProfileMissingAddButtonPresenterObject(
@@ -773,9 +777,9 @@ ae::ObjId LoadAddButtonObjId(std::filesystem::path const& state_dir) {
   WindowCatalog::ptr loaded =
       LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
   ae::Ptr<WindowCatalog> catalog = loaded.Load();
-  catalog->buttons.add_button.Load();
-  CHECK(catalog->buttons.add_button.is_valid());
-  return catalog->buttons.add_button.id();
+  catalog->persisted.buttons.add_button.Load();
+  CHECK(catalog->persisted.buttons.add_button.is_valid());
+  return catalog->persisted.buttons.add_button.id();
 }
 
 ae::ObjId WriteProfileMissingAddButtonObject(
@@ -808,9 +812,9 @@ ae::ObjId LoadLabelAddObjId(std::filesystem::path const& state_dir) {
   WindowCatalog::ptr loaded =
       LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
   ae::Ptr<WindowCatalog> catalog = loaded.Load();
-  catalog->texts.label_add.Load();
-  CHECK(catalog->texts.label_add.is_valid());
-  return catalog->texts.label_add.id();
+  catalog->persisted.texts.label_add.Load();
+  CHECK(catalog->persisted.texts.label_add.is_valid());
+  return catalog->persisted.texts.label_add.id();
 }
 
 ae::ObjId WriteProfileMissingLabelAddObject(
@@ -1030,7 +1034,7 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
   CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
     return FindTopLevelWithTitle(pid, L"Window 1") == nullptr;
   }));
-  ExpectListRows(main, {L"Window 1", L"Window 2"});
+  ExpectListRows(main, {L"Window 1 (Unloaded)", L"Window 2"});
   ExpectSameTopLevelWithTitle(pid, child2, L"Window 2", "after_close_window1");
 
   SelectListIndex(main, 0);
@@ -1084,7 +1088,7 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
     main = WaitCatalogMainWindow(load_pid, std::chrono::seconds{30});
     CHECK(main != nullptr);
     WaitChromeReady(main);
-    ExpectListRows(main, {L"Window 1", L"Window 2"});
+    ExpectListRows(main, {L"Window 1 (Unloaded)", L"Window 2"});
     CHECK(FindTopLevelWithTitle(load_pid, L"Window 1") == nullptr);
     CHECK(FindTopLevelWithTitle(load_pid, L"Window 2") != nullptr);
     CHECK(TopLevelWindowsForPid(load_pid).size() == 2);

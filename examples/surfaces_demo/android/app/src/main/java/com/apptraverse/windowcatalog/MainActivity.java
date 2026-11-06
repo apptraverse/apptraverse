@@ -38,6 +38,9 @@ public final class MainActivity extends Activity {
     setContentView(R.layout.activity_main);
 
     pageIndicator = findViewById(R.id.page_indicator);
+    if (pageIndicator != null) {
+      pageIndicator.setVisibility(View.GONE);
+    }
     loading = findViewById(R.id.loading);
     pageContainer = findViewById(R.id.page_container);
 
@@ -183,7 +186,6 @@ public final class MainActivity extends Activity {
     }
     currentIndex = wrapped;
     loading.setVisibility(View.GONE);
-    pageIndicator.setText((currentIndex + 1) + " / " + count);
     Log.i(TAG, "PAGE_SHOWN index=" + currentIndex + " id="
         + pageWindowIds[currentIndex] + " count=" + count);
 

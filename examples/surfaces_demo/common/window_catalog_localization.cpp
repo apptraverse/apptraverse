@@ -60,6 +60,8 @@ void InstallWindowCatalogLocalization(WindowCatalog& catalog,
       CreateCatalogLocalizedString(domain, catalog, "Window ", "Окно ");
   catalog.persisted.texts.label_close =
       CreateCatalogLocalizedString(domain, catalog, "Close", "Закрыть");
+  catalog.persisted.texts.label_list_unloaded =
+      CreateCatalogLocalizedString(domain, catalog, "Unloaded", "Выгружено");
 }
 
 ui::UiLocalizationString::ptr CreateMainWindowTitle(WindowCatalog& catalog,

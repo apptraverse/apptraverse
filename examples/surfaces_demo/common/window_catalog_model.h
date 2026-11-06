@@ -151,9 +151,11 @@ struct WindowCatalogTexts {
 
   ae::ObjPtr<ui::UiLocalizationString> label_close;
 
+  ae::ObjPtr<ui::UiLocalizationString> label_list_unloaded;
+
   AE_REFLECT_MEMBERS(label_add, label_open, label_delete, label_language,
 
-                     window_title_prefix, label_close)
+                     window_title_prefix, label_close, label_list_unloaded)
 
 };
 
