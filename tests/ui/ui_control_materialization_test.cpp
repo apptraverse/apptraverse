@@ -511,51 +511,51 @@ void TestLocalizationLanguageSwitchWithoutImplicitPersist() {
     ui::UiLocalizationString::ptr::MakeFromThis(&*localized).Save();
   }
 
-  ae::Domain domain{storage};
-  auto localized = ui::UiLocalizationString::ptr::Declare(
-      ae::CreateWith{domain}.with_id(root_id));
-  localized.Load();
-  localized->MaterializeLanguage(0);
-  ae::ObjId const en_id = localized->strings[0].id();
-  ae::ObjId const ru_id = localized->strings[1].id();
-  std::size_t const ru_layer_count_bootstrap =
-      storage.Enumerate(ru_string_id).size();
-
-  auto edit_en = SetUiLocalizationSlotUtf8Event::ptr::Create(
-      ae::CreateWith{domain});
-  edit_en->slot_index = 0;
-  edit_en->utf8 = kEnEdited;
-  localized->Commit(std::move(edit_en));
-  CHECK(localized->Resolve(0) == kEnEdited);
-  CHECK(Utf8FromStorageOnly(storage, en_string_id) == kEnText);
-  CHECK(storage.Enumerate(ru_string_id).size() == ru_layer_count_bootstrap);
-
-  localized->MaterializeLanguage(1);
-  auto edit_ru = SetUiLocalizationSlotUtf8Event::ptr::Create(
-      ae::CreateWith{domain});
-  edit_ru->slot_index = 1;
-  edit_ru->utf8 = kRuEdited;
-  localized->Commit(std::move(edit_ru));
-  CHECK(localized->Resolve(1) == kRuEdited);
-  CHECK(!localized->strings[0].is_loaded());
-  CHECK(storage.Enumerate(ru_string_id).size() == ru_layer_count_bootstrap);
-  CHECK(Utf8FromStorageOnly(storage, ru_string_id) == kRuText);
-
-  localized->MaterializeLanguage(0);
-  CHECK(localized->Resolve(0) == kEnEdited);
-  localized->MaterializeLanguage(1);
-  CHECK(localized->Resolve(1) == kRuEdited);
-  localized->MaterializeLanguage(0);
-  CHECK(localized->strings[0].id() == en_id);
-  CHECK(localized->strings[1].id() == ru_id);
-  CHECK(Utf8FromStorageOnly(storage, en_string_id) == kEnText);
-  CHECK(Utf8FromStorageOnly(storage, ru_string_id) == kRuText);
-
-  ui::UiLocalizationString::ptr::MakeFromThis(&*localized).Save();
-  localized.Reset();
+  ae::ObjId en_id;
+  ae::ObjId ru_id;
   {
-    ae::Domain dropped{storage};
-    (void)dropped;
+    ae::Domain domain{storage};
+    auto localized = ui::UiLocalizationString::ptr::Declare(
+        ae::CreateWith{domain}.with_id(root_id));
+    localized.Load();
+    localized->MaterializeLanguage(0);
+    en_id = localized->strings[0].id();
+    ru_id = localized->strings[1].id();
+    std::size_t const ru_layer_count_bootstrap =
+        storage.Enumerate(ru_string_id).size();
+
+    auto edit_en = SetUiLocalizationSlotUtf8Event::ptr::Create(
+        ae::CreateWith{domain});
+    edit_en->slot_index = 0;
+    edit_en->utf8 = kEnEdited;
+    localized->Commit(std::move(edit_en));
+    CHECK(localized->Resolve(0) == kEnEdited);
+    CHECK(Utf8FromStorageOnly(storage, en_string_id) == kEnText);
+    CHECK(storage.Enumerate(ru_string_id).size() == ru_layer_count_bootstrap);
+
+    localized->MaterializeLanguage(1);
+    auto edit_ru = SetUiLocalizationSlotUtf8Event::ptr::Create(
+        ae::CreateWith{domain});
+    edit_ru->slot_index = 1;
+    edit_ru->utf8 = kRuEdited;
+    localized->Commit(std::move(edit_ru));
+    CHECK(localized->Resolve(1) == kRuEdited);
+    CHECK(!localized->strings[0].is_loaded());
+    CHECK(storage.Enumerate(ru_string_id).size() == ru_layer_count_bootstrap);
+    CHECK(Utf8FromStorageOnly(storage, ru_string_id) == kRuText);
+
+    localized->MaterializeLanguage(0);
+    CHECK(localized->Resolve(0) == kEnEdited);
+    localized->MaterializeLanguage(1);
+    CHECK(localized->Resolve(1) == kRuEdited);
+    localized->MaterializeLanguage(0);
+    CHECK(localized->strings[0].id() == en_id);
+    CHECK(localized->strings[1].id() == ru_id);
+    CHECK(Utf8FromStorageOnly(storage, en_string_id) == kEnText);
+    CHECK(Utf8FromStorageOnly(storage, ru_string_id) == kRuText);
+
+    ui::UiLocalizationString::ptr::MakeFromThis(&*localized).Save();
+    localized.Reset();
   }
 
   ae::Domain cold_domain{storage};
@@ -607,45 +607,43 @@ void TestLocalizationDirectoryLifecycleWithoutSessionWrites() {
     CHECK(!storage.SaveSessionHadFailure());
   }
 
-  DirectoryDomainStorage disk{dir};
-  InstrumentedDomainStorage session_storage{disk, dir, &disk};
-  InstrumentedDomainStorageStats const storage_quiet =
-      session_storage.SnapshotStats();
-
-  ae::Domain domain{session_storage};
-  auto localized = ui::UiLocalizationString::ptr::Declare(
-      ae::CreateWith{domain}.with_id(root_id));
-  localized.Load();
-  localized->MaterializeLanguage(0);
-
-  CommitSlotUtf8(*localized, domain, 0, "Disk EN edited");
-  localized->MaterializeLanguage(1);
-  CommitSlotUtf8(*localized, domain, 1, "Disk RU edited");
-  localized->MaterializeLanguage(0);
-  CommitSlotUtf8(*localized, domain, 0, "Disk EN edited");
-  localized->MaterializeLanguage(1);
-
-  InstrumentedDomainStorageStats const storage_after_edits =
-      session_storage.SnapshotStats();
-  CHECK(storage_after_edits.store_calls == storage_quiet.store_calls);
-  CHECK(storage_after_edits.store_overwrite_layers ==
-        storage_quiet.store_overwrite_layers);
-  CHECK(storage_after_edits.store_disk_bytes_written ==
-        storage_quiet.store_disk_bytes_written);
-
-  localized->MaterializeLanguage(0);
-  CHECK(localized->Resolve(0) == "Disk EN edited");
-  localized->MaterializeLanguage(1);
-  CHECK(localized->Resolve(1) == "Disk RU edited");
-
-  disk.BeginSaveSession();
-  ui::UiLocalizationString::ptr::MakeFromThis(&*localized).Save();
-  CHECK(!disk.SaveSessionHadFailure());
-
-  localized.Reset();
   {
-    ae::Domain dropped{disk};
-    (void)dropped;
+    DirectoryDomainStorage disk{dir};
+    InstrumentedDomainStorage session_storage{disk, dir, &disk};
+    InstrumentedDomainStorageStats const storage_quiet =
+        session_storage.SnapshotStats();
+
+    ae::Domain domain{session_storage};
+    auto localized = ui::UiLocalizationString::ptr::Declare(
+        ae::CreateWith{domain}.with_id(root_id));
+    localized.Load();
+    localized->MaterializeLanguage(0);
+
+    CommitSlotUtf8(*localized, domain, 0, "Disk EN edited");
+    localized->MaterializeLanguage(1);
+    CommitSlotUtf8(*localized, domain, 1, "Disk RU edited");
+    localized->MaterializeLanguage(0);
+    CommitSlotUtf8(*localized, domain, 0, "Disk EN edited");
+    localized->MaterializeLanguage(1);
+
+    InstrumentedDomainStorageStats const storage_after_edits =
+        session_storage.SnapshotStats();
+    CHECK(storage_after_edits.store_calls == storage_quiet.store_calls);
+    CHECK(storage_after_edits.store_overwrite_layers ==
+          storage_quiet.store_overwrite_layers);
+    CHECK(storage_after_edits.store_disk_bytes_written ==
+          storage_quiet.store_disk_bytes_written);
+
+    localized->MaterializeLanguage(0);
+    CHECK(localized->Resolve(0) == "Disk EN edited");
+    localized->MaterializeLanguage(1);
+    CHECK(localized->Resolve(1) == "Disk RU edited");
+
+    disk.BeginSaveSession();
+    ui::UiLocalizationString::ptr::MakeFromThis(&*localized).Save();
+    CHECK(!disk.SaveSessionHadFailure());
+
+    localized.Reset();
   }
 
   DirectoryDomainStorage cold_storage{dir};
@@ -663,54 +661,122 @@ void TestLocalizationDirectoryLifecycleWithoutSessionWrites() {
 
 void TestLocalizationJournalCompactionMatchesLoad() {
   LazyLocalizationBootstrap boot{23, "Compact EN", "Compact RU"};
-  ae::Domain domain{boot.storage};
-  auto localized = boot.LoadRoot(domain);
-  localized->CaptureBaseState();
-  localized->MaterializeLanguage(0);
-  CommitSlotUtf8(*localized, domain, 0, "Compact EN v1");
-  CommitSlotUtf8(*localized, domain, 1, "Compact RU v1");
-  CHECK(!localized->strings[1].is_loaded());
-  CHECK(CountLocalizationUtf8Events(*localized) >= 2);
-  CHECK(!localized->journal.empty());
-
-  ae::ObjId const en_id = localized->strings[0].id();
-  ae::ObjId const ru_id = localized->strings[1].id();
-
-  localized->MaterializeLanguage(0);
-  CHECK(!localized->strings[1].is_loaded());
-  localized->strings[1].Reset();
-  CHECK(!localized->strings[1].is_loaded());
-
-  localized->SetJournalRetentionPolicy(JournalRetentionPolicy{.max_events = 0});
-  localized->CompactJournal(SystemUtcMicros());
-  CHECK(localized->journal.empty());
-
-  localized->MaterializeLanguage(0);
-  CHECK(localized->Resolve(0) == "Compact EN v1");
-  localized->MaterializeLanguage(1);
-  CHECK(localized->Resolve(1) == "Compact RU v1");
-
-  ui::UiLocalizationString::ptr::MakeFromThis(&*localized).Save();
-  localized.Reset();
+  ae::ObjId en_id;
+  ae::ObjId ru_id;
   {
-    ae::Domain dropped{boot.storage};
-    (void)dropped;
+    ae::Domain domain{boot.storage};
+    auto localized = boot.LoadRoot(domain);
+    localized->CaptureBaseState();
+    localized->MaterializeLanguage(0);
+    CommitSlotUtf8(*localized, domain, 0, "Compact EN v1");
+    CommitSlotUtf8(*localized, domain, 1, "Compact RU v1");
+    CHECK(!localized->strings[1].is_loaded());
+    CHECK(CountLocalizationUtf8Events(*localized) >= 2);
+    CHECK(!localized->journal.empty());
+
+    en_id = localized->strings[0].id();
+    ru_id = localized->strings[1].id();
+
+    localized->MaterializeLanguage(0);
+    CHECK(!localized->strings[1].is_loaded());
+    localized->strings[1].Reset();
+    CHECK(!localized->strings[1].is_loaded());
+
+    localized->SetJournalRetentionPolicy(JournalRetentionPolicy{.max_events = 0});
+    localized->CompactJournal(SystemUtcMicros());
+    CHECK(localized->journal.empty());
+
+    localized->MaterializeLanguage(0);
+    CHECK(localized->Resolve(0) == "Compact EN v1");
+    localized->MaterializeLanguage(1);
+    CHECK(localized->Resolve(1) == "Compact RU v1");
+
+    ui::UiLocalizationString::ptr::MakeFromThis(&*localized).Save();
+    localized.Reset();
   }
 
-  ae::Domain cold_domain{boot.storage};
-  auto cold = boot.LoadRoot(cold_domain);
-  cold->MaterializeLanguage(0);
-  CHECK(cold->Resolve(0) == "Compact EN v1");
-  cold->MaterializeLanguage(1);
-  CHECK(cold->Resolve(1) == "Compact RU v1");
-  CHECK(cold->strings[0].id() == en_id);
-  CHECK(cold->strings[1].id() == ru_id);
+  {
+    ae::Domain cold_domain{boot.storage};
+    auto cold = boot.LoadRoot(cold_domain);
+    cold->MaterializeLanguage(0);
+    CHECK(cold->Resolve(0) == "Compact EN v1");
+    cold->MaterializeLanguage(1);
+    CHECK(cold->Resolve(1) == "Compact RU v1");
+    CHECK(cold->strings[0].id() == en_id);
+    CHECK(cold->strings[1].id() == ru_id);
 
-  CHECK(cold->TryReplayFromBase());
-  cold->MaterializeLanguage(0);
-  CHECK(cold->Resolve(0) == "Compact EN v1");
-  cold->MaterializeLanguage(1);
-  CHECK(cold->Resolve(1) == "Compact RU v1");
+    CHECK(cold->TryReplayFromBase());
+    cold->MaterializeLanguage(0);
+    CHECK(cold->Resolve(0) == "Compact EN v1");
+    cold->MaterializeLanguage(1);
+    CHECK(cold->Resolve(1) == "Compact RU v1");
+
+    CommitSlotUtf8(*cold, cold_domain, 0, "Compact EN v2");
+    cold->MaterializeLanguage(1);
+    CHECK(cold->Resolve(1) == "Compact RU v1");
+    ui::UiLocalizationString::ptr::MakeFromThis(&*cold).Save();
+    cold.Reset();
+  }
+
+  {
+    ae::Domain reopened{boot.storage};
+    auto again = boot.LoadRoot(reopened);
+    again->MaterializeLanguage(0);
+    CHECK(again->Resolve(0) == "Compact EN v2");
+    again->MaterializeLanguage(1);
+    CHECK(again->Resolve(1) == "Compact RU v1");
+    again.Reset();
+  }
+}
+
+void TestLocalizationJournalPartialCompactionRetainsOtherSlot() {
+  LazyLocalizationBootstrap boot{24, "Partial EN", "Partial RU"};
+  ae::ObjId ru_id;
+  {
+    ae::Domain domain{boot.storage};
+    auto localized = boot.LoadRoot(domain);
+    localized->CaptureBaseState();
+    localized->MaterializeLanguage(0);
+    CommitSlotUtf8(*localized, domain, 0, "Partial EN v1");
+    CommitSlotUtf8(*localized, domain, 1, "Partial RU v1");
+    CommitSlotUtf8(*localized, domain, 0, "Partial EN v2");
+    CHECK(!localized->strings[1].is_loaded());
+    CHECK(localized->journal.size() >= 3);
+
+    ru_id = localized->strings[1].id();
+    localized->MaterializeLanguage(0);
+    CHECK(!localized->strings[1].is_loaded());
+
+    localized->SetJournalRetentionPolicy(JournalRetentionPolicy{.max_events = 1});
+    localized->CompactJournal(SystemUtcMicros());
+    CHECK(localized->journal.size() == 1);
+    CHECK(CountLocalizationUtf8Events(*localized) == 1);
+    auto const& retained = localized->journal.front().event;
+    CHECK(retained.is_valid() && retained.is_loaded());
+    auto const& utf8_event =
+        static_cast<SetUiLocalizationSlotUtf8Event const&>(*retained);
+    CHECK(utf8_event.slot_index == 0);
+    CHECK(utf8_event.utf8 == "Partial EN v2");
+
+    localized->MaterializeLanguage(1);
+    CHECK(localized->Resolve(1) == "Partial RU v1");
+
+    ui::UiLocalizationString::ptr::MakeFromThis(&*localized).Save();
+    localized.Reset();
+  }
+
+  {
+    ae::Domain cold_domain{boot.storage};
+    auto cold = boot.LoadRoot(cold_domain);
+    CHECK(cold->TryReplayFromBase());
+    CHECK(CountLocalizationUtf8Events(*cold) == 1);
+    cold->MaterializeLanguage(1);
+    CHECK(cold->Resolve(1) == "Partial RU v1");
+    CHECK(cold->strings[1].id() == ru_id);
+    cold->MaterializeLanguage(0);
+    CHECK(cold->Resolve(0) == "Partial EN v2");
+    cold.Reset();
+  }
 }
 
 void TestLocalizationApplyUnloadedSlotSkipsStorage() {
@@ -1068,6 +1134,7 @@ int main(int argc, char** argv) {
   TestLocalizationLanguageSwitchWithoutImplicitPersist();
   TestLocalizationDirectoryLifecycleWithoutSessionWrites();
   TestLocalizationJournalCompactionMatchesLoad();
+  TestLocalizationJournalPartialCompactionRetainsOtherSlot();
   TestLocalizationApplyUnloadedSlotSkipsStorage();
   TestPushButtonClickViaPresenter();
   TestListSelectionViaPresenterProxy();

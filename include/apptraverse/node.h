@@ -249,6 +249,13 @@ class Node : public ae::Obj {
   virtual void StashLocalPersistentAcrossRebuild() {}
   virtual void RestoreLocalPersistentAcrossRebuild() {}
 
+  // Fold journal[0, collapsed_count) into persisted layers of reachable
+  // objects so HistoricalBaseSnapshot capture includes lazy side effects.
+  virtual void FoldCollapsedJournalPrefixIntoReachableStorage(
+      std::size_t collapsed_count) {
+    (void)collapsed_count;
+  }
+
   template <typename ConcreteNode>
   bool TryRebuildFromBaseAndReplay(ConcreteNode& target) {
     if (domain == nullptr || !base.is_valid() || !base.is_loaded() ||
@@ -306,6 +313,7 @@ class Node : public ae::Obj {
     ae::DomainGraph save_graph{
         &scratch_domain,
         ae::GraphSerializationScope::HistoricalBaseSnapshot};
+    save_graph.force_materialize = true;
     bool const owner_marked =
         save_graph.cycle_detector.Add(ConcreteNode::kClassId, owner_id);
     assert(owner_marked);
@@ -402,10 +410,10 @@ class Node : public ae::Obj {
         journal.begin() + static_cast<std::ptrdiff_t>(collapse),
         journal.end());
 
+    suppress_materialized_change_ = true;
+    target.FoldCollapsedJournalPrefixIntoReachableStorage(collapse);
+
     if (retained.empty()) {
-      // Live fields already equal old base + the whole journal. Snapshot them
-      // as the new base. Rebuilding through storage would reload the old
-      // base into this object and is unnecessary when nothing is retained.
       journal.clear();
       CaptureBaseStateInto(target);
       generation_ = saved_generation;
@@ -419,13 +427,13 @@ class Node : public ae::Obj {
       if (!save_result || !save_result->IsOk()) {
         std::abort();
       }
+      suppress_materialized_change_ = false;
       return;
     }
 
     journal.erase(journal.begin() + static_cast<std::ptrdiff_t>(collapse),
                   journal.end());
 
-    suppress_materialized_change_ = true;
     RebuildFromBaseAndReplay(target);
     journal.clear();
     CaptureBaseStateInto(target);

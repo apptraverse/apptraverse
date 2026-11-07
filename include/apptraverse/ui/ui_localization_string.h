@@ -54,6 +54,9 @@ class UiLocalizationString : public NodeFor<UiLocalizationString> {
   void MaterializeLanguage(int language_index);
 
   void Apply(SetUiLocalizationSlotUtf8Event const& event);
+
+  void FoldCollapsedJournalPrefixIntoReachableStorage(
+      std::size_t collapsed_count) override;
 };
 
 class SetUiLocalizationSlotUtf8Event

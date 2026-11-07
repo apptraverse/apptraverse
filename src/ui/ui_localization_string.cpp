@@ -36,7 +36,63 @@ void ReplaySlotUtf8FromJournal(UiLocalizationString& localized,
   }
 }
 
+SetUiLocalizationSlotUtf8Event const* StopBeforeJournalIndex(
+    std::vector<EventRecord> const& journal, std::size_t index) {
+  if (index >= journal.size()) {
+    return nullptr;
+  }
+  auto const& record = journal[index];
+  if (!record.event.is_valid() || !record.event.is_loaded()) {
+    return nullptr;
+  }
+  if (record.event->GetClassId() != SetUiLocalizationSlotUtf8Event::kClassId) {
+    return nullptr;
+  }
+  return static_cast<SetUiLocalizationSlotUtf8Event const*>(&*record.event);
+}
+
 }  // namespace
+
+void UiLocalizationString::FoldCollapsedJournalPrefixIntoReachableStorage(
+    std::size_t collapsed_count) {
+  if (collapsed_count == 0 || journal.empty()) {
+    return;
+  }
+  collapsed_count = std::min(collapsed_count, journal.size());
+  SetUiLocalizationSlotUtf8Event const* const stop_before =
+      StopBeforeJournalIndex(journal, collapsed_count);
+
+  for (std::size_t slot = 0; slot < strings.size(); ++slot) {
+    bool affects_slot = false;
+    for (std::size_t i = 0; i < collapsed_count; ++i) {
+      auto const& record = journal[i];
+      if (!record.event.is_valid() || !record.event.is_loaded()) {
+        continue;
+      }
+      if (record.event->GetClassId() != SetUiLocalizationSlotUtf8Event::kClassId) {
+        continue;
+      }
+      auto const& event =
+          static_cast<SetUiLocalizationSlotUtf8Event const&>(*record.event);
+      if (static_cast<std::size_t>(event.slot_index) == slot) {
+        affects_slot = true;
+        break;
+      }
+    }
+    if (!affects_slot) {
+      continue;
+    }
+    bool const keep_loaded = strings[slot].is_loaded();
+    if (!strings[slot].is_loaded()) {
+      strings[slot].Load();
+    }
+    ReplaySlotUtf8FromJournal(*this, slot, stop_before);
+    strings[slot].Save();
+    if (!keep_loaded) {
+      strings[slot].Reset();
+    }
+  }
+}
 
 void UiLocalizationString::MaterializeLanguage(int language_index) {
   if (language_index < 0 ||
