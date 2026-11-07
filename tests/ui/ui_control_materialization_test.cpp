@@ -350,6 +350,180 @@ void TestLocalizationLazyInitialPublication() {
   CHECK(!ru_layers_after.empty());
 }
 
+std::string Utf8FromStorageOnly(ae::RamDomainStorage& storage, ae::ObjId id) {
+  ae::Domain domain{storage};
+  auto string = ui::UiString::ptr::Declare(ae::CreateWith{domain}.with_id(id));
+  string.Load();
+  std::string const utf8 = string->utf8;
+  string.Reset();
+  return utf8;
+}
+
+void TestLocalizationLanguageSwitchWithoutImplicitPersist() {
+  ae::RamDomainStorage storage;
+  ae::ObjId const root_id{11};
+  ae::ObjId en_string_id;
+  ae::ObjId ru_string_id;
+  char const* const kEnText = "Persist EN";
+  char const* const kRuText = "Persist RU";
+  char const* const kEnEdited = "Session EN";
+  char const* const kRuEdited = "Session RU";
+
+  {
+    ae::Domain domain{storage};
+    auto localized = ui::UiLocalizationString::ptr::Create(
+        ae::CreateWith{domain}.with_id(root_id));
+    InitializeRuntimeNode(*localized);
+
+    auto en = ui::UiString::ptr::Create(ae::CreateWith{domain});
+    en->utf8 = kEnText;
+    auto ru = ui::UiString::ptr::Create(ae::CreateWith{domain});
+    ru->utf8 = kRuText;
+    en_string_id = en->obj_id;
+    ru_string_id = ru->obj_id;
+    en.Save();
+    ru.Save();
+
+    localized->strings = {
+        ui::UiString::ptr::Declare(
+            ae::CreateWith{domain}
+                .with_id(en_string_id)
+                .with_flags(ae::ObjFlags::kUnloadedByDefault)),
+        ui::UiString::ptr::Declare(
+            ae::CreateWith{domain}
+                .with_id(ru_string_id)
+                .with_flags(ae::ObjFlags::kUnloadedByDefault)),
+    };
+    ui::UiLocalizationString::ptr::MakeFromThis(&*localized).Save();
+  }
+
+  ae::Domain domain{storage};
+  auto localized = ui::UiLocalizationString::ptr::Declare(
+      ae::CreateWith{domain}.with_id(root_id));
+  localized.Load();
+  localized->MaterializeLanguage(0);
+  ae::ObjId const en_id = localized->strings[0].id();
+  ae::ObjId const ru_id = localized->strings[1].id();
+  std::size_t const ru_layer_count_bootstrap =
+      storage.Enumerate(ru_string_id).size();
+
+  auto edit_en = SetUiLocalizationSlotUtf8Event::ptr::Create(
+      ae::CreateWith{domain});
+  edit_en->slot_index = 0;
+  edit_en->utf8 = kEnEdited;
+  localized->Commit(std::move(edit_en));
+  CHECK(localized->Resolve(0) == kEnEdited);
+  CHECK(Utf8FromStorageOnly(storage, en_string_id) == kEnText);
+  CHECK(storage.Enumerate(ru_string_id).size() == ru_layer_count_bootstrap);
+
+  localized->MaterializeLanguage(1);
+  auto edit_ru = SetUiLocalizationSlotUtf8Event::ptr::Create(
+      ae::CreateWith{domain});
+  edit_ru->slot_index = 1;
+  edit_ru->utf8 = kRuEdited;
+  localized->Commit(std::move(edit_ru));
+  CHECK(localized->Resolve(1) == kRuEdited);
+  CHECK(!localized->strings[0].is_loaded());
+  CHECK(storage.Enumerate(ru_string_id).size() == ru_layer_count_bootstrap);
+  CHECK(Utf8FromStorageOnly(storage, ru_string_id) == kRuText);
+
+  localized->MaterializeLanguage(0);
+  CHECK(localized->Resolve(0) == kEnEdited);
+  localized->MaterializeLanguage(1);
+  CHECK(localized->Resolve(1) == kRuEdited);
+  localized->MaterializeLanguage(0);
+  CHECK(localized->strings[0].id() == en_id);
+  CHECK(localized->strings[1].id() == ru_id);
+  CHECK(Utf8FromStorageOnly(storage, en_string_id) == kEnText);
+  CHECK(Utf8FromStorageOnly(storage, ru_string_id) == kRuText);
+
+  localized->MaterializeLanguage(0);
+  CHECK(localized->strings[0].is_loaded());
+  localized->strings[0].Save();
+  localized->strings[0].Reset();
+  localized->MaterializeLanguage(1);
+  CHECK(localized->strings[1].is_loaded());
+  localized->strings[1].Save();
+  localized->strings[1].Reset();
+
+  CHECK(Utf8FromStorageOnly(storage, en_string_id) == kEnEdited);
+  CHECK(Utf8FromStorageOnly(storage, ru_string_id) == kRuEdited);
+  CHECK(!storage.Enumerate(ru_string_id).empty());
+
+  ae::Domain reload_domain{storage};
+  auto reloaded = ui::UiLocalizationString::ptr::Declare(
+      ae::CreateWith{reload_domain}.with_id(root_id));
+  reloaded.Load();
+  reloaded->MaterializeLanguage(0);
+  CHECK(reloaded->Resolve(0) == kEnEdited);
+  reloaded->MaterializeLanguage(1);
+  CHECK(reloaded->Resolve(1) == kRuEdited);
+  CHECK(reloaded->strings[0].id() == en_id);
+  CHECK(reloaded->strings[1].id() == ru_id);
+}
+
+void TestLocalizationApplyUnloadedSlotSkipsStorage() {
+  ae::RamDomainStorage storage;
+  ae::ObjId const root_id{12};
+  ae::ObjId en_string_id;
+  ae::ObjId ru_string_id;
+  char const* const kRuEdited = "RU from Apply";
+
+  {
+    ae::Domain domain{storage};
+    auto localized = ui::UiLocalizationString::ptr::Create(
+        ae::CreateWith{domain}.with_id(root_id));
+    InitializeRuntimeNode(*localized);
+
+    auto en = ui::UiString::ptr::Create(ae::CreateWith{domain});
+    en->utf8 = "EN";
+    auto ru = ui::UiString::ptr::Create(ae::CreateWith{domain});
+    ru->utf8 = "RU";
+    en_string_id = en->obj_id;
+    ru_string_id = ru->obj_id;
+    en.Save();
+    ru.Save();
+
+    localized->strings = {
+        ui::UiString::ptr::Declare(
+            ae::CreateWith{domain}
+                .with_id(en_string_id)
+                .with_flags(ae::ObjFlags::kUnloadedByDefault)),
+        ui::UiString::ptr::Declare(
+            ae::CreateWith{domain}
+                .with_id(ru_string_id)
+                .with_flags(ae::ObjFlags::kUnloadedByDefault)),
+    };
+    ui::UiLocalizationString::ptr::MakeFromThis(&*localized).Save();
+  }
+
+  ae::Domain domain{storage};
+  auto localized = ui::UiLocalizationString::ptr::Declare(
+      ae::CreateWith{domain}.with_id(root_id));
+  localized.Load();
+  localized->MaterializeLanguage(0);
+  CHECK(localized->strings[0].is_loaded());
+  CHECK(!localized->strings[1].is_loaded());
+  std::size_t const ru_layer_count_bootstrap =
+      storage.Enumerate(ru_string_id).size();
+  std::string const ru_utf8_bootstrap =
+      Utf8FromStorageOnly(storage, ru_string_id);
+
+  auto edit = SetUiLocalizationSlotUtf8Event::ptr::Create(ae::CreateWith{domain});
+  edit->slot_index = 1;
+  edit->utf8 = kRuEdited;
+  localized->Commit(std::move(edit));
+  CHECK(!localized->strings[1].is_loaded());
+  CHECK(storage.Enumerate(ru_string_id).size() == ru_layer_count_bootstrap);
+  CHECK(Utf8FromStorageOnly(storage, ru_string_id) == ru_utf8_bootstrap);
+  CHECK(!domain.Find(ru_string_id));
+
+  localized->MaterializeLanguage(1);
+  CHECK(localized->Resolve(1) == kRuEdited);
+  CHECK(storage.Enumerate(ru_string_id).size() == ru_layer_count_bootstrap);
+  CHECK(Utf8FromStorageOnly(storage, ru_string_id) == ru_utf8_bootstrap);
+}
+
 std::size_t CountJournalEventsWithClass(Node const& node,
                                         std::uint32_t class_id) {
   std::size_t count = 0;
@@ -638,6 +812,8 @@ int main(int argc, char** argv) {
   TestEditBoxMaterializationNotifiesOnChange();
   TestLocalizationLazyLoadRoundtrip();
   TestLocalizationLazyInitialPublication();
+  TestLocalizationLanguageSwitchWithoutImplicitPersist();
+  TestLocalizationApplyUnloadedSlotSkipsStorage();
   TestPushButtonClickViaPresenter();
   TestListSelectionViaPresenterProxy();
   TestListRemoveRowByReferenceIdentity();
