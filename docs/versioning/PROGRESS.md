@@ -34,7 +34,7 @@
 | `apptraverse_window_catalog_embedded_overlay_test` (close → EN→RU→EN → Save → reopen → cold) | PASS |
 | `apptraverse_window_catalog_win32_acceptance_test` | PASS |
 | `TestCatalogSaveAfterLanguageToggleAndChildClose` и прочие сценарии model | PASS (по отдельности) |
-| `apptraverse_window_catalog_model_test` целиком | FAIL: известный `main_base.presenter.id()` (стр. 1591); при пропуске — `list_presenter.id()` (стр. 898) того же класса historical base |
+| `apptraverse_window_catalog_model_test` целиком | PASS (historical remap: live presenter + bootstrap lazy UiString ids; isolation remap on fold-only) |
 | Android `:app:assembleDebug` | PASS |
 | Linux | NOT RUN |
 

@@ -8,6 +8,8 @@
 
 #include "apptraverse/event.h"
 #include "apptraverse/node.h"
+#include "apptraverse/presenter.h"
+#include "apptraverse/ui/ui_string.h"
 
 namespace apptraverse {
 namespace detail {
@@ -23,6 +25,10 @@ void EnqueueCloneReferenceForHistorical(void* context, ae::ObjId id);
 bool InjectLayeredObjects(ae::RamDomainStorage const& scratch,
                           ae::IDomainStorage& storage);
 
+bool HistoricalLeafLayersMatchLive(ae::RamDomainStorage const& scratch,
+                                   ae::ObjId object_id,
+                                   ae::IDomainStorage& live_storage);
+
 }  // namespace detail
 
 template <typename ConcreteNode>
@@ -36,9 +42,17 @@ bool InjectRemappedHistoricalBaseSnapshot(
   }
 
   auto& registry = ae::Registry::GetRegistry();
-  auto const is_node_or_event = [&](ae::Obj const& obj) {
-    return registry.GenerationDistance(Node::kClassId, obj.GetClassId()) >= 0 ||
-           registry.GenerationDistance(Event::kClassId, obj.GetClassId()) >= 0;
+  auto const retains_live_identity_in_historical_base = [&](ae::Obj const& obj) {
+    if (registry.GenerationDistance(Node::kClassId, obj.GetClassId()) >= 0) {
+      return true;
+    }
+    if (registry.GenerationDistance(Event::kClassId, obj.GetClassId()) >= 0) {
+      return true;
+    }
+    // Presenter is not journaled model state; historical base keeps distilled
+    // live presenter identity and binding graph (see contract headless replay).
+    return registry.GenerationDistance(Presenter::kClassId, obj.GetClassId()) >=
+           0;
   };
 
   std::set<ae::ObjId> leaf_ids;
@@ -63,8 +77,19 @@ bool InjectRemappedHistoricalBaseSnapshot(
       }
       obj = loaded;
     }
-    if (is_node_or_event(*obj)) {
+    if (retains_live_identity_in_historical_base(*obj)) {
       continue;
+    }
+    if (registry.GenerationDistance(ui::UiString::kClassId, obj->GetClassId()) >=
+        0) {
+      if (!static_cast<Node const&>(owner)
+               .HistoricalCaptureIsolatesMutableLeaves()) {
+        continue;
+      }
+      if (detail::HistoricalLeafLayersMatchLive(captured_scratch, old_id,
+                                                owner.domain->domain_storage())) {
+        continue;
+      }
     }
     ae::ObjId const allocated = detail::AllocateCloneObjIdForHistorical(
         owner_id.id(), leaf_ids, remap, live_domain);

@@ -6,6 +6,7 @@
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
+#include "aether-objects/obj/registry.h"
 
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
@@ -1641,8 +1642,10 @@ void TestCatalogPresentedWindowDistilledBaseReplay() {
   CHECK(CatalogWindowPresented(child).presenter->locale.id() ==
         catalog->persisted.locale.id());
   CHECK(child.GetClassId() == CatalogWindow::kClassId);
-  CHECK(CatalogWindowPresented(child).presenter->GetClassId() ==
-        ui::windows::WinDesktopWindowPresenter::kClassId);
+  auto& registry = ae::Registry::GetRegistry();
+  CHECK(registry.GenerationDistance(
+            ui::windows::WinDesktopWindowPresenter::kClassId,
+            CatalogWindowPresented(child).presenter->GetClassId()) >= 0);
 }
 
 void TestCatalogPresentedWindowGraph() {

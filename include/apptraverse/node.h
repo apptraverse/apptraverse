@@ -225,6 +225,10 @@ class Node : public ae::Obj {
     (void)ok;
   }
 
+  // True only while folding journal text into storage before historical capture
+  // (UiLocalizationString). Bootstrap CaptureBaseState keeps lazy slot ObjIds.
+  virtual bool HistoricalCaptureIsolatesMutableLeaves() const { return false; }
+
  protected:
   void ApplyEvent(Event const& event) { event.ApplyTo(*this); }
 

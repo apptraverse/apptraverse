@@ -10,6 +10,7 @@ namespace {
 thread_local std::vector<UiString::ptr> g_stash_strings_across_rebuild;
 thread_local std::vector<std::size_t> g_folded_slots_for_capture;
 thread_local std::vector<std::optional<std::string>> g_live_slot_utf8_restore;
+thread_local bool g_historical_capture_isolates_mutable_leaves = false;
 
 void ReplaySlotUtf8FromJournal(UiLocalizationString& localized,
                                std::size_t slot_index,
@@ -119,7 +120,12 @@ void UiLocalizationString::RestoreLocalPersistentAcrossRebuild() {
   }
 }
 
+bool UiLocalizationString::HistoricalCaptureIsolatesMutableLeaves() const {
+  return g_historical_capture_isolates_mutable_leaves;
+}
+
 void UiLocalizationString::StashLiveReachableLayersBeforeHistoricalCapture() {
+  g_historical_capture_isolates_mutable_leaves = true;
   g_live_slot_utf8_restore.assign(strings.size(), std::nullopt);
   for (std::size_t slot = 0; slot < strings.size(); ++slot) {
     if (!strings[slot].is_valid()) {
@@ -142,6 +148,7 @@ void UiLocalizationString::StashLiveReachableLayersBeforeHistoricalCapture() {
 }
 
 void UiLocalizationString::RestoreLiveReachableLayersAfterHistoricalCapture() {
+  g_historical_capture_isolates_mutable_leaves = false;
   for (std::size_t slot = 0; slot < g_live_slot_utf8_restore.size(); ++slot) {
     if (!g_live_slot_utf8_restore[slot].has_value() || !strings[slot].is_valid()) {
       continue;

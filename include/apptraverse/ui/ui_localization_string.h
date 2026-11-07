@@ -67,6 +67,8 @@ class UiLocalizationString : public NodeFor<UiLocalizationString> {
   void StashLiveReachableLayersBeforeHistoricalCapture() override;
 
   void RestoreLiveReachableLayersAfterHistoricalCapture() override;
+
+  bool HistoricalCaptureIsolatesMutableLeaves() const override;
 };
 
 class SetUiLocalizationSlotUtf8Event
