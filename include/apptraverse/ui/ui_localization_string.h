@@ -2,7 +2,6 @@
 #define APPTRAVERSE_UI_UI_LOCALIZATION_STRING_H_
 
 #include <cstddef>
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -55,16 +54,6 @@ class UiLocalizationString : public NodeFor<UiLocalizationString> {
   void MaterializeLanguage(int language_index);
 
   void Apply(SetUiLocalizationSlotUtf8Event const& event);
-
- private:
-  void SyncSessionSlotCount();
-  void CaptureSlotToSession(std::size_t index);
-  void ApplySlotUtf8FromJournal(std::size_t index);
-  void ApplySessionToSlot(std::size_t index);
-
-  // Runtime-only UTF-8 for lazy slots; not written to IDomainStorage until
-  // lifecycle Save on the UiString referent.
-  std::vector<std::optional<std::string>> slot_session_utf8_;
 };
 
 class SetUiLocalizationSlotUtf8Event
