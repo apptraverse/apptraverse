@@ -739,6 +739,77 @@ void TestLocalizationJournalCompactionMatchesLoad() {
   }
 }
 
+void TestLocalizationHistoricalCaptureScratchIsolationTwoOwners() {
+  LazyLocalizationBootstrap boot_a{26, "IsoA EN", "IsoA RU"};
+  LazyLocalizationBootstrap boot_b{27, "IsoB EN", "IsoB RU"};
+  ae::ObjId a_en_id;
+  ae::ObjId b_en_id;
+  {
+    ae::Domain domain_a{boot_a.storage};
+    ae::Domain domain_b{boot_b.storage};
+    auto localized_a = boot_a.LoadRoot(domain_a);
+    auto localized_b = boot_b.LoadRoot(domain_b);
+    localized_a->CaptureBaseState();
+    localized_b->CaptureBaseState();
+    localized_a->MaterializeLanguage(0);
+    localized_b->MaterializeLanguage(0);
+    CommitSlotUtf8(*localized_a, domain_a, 0, "IsoA EN live");
+    CommitSlotUtf8(*localized_b, domain_b, 0, "IsoB EN live");
+    CommitSlotUtf8(*localized_a, domain_a, 1, "IsoA RU live");
+    CommitSlotUtf8(*localized_b, domain_b, 1, "IsoB RU live");
+    a_en_id = localized_a->strings[0].id();
+    b_en_id = localized_b->strings[0].id();
+
+    ui::UiLocalizationString::RebuildOperationScratch rebuild_a{};
+    ui::UiLocalizationString::RebuildOperationScratch rebuild_b{};
+    auto const strings_a = localized_a->strings;
+    auto const strings_b = localized_b->strings;
+    localized_a->StashLocalPersistentAcrossRebuild(&rebuild_a);
+    localized_a->strings = {};
+    localized_b->StashLocalPersistentAcrossRebuild(&rebuild_b);
+    localized_b->strings = {};
+    localized_a->RestoreLocalPersistentAcrossRebuild(&rebuild_a);
+    localized_b->RestoreLocalPersistentAcrossRebuild(&rebuild_b);
+    CHECK(localized_a->strings.size() == strings_a.size());
+    CHECK(localized_b->strings.size() == strings_b.size());
+    CHECK(localized_a->strings[0].id() == a_en_id);
+    CHECK(localized_b->strings[0].id() == b_en_id);
+
+    ui::UiLocalizationString::CompactionOperationScratch compaction_a{};
+    std::size_t const collapse_a = localized_a->journal.size();
+    localized_a->FoldCollapsedJournalPrefixIntoReachableStorage(collapse_a,
+                                                                &compaction_a);
+    localized_a->StashLiveReachableLayersBeforeHistoricalCapture(&compaction_a);
+
+    localized_b->SetJournalRetentionPolicy(JournalRetentionPolicy{.max_events = 0});
+    localized_b->CompactJournal(SystemUtcMicros());
+    CHECK(localized_b->journal.empty());
+    localized_b->MaterializeLanguage(0);
+    CHECK(localized_b->Resolve(0) == "IsoB EN live");
+
+    localized_a->journal.clear();
+    localized_a->CaptureBaseState();
+    localized_a->ReleaseFoldCaptureMaterialization(&compaction_a);
+    localized_a->RestoreLiveReachableLayersAfterHistoricalCapture(&compaction_a);
+
+    localized_a->MaterializeLanguage(0);
+    CHECK(localized_a->Resolve(0) == "IsoA EN live");
+    localized_a->MaterializeLanguage(1);
+    CHECK(localized_a->Resolve(1) == "IsoA RU live");
+    localized_b->MaterializeLanguage(1);
+    CHECK(localized_b->Resolve(1) == "IsoB RU live");
+    CHECK(localized_a->strings[0].id() == a_en_id);
+    CHECK(localized_b->strings[0].id() == b_en_id);
+
+    CHECK(localized_a->TryReplayFromBase());
+    CHECK(localized_b->TryReplayFromBase());
+    localized_a->MaterializeLanguage(0);
+    localized_b->MaterializeLanguage(0);
+    CHECK(localized_a->Resolve(0) == "IsoA EN live");
+    CHECK(localized_b->Resolve(0) == "IsoB EN live");
+  }
+}
+
 void TestLocalizationJournalPartialCompactionRetainsOtherSlot() {
   LazyLocalizationBootstrap boot{24, "Partial EN", "Partial RU"};
   ae::ObjId ru_id;
@@ -1337,6 +1408,7 @@ int main(int argc, char** argv) {
   TestLocalizationLanguageSwitchWithoutImplicitPersist();
   TestLocalizationDirectoryLifecycleWithoutSessionWrites();
   TestLocalizationJournalCompactionMatchesLoad();
+  TestLocalizationHistoricalCaptureScratchIsolationTwoOwners();
   TestLocalizationJournalPartialCompactionRetainsOtherSlot();
   TestLocalizationHistoricalBaseIndependentOfOwnerSaveOnDisk();
   TestLocalizationApplyUnloadedSlotSkipsStorage();

@@ -2,6 +2,7 @@
 #define APPTRAVERSE_UI_UI_LOCALIZATION_STRING_H_
 
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -35,6 +36,15 @@ class UiLocalizationString : public NodeFor<UiLocalizationString> {
  public:
   explicit UiLocalizationString(ae::ObjProp prop) : NodeFor{prop} {}
 
+  struct RebuildOperationScratch {
+    std::vector<UiString::ptr> strings;
+  };
+
+  struct CompactionOperationScratch {
+    std::vector<std::size_t> folded_slots;
+    std::vector<std::optional<std::string>> live_slot_utf8;
+  };
+
   AE_OBJECT_REFLECT(AE_MMBR(strings))
 
   template <typename Dnv>
@@ -56,17 +66,19 @@ class UiLocalizationString : public NodeFor<UiLocalizationString> {
   void Apply(SetUiLocalizationSlotUtf8Event const& event);
 
   void FoldCollapsedJournalPrefixIntoReachableStorage(
-      std::size_t collapsed_count) override;
+      std::size_t collapsed_count, void* compaction_scratch) override;
 
-  void ReleaseFoldCaptureMaterialization() override;
+  void ReleaseFoldCaptureMaterialization(void* compaction_scratch) override;
 
-  void StashLocalPersistentAcrossRebuild() override;
+  void StashLocalPersistentAcrossRebuild(void* rebuild_scratch) override;
 
-  void RestoreLocalPersistentAcrossRebuild() override;
+  void RestoreLocalPersistentAcrossRebuild(void* rebuild_scratch) override;
 
-  void StashLiveReachableLayersBeforeHistoricalCapture() override;
+  void StashLiveReachableLayersBeforeHistoricalCapture(
+      void* compaction_scratch) override;
 
-  void RestoreLiveReachableLayersAfterHistoricalCapture() override;
+  void RestoreLiveReachableLayersAfterHistoricalCapture(
+      void* compaction_scratch) override;
 
   void PrepareReachableMutableLeavesForHistoricalCapture() override;
 };

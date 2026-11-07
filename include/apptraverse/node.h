@@ -255,21 +255,34 @@ class Node : public ae::Obj {
   // Local-persistent fields must survive mid-journal RebuildFromBaseAndReplay.
   // Base snapshots may predate those fields; Load from base must not discard
   // the live local state.
-  virtual void StashLocalPersistentAcrossRebuild() {}
-  virtual void RestoreLocalPersistentAcrossRebuild() {}
+  virtual void StashLocalPersistentAcrossRebuild(void* rebuild_scratch) {
+    (void)rebuild_scratch;
+  }
+  virtual void RestoreLocalPersistentAcrossRebuild(void* rebuild_scratch) {
+    (void)rebuild_scratch;
+  }
 
   // Fold journal[0, collapsed_count) into persisted layers of reachable
   // objects so HistoricalBaseSnapshot capture includes lazy side effects.
   virtual void FoldCollapsedJournalPrefixIntoReachableStorage(
-      std::size_t collapsed_count) {
+      std::size_t collapsed_count, void* compaction_scratch) {
     (void)collapsed_count;
+    (void)compaction_scratch;
   }
 
-  virtual void ReleaseFoldCaptureMaterialization() {}
+  virtual void ReleaseFoldCaptureMaterialization(void* compaction_scratch) {
+    (void)compaction_scratch;
+  }
 
-  virtual void StashLiveReachableLayersBeforeHistoricalCapture() {}
+  virtual void StashLiveReachableLayersBeforeHistoricalCapture(
+      void* compaction_scratch) {
+    (void)compaction_scratch;
+  }
 
-  virtual void RestoreLiveReachableLayersAfterHistoricalCapture() {}
+  virtual void RestoreLiveReachableLayersAfterHistoricalCapture(
+      void* compaction_scratch) {
+    (void)compaction_scratch;
+  }
 
   template <typename ConcreteNode>
   bool TryRebuildFromBaseAndReplay(ConcreteNode& target) {
@@ -280,7 +293,8 @@ class Node : public ae::Obj {
     auto owner_id = obj_id;
     auto saved_base = base;
     auto saved_journal = journal;
-    target.StashLocalPersistentAcrossRebuild();
+    typename ConcreteNode::RebuildOperationScratch rebuild_scratch{};
+    target.StashLocalPersistentAcrossRebuild(&rebuild_scratch);
     ae::DomainGraph graph{domain};
     std::optional<ae::seri::SeriResult> const load_result =
         graph.Load(target, saved_base.id());
@@ -288,13 +302,13 @@ class Node : public ae::Obj {
       obj_id = owner_id;
       base = saved_base;
       journal = std::move(saved_journal);
-      target.RestoreLocalPersistentAcrossRebuild();
+      target.RestoreLocalPersistentAcrossRebuild(&rebuild_scratch);
       return false;
     }
     obj_id = owner_id;
     base = saved_base;
     journal = std::move(saved_journal);
-    target.RestoreLocalPersistentAcrossRebuild();
+    target.RestoreLocalPersistentAcrossRebuild(&rebuild_scratch);
     generation_ = 1;
     return TryReplayJournal();
   }
@@ -418,14 +432,18 @@ class Node : public ae::Obj {
         journal.end());
 
     suppress_materialized_change_ = true;
-    target.FoldCollapsedJournalPrefixIntoReachableStorage(collapse);
-    target.StashLiveReachableLayersBeforeHistoricalCapture();
+    typename ConcreteNode::CompactionOperationScratch compaction_scratch{};
+    target.FoldCollapsedJournalPrefixIntoReachableStorage(collapse,
+                                                         &compaction_scratch);
+    target.StashLiveReachableLayersBeforeHistoricalCapture(
+        &compaction_scratch);
 
     if (retained.empty()) {
       journal.clear();
       CaptureBaseStateInto(target);
-      target.ReleaseFoldCaptureMaterialization();
-      target.RestoreLiveReachableLayersAfterHistoricalCapture();
+      target.ReleaseFoldCaptureMaterialization(&compaction_scratch);
+      target.RestoreLiveReachableLayersAfterHistoricalCapture(
+          &compaction_scratch);
       generation_ = saved_generation;
       applied_journal_size_ = kJournalFullyMaterialized;
       ae::DomainGraph graph{domain,
@@ -447,8 +465,9 @@ class Node : public ae::Obj {
     RebuildFromBaseAndReplay(target);
     journal.clear();
     CaptureBaseStateInto(target);
-    target.ReleaseFoldCaptureMaterialization();
-    target.RestoreLiveReachableLayersAfterHistoricalCapture();
+    target.ReleaseFoldCaptureMaterialization(&compaction_scratch);
+    target.RestoreLiveReachableLayersAfterHistoricalCapture(
+        &compaction_scratch);
     journal = std::move(retained);
     ReplayJournal();
     suppress_materialized_change_ = false;

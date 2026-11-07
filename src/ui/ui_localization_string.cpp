@@ -7,10 +7,6 @@
 namespace apptraverse::ui {
 namespace {
 
-thread_local std::vector<UiString::ptr> g_stash_strings_across_rebuild;
-thread_local std::vector<std::size_t> g_folded_slots_for_capture;
-thread_local std::vector<std::optional<std::string>> g_live_slot_utf8_restore;
-
 void ReplaySlotUtf8FromJournal(UiLocalizationString& localized,
                                std::size_t slot_index,
                                SetUiLocalizationSlotUtf8Event const* stop_before) {
@@ -57,10 +53,26 @@ SetUiLocalizationSlotUtf8Event const* StopBeforeJournalIndex(
   return static_cast<SetUiLocalizationSlotUtf8Event const*>(&*record.event);
 }
 
+UiLocalizationString::CompactionOperationScratch& AsCompactionScratch(
+    void* compaction_scratch) {
+  return *static_cast<UiLocalizationString::CompactionOperationScratch*>(
+      compaction_scratch);
+}
+
+UiLocalizationString::RebuildOperationScratch& AsRebuildScratch(
+    void* rebuild_scratch) {
+  return *static_cast<UiLocalizationString::RebuildOperationScratch*>(
+      rebuild_scratch);
+}
+
 }  // namespace
 
 void UiLocalizationString::FoldCollapsedJournalPrefixIntoReachableStorage(
-    std::size_t collapsed_count) {
+    std::size_t collapsed_count, void* compaction_scratch) {
+  if (compaction_scratch == nullptr) {
+    std::abort();
+  }
+  auto& scratch = AsCompactionScratch(compaction_scratch);
   if (collapsed_count == 0 || journal.empty()) {
     return;
   }
@@ -94,28 +106,43 @@ void UiLocalizationString::FoldCollapsedJournalPrefixIntoReachableStorage(
     }
     ReplaySlotUtf8FromJournal(*this, slot, stop_before);
     if (!keep_loaded) {
-      g_folded_slots_for_capture.push_back(slot);
+      scratch.folded_slots.push_back(slot);
     }
   }
 }
 
-void UiLocalizationString::ReleaseFoldCaptureMaterialization() {
-  for (std::size_t slot : g_folded_slots_for_capture) {
+void UiLocalizationString::ReleaseFoldCaptureMaterialization(
+    void* compaction_scratch) {
+  if (compaction_scratch == nullptr) {
+    std::abort();
+  }
+  auto& scratch = AsCompactionScratch(compaction_scratch);
+  for (std::size_t slot : scratch.folded_slots) {
     if (slot < strings.size() && strings[slot].is_loaded()) {
       strings[slot].Reset();
     }
   }
-  g_folded_slots_for_capture.clear();
+  scratch.folded_slots.clear();
 }
 
-void UiLocalizationString::StashLocalPersistentAcrossRebuild() {
-  g_stash_strings_across_rebuild = strings;
+void UiLocalizationString::StashLocalPersistentAcrossRebuild(
+    void* rebuild_scratch) {
+  if (rebuild_scratch == nullptr) {
+    std::abort();
+  }
+  auto& scratch = AsRebuildScratch(rebuild_scratch);
+  scratch.strings = strings;
 }
 
-void UiLocalizationString::RestoreLocalPersistentAcrossRebuild() {
-  if (!g_stash_strings_across_rebuild.empty()) {
-    strings = std::move(g_stash_strings_across_rebuild);
-    g_stash_strings_across_rebuild.clear();
+void UiLocalizationString::RestoreLocalPersistentAcrossRebuild(
+    void* rebuild_scratch) {
+  if (rebuild_scratch == nullptr) {
+    std::abort();
+  }
+  auto& scratch = AsRebuildScratch(rebuild_scratch);
+  if (!scratch.strings.empty()) {
+    strings = std::move(scratch.strings);
+    scratch.strings.clear();
   }
 }
 
@@ -131,14 +158,19 @@ void UiLocalizationString::PrepareReachableMutableLeavesForHistoricalCapture() {
   }
 }
 
-void UiLocalizationString::StashLiveReachableLayersBeforeHistoricalCapture() {
-  g_live_slot_utf8_restore.assign(strings.size(), std::nullopt);
+void UiLocalizationString::StashLiveReachableLayersBeforeHistoricalCapture(
+    void* compaction_scratch) {
+  if (compaction_scratch == nullptr) {
+    std::abort();
+  }
+  auto& scratch = AsCompactionScratch(compaction_scratch);
+  scratch.live_slot_utf8.assign(strings.size(), std::nullopt);
   for (std::size_t slot = 0; slot < strings.size(); ++slot) {
     if (!strings[slot].is_valid()) {
       continue;
     }
     if (strings[slot].is_loaded()) {
-      g_live_slot_utf8_restore[slot] = strings[slot]->utf8;
+      scratch.live_slot_utf8[slot] = strings[slot]->utf8;
       continue;
     }
     bool const loaded_here = !strings[slot].is_loaded();
@@ -146,29 +178,34 @@ void UiLocalizationString::StashLiveReachableLayersBeforeHistoricalCapture() {
       strings[slot].Load();
     }
     ReplaySlotUtf8FromJournal(*this, slot, nullptr);
-    g_live_slot_utf8_restore[slot] = strings[slot]->utf8;
+    scratch.live_slot_utf8[slot] = strings[slot]->utf8;
     if (loaded_here) {
       strings[slot].Reset();
     }
   }
 }
 
-void UiLocalizationString::RestoreLiveReachableLayersAfterHistoricalCapture() {
-  for (std::size_t slot = 0; slot < g_live_slot_utf8_restore.size(); ++slot) {
-    if (!g_live_slot_utf8_restore[slot].has_value() || !strings[slot].is_valid()) {
+void UiLocalizationString::RestoreLiveReachableLayersAfterHistoricalCapture(
+    void* compaction_scratch) {
+  if (compaction_scratch == nullptr) {
+    std::abort();
+  }
+  auto& scratch = AsCompactionScratch(compaction_scratch);
+  for (std::size_t slot = 0; slot < scratch.live_slot_utf8.size(); ++slot) {
+    if (!scratch.live_slot_utf8[slot].has_value() || !strings[slot].is_valid()) {
       continue;
     }
     bool const was_loaded = strings[slot].is_loaded();
     if (!strings[slot].is_loaded()) {
       strings[slot].Load();
     }
-    strings[slot]->utf8 = *g_live_slot_utf8_restore[slot];
+    strings[slot]->utf8 = *scratch.live_slot_utf8[slot];
     strings[slot].Save();
     if (!was_loaded) {
       strings[slot].Reset();
     }
   }
-  g_live_slot_utf8_restore.clear();
+  scratch.live_slot_utf8.clear();
 }
 
 void UiLocalizationString::MaterializeLanguage(int language_index) {
