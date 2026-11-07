@@ -34,7 +34,7 @@
 | `apptraverse_window_catalog_embedded_overlay_test` (close → EN→RU→EN → Save → reopen → cold) | PASS |
 | `apptraverse_window_catalog_win32_acceptance_test` | PASS |
 | `TestCatalogSaveAfterLanguageToggleAndChildClose` и прочие сценарии model | PASS (по отдельности) |
-| `apptraverse_window_catalog_model_test` целиком | PASS (historical remap: live presenter + bootstrap lazy UiString ids; isolation remap on fold-only) |
+| `apptraverse_window_catalog_model_test` целиком | PASS (historical remap: live presenter; mutable leaves always isolated; PrepareReachable… + distill persist before Init) |
 | Android `:app:assembleDebug` | PASS |
 | Linux | NOT RUN |
 

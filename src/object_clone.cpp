@@ -284,56 +284,6 @@ CloneRemap BuildIdentityRemap(
 
 namespace detail {
 
-namespace {
-
-bool ReadLoadedLayerBytes(ae::DomainLoad& load, ae::ObjectData& out) {
-  out.clear();
-  if (load.result != ae::DomainLoadResult::kLoaded || !load.reader) {
-    return false;
-  }
-  for (;;) {
-    std::uint8_t byte = 0;
-    ae::seri::SeriResult const result =
-        load.reader->Read(ae::seri::DataReadTag{&byte, 1});
-    if (!result) {
-      if (result.error().error_code == ae::seri::read_eof.error_code) {
-        break;
-      }
-      return false;
-    }
-    out.push_back(byte);
-  }
-  return true;
-}
-
-}  // namespace
-
-bool HistoricalLeafLayersMatchLive(ae::RamDomainStorage const& scratch,
-                                   ae::ObjId object_id,
-                                   ae::IDomainStorage& live_storage) {
-  auto const scratch_entry = scratch.state.find(object_id);
-  if (scratch_entry == scratch.state.end() || !scratch_entry->second) {
-    return false;
-  }
-  for (auto const& [class_id, versions] : *scratch_entry->second) {
-    for (auto const& [version, scratch_data] : versions) {
-      ae::DomainLoad load =
-          live_storage.Load(ae::DomainQuery{object_id, class_id, version});
-      if (load.result == ae::DomainLoadResult::kEmpty && scratch_data.empty()) {
-        continue;
-      }
-      ae::ObjectData live_data;
-      if (!ReadLoadedLayerBytes(load, live_data)) {
-        return false;
-      }
-      if (live_data != scratch_data) {
-        return false;
-      }
-    }
-  }
-  return true;
-}
-
 bool InjectLayeredObjects(ae::RamDomainStorage const& scratch,
                             ae::IDomainStorage& storage) {
   for (auto const& [object_id, class_map_opt] : scratch.state) {

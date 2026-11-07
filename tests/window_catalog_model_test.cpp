@@ -1592,14 +1592,14 @@ void TestCatalogPresentedWindowDistilledBaseReplay() {
   CHECK(CatalogWindowPresented(main_base).presenter.id() == main_presenter_id);
 
   ui::UiLocalizationString& label_add = *catalog->persisted.texts.label_add;
-  ae::ObjId const label_en_id = label_add.strings[0].id();
-  ae::ObjId const label_ru_id = label_add.strings[1].id();
   CHECK(label_add.base.is_valid());
   CHECK(label_add.base.is_loaded());
   auto& label_base = static_cast<ui::UiLocalizationString&>(*label_add.base);
   CHECK(label_base.strings.size() == 2);
-  CHECK(label_base.strings[0].id() == label_en_id);
-  CHECK(label_base.strings[1].id() == label_ru_id);
+  label_base.MaterializeLanguage(0);
+  CHECK(label_base.Resolve(0) == "Add");
+  label_base.MaterializeLanguage(1);
+  CHECK(label_base.Resolve(1) == "Добавить");
 
   CHECK(main.TryReplayFromBase());
   CHECK(MainWindowPresented(*catalog).presenter.id() == main_presenter_id);
@@ -1608,8 +1608,10 @@ void TestCatalogPresentedWindowDistilledBaseReplay() {
         catalog->persisted.locale.id());
 
   CHECK(label_add.TryReplayFromBase());
-  CHECK(label_add.strings[0].id() == label_en_id);
-  CHECK(label_add.strings[1].id() == label_ru_id);
+  label_add.MaterializeLanguage(0);
+  CHECK(label_add.Resolve(0) == "Add");
+  label_add.MaterializeLanguage(1);
+  CHECK(label_add.Resolve(1) == "Добавить");
 
   catalog->AddWindow();
   WindowHolder* holder = AsHolder(catalog->persisted.list->rows[0]);
@@ -1618,8 +1620,6 @@ void TestCatalogPresentedWindowDistilledBaseReplay() {
       CatalogWindowPresented(child).presenter.id();
   ae::ObjId const child_window_id = child.obj_id;
   ae::ObjId const holder_title_id = holder->primary_text.id();
-  ae::ObjId const holder_en_id = holder->primary_text->strings[0].id();
-  ae::ObjId const holder_ru_id = holder->primary_text->strings[1].id();
 
   CHECK(child.base.is_valid());
   CHECK(child.base.is_loaded());
@@ -1630,8 +1630,10 @@ void TestCatalogPresentedWindowDistilledBaseReplay() {
   CHECK(holder->primary_text->base.is_loaded());
   auto& holder_title_base =
       static_cast<ui::UiLocalizationString&>(*holder->primary_text->base);
-  CHECK(holder_title_base.strings[0].id() == holder_en_id);
-  CHECK(holder_title_base.strings[1].id() == holder_ru_id);
+  holder_title_base.MaterializeLanguage(0);
+  CHECK(holder_title_base.Resolve(0) == "Window {0}{1}");
+  holder_title_base.MaterializeLanguage(1);
+  CHECK(holder_title_base.Resolve(1) == "Окно {0}{1}");
 
   CHECK(child.TryReplayFromBase());
   CHECK(CatalogWindowPresented(child).presenter.id() == child_presenter_id);

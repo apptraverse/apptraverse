@@ -9,7 +9,6 @@
 #include "apptraverse/event.h"
 #include "apptraverse/node.h"
 #include "apptraverse/presenter.h"
-#include "apptraverse/ui/ui_string.h"
 
 namespace apptraverse {
 namespace detail {
@@ -24,10 +23,6 @@ void EnqueueCloneReferenceForHistorical(void* context, ae::ObjId id);
 
 bool InjectLayeredObjects(ae::RamDomainStorage const& scratch,
                           ae::IDomainStorage& storage);
-
-bool HistoricalLeafLayersMatchLive(ae::RamDomainStorage const& scratch,
-                                   ae::ObjId object_id,
-                                   ae::IDomainStorage& live_storage);
 
 }  // namespace detail
 
@@ -79,17 +74,6 @@ bool InjectRemappedHistoricalBaseSnapshot(
     }
     if (retains_live_identity_in_historical_base(*obj)) {
       continue;
-    }
-    if (registry.GenerationDistance(ui::UiString::kClassId, obj->GetClassId()) >=
-        0) {
-      if (!static_cast<Node const&>(owner)
-               .HistoricalCaptureIsolatesMutableLeaves()) {
-        continue;
-      }
-      if (detail::HistoricalLeafLayersMatchLive(captured_scratch, old_id,
-                                                owner.domain->domain_storage())) {
-        continue;
-      }
     }
     ae::ObjId const allocated = detail::AllocateCloneObjIdForHistorical(
         owner_id.id(), leaf_ids, remap, live_domain);

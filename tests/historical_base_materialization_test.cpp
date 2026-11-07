@@ -1,4 +1,5 @@
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <set>
 #include <vector>
@@ -6,8 +7,10 @@
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
 
+#include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/event_for.h"
+#include "apptraverse/journal_retention_policy.h"
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/overlay_domain_storage.h"
@@ -17,6 +20,76 @@
 namespace apptraverse::test {
 
 class HistorizedBumpEvent;
+class HistorizedSetUtf8Event;
+
+class HistorizedStringLeaf : public ae::Obj {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::HistorizedStringLeaf",
+                           HistorizedStringLeaf, ae::Obj, 0)
+
+ protected:
+  HistorizedStringLeaf() = default;
+
+ public:
+  explicit HistorizedStringLeaf(ae::ObjProp prop) : Obj{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(utf8))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, utf8);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, utf8);
+  }
+
+  std::string utf8;
+};
+
+class HistorizedStringOwner : public NodeFor<HistorizedStringOwner> {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::HistorizedStringOwner",
+                           HistorizedStringOwner, Node, 0)
+
+ protected:
+  HistorizedStringOwner() = default;
+
+ public:
+  explicit HistorizedStringOwner(ae::ObjProp prop) : NodeFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(text))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, text);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, text);
+  }
+
+  HistorizedStringLeaf::ptr text;
+
+  void Apply(HistorizedSetUtf8Event const& event);
+
+  void PrepareReachableMutableLeavesForHistoricalCapture() override;
+};
+
+class HistorizedSetUtf8Event
+    : public EventFor<HistorizedStringOwner, HistorizedSetUtf8Event> {
+  APPTRAVERSE_OBJECT(HistorizedSetUtf8Event, Event, 0)
+
+ protected:
+  HistorizedSetUtf8Event() = default;
+
+ public:
+  explicit HistorizedSetUtf8Event(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(utf8))
+
+  std::string utf8;
+};
 
 class HistorizedValueNode : public NodeFor<HistorizedValueNode> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::test::HistorizedValueNode",
@@ -136,6 +209,26 @@ class HistorizedParentWithChild : public NodeFor<HistorizedParentWithChild> {
   HistorizedValueNode::ptr child;
 };
 
+void HistorizedStringOwner::PrepareReachableMutableLeavesForHistoricalCapture() {
+  if (text.is_valid() && !text.is_loaded()) {
+    text.Load();
+  }
+}
+
+void HistorizedStringOwner::Apply(HistorizedSetUtf8Event const& event) {
+  if (!text.is_valid()) {
+    return;
+  }
+  if (!text.is_loaded()) {
+    text.Load();
+  }
+  text->utf8 = event.utf8;
+  NoteMaterializedChange();
+}
+
+APPTRAVERSE_REGISTER(HistorizedStringLeaf);
+APPTRAVERSE_REGISTER(HistorizedStringOwner);
+APPTRAVERSE_REGISTER(HistorizedSetUtf8Event);
 APPTRAVERSE_REGISTER(HistorizedValueNode);
 APPTRAVERSE_REGISTER(HistorizedBumpEvent);
 APPTRAVERSE_REGISTER(HistorizedSupplyPayload);
@@ -183,6 +276,146 @@ void CommitBump(HistorizedValueNode& node, ae::Domain& domain,
   auto ev = HistorizedBumpEvent::ptr::Create(ae::CreateWith{domain});
   ev->delta = delta;
   node.Commit(std::move(ev));
+}
+
+std::filesystem::path HistoricalStringTestDir(char const* tag) {
+  auto dir = std::filesystem::temp_directory_path() / "apptraverse_test" / tag;
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir, ec);
+  return dir;
+}
+
+std::string Utf8OnDisk(DirectoryDomainStorage& storage, ae::ObjId leaf_id) {
+  ae::Domain domain{storage};
+  auto leaf = HistorizedStringLeaf::ptr::Declare(
+      ae::CreateWith{domain}.with_id(leaf_id));
+  leaf.Load();
+  return leaf->utf8;
+}
+
+std::string OwnerResolvedUtf8(HistorizedStringOwner& owner) {
+  if (!owner.text.is_valid()) {
+    return {};
+  }
+  if (!owner.text.is_loaded()) {
+    owner.text.Load();
+  }
+  return owner.text->utf8;
+}
+
+void CommitUtf8(HistorizedStringOwner& owner, ae::Domain& domain,
+                char const* utf8) {
+  auto ev = HistorizedSetUtf8Event::ptr::Create(ae::CreateWith{domain});
+  ev->utf8 = utf8;
+  owner.Commit(std::move(ev));
+}
+
+void TestHistoricalStringLeafBootstrapAfterOwnerSave() {
+  auto const dir = HistoricalStringTestDir("historical_string_bootstrap_save");
+  ae::ObjId const owner_id{0x09C20001u};
+  ae::ObjId base_id{};
+  ae::ObjId live_leaf_id{};
+
+  {
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto owner = HistorizedStringOwner::ptr::Create(
+        ae::CreateWith{domain}.with_id(owner_id));
+    auto leaf = HistorizedStringLeaf::ptr::Create(ae::CreateWith{domain});
+    leaf->utf8 = "A";
+    leaf.Save();
+    live_leaf_id = leaf->obj_id;
+    owner->text = HistorizedStringLeaf::ptr::Declare(
+        ae::CreateWith{domain}
+            .with_id(live_leaf_id)
+            .with_flags(ae::ObjFlags::kUnloadedByDefault));
+    InitializeRuntimeNode(*owner);
+    base_id = owner->base.id();
+    CommitUtf8(*owner, domain, "B");
+    storage.BeginSaveSession();
+    HistorizedStringOwner::ptr::MakeFromThis(&*owner).Save();
+    CHECK(!storage.SaveSessionHadFailure());
+  }
+
+  {
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto historical = HistorizedStringOwner::ptr::Declare(
+        ae::CreateWith{domain}.with_id(base_id));
+    historical.Load();
+    CHECK(OwnerResolvedUtf8(*historical) == "A");
+  }
+
+  {
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto owner = HistorizedStringOwner::ptr::Declare(
+        ae::CreateWith{domain}.with_id(owner_id));
+    owner.Load();
+    CHECK(owner->TryReplayFromBase());
+    CHECK(OwnerResolvedUtf8(*owner) == "B");
+  }
+}
+
+void TestHistoricalStringLeafCompactionBeforeSecondSave() {
+  auto const dir =
+      HistoricalStringTestDir("historical_string_compact_second_save");
+  ae::ObjId const owner_id{0x09C20002u};
+  ae::ObjId base_id{};
+  ae::ObjId live_leaf_id{};
+
+  {
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto owner = HistorizedStringOwner::ptr::Create(
+        ae::CreateWith{domain}.with_id(owner_id));
+    auto leaf = HistorizedStringLeaf::ptr::Create(ae::CreateWith{domain});
+    leaf->utf8 = "A";
+    leaf.Save();
+    live_leaf_id = leaf->obj_id;
+    owner->text = HistorizedStringLeaf::ptr::Declare(
+        ae::CreateWith{domain}
+            .with_id(live_leaf_id)
+            .with_flags(ae::ObjFlags::kUnloadedByDefault));
+    InitializeRuntimeNode(*owner);
+    CommitUtf8(*owner, domain, "B");
+    CHECK(OwnerResolvedUtf8(*owner) == "B");
+    storage.BeginSaveSession();
+    HistorizedStringOwner::ptr::MakeFromThis(&*owner).Save();
+    CHECK(!storage.SaveSessionHadFailure());
+    CHECK(!owner->journal.empty());
+    CHECK(Utf8OnDisk(storage, live_leaf_id) == "B");
+
+    owner->SetJournalRetentionPolicy(JournalRetentionPolicy{.max_events = 0});
+    owner->CompactJournal(SystemUtcMicros());
+    CHECK(owner->journal.empty());
+    base_id = owner->base.id();
+
+    CommitUtf8(*owner, domain, "C");
+    storage.BeginSaveSession();
+    HistorizedStringOwner::ptr::MakeFromThis(&*owner).Save();
+    CHECK(!storage.SaveSessionHadFailure());
+  }
+
+  {
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto historical = HistorizedStringOwner::ptr::Declare(
+        ae::CreateWith{domain}.with_id(base_id));
+    historical.Load();
+    CHECK(OwnerResolvedUtf8(*historical) == "B");
+  }
+
+  {
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto owner = HistorizedStringOwner::ptr::Declare(
+        ae::CreateWith{domain}.with_id(owner_id));
+    owner.Load();
+    CHECK(owner->TryReplayFromBase());
+    CHECK(OwnerResolvedUtf8(*owner) == "C");
+  }
 }
 
 void TestQueryLevelForceMaterialize() {
@@ -493,6 +726,8 @@ int main() {
   apptraverse::test::TestCaptureParentOmitsChildNodeHistory();
   apptraverse::test::TestMaterializedPublicationOmitsHistory();
   apptraverse::test::TestSupplyConstantWithHistoricalBaseSave();
+  apptraverse::test::TestHistoricalStringLeafBootstrapAfterOwnerSave();
+  apptraverse::test::TestHistoricalStringLeafCompactionBeforeSecondSave();
   std::cout << "historical_base_materialization_test OK\n";
   return 0;
 }

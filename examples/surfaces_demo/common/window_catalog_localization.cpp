@@ -28,14 +28,13 @@ ui::UiLocalizationString::ptr MakeCatalogLocalizedString(ae::Domain& domain,
   auto ru_string = ui::UiString::ptr::Create(
       ae::CreateWith{domain}.with_flags(ae::ObjFlags::kUnloadedByDefault));
   localized->strings = {en_string, ru_string};
-  InitializeRuntimeNode(*localized, owner);
-
   en_string.Load();
   en_string->utf8 = en;
   PersistUiStringUtf8(en_string);
   ru_string.Load();
   ru_string->utf8 = ru;
   PersistUiStringUtf8(ru_string);
+  InitializeRuntimeNode(*localized, owner);
   localized->MaterializeLanguage(0);
   return localized;
 }

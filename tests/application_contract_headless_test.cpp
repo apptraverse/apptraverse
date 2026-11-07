@@ -494,8 +494,10 @@ void TestPresentedWindowDistilledBaseReplay() {
   CHECK(title.base.is_loaded());
   auto& title_base = static_cast<ui::UiLocalizationString&>(*title.base);
   CHECK(title_base.strings.size() == 2);
-  CHECK(title_base.strings[0].id() == en_string_id);
-  CHECK(title_base.strings[1].id() == ru_string_id);
+  title_base.MaterializeLanguage(0);
+  CHECK(title_base.Resolve(0) == kEnTitle);
+  title_base.MaterializeLanguage(1);
+  CHECK(title_base.Resolve(1) == kRuTitle);
 
   CHECK(live_window.TryReplayFromBase());
   CHECK(live_window.presenter.is_valid());
@@ -506,8 +508,10 @@ void TestPresentedWindowDistilledBaseReplay() {
 
   CHECK(title.TryReplayFromBase());
   CHECK(title.strings.size() == 2);
-  CHECK(title.strings[0].id() == en_string_id);
-  CHECK(title.strings[1].id() == ru_string_id);
+  title.MaterializeLanguage(0);
+  CHECK(title.Resolve(0) == kEnTitle);
+  title.MaterializeLanguage(1);
+  CHECK(title.Resolve(1) == kRuTitle);
 }
 
 void TestUiPresentedWindowHierarchy() {
