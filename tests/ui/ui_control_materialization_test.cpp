@@ -362,6 +362,16 @@ std::string Utf8FromStorageOnly(ae::RamDomainStorage& storage, ae::ObjId id) {
   return utf8;
 }
 
+std::string Utf8FromDirectoryStorage(DirectoryDomainStorage& storage,
+                                    ae::ObjId id) {
+  ae::Domain domain{storage};
+  auto string = ui::UiString::ptr::Declare(ae::CreateWith{domain}.with_id(id));
+  string.Load();
+  std::string const utf8 = string->utf8;
+  string.Reset();
+  return utf8;
+}
+
 std::filesystem::path LocalizationTestDir(char const* name) {
   auto const dir =
       std::filesystem::temp_directory_path() /
@@ -779,6 +789,134 @@ void TestLocalizationJournalPartialCompactionRetainsOtherSlot() {
   }
 }
 
+void TestLocalizationHistoricalBaseIndependentOfOwnerSaveOnDisk() {
+  auto const dir = LocalizationTestDir("historical_base_ru_slot");
+  ae::ObjId const root_id{25};
+  char const* const kRuA = "A";
+  char const* const kRuB = "B";
+  char const* const kRuC = "C";
+  ae::ObjId en_string_id;
+  ae::ObjId ru_string_id;
+
+  {
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto localized = ui::UiLocalizationString::ptr::Create(
+        ae::CreateWith{domain}.with_id(root_id));
+    InitializeRuntimeNode(*localized);
+
+    auto en = ui::UiString::ptr::Create(ae::CreateWith{domain});
+    en->utf8 = "EN-active";
+    auto ru = ui::UiString::ptr::Create(ae::CreateWith{domain});
+    ru->utf8 = kRuA;
+    en_string_id = en->obj_id;
+    ru_string_id = ru->obj_id;
+    en.Save();
+    ru.Save();
+
+    localized->strings = {
+        ui::UiString::ptr::Declare(
+            ae::CreateWith{domain}
+                .with_id(en_string_id)
+                .with_flags(ae::ObjFlags::kUnloadedByDefault)),
+        ui::UiString::ptr::Declare(
+            ae::CreateWith{domain}
+                .with_id(ru_string_id)
+                .with_flags(ae::ObjFlags::kUnloadedByDefault)),
+    };
+    localized->CaptureBaseState();
+    storage.BeginSaveSession();
+    ui::UiLocalizationString::ptr::MakeFromThis(&*localized).Save();
+    CHECK(!storage.SaveSessionHadFailure());
+  }
+
+  ae::ObjId base_id;
+  ae::ObjId ru_ref_id;
+  {
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto localized = ui::UiLocalizationString::ptr::Declare(
+        ae::CreateWith{domain}.with_id(root_id));
+    localized.Load();
+    localized->MaterializeLanguage(0);
+    CHECK(!localized->strings[1].is_loaded());
+    CHECK(Utf8FromDirectoryStorage(storage, ru_string_id) == kRuA);
+
+    CommitSlotUtf8(*localized, domain, 1, kRuB);
+    CommitSlotUtf8(*localized, domain, 1, kRuC);
+    CHECK(!localized->strings[1].is_loaded());
+    CHECK(Utf8FromDirectoryStorage(storage, ru_string_id) == kRuA);
+    CHECK(localized->journal.size() == 2);
+
+    localized->MaterializeLanguage(0);
+    CHECK(!localized->strings[1].is_loaded());
+
+    localized->SetJournalRetentionPolicy(JournalRetentionPolicy{.max_events = 1});
+    localized->CompactJournal(SystemUtcMicros());
+    CHECK(localized->journal.size() == 1);
+    CHECK(CountLocalizationUtf8Events(*localized) == 1);
+    auto const& retained = localized->journal.front().event;
+    CHECK(retained.is_valid() && retained.is_loaded());
+    auto const& utf8_event =
+        static_cast<SetUiLocalizationSlotUtf8Event const&>(*retained);
+    CHECK(utf8_event.slot_index == 1);
+    CHECK(utf8_event.utf8 == kRuC);
+
+    base_id = localized->base.id();
+    ru_ref_id = localized->strings[1].id();
+    CHECK(base_id != root_id);
+    CHECK(ru_ref_id == ru_string_id);
+
+    localized->MaterializeLanguage(1);
+    CHECK(localized->Resolve(1) == kRuC);
+
+    storage.BeginSaveSession();
+    ui::UiLocalizationString::ptr::MakeFromThis(&*localized).Save();
+    CHECK(!storage.SaveSessionHadFailure());
+    localized.Reset();
+  }
+
+  {
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto historical = ui::UiLocalizationString::ptr::Declare(
+        ae::CreateWith{domain}.with_id(base_id));
+    historical.Load();
+    CHECK(historical->journal.empty());
+    historical->MaterializeLanguage(1);
+    CHECK(historical->Resolve(1) == kRuB);
+    CHECK(historical->strings[1].id() == ru_ref_id);
+    historical.Reset();
+  }
+
+  {
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto loaded = ui::UiLocalizationString::ptr::Declare(
+        ae::CreateWith{domain}.with_id(root_id));
+    loaded.Load();
+    loaded->MaterializeLanguage(1);
+    CHECK(loaded->Resolve(1) == kRuC);
+    CHECK(loaded->strings[1].id() == ru_ref_id);
+    CHECK(loaded->base.id() == base_id);
+    loaded.Reset();
+  }
+
+  {
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto replay = ui::UiLocalizationString::ptr::Declare(
+        ae::CreateWith{domain}.with_id(root_id));
+    replay.Load();
+    CHECK(replay->TryReplayFromBase());
+    replay->MaterializeLanguage(1);
+    CHECK(replay->Resolve(1) == kRuC);
+    CHECK(replay->strings[1].id() == ru_ref_id);
+    CHECK(replay->base.id() == base_id);
+    replay.Reset();
+  }
+}
+
 void TestLocalizationApplyUnloadedSlotSkipsStorage() {
   ae::RamDomainStorage storage;
   ae::ObjId const root_id{12};
@@ -1135,6 +1273,7 @@ int main(int argc, char** argv) {
   TestLocalizationDirectoryLifecycleWithoutSessionWrites();
   TestLocalizationJournalCompactionMatchesLoad();
   TestLocalizationJournalPartialCompactionRetainsOtherSlot();
+  TestLocalizationHistoricalBaseIndependentOfOwnerSaveOnDisk();
   TestLocalizationApplyUnloadedSlotSkipsStorage();
   TestPushButtonClickViaPresenter();
   TestListSelectionViaPresenterProxy();
