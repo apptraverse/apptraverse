@@ -285,10 +285,8 @@ class MacNativeViews final
     auto const identity = static_cast<std::uint64_t>(row.id().id());
     [rows addObject:[[ATMacListRowState alloc]
                         initWithIdentity:identity
-                                   text:ToNSString(
-                                            apptraverse::ui::
-                                                ResolvePresentedListRowPrimaryText(
-                                                    row, language_index))]];
+                                   text:ToNSString(presenter.ResolveListRowPrimaryText(
+                                            row, language_index))]];
   }
   return [[ATMacListState alloc]
       initWithParentToken:Token(*presenter.window_presenter)

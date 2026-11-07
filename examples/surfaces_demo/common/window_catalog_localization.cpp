@@ -60,8 +60,11 @@ void InstallWindowCatalogLocalization(WindowCatalog& catalog,
       CreateCatalogLocalizedString(domain, catalog, "Window ", "Окно ");
   catalog.persisted.texts.label_close =
       CreateCatalogLocalizedString(domain, catalog, "Close", "Закрыть");
-  catalog.persisted.texts.label_list_unloaded =
-      CreateCatalogLocalizedString(domain, catalog, "Unloaded", "Выгружено");
+  catalog.persisted.texts.list_row_title_format =
+      CreateCatalogLocalizedString(domain, catalog, "Window {0}{1}",
+                                 "Окно {0}{1}");
+  catalog.persisted.texts.list_row_title_closed_suffix =
+      CreateCatalogLocalizedString(domain, catalog, " (Closed)", " (закрыто)");
 }
 
 ui::UiLocalizationString::ptr CreateMainWindowTitle(WindowCatalog& catalog,
@@ -74,17 +77,6 @@ std::string FormatCatalogWindowTitle(ui::UiLocalizationString const& prefix,
                                      int language_index,
                                      std::uint32_t number) {
   return prefix.Resolve(language_index) + std::to_string(number);
-}
-
-void MaterializeWindowHolderTitle(WindowHolder& holder, int language_index,
-                                  ui::UiLocalizationString const& prefix) {
-  holder.primary_text->MaterializeLanguage(language_index);
-  if (holder.window.is_loaded()) {
-    auto& presented = static_cast<ui::UiPresentedWindow&>(*holder.window);
-    if (presented.presenter.is_loaded()) {
-      presented.presenter->title->MaterializeLanguage(language_index);
-    }
-  }
 }
 
 ui::UiLocalizationString::ptr CreateCatalogLocalizedString(ae::Domain& domain,

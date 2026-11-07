@@ -347,7 +347,7 @@ class IosNativeViews final
                         initWithIdentity:identity
                                    text:ToNSString(
                                             apptraverse::ui::
-                                                ResolvePresentedListRowPrimaryText(
+                                                presenter.ResolveListRowPrimaryText(
                                                     row, language_index))]];
   }
   return [[ATIosListState alloc]

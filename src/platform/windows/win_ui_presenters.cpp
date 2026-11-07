@@ -142,10 +142,10 @@ LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
 }
 
 std::wstring WinDesktopWindowPresenter::ResolveTitleText() const {
-  if (!title.is_valid() || !locale.is_valid()) {
+  if (!locale.is_valid()) {
     return {};
   }
-  return Utf8ToWide(title->Resolve(locale->language_index()));
+  return Utf8ToWide(ResolvePresentedWindowTitle(locale->language_index()));
 }
 
 void WinDesktopWindowPresenter::OnLoad() {
@@ -399,7 +399,7 @@ void WinListContainerPresenter::SyncFromMirror() {
     language_index = window_presenter->locale->language_index();
   }
   std::vector<std::string> const labels =
-      ResolvePresentedListRowPrimaryTexts(*container, language_index);
+      ResolveListRowPrimaryTexts(language_index);
   std::vector<std::wstring> desired;
   desired.reserve(labels.size());
   for (std::string const& label : labels) {

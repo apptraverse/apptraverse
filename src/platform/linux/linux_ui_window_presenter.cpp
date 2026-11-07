@@ -18,10 +18,10 @@ void* LinuxDesktopWindowPresenter::NativeChildParentHandle() const {
 }
 
 std::string LinuxDesktopWindowPresenter::ResolveTitleText() const {
-  if (!title.is_valid()) {
+  if (!locale.is_valid()) {
     return {};
   }
-  return title->Resolve(locale->language_index());
+  return ResolvePresentedWindowTitle(locale->language_index());
 }
 
 bool LinuxDesktopWindowPresenter::ClientRectOnMonitor(GtkWidget* window,

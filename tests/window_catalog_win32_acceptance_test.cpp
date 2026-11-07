@@ -38,6 +38,7 @@
 #include "window_catalog_actions.h"
 #include "window_catalog_graph.h"
 #include "window_catalog_ids.h"
+#include "window_catalog_list_row_text.h"
 #include "window_catalog_model.h"
 
 #include "apptraverse/platform/windows/win_ui_frame.h"
@@ -442,20 +443,9 @@ void CloseProcessGracefully(HWND main, PROCESS_INFORMATION& pi) {
   pi.hProcess = nullptr;
 }
 
-std::string ProbeRowPrimaryUtf8(WindowHolder const& holder, int language_index) {
-  CHECK(holder.primary_text.is_valid());
-  if (!holder.primary_text.is_loaded()) {
-    holder.primary_text.Load();
-  }
-  ui::UiLocalizationString const& localized = *holder.primary_text;
-  if (language_index >= 0 &&
-      static_cast<std::size_t>(language_index) < localized.strings.size()) {
-    ui::UiString::ptr const& entry = localized.strings[language_index];
-    if (entry.is_valid() && !entry.is_loaded()) {
-      entry.Load();
-    }
-  }
-  return localized.Resolve(language_index);
+std::string ProbeRowPrimaryUtf8(WindowCatalog const& catalog,
+                                WindowHolder const& holder, int language_index) {
+  return ResolveWindowCatalogHolderListRowText(holder, catalog, language_index);
 }
 
 void ProbeProfileListRows(
@@ -489,9 +479,9 @@ void ProbeProfileListRows(
     auto* h = static_cast<WindowHolder*>(
         catalog->persisted.list->rows[i].operator->());
     CHECK(h->window_number == static_cast<std::uint32_t>(i + 1));
-    std::string const title = ProbeRowPrimaryUtf8(*h, 0);
+    std::string const title = ProbeRowPrimaryUtf8(*catalog, *h, 0);
     std::string const open_suffix =
-        catalog->IsHolderWindowOpen(*h) ? "" : " (Unloaded)";
+        catalog->IsHolderWindowOpen(*h) ? "" : " (Closed)";
     CHECK(title ==
           ("Window " + std::to_string(h->window_number) + open_suffix));
     if (out_holder_ids != nullptr) {
@@ -1034,7 +1024,7 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
   CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
     return FindTopLevelWithTitle(pid, L"Window 1") == nullptr;
   }));
-  ExpectListRows(main, {L"Window 1 (Unloaded)", L"Window 2"});
+  ExpectListRows(main, {L"Window 1 (Closed)", L"Window 2"});
   ExpectSameTopLevelWithTitle(pid, child2, L"Window 2", "after_close_window1");
 
   SelectListIndex(main, 0);
@@ -1088,7 +1078,7 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
     main = WaitCatalogMainWindow(load_pid, std::chrono::seconds{30});
     CHECK(main != nullptr);
     WaitChromeReady(main);
-    ExpectListRows(main, {L"Window 1 (Unloaded)", L"Window 2"});
+    ExpectListRows(main, {L"Window 1 (Closed)", L"Window 2"});
     CHECK(FindTopLevelWithTitle(load_pid, L"Window 1") == nullptr);
     CHECK(FindTopLevelWithTitle(load_pid, L"Window 2") != nullptr);
     CHECK(TopLevelWindowsForPid(load_pid).size() == 2);

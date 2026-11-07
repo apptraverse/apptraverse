@@ -20,6 +20,7 @@
 
 #include "window_catalog_graph.h"
 #include "window_catalog_ids.h"
+#include "window_catalog_list_row_text.h"
 #include "window_catalog_localization.h"
 #include "window_catalog_model.h"
 
@@ -312,8 +313,14 @@ void TestCatalogAddWindowViaPresentedWindowPrefab() {
     CHECK(holder2->window->origin_id() == kWindowPrefabId);
     CHECK(presenter1->origin_id() == kWindowPrefabPresenterId);
     CHECK(presenter2->origin_id() == kWindowPrefabPresenterId);
-    CHECK(presenter1->title.id() == holder1->primary_text.id());
-    CHECK(presenter2->title.id() == holder2->primary_text.id());
+    CHECK(presenter1->title.id() ==
+          catalog->persisted.texts.window_title_prefix.id());
+    CHECK(presenter2->title.id() ==
+          catalog->persisted.texts.window_title_prefix.id());
+    CHECK(holder1->primary_text.id() ==
+          catalog->persisted.texts.list_row_title_format.id());
+    CHECK(holder2->primary_text.id() ==
+          catalog->persisted.texts.list_row_title_format.id());
     CHECK(presenter1->locale.id() == catalog->persisted.locale.id());
     CHECK(presenter2->locale.id() == catalog->persisted.locale.id());
     CHECK(!presenter1->presentation_loaded);
@@ -494,7 +501,9 @@ void TestCatalogHolderOpenCloseAndMonotonicNumbers() {
   CHECK(CatalogWindowPresented(*r4->window).presenter.is_loaded());
   CHECK(CatalogWindowPresented(*r4->window).presenter->title.is_valid());
   CHECK(CatalogWindowPresented(*r4->window).presenter->title.id() ==
-        r4->primary_text.id());
+        reloaded->persisted.texts.window_title_prefix.id());
+  CHECK(r4->primary_text.id() ==
+        reloaded->persisted.texts.list_row_title_format.id());
 
   reloaded->OpenHolderWindow(*r3);
   CHECK(r3->window.is_loaded());
@@ -532,14 +541,16 @@ void TestCatalogLocalizationUtf8Persisted() {
   CHECK(catalog->persisted.texts.label_delete->Resolve(1) == "Удалить");
   CHECK(catalog->persisted.texts.label_language->Resolve(1) == "EN");
   WindowHolder* h0 = AsHolder(catalog->persisted.list->rows[0]);
-  CHECK(h0->primary_text->Resolve(1) == "Окно 1");
+  CHECK(ResolveWindowCatalogHolderListRowText(*h0, *catalog, 1) == "Окно 1");
 
   catalog->MaterializeCatalogStrings(0);
   catalog->persisted.locale->SubmitLanguageIndexFromUi(0);
   CHECK(catalog->persisted.texts.label_add->Resolve(0) == "Add");
-  CHECK(h0->primary_text->Resolve(0) == "Window 1");
+  CHECK(ResolveWindowCatalogHolderListRowText(*h0, *catalog, 0) == "Window 1");
   CHECK(ReadInactiveUtf8(*catalog->persisted.texts.label_add, 1) == "Добавить");
-  CHECK(ReadInactiveUtf8(*h0->primary_text, 1) == "Окно 1");
+  catalog->persisted.texts.list_row_title_format.Load();
+  CHECK(ReadInactiveUtf8(*catalog->persisted.texts.list_row_title_format, 1) ==
+        "Окно {0}{1}");
 
   auto const dir = TestDir("apptraverse_window_catalog_localization_save");
   {
@@ -563,8 +574,8 @@ void TestCatalogLocalizationUtf8Persisted() {
   CHECK(reloaded->persisted.texts.label_add->Resolve(0) == "Add");
   CHECK(ReadInactiveUtf8(*reloaded->persisted.texts.label_add, 1) == "Добавить");
   WindowHolder* r0 = AsHolder(reloaded->persisted.list->rows[0]);
-  CHECK(r0->primary_text->Resolve(0) == "Window 1");
-  CHECK(ReadInactiveUtf8(*r0->primary_text, 1) == "Окно 1");
+  CHECK(ResolveWindowCatalogHolderListRowText(*r0, *reloaded, 0) == "Window 1");
+  CHECK(ResolveWindowCatalogHolderListRowText(*r0, *reloaded, 1) == "Окно 1");
   CHECK(MainWindowPresented(*reloaded).presenter->title->Resolve(0) ==
         "Window Catalog");
   CHECK(ReadInactiveUtf8(*MainWindowPresented(*reloaded).presenter->title, 1) ==
@@ -691,9 +702,10 @@ void TestCatalogRuntimeSavePreservesOpenWindowLoadedState() {
   CHECK(!domain_c.Find(window2_id));
   int const language = catalog->persisted.locale->language_index();
   catalog->MaterializeCatalogStrings(language);
-  CHECK(r0->primary_text->Resolve(0) == "Window 1");
-  CHECK(r1->primary_text->Resolve(0) == "Window 2 (Unloaded)");
-  CHECK(r2->primary_text->Resolve(0) == "Window 3");
+  CHECK(ResolveWindowCatalogHolderListRowText(*r0, *catalog, 0) == "Window 1");
+  CHECK(ResolveWindowCatalogHolderListRowText(*r1, *catalog, 0) ==
+        "Window 2 (Closed)");
+  CHECK(ResolveWindowCatalogHolderListRowText(*r2, *catalog, 0) == "Window 3");
   catalog->RefreshChromeButtonEnabledState();
   RestoreLoadedCatalogWindows(*catalog);
   CHECK(catalog->persisted.list->rows.size() == 3);
@@ -714,15 +726,11 @@ void TestCatalogRuntimeSavePreservesOpenWindowLoadedState() {
   for (std::size_t i = 0; i < ui_catalog->persisted.list->rows.size(); ++i) {
     auto* ui_holder =
         AsHolder(ui_catalog->persisted.list->rows[i]);
-    CHECK(ui_holder->primary_text.is_valid());
-    if (!ui_holder->primary_text.is_loaded()) {
-      ui_holder->primary_text.Load();
-    }
-    std::string const open_suffix =
-        ui_catalog->IsHolderWindowOpen(*ui_holder) ? "" : " (Unloaded)";
-    std::string const title = ui_holder->primary_text->Resolve(ui_language);
-    CHECK(title ==
-          ("Window " + std::to_string(ui_holder->window_number) + open_suffix));
+    CHECK(ResolveWindowCatalogHolderListRowText(*ui_holder, *ui_catalog,
+                                                ui_language) ==
+          ResolveWindowCatalogHolderListRowText(
+              *AsHolder(catalog->persisted.list->rows[i]), *catalog,
+              ui_language));
   }
 }
 
@@ -1627,7 +1635,9 @@ void TestCatalogPresentedWindowDistilledBaseReplay() {
   CHECK(child.TryReplayFromBase());
   CHECK(CatalogWindowPresented(child).presenter.id() == child_presenter_id);
   CHECK(CatalogWindowPresented(child).presenter->window.id() == child_window_id);
-  CHECK(CatalogWindowPresented(child).presenter->title.id() == holder_title_id);
+  CHECK(CatalogWindowPresented(child).presenter->title.id() ==
+        catalog->persisted.texts.window_title_prefix.id());
+  CHECK(holder_title_id == catalog->persisted.texts.list_row_title_format.id());
   CHECK(CatalogWindowPresented(child).presenter->locale.id() ==
         catalog->persisted.locale.id());
   CHECK(child.GetClassId() == CatalogWindow::kClassId);
@@ -1661,7 +1671,9 @@ void TestCatalogPresentedWindowGraph() {
   CHECK(CatalogWindowPresented(*holder->window).presenter->window.id() ==
         holder->window.id());
   CHECK(CatalogWindowPresented(*holder->window).presenter->title.id() ==
-        holder->primary_text.id());
+        catalog->persisted.texts.window_title_prefix.id());
+  CHECK(holder->primary_text.id() ==
+        catalog->persisted.texts.list_row_title_format.id());
   CHECK(CatalogWindowPresented(*holder->window).presenter->locale.id() ==
         catalog->persisted.locale.id());
 
@@ -1699,7 +1711,7 @@ void TestCatalogPresentedWindowGraph() {
     CHECK(CatalogWindowPresented(*r0->window).presenter->window.id() ==
           r0->window.id());
     CHECK(CatalogWindowPresented(*r0->window).presenter->title.id() ==
-          r0->primary_text.id());
+          reloaded->persisted.texts.window_title_prefix.id());
   }
 
   auto const cold_dir = TestDir("apptraverse_window_catalog_presenter_cold");
@@ -1734,7 +1746,8 @@ void TestCatalogPresentedWindowGraph() {
   CHECK(CatalogWindowPresented(*cold_row->window).presenter.id() ==
         saved_child_presenter_id);
   CHECK(CatalogWindowPresented(*cold_row->window).presenter->title.id() ==
-        saved_title_id);
+        cold->persisted.texts.window_title_prefix.id());
+  CHECK(saved_title_id == cold->persisted.texts.list_row_title_format.id());
 }
 
 std::vector<ae::ObjId::Type> DesktopZOrderRawIds(

@@ -151,11 +151,15 @@ struct WindowCatalogTexts {
 
   ae::ObjPtr<ui::UiLocalizationString> label_close;
 
-  ae::ObjPtr<ui::UiLocalizationString> label_list_unloaded;
+  ae::ObjPtr<ui::UiLocalizationString> list_row_title_format;
+
+  ae::ObjPtr<ui::UiLocalizationString> list_row_title_closed_suffix;
 
   AE_REFLECT_MEMBERS(label_add, label_open, label_delete, label_language,
 
-                     window_title_prefix, label_close, label_list_unloaded)
+                     window_title_prefix, label_close, list_row_title_format,
+
+                     list_row_title_closed_suffix)
 
 };
 
@@ -343,8 +347,6 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
   void MaterializeCatalogStrings(int language_index);
 
-  void MaterializeHolderListText(WindowHolder& holder, int language_index);
-
   void SubmitSelectionFromUi(std::size_t row_index);
 
   void OpenListRowFromUi(std::size_t row_index);
@@ -362,6 +364,8 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 };
 
 void SaveWindowCatalogPersistentSnapshot(WindowCatalog& catalog);
+
+void RebindWindowCatalogHolderListPrimaryText(WindowCatalog& catalog);
 
 void RestoreLoadedCatalogWindows(WindowCatalog& catalog);
 

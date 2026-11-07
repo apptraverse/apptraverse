@@ -5,7 +5,9 @@
 
 #include "window_catalog_graph_builder.h"
 #include "window_catalog_ids.h"
+#include "window_catalog_list_presenter_mixin.h"
 #include "window_catalog_model.h"
+#include "window_catalog_presenter_wiring.h"
 
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/object_macros.h"
@@ -70,20 +72,18 @@ class WebCatalogWindowPresenter : public ui::web::WebDesktopWindowPresenter {
   }
 };
 
-class WebCatalogListContainerPresenter
-    : public ui::web::WebListContainerPresenter {
+class CatalogDesktopWindowPresenter
+    : public WindowCatalogDesktopPresenterMixin<WebCatalogWindowPresenter> {
   APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::example::surfaces::WebCatalogListContainerPresenter",
-      WebCatalogListContainerPresenter, ui::web::WebListContainerPresenter, 0)
+      "apptraverse::example::surfaces::CatalogDesktopWindowPresenter",
+      CatalogDesktopWindowPresenter, WebCatalogWindowPresenter, 0)
 
  protected:
-  WebCatalogListContainerPresenter() = default;
+  CatalogDesktopWindowPresenter() = default;
 
  public:
-  explicit WebCatalogListContainerPresenter(ae::ObjProp prop)
-      : WebListContainerPresenter{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(catalog))
+  explicit CatalogDesktopWindowPresenter(ae::ObjProp prop)
+      : WindowCatalogDesktopPresenterMixin{prop} {}
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
@@ -94,8 +94,30 @@ class WebCatalogListContainerPresenter
   void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, catalog);
   }
+};
 
-  WindowCatalog::ptr catalog;
+class WebCatalogListContainerPresenter
+    : public WindowCatalogListPresenterMixin<ui::web::WebListContainerPresenter> {
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::example::surfaces::WebCatalogListContainerPresenter",
+      WebCatalogListContainerPresenter, ui::web::WebListContainerPresenter, 0)
+
+ protected:
+  WebCatalogListContainerPresenter() = default;
+
+ public:
+  explicit WebCatalogListContainerPresenter(ae::ObjProp prop)
+      : WindowCatalogListPresenterMixin{prop} {}
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, catalog);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, catalog);
+  }
 
   void SubmitListRowSelectionChangedFromUi(std::size_t row_index) override {
     model_proxy->Invoke(catalog->obj_id, &WindowCatalog::SubmitSelectionFromUi,
@@ -108,11 +130,22 @@ class WebCatalogListContainerPresenter
 };
 
 APPTRAVERSE_REGISTER(WebCatalogWindowPresenter);
+APPTRAVERSE_REGISTER(CatalogDesktopWindowPresenter);
 APPTRAVERSE_REGISTER(WebCatalogListContainerPresenter);
 
 }  // namespace apptraverse::example::surfaces
 
 namespace apptraverse {
+
+void BindCatalogDesktopPresenter(ui::UiWindowPresenter& presenter,
+                                 WindowCatalog& catalog) {
+  auto* typed = dynamic_cast<
+      example::surfaces::CatalogDesktopWindowPresenter*>(&presenter);
+  if (typed == nullptr) {
+    return;
+  }
+  typed->catalog = WindowCatalog::ptr::MakeFromThis(&catalog);
+}
 
 WindowCatalog::ptr BuildWebWindowCatalogGraph(ae::Domain& domain) {
   ui::EnsureUiPresenterRegistration();
@@ -120,7 +153,13 @@ WindowCatalog::ptr BuildWebWindowCatalogGraph(ae::Domain& domain) {
 
   WindowCatalogPresenterFactory factory;
   factory.create_window = [](ae::Domain& build_domain, ae::ObjId presenter_id) {
-    return example::surfaces::WebCatalogWindowPresenter::ptr::Create(
+    if (presenter_id.id() ==
+        window_catalog_demo::ToObjId(
+            window_catalog_demo::ObjId::MainWindowPresenter)) {
+      return example::surfaces::WebCatalogWindowPresenter::ptr::Create(
+          ae::CreateWith{build_domain}.with_id(presenter_id));
+    }
+    return example::surfaces::CatalogDesktopWindowPresenter::ptr::Create(
         ae::CreateWith{build_domain}.with_id(presenter_id));
   };
   factory.create_list =

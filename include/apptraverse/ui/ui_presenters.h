@@ -136,6 +136,12 @@ class UiListContainerPresenter : public Presenter {
 
   virtual void OnListRowActivated(std::size_t row_index);
   virtual void OnListRowSelectionChanged(std::size_t row_index);
+
+  virtual std::string ResolveListRowPrimaryText(ui::UiListRow::ptr const& row,
+                                               int language_index) const;
+
+  virtual std::vector<std::string> ResolveListRowPrimaryTexts(
+      int language_index) const;
 };
 
 class UiLabelPresenter : public Presenter {

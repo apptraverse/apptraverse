@@ -45,4 +45,18 @@ void UiListContainerPresenter::OnListRowSelectionChanged(
   static_cast<void>(row_index);
 }
 
+std::string UiListContainerPresenter::ResolveListRowPrimaryText(
+    UiListRow::ptr const& row, int language_index) const {
+  return ResolvePresentedListRowPrimaryText(row, language_index);
+}
+
+std::vector<std::string> UiListContainerPresenter::ResolveListRowPrimaryTexts(
+    int language_index) const {
+  if (!container.is_valid()) {
+    return {};
+  }
+  container.Load();
+  return ResolvePresentedListRowPrimaryTexts(*container, language_index);
+}
+
 }  // namespace apptraverse::ui

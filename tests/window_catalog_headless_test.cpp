@@ -27,6 +27,7 @@
 #include "window_catalog_chrome_layout.h"
 #include "window_catalog_graph_builder.h"
 #include "window_catalog_ids.h"
+#include "window_catalog_list_row_text.h"
 #include "window_catalog_prepare.h"
 #include "window_catalog_model.h"
 
@@ -475,14 +476,14 @@ struct CatalogLocalizationExpectation {
 
 CatalogLocalizationExpectation const kCatalogEn{
     0, "Add", "Open", "Delete", "RU", "Window Catalog", "Window 1",
-    "Window 2 (Unloaded)", "Window 1"};
+    "Window 2 (Closed)", "Window 1"};
 CatalogLocalizationExpectation const kCatalogRu{
     1,     "\xD0\x94\xD0\xBE\xD0\xB1\xD0\xB0\xD0\xB2\xD0\xB8\xD1\x82\xD1\x8C",
     "\xD0\x9E\xD1\x82\xD0\xBA\xD1\x80\xD1\x8B\xD1\x82\xD1\x8C",
     "\xD0\xA3\xD0\xB4\xD0\xB0\xD0\xBB\xD0\xB8\xD1\x82\xD1\x8C", "EN",
     "\xD0\x9A\xD0\xB0\xD1\x82\xD0\xB0\xD0\xBB\xD0\xBE\xD0\xB3 \xD0\xBE\xD0\xBA\xD0\xBE\xD0\xBD",
     "\xD0\x9E\xD0\xBA\xD0\xBD\xD0\xBE 1",
-    "\xD0\x9E\xD0\xBA\xD0\xBD\xD0\xBE 2 (\xD0\x92\xD1\x8B\xD0\xB3\xD1\x80\xD1\x83\xD0\xB6\xD0\xB5\xD0\xBD\xD0\xBE)",
+    "\xD0\x9E\xD0\xBA\xD0\xBD\xD0\xBE 2 (\xD0\xB7\xD0\xB0\xD0\xBA\xD1\x80\xD1\x8B\xD1\x82\xD0\xBE)",
     "\xD0\x9E\xD0\xBA\xD0\xBD\xD0\xBE 1"};
 
 void ExpectModelLocalization(WindowCatalog& catalog,
@@ -528,20 +529,19 @@ void ExpectModelLocalization(WindowCatalog& catalog,
   CHECK(catalog.persisted.list->rows.size() >= 2);
   WindowHolder* row0 = AsHolder(catalog.persisted.list->rows[0]);
   WindowHolder* row1 = AsHolder(catalog.persisted.list->rows[1]);
-  row0->primary_text.Load();
-  row1->primary_text.Load();
-  CHECK(row0->primary_text->Resolve(expect.language_index) == expect.row1);
-  CHECK(row1->primary_text->Resolve(expect.language_index) == expect.row2);
-  ExpectActiveSlotOnly(*row0->primary_text, expect.language_index,
-                       open_row_ids);
-  ExpectActiveSlotOnly(*row1->primary_text, expect.language_index,
-                       closed_row_ids);
+  CHECK(row0->primary_text.id() ==
+        catalog.persisted.texts.list_row_title_format.id());
+  CHECK(row1->primary_text.id() ==
+        catalog.persisted.texts.list_row_title_format.id());
+  CHECK(ResolveWindowCatalogHolderListRowText(*row0, catalog, expect.language_index) ==
+        expect.row1);
+  CHECK(ResolveWindowCatalogHolderListRowText(*row1, catalog, expect.language_index) ==
+        expect.row2);
 
   row0->window.Load();
-  CatalogWindowPresented(*row0->window).presenter.Load();
-  CatalogWindowPresented(*row0->window).presenter->title.Load();
-  CHECK(CatalogWindowPresented(*row0->window).presenter->title->Resolve(
-            expect.language_index) == expect.open_child_title);
+  CHECK(ResolveWindowCatalogChildWindowTitle(catalog, row0->window.id(),
+                                             expect.language_index) ==
+        expect.open_child_title);
 
   CHECK(row1->window.is_valid());
   CHECK(!row1->window.is_loaded());
@@ -573,16 +573,15 @@ void ExpectUiMirrorLocalization(WindowCatalog& ui_catalog,
   ui_catalog.persisted.list.Load();
   WindowHolder* row0 = AsHolder(ui_catalog.persisted.list->rows[0]);
   WindowHolder* row1 = AsHolder(ui_catalog.persisted.list->rows[1]);
-  row0->primary_text.Load();
-  row1->primary_text.Load();
-  CHECK(row0->primary_text->Resolve(expect.language_index) == expect.row1);
-  CHECK(row1->primary_text->Resolve(expect.language_index) == expect.row2);
+  CHECK(ResolveWindowCatalogHolderListRowText(*row0, ui_catalog, expect.language_index) ==
+        expect.row1);
+  CHECK(ResolveWindowCatalogHolderListRowText(*row1, ui_catalog, expect.language_index) ==
+        expect.row2);
 
   row0->window.Load();
-  CatalogWindowPresented(*row0->window).presenter.Load();
-  CatalogWindowPresented(*row0->window).presenter->title.Load();
-  CHECK(CatalogWindowPresented(*row0->window).presenter->title->Resolve(
-            expect.language_index) == expect.open_child_title);
+  CHECK(ResolveWindowCatalogChildWindowTitle(ui_catalog, row0->window.id(),
+                                             expect.language_index) ==
+        expect.open_child_title);
 
   CHECK(row1->window.is_valid());
   CHECK(!row1->window.is_loaded());
@@ -610,22 +609,8 @@ void TestHeadlessCatalogChromeE2e() {
     ae::Domain bootstrap_domain{bootstrap};
     auto catalog = BuildHeadlessWindowCatalogGraph(bootstrap_domain);
     FinalizeDistilledGraph(*catalog);
-    label_add_ids =
-        CaptureLocalizationSlotIds(*catalog->persisted.texts.label_add);
-    label_open_ids =
-        CaptureLocalizationSlotIds(*catalog->persisted.texts.label_open);
-    label_delete_ids =
-        CaptureLocalizationSlotIds(*catalog->persisted.texts.label_delete);
-    label_language_ids =
-        CaptureLocalizationSlotIds(*catalog->persisted.texts.label_language);
-    catalog->persisted.main_window.Load();
-    MainWindowPresented(*catalog).presenter.Load();
-    MainWindowPresented(*catalog).presenter->title.Load();
-    main_title_ids = CaptureLocalizationSlotIds(
-        *MainWindowPresented(*catalog).presenter->title);
     SaveDistilledRoot(*catalog);
   }
-
   DirectoryDomainStorage model_storage{profile_dir};
   ApplicationModelRuntime runtime;
   PublicationWaiter waiter;
@@ -708,6 +693,20 @@ void TestHeadlessCatalogChromeE2e() {
   ui_catalog.persisted.buttons.delete_button.Load();
   CHECK(!ui_catalog.persisted.buttons.open_button->enabled());
   CHECK(!ui_catalog.persisted.buttons.delete_button->enabled());
+  ui_catalog.persisted.texts.label_add.Load();
+  ui_catalog.persisted.texts.label_open.Load();
+  ui_catalog.persisted.texts.label_delete.Load();
+  ui_catalog.persisted.texts.label_language.Load();
+  ui_catalog.persisted.texts.list_row_title_format.Load();
+  label_add_ids = CaptureLocalizationSlotIds(*ui_catalog.persisted.texts.label_add);
+  label_open_ids = CaptureLocalizationSlotIds(*ui_catalog.persisted.texts.label_open);
+  label_delete_ids =
+      CaptureLocalizationSlotIds(*ui_catalog.persisted.texts.label_delete);
+  label_language_ids =
+      CaptureLocalizationSlotIds(*ui_catalog.persisted.texts.label_language);
+  MainWindowPresented(ui_catalog).presenter->title.Load();
+  main_title_ids = CaptureLocalizationSlotIds(
+      *MainWindowPresented(ui_catalog).presenter->title);
   auto apply_incremental = [&] {
     WaitPublication(waiter);
     CHECK(waiter.kind == ApplicationPublicationKind::Incremental);
@@ -743,10 +742,10 @@ void TestHeadlessCatalogChromeE2e() {
   CHECK(CatalogWindowPresenter(*holder1->window).obj_id != presenter0_id);
   CHECK(CatalogWindowPresenter(*holder1->window).window.id() ==
         holder1->window.id());
-  holder0->primary_text.Load();
-  holder1->primary_text.Load();
-  open_row_ids = CaptureLocalizationSlotIds(*holder0->primary_text);
-  closed_row_ids = CaptureLocalizationSlotIds(*holder1->primary_text);
+  ui_catalog.persisted.texts.list_row_title_format.Load();
+  open_row_ids =
+      CaptureLocalizationSlotIds(*ui_catalog.persisted.texts.list_row_title_format);
+  closed_row_ids = open_row_ids;
 
   model_proxy.Invoke(ui_catalog.obj_id, &WindowCatalog::UserCloseWindow,
                      window1_id);

@@ -1,7 +1,9 @@
 #include "window_catalog_graph_headless.h"
 
 #include "window_catalog_graph_builder.h"
+#include "window_catalog_list_presenter_mixin.h"
 #include "window_catalog_model.h"
+#include "window_catalog_presenter_wiring.h"
 
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/object_macros.h"
@@ -10,7 +12,7 @@
 namespace apptraverse::example::surfaces {
 
 class HeadlessCatalogListContainerPresenter
-    : public ui::UiListContainerPresenter {
+    : public WindowCatalogListPresenterMixin<ui::UiListContainerPresenter> {
   APPTRAVERSE_NAMED_OBJECT(
       "apptraverse::example::surfaces::HeadlessCatalogListContainerPresenter",
       HeadlessCatalogListContainerPresenter, ui::UiListContainerPresenter, 0)
@@ -20,9 +22,7 @@ class HeadlessCatalogListContainerPresenter
 
  public:
   explicit HeadlessCatalogListContainerPresenter(ae::ObjProp prop)
-      : UiListContainerPresenter{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(catalog))
+      : WindowCatalogListPresenterMixin{prop} {}
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
@@ -33,8 +33,6 @@ class HeadlessCatalogListContainerPresenter
   void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, catalog);
   }
-
-  WindowCatalog::ptr catalog;
 
   void SubmitListRowSelectionChangedFromUi(std::size_t row_index) override;
   void SubmitListRowActivatedFromUi(std::size_t row_index) override;
@@ -56,6 +54,12 @@ APPTRAVERSE_REGISTER(HeadlessCatalogListContainerPresenter);
 }  // namespace apptraverse::example::surfaces
 
 namespace apptraverse {
+
+void BindCatalogDesktopPresenter(ui::UiWindowPresenter& presenter,
+                                 WindowCatalog& catalog) {
+  (void)presenter;
+  (void)catalog;
+}
 
 WindowCatalog::ptr BuildHeadlessWindowCatalogGraph(ae::Domain& domain) {
   return BuildHeadlessWindowCatalogGraph(domain, WindowCatalogGraphOptions{});

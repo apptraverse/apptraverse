@@ -120,6 +120,7 @@ add_library(apptraverse STATIC
   src/ui/ui_push_button_presenter.cpp
   src/ui/ui_list_container.cpp
   src/ui/ui_presenters.cpp
+  src/ui/ui_window_presenter.cpp
   src/ui/ui_registration.cpp
 )
 target_include_directories(apptraverse PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)

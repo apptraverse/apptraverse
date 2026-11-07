@@ -18,8 +18,6 @@ std::string FormatCatalogWindowTitle(ui::UiLocalizationString const& prefix,
                                      int language_index,
                                      std::uint32_t number);
 
-void MaterializeWindowHolderTitle(WindowHolder& holder, int language_index,
-                                  ui::UiLocalizationString const& prefix);
 
 }  // namespace apptraverse
 

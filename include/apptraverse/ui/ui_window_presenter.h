@@ -47,6 +47,8 @@ class UiWindowPresenter : public Presenter {
   virtual UiControlLayout ResolveChildLayout(UiControlLayout requested) const {
     return requested;
   }
+
+  virtual std::string ResolvePresentedWindowTitle(int language_index) const;
 };
 
 }  // namespace apptraverse::ui

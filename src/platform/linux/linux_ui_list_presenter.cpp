@@ -95,7 +95,7 @@ void LinuxListContainerPresenter::SyncFromMirror() {
   for (UiListRow::ptr const& row : container->rows) {
     ae::ObjId const row_id = row.id();
     std::string const label =
-        ResolvePresentedListRowPrimaryText(row, language_index);
+        ResolveListRowPrimaryText(row, language_index);
     auto existing = std::find_if(
         previous.begin(), previous.end(),
         [&](NativeRow const& native) { return native.row_id == row_id; });

@@ -3,7 +3,9 @@
 #include "window_catalog_actions.h"
 #include "window_catalog_graph_builder.h"
 #include "window_catalog_ids.h"
+#include "window_catalog_list_presenter_mixin.h"
 #include "window_catalog_model.h"
+#include "window_catalog_presenter_wiring.h"
 
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/object_macros.h"
@@ -51,21 +53,20 @@ class AndroidCatalogMainWindowPresenter
 
 APPTRAVERSE_REGISTER(AndroidCatalogMainWindowPresenter);
 
-class AndroidCatalogListContainerPresenter
-    : public ui::android::AndroidListContainerPresenter {
+class CatalogDesktopWindowPresenter
+    : public WindowCatalogDesktopPresenterMixin<
+          ui::android::AndroidDesktopWindowPresenter> {
   APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::example::surfaces::AndroidCatalogListContainerPresenter",
-      AndroidCatalogListContainerPresenter,
-      ui::android::AndroidListContainerPresenter, 0)
+      "apptraverse::example::surfaces::CatalogDesktopWindowPresenter",
+      CatalogDesktopWindowPresenter,
+      ui::android::AndroidDesktopWindowPresenter, 0)
 
  protected:
-  AndroidCatalogListContainerPresenter() = default;
+  CatalogDesktopWindowPresenter() = default;
 
  public:
-  explicit AndroidCatalogListContainerPresenter(ae::ObjProp prop)
-      : AndroidListContainerPresenter{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(catalog))
+  explicit CatalogDesktopWindowPresenter(ae::ObjProp prop)
+      : WindowCatalogDesktopPresenterMixin{prop} {}
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
@@ -76,8 +77,32 @@ class AndroidCatalogListContainerPresenter
   void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, catalog);
   }
+};
 
-  WindowCatalog::ptr catalog;
+class AndroidCatalogListContainerPresenter
+    : public WindowCatalogListPresenterMixin<
+          ui::android::AndroidListContainerPresenter> {
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::example::surfaces::AndroidCatalogListContainerPresenter",
+      AndroidCatalogListContainerPresenter,
+      ui::android::AndroidListContainerPresenter, 0)
+
+ protected:
+  AndroidCatalogListContainerPresenter() = default;
+
+ public:
+  explicit AndroidCatalogListContainerPresenter(ae::ObjProp prop)
+      : WindowCatalogListPresenterMixin{prop} {}
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, catalog);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, catalog);
+  }
 
   void SubmitListRowSelectionChangedFromUi(std::size_t row_index) override;
   void SubmitListRowActivatedFromUi(std::size_t row_index) override;
@@ -94,11 +119,22 @@ void AndroidCatalogListContainerPresenter::SubmitListRowActivatedFromUi(
   model_proxy->Invoke(catalog->obj_id, &WindowCatalog::OpenRow, row_index);
 }
 
+APPTRAVERSE_REGISTER(CatalogDesktopWindowPresenter);
 APPTRAVERSE_REGISTER(AndroidCatalogListContainerPresenter);
 
 }  // namespace apptraverse::example::surfaces
 
 namespace apptraverse {
+
+void BindCatalogDesktopPresenter(ui::UiWindowPresenter& presenter,
+                                 WindowCatalog& catalog) {
+  auto* typed = dynamic_cast<
+      example::surfaces::CatalogDesktopWindowPresenter*>(&presenter);
+  if (typed == nullptr) {
+    return;
+  }
+  typed->catalog = WindowCatalog::ptr::MakeFromThis(&catalog);
+}
 
 WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
   ui::EnsureUiPresenterRegistration();
@@ -114,7 +150,7 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
           return example::surfaces::AndroidCatalogMainWindowPresenter::ptr::
               Create(ae::CreateWith{build_domain}.with_id(presenter_id));
         }
-        return ui::android::AndroidDesktopWindowPresenter::ptr::Create(
+        return example::surfaces::CatalogDesktopWindowPresenter::ptr::Create(
             ae::CreateWith{build_domain}.with_id(presenter_id));
       };
   factory.create_list =

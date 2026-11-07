@@ -55,7 +55,7 @@ void AndroidPresentationHost::SyncListContainer(
       presenter.window_presenter->locale->language_index();
   int const selection = presenter.container->selection_index;
   std::vector<std::string> const labels =
-      ResolvePresentedListRowPrimaryTexts(*presenter.container, language_index);
+      presenter.ResolveListRowPrimaryTexts(language_index);
   for (std::size_t i = 0; i < labels.size(); ++i) {
     std::string const& label = labels[i];
     jstring jlabel = Utf8ToJstring(env, label.c_str());
