@@ -2,6 +2,7 @@
 #include <deque>
 #include <filesystem>
 #include <iostream>
+#include <type_traits>
 #include <vector>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
@@ -738,6 +739,16 @@ void TestLocalizationJournalCompactionMatchesLoad() {
     again.Reset();
   }
 }
+
+class LocalizationCompactionScratchProbe
+    : public NodeFor<LocalizationCompactionScratchProbe, UiLocalizationString> {};
+
+static_assert(
+    !std::is_same_v<UiLocalizationString::CompactionOperationScratch,
+                    Node::CompactionOperationScratch>);
+static_assert(
+    std::is_same_v<LocalizationCompactionScratchProbe::CompactionOperationScratch,
+                   UiLocalizationString::CompactionOperationScratch>);
 
 void TestLocalizationHistoricalCaptureScratchIsolationTwoOwners() {
   LazyLocalizationBootstrap boot_a{26, "IsoA EN", "IsoA RU"};

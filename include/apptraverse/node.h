@@ -74,6 +74,9 @@ class Node : public ae::Obj {
  public:
   explicit Node(ae::ObjProp prop) : Obj{prop}, materialized_change_ctx_{nullptr}, materialized_change_fn_{nullptr}, generation_{1}, applied_journal_size_{kJournalFullyMaterialized}, journal_retention_policy_{}, journal_compaction_blocked_{false}, suppress_materialized_change_{false} {}
 
+  struct RebuildOperationScratch {};
+  struct CompactionOperationScratch {};
+
   AE_OBJECT_REFLECT(AE_MMBR(base), AE_MMBR(journal))
 
   template <typename Dnv>

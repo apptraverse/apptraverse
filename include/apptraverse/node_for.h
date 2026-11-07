@@ -13,10 +13,6 @@ class NodeFor : public BaseNode {
   static_assert(std::is_base_of_v<Node, BaseNode>,
                 "NodeFor BaseNode must derive from Node");
 
- public:
-  struct RebuildOperationScratch {};
-  struct CompactionOperationScratch {};
-
  protected:
   NodeFor() = default;
 
