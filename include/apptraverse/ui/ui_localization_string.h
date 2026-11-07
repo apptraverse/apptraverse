@@ -57,6 +57,16 @@ class UiLocalizationString : public NodeFor<UiLocalizationString> {
 
   void FoldCollapsedJournalPrefixIntoReachableStorage(
       std::size_t collapsed_count) override;
+
+  void ReleaseFoldCaptureMaterialization() override;
+
+  void StashLocalPersistentAcrossRebuild() override;
+
+  void RestoreLocalPersistentAcrossRebuild() override;
+
+  void StashLiveReachableLayersBeforeHistoricalCapture() override;
+
+  void RestoreLiveReachableLayersAfterHistoricalCapture() override;
 };
 
 class SetUiLocalizationSlotUtf8Event

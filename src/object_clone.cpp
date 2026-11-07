@@ -1,6 +1,7 @@
 #include "apptraverse/object_clone.h"
 
 #include <deque>
+#include <set>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -10,7 +11,11 @@
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/registry.h"
 
+#include "apptraverse/event.h"
+#include "apptraverse/graph_copy_policy.h"
+#include "apptraverse/graph_walk.h"
 #include "apptraverse/node.h"
+#include "apptraverse/object_serialization.h"
 #include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/runtime_node.h"
 
@@ -276,6 +281,80 @@ CloneRemap BuildIdentityRemap(
 }
 
 }  // namespace
+
+namespace detail {
+
+bool InjectLayeredObjects(ae::RamDomainStorage const& scratch,
+                            ae::IDomainStorage& storage) {
+  for (auto const& [object_id, class_map_opt] : scratch.state) {
+    if (!class_map_opt || class_map_opt->empty()) {
+      continue;
+    }
+    for (auto const& [class_id, versions] : *class_map_opt) {
+      for (auto const& [version, data] : versions) {
+        auto writer = storage.Store(
+            ae::DomainQuery{object_id, class_id, version});
+        if (writer == nullptr) {
+          return false;
+        }
+        if (!data.empty() &&
+            !writer->Write(ae::seri::DataWriteTag{data.data(), data.size()})) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
+void EnqueueCloneReferenceForHistorical(void* context, ae::ObjId id) {
+  struct RefCtx {
+    std::deque<ae::ObjId>* queue;
+    std::set<ae::ObjId::Type>* seen;
+  };
+  auto* ctx = static_cast<RefCtx*>(context);
+  if (!id.is_valid() || ctx == nullptr) {
+    return;
+  }
+  if (ctx->seen->insert(id.id()).second) {
+    ctx->queue->push_back(id);
+  }
+}
+
+ae::ObjId AllocateCloneObjIdForHistorical(
+    ae::ObjId::Type source_root, std::set<ae::ObjId> const& copy_set,
+    CloneRemap const& remap, ae::Domain& target) {
+  std::set<ae::ObjId> const empty_boundary;
+  for (int attempt = 0; attempt < 64; ++attempt) {
+    ae::ObjId const candidate = ae::ObjId::GenerateUnique();
+    if (candidate.id() == 0u || candidate.id() == source_root) {
+      continue;
+    }
+    bool reserved = false;
+    for (ae::ObjId const id : copy_set) {
+      if (id.id() == candidate.id()) {
+        reserved = true;
+        break;
+      }
+    }
+    for (auto const& [_, mapped] : remap) {
+      if (mapped == candidate.id()) {
+        reserved = true;
+        break;
+      }
+    }
+    if (!reserved) {
+      if (!target.Find(candidate) &&
+          target.domain_storage().Enumerate(candidate).empty()) {
+        return candidate;
+      }
+    }
+    (void)empty_boundary;
+  }
+  return ae::ObjId{};
+}
+
+}  // namespace detail
 
 CloneCanonicalResult CloneCanonicalRoot(ae::Domain& source, ae::Obj& source_root,
                                         ae::Domain& target,

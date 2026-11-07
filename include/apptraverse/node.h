@@ -26,6 +26,12 @@
 
 namespace apptraverse {
 
+template <typename ConcreteNode>
+bool InjectRemappedHistoricalBaseSnapshot(
+    ConcreteNode& owner, ae::ObjId base_id,
+    ae::RamDomainStorage const& captured_scratch,
+    ae::IDomainStorage& persistent_storage);
+
 namespace detail {
 
 template <typename T>
@@ -256,6 +262,12 @@ class Node : public ae::Obj {
     (void)collapsed_count;
   }
 
+  virtual void ReleaseFoldCaptureMaterialization() {}
+
+  virtual void StashLiveReachableLayersBeforeHistoricalCapture() {}
+
+  virtual void RestoreLiveReachableLayersAfterHistoricalCapture() {}
+
   template <typename ConcreteNode>
   bool TryRebuildFromBaseAndReplay(ConcreteNode& target) {
     if (domain == nullptr || !base.is_valid() || !base.is_loaded() ||
@@ -306,8 +318,6 @@ class Node : public ae::Obj {
     base = Node::ptr{};
     journal.clear();
 
-    // Serialize into RAM first so recursive ObjPtr saves do not rewrite the
-    // whole live session graph on DirectoryDomainStorage during Add/init.
     ae::RamDomainStorage scratch;
     ae::Domain scratch_domain{scratch};
     ae::DomainGraph save_graph{
@@ -317,30 +327,22 @@ class Node : public ae::Obj {
     bool const owner_marked =
         save_graph.cycle_detector.Add(ConcreteNode::kClassId, owner_id);
     assert(owner_marked);
-    save_graph.Save(target, saved_base.id());
+    (void)owner_marked;
+    auto const capture_save = save_graph.Save(target, saved_base.id());
+    assert(capture_save.has_value() && capture_save->IsOk());
+
+    ae::IDomainStorage& persistent_storage = domain->domain_storage();
+    if (!InjectRemappedHistoricalBaseSnapshot(target, saved_base.id(), scratch,
+                                              persistent_storage)) {
+      obj_id = owner_id;
+      base = saved_base;
+      journal = std::move(saved_journal);
+      assert(false && "InjectRemappedHistoricalBaseSnapshot failed");
+    }
 
     obj_id = owner_id;
     base = saved_base;
     journal = std::move(saved_journal);
-
-    auto const base_id = saved_base.id();
-    ae::IDomainStorage& persistent_storage = domain->domain_storage();
-    auto const scratch_obj = scratch.state.find(base_id);
-    assert(scratch_obj != scratch.state.end() &&
-           scratch_obj->second.has_value());
-    for (auto const& [class_id, versions] : *scratch_obj->second) {
-      for (auto const& [version, data] : versions) {
-        auto writer = persistent_storage.Store(
-            ae::DomainQuery{base_id, class_id, version});
-        assert(writer != nullptr);
-        if (!data.empty()) {
-          auto const result = writer->Write(
-              ae::seri::DataWriteTag{data.data(), data.size()});
-          assert(result);
-          (void)result;
-        }
-      }
-    }
 
     auto& concrete_base = static_cast<ConcreteNode&>(*base);
     ae::DomainGraph load_graph{domain};
@@ -412,10 +414,13 @@ class Node : public ae::Obj {
 
     suppress_materialized_change_ = true;
     target.FoldCollapsedJournalPrefixIntoReachableStorage(collapse);
+    target.StashLiveReachableLayersBeforeHistoricalCapture();
 
     if (retained.empty()) {
       journal.clear();
       CaptureBaseStateInto(target);
+      target.ReleaseFoldCaptureMaterialization();
+      target.RestoreLiveReachableLayersAfterHistoricalCapture();
       generation_ = saved_generation;
       applied_journal_size_ = kJournalFullyMaterialized;
       ae::DomainGraph graph{domain,
@@ -437,6 +442,8 @@ class Node : public ae::Obj {
     RebuildFromBaseAndReplay(target);
     journal.clear();
     CaptureBaseStateInto(target);
+    target.ReleaseFoldCaptureMaterialization();
+    target.RestoreLiveReachableLayersAfterHistoricalCapture();
     journal = std::move(retained);
     ReplayJournal();
     suppress_materialized_change_ = false;
@@ -624,5 +631,7 @@ inline void Node::CopyMaterializedChangeNotifierFrom(Node const& source) {
 }
 
 }  // namespace apptraverse
+
+#include "apptraverse/object_clone_historical.inl"
 
 #endif  // APPTRAVERSE_NODE_H_

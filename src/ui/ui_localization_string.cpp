@@ -1,9 +1,15 @@
 #include "apptraverse/ui/ui_localization_string.h"
 
 #include <cstdlib>
+#include <optional>
+#include <vector>
 
 namespace apptraverse::ui {
 namespace {
+
+thread_local std::vector<UiString::ptr> g_stash_strings_across_rebuild;
+thread_local std::vector<std::size_t> g_folded_slots_for_capture;
+thread_local std::vector<std::optional<std::string>> g_live_slot_utf8_restore;
 
 void ReplaySlotUtf8FromJournal(UiLocalizationString& localized,
                                std::size_t slot_index,
@@ -87,11 +93,70 @@ void UiLocalizationString::FoldCollapsedJournalPrefixIntoReachableStorage(
       strings[slot].Load();
     }
     ReplaySlotUtf8FromJournal(*this, slot, stop_before);
-    strings[slot].Save();
     if (!keep_loaded) {
+      g_folded_slots_for_capture.push_back(slot);
+    }
+  }
+}
+
+void UiLocalizationString::ReleaseFoldCaptureMaterialization() {
+  for (std::size_t slot : g_folded_slots_for_capture) {
+    if (slot < strings.size() && strings[slot].is_loaded()) {
       strings[slot].Reset();
     }
   }
+  g_folded_slots_for_capture.clear();
+}
+
+void UiLocalizationString::StashLocalPersistentAcrossRebuild() {
+  g_stash_strings_across_rebuild = strings;
+}
+
+void UiLocalizationString::RestoreLocalPersistentAcrossRebuild() {
+  if (!g_stash_strings_across_rebuild.empty()) {
+    strings = std::move(g_stash_strings_across_rebuild);
+    g_stash_strings_across_rebuild.clear();
+  }
+}
+
+void UiLocalizationString::StashLiveReachableLayersBeforeHistoricalCapture() {
+  g_live_slot_utf8_restore.assign(strings.size(), std::nullopt);
+  for (std::size_t slot = 0; slot < strings.size(); ++slot) {
+    if (!strings[slot].is_valid()) {
+      continue;
+    }
+    if (strings[slot].is_loaded()) {
+      g_live_slot_utf8_restore[slot] = strings[slot]->utf8;
+      continue;
+    }
+    bool const loaded_here = !strings[slot].is_loaded();
+    if (loaded_here) {
+      strings[slot].Load();
+    }
+    ReplaySlotUtf8FromJournal(*this, slot, nullptr);
+    g_live_slot_utf8_restore[slot] = strings[slot]->utf8;
+    if (loaded_here) {
+      strings[slot].Reset();
+    }
+  }
+}
+
+void UiLocalizationString::RestoreLiveReachableLayersAfterHistoricalCapture() {
+  for (std::size_t slot = 0; slot < g_live_slot_utf8_restore.size(); ++slot) {
+    if (!g_live_slot_utf8_restore[slot].has_value() || !strings[slot].is_valid()) {
+      continue;
+    }
+    bool const was_loaded = strings[slot].is_loaded();
+    if (!strings[slot].is_loaded()) {
+      strings[slot].Load();
+    }
+    strings[slot]->utf8 = *g_live_slot_utf8_restore[slot];
+    strings[slot].Save();
+    if (!was_loaded) {
+      strings[slot].Reset();
+    }
+  }
+  g_live_slot_utf8_restore.clear();
 }
 
 void UiLocalizationString::MaterializeLanguage(int language_index) {

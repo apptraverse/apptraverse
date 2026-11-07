@@ -4,7 +4,9 @@
 #include <optional>
 #include <set>
 
+#include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
+#include "aether-objects/obj/idomain_storage.h"
 #include "aether-objects/obj/obj.h"
 #include "aether-objects/obj/obj_id.h"
 #include "aether-objects/obj/obj_ptr.h"
@@ -46,6 +48,14 @@ struct CloneCanonicalResult {
 CloneCanonicalResult CloneCanonicalRoot(ae::Domain& source, ae::Obj& source_root,
                                       ae::Domain& target,
                                       CloneOptions const& options);
+
+// Remaps mutable copy-closure ObjIds from captured scratch, re-serializes, and
+// injects layered objects into persistent storage under base_id.
+template <typename ConcreteNode>
+bool InjectRemappedHistoricalBaseSnapshot(
+    ConcreteNode& owner, ae::ObjId base_id,
+    ae::RamDomainStorage const& captured_scratch,
+    ae::IDomainStorage& persistent_storage);
 
 }  // namespace apptraverse
 
