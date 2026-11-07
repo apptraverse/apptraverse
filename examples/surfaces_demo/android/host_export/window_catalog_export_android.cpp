@@ -15,6 +15,7 @@
 #include "window_catalog_graph_android.h"
 #include "window_catalog_ids.h"
 #include "window_catalog_model.h"
+#include "window_catalog_supply_constant_ids.h"
 
 namespace {
 
@@ -45,12 +46,15 @@ int main(int argc, char** argv) {
   std::error_code remove_ec;
   std::filesystem::remove_all(export_dir, remove_ec);
 
+  std::vector<ae::ObjId> supply_constant_ids;
   {
     apptraverse::DirectoryDomainStorage storage{export_dir};
     ae::Domain domain{storage};
     auto catalog = apptraverse::BuildWindowCatalogGraph(domain);
     apptraverse::FinalizeDistilledGraph(*catalog);
     apptraverse::SaveDistilledRoot(*catalog);
+    supply_constant_ids =
+        apptraverse::CollectWindowCatalogSupplyConstantIds(*catalog);
   }
 
   ae::RamDomainStorage export_storage;
@@ -63,17 +67,15 @@ int main(int argc, char** argv) {
       apptraverse::CollectStoredObjectIds(export_storage);
   std::filesystem::remove_all(export_dir, remove_ec);
 
-  std::vector<ae::ObjId> const supply_constant_ids{
-      ae::ObjId{apptraverse::window_catalog_demo::ToObjId(
-          apptraverse::window_catalog_demo::ObjId::WindowPrefab)},
-      ae::ObjId{apptraverse::window_catalog_demo::ToObjId(
-          apptraverse::window_catalog_demo::ObjId::WindowPrefabPresenter)},
-      ae::ObjId{apptraverse::window_catalog_demo::ToObjId(
-          apptraverse::window_catalog_demo::ObjId::WindowPrefabCloseButton)},
-      ae::ObjId{apptraverse::window_catalog_demo::ToObjId(
-          apptraverse::window_catalog_demo::ObjId::
-              WindowPrefabCloseButtonPresenter)},
-  };
+  for (auto const prefab_id :
+       {apptraverse::window_catalog_demo::ObjId::WindowPrefab,
+        apptraverse::window_catalog_demo::ObjId::WindowPrefabPresenter,
+        apptraverse::window_catalog_demo::ObjId::WindowPrefabCloseButton,
+        apptraverse::window_catalog_demo::ObjId::
+            WindowPrefabCloseButtonPresenter}) {
+    supply_constant_ids.push_back(
+        ae::ObjId{apptraverse::window_catalog_demo::ToObjId(prefab_id)});
+  }
 
   if (!apptraverse::WriteEmbeddedDistilledSupplyHeader(
           argv[1], kGraphNamespace, kHeaderGuard, CatalogRootId(),

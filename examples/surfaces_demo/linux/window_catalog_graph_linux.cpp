@@ -5,8 +5,6 @@
 #include "window_catalog_ids.h"
 #include "window_catalog_list_presenter_mixin.h"
 #include "window_catalog_model.h"
-#include "window_catalog_presenter_wiring.h"
-
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/platform/linux/linux_ui_list_presenter.h"
@@ -99,25 +97,19 @@ APPTRAVERSE_REGISTER(CatalogListContainerPresenter);
 
 namespace apptraverse {
 
-void BindCatalogDesktopPresenter(ui::UiWindowPresenter& presenter,
-                                 WindowCatalog& catalog) {
-  auto* typed = dynamic_cast<
-      example::surfaces::CatalogDesktopWindowPresenter*>(&presenter);
-  if (typed == nullptr) {
-    return;
-  }
-  typed->catalog = WindowCatalog::ptr::MakeFromThis(&catalog);
-}
-
 WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
   ui::EnsureUiPresenterRegistration();
   ui::linux::EnsureLinuxUiPresenterRegistration();
 
   WindowCatalogPresenterFactory factory;
   factory.create_window =
-      [](ae::Domain& build_domain, ae::ObjId presenter_id) {
-        return example::surfaces::CatalogDesktopWindowPresenter::ptr::Create(
-            ae::CreateWith{build_domain}.with_id(presenter_id));
+      [](ae::Domain& build_domain, ae::ObjId presenter_id,
+         WindowCatalog::ptr const& catalog) {
+        example::surfaces::CatalogDesktopWindowPresenter::ptr presenter =
+            example::surfaces::CatalogDesktopWindowPresenter::ptr::Create(
+                ae::CreateWith{build_domain}.with_id(presenter_id));
+        presenter->catalog = catalog;
+        return presenter;
       };
   factory.create_list =
       [](ae::Domain& build_domain, ae::ObjId presenter_id,

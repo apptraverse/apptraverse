@@ -657,6 +657,11 @@ void TestHeadlessCatalogChromeE2e() {
     if (model_storage.SaveSessionHadFailure()) {
       return 1;
     }
+    CHECK(row0->primary_text.id() ==
+          catalog.persisted.texts.list_row_title_format.id());
+    CHECK(row1->primary_text.id() ==
+          catalog.persisted.texts.list_row_title_format.id());
+    CHECK(!row1->window.is_loaded());
     saved_holder_id = row1->obj_id;
     saved_window_id = row1->window.id();
     saved_selected_holder_id = catalog.persisted.selected.id();
@@ -817,6 +822,11 @@ void TestHeadlessCatalogChromeE2e() {
 
   ae::Domain cold_domain{model_storage};
   auto cold = LoadApplication<WindowCatalog>(cold_domain, catalog_id);
+  for (auto const& row : cold->persisted.list->rows) {
+    CHECK(AsHolder(row)->primary_text.is_valid());
+    CHECK(AsHolder(row)->primary_text.id() ==
+          cold->persisted.texts.list_row_title_format.id());
+  }
   CHECK(cold->persisted.selected.is_valid());
   CHECK(cold->persisted.selected.id() == saved_selected_holder_id);
   bool const cold_selected_unloaded_at_root_load =
@@ -838,6 +848,8 @@ void TestHeadlessCatalogChromeE2e() {
     CHECK(sel->window.is_loaded());
   }
   PrepareWindowCatalogForRun(*cold);
+  CHECK(ResolveWindowCatalogHolderListRowText(
+            *AsHolder(cold->persisted.list->rows[0]), *cold, 0) == "Window 1");
   CHECK(cold->persisted.list->selection_index == 1);
   CHECK(cold->persisted.selected.is_valid());
   CHECK(cold->persisted.selected.id() == saved_selected_holder_id);

@@ -6,7 +6,6 @@
 #include "window_catalog_ids.h"
 #include "window_catalog_list_row_text.h"
 #include "window_catalog_localization.h"
-#include "window_catalog_presenter_wiring.h"
 #include "apptraverse/object_clone.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
@@ -142,17 +141,7 @@ void BindLiveWindowNotifiers(WindowCatalog& catalog, CatalogWindow& window) {
     node->CopyMaterializedChangeNotifierFrom(catalog);
   }
 }
-void ClearWindowCatalogHolderListPrimaryTextForPersistence(
-    WindowCatalog& catalog) {
-  if (!catalog.persisted.list.is_valid()) {
-    return;
-  }
-  catalog.persisted.list.Load();
-  for (auto const& row : catalog.persisted.list->rows) {
-    auto* holder = static_cast<WindowHolder*>(&*row);
-    holder->primary_text = {};
-  }
-}
+
 
 void SaveWindowCatalogPersistentSnapshotImpl(WindowCatalog& catalog) {
   if (catalog.persisted.main_window.is_loaded()) {
@@ -164,23 +153,9 @@ void SaveWindowCatalogPersistentSnapshotImpl(WindowCatalog& catalog) {
       ui::SavePresentedWindow(holder->window);
     }
   }
-  ClearWindowCatalogHolderListPrimaryTextForPersistence(catalog);
   WindowCatalog::ptr::MakeFromThis(&catalog).Save();
-  RebindWindowCatalogHolderListPrimaryText(catalog);
 }
 }  // namespace
-
-void RebindWindowCatalogHolderListPrimaryText(WindowCatalog& catalog) {
-  if (!catalog.persisted.list.is_valid() ||
-      !catalog.persisted.texts.list_row_title_format.is_valid()) {
-    return;
-  }
-  catalog.persisted.list.Load();
-  for (auto const& row : catalog.persisted.list->rows) {
-    auto* holder = static_cast<WindowHolder*>(&*row);
-    holder->primary_text = catalog.persisted.texts.list_row_title_format;
-  }
-}
 
 void SaveWindowCatalogPersistentSnapshot(WindowCatalog& catalog) {
   SaveWindowCatalogPersistentSnapshotImpl(catalog);
@@ -600,6 +575,10 @@ void WindowCatalog::MaterializeCatalogStrings(int language_index) {
   persisted.texts.label_open->MaterializeLanguage(language_index);
   persisted.texts.label_delete->MaterializeLanguage(language_index);
   persisted.texts.label_language->MaterializeLanguage(language_index);
+  persisted.texts.window_title_prefix->MaterializeLanguage(language_index);
+  persisted.texts.list_row_title_format->MaterializeLanguage(language_index);
+  persisted.texts.list_row_title_closed_suffix->MaterializeLanguage(
+      language_index);
   if (persisted.texts.label_close.is_valid()) {
     persisted.texts.label_close.Load();
     persisted.texts.label_close->MaterializeLanguage(language_index);
@@ -645,7 +624,6 @@ void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
   ae::Domain& domain = *persisted.list->domain;
   ui::LoadPresentedWindow(holder.window);
   LoadWindowCloseButton(*this, *holder.window);
-  BindCatalogDesktopPresenter(*Presented(*holder.window).presenter, *this);
   // An open window persists with its presenter (and Close graph) eager.
   Presented(*holder.window).presenter.SetFlags(
       OpenObjFlags(Presented(*holder.window).presenter.flags()));
@@ -713,7 +691,7 @@ void WindowCatalog::AddWindow() {
   apptraverse::CloneOptions clone_options{};
   clone_options.stable_origin = kWindowPrefabId;
   clone_options.stable_prefab_ids = {kWindowPrefabId, kWindowPrefabPresenterId};
-  clone_options.boundary_ids = {persisted.texts.window_title_prefix.id(),
+  clone_options.boundary_ids = {obj_id, persisted.texts.window_title_prefix.id(),
                                 persisted.locale.id()};
   CatalogWindow& prefab_window = static_cast<CatalogWindow&>(*prefab_root);
   if (prefab_window.close_button.is_valid()) {
@@ -736,9 +714,6 @@ void WindowCatalog::AddWindow() {
   ae::Ptr<CatalogWindow> window_body{ae::Ptr<ae::Obj>{cloned.root.Load()}};
   CatalogWindow::ptr window =
       CatalogWindow::ptr::MakeFromThis(window_body.get());
-  Presented(*window_body).presenter->title =
-      persisted.texts.window_title_prefix;
-  BindCatalogDesktopPresenter(*Presented(*window_body).presenter, *this);
   AssignInitialCatalogWindowBounds(*window_body, number);
   holder->window = window;
   holder->window.SetFlags(SetUnloadedDefault(holder->window.flags()));

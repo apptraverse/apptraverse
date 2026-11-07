@@ -448,6 +448,41 @@ std::string ProbeRowPrimaryUtf8(WindowCatalog const& catalog,
   return ResolveWindowCatalogHolderListRowText(holder, catalog, language_index);
 }
 
+EmbeddedDistilledGraph const& WindowCatalogEmbeddedGraph() {
+  return embedded_distilled::window_catalog::kEmbeddedGraph;
+}
+
+// The profile directory is USER only; the demo reads it over embedded BACKING.
+struct ProfileGraphStorage {
+  explicit ProfileGraphStorage(std::filesystem::path const& state_dir)
+      : backing{},
+        user{state_dir},
+        overlay{user, backing,
+                EmbeddedSupplyConstantIdSet(WindowCatalogEmbeddedGraph())} {
+    InstallEmbeddedDistilledBacking(backing, WindowCatalogEmbeddedGraph());
+  }
+
+  ae::RamDomainStorage backing;
+  DirectoryDomainStorage user;
+  OverlayDomainStorage overlay;
+};
+
+void InstallEmbeddedSupplyConstantLayers(ae::RamDomainStorage& supply) {
+  EmbeddedDistilledGraph const& graph = WindowCatalogEmbeddedGraph();
+  std::set<ae::ObjId> const ids = EmbeddedSupplyConstantIdSet(graph);
+  for (std::size_t i = 0; i < graph.layer_count; ++i) {
+    EmbeddedDistilledLayerRecord const& layer = graph.layers[i];
+    if (ids.count(ae::ObjId{layer.object_id}) == 0) {
+      continue;
+    }
+    ae::ObjectData bytes(layer.bytes, layer.bytes + layer.size);
+    supply.SaveData(
+        ae::DomainQuery{ae::ObjId{layer.object_id}, layer.class_id,
+                        layer.version},
+        std::move(bytes));
+  }
+}
+
 void ProbeProfileListRows(
     std::filesystem::path const& state_dir, std::size_t expected_rows,
     std::vector<ae::ObjId>* out_holder_ids = nullptr,
@@ -455,8 +490,8 @@ void ProbeProfileListRows(
   EnsureObjectRegistration();
   EnsureWindowCatalogModelRegistration();
   EnsureWindowCatalogGraphRegistration();
-  DirectoryDomainStorage storage{state_dir};
-  ae::Domain domain{storage};
+  ProfileGraphStorage storage{state_dir};
+  ae::Domain domain{storage.overlay};
   auto catalog = LoadApplication<WindowCatalog>(
       domain,
       ae::ObjId{window_catalog_demo::ToObjId(
@@ -648,10 +683,6 @@ void RegisterCatalogTypes() {
   EnsureWindowCatalogGraphRegistration();
 }
 
-EmbeddedDistilledGraph const& WindowCatalogEmbeddedGraph() {
-  return embedded_distilled::window_catalog::kEmbeddedGraph;
-}
-
 void ExpectUserOnlyMissingRootLayer(std::filesystem::path const& user_dir) {
   RegisterCatalogTypes();
   DirectoryDomainStorage user{user_dir};
@@ -708,8 +739,8 @@ void AssertListObjectAbsent(std::filesystem::path const& state_dir) {
 
 ae::ObjId LoadCatalogLocaleObjId(std::filesystem::path const& state_dir) {
   RegisterCatalogTypes();
-  DirectoryDomainStorage storage{state_dir};
-  ae::Domain domain{storage};
+  ProfileGraphStorage storage{state_dir};
+  ae::Domain domain{storage.overlay};
   WindowCatalog::ptr loaded =
       LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
   ae::Ptr<WindowCatalog> catalog = loaded.Load();
@@ -735,8 +766,8 @@ void AssertLocaleObjectAbsent(std::filesystem::path const& state_dir,
 
 ae::ObjId LoadAddButtonPresenterObjId(std::filesystem::path const& state_dir) {
   RegisterCatalogTypes();
-  DirectoryDomainStorage storage{state_dir};
-  ae::Domain domain{storage};
+  ProfileGraphStorage storage{state_dir};
+  ae::Domain domain{storage.overlay};
   WindowCatalog::ptr loaded =
       LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
   ae::Ptr<WindowCatalog> catalog = loaded.Load();
@@ -762,8 +793,8 @@ void AssertPresenterObjectAbsent(std::filesystem::path const& state_dir,
 
 ae::ObjId LoadAddButtonObjId(std::filesystem::path const& state_dir) {
   RegisterCatalogTypes();
-  DirectoryDomainStorage storage{state_dir};
-  ae::Domain domain{storage};
+  ProfileGraphStorage storage{state_dir};
+  ae::Domain domain{storage.overlay};
   WindowCatalog::ptr loaded =
       LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
   ae::Ptr<WindowCatalog> catalog = loaded.Load();
@@ -797,8 +828,8 @@ void RunRequiredChromeButtonNegativeTests(
 
 ae::ObjId LoadLabelAddObjId(std::filesystem::path const& state_dir) {
   RegisterCatalogTypes();
-  DirectoryDomainStorage storage{state_dir};
-  ae::Domain domain{storage};
+  ProfileGraphStorage storage{state_dir};
+  ae::Domain domain{storage.overlay};
   WindowCatalog::ptr loaded =
       LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
   ae::Ptr<WindowCatalog> catalog = loaded.Load();
@@ -807,27 +838,13 @@ ae::ObjId LoadLabelAddObjId(std::filesystem::path const& state_dir) {
   return catalog->persisted.texts.label_add.id();
 }
 
-ae::ObjId WriteProfileMissingLabelAddObject(
-    std::filesystem::path const& state_dir) {
-  ae::ObjId const text_id = LoadLabelAddObjId(state_dir);
-  DirectoryDomainStorage storage{state_dir};
-  storage.Remove(text_id);
-  return text_id;
-}
-
-void RunRequiredLocalizedTextNegativeTests(
-    std::filesystem::path const& good_state,
-    std::filesystem::path const& load_only) {
-  auto const dir = NegativeStateDir("missing_localized_text_label_add_object");
-  CopyStateDir(good_state, dir);
-  ae::ObjId const text_id = WriteProfileMissingLabelAddObject(dir);
-  AssertPresenterObjectAbsent(dir, text_id);
-  ExpectEmbeddedOverlayUserTombstone(
-      dir, text_id, apptraverse::ui::UiLocalizationString::kClassId,
-      "missing_localized_text_label_add_object");
-  auto const result = RunLoadOnlyCaptureStderr(
-      load_only, dir, "missing_localized_text_label_add_object");
-  ExpectFatalLoadOnly(result, "fatal: LoadApplication failed");
+void RunLocalizedTextSupplyConstantTests(
+    std::filesystem::path const& good_state) {
+  ae::ObjId const text_id = LoadLabelAddObjId(good_state);
+  std::set<ae::ObjId> const supply =
+      EmbeddedSupplyConstantIdSet(WindowCatalogEmbeddedGraph());
+  CHECK(supply.count(text_id) == 1);
+  AssertPresenterObjectAbsent(good_state, text_id);
 }
 
 void RunRequiredChromePresenterNegativeTests(
@@ -1562,7 +1579,7 @@ void RunAcceptanceAndRequiredMainWindowNegatives() {
   RunRequiredListLocaleNegativeTests(good_state, load_only);
   RunRequiredChromePresenterNegativeTests(good_state, load_only);
   RunRequiredChromeButtonNegativeTests(good_state, load_only);
-  RunRequiredLocalizedTextNegativeTests(good_state, load_only);
+  RunLocalizedTextSupplyConstantTests(good_state);
   RunRequiredUnsupportedSchemaNegativeTests(good_state, load_only);
   RunRequiredUnknownClassIdNegativeTests(good_state, load_only);
 }
@@ -1574,7 +1591,13 @@ int main(int argc, char** argv) {
   if (argc >= 4 && std::strcmp(argv[1], "--user-only-load-probe") == 0) {
     apptraverse::test::RegisterCatalogTypes();
     apptraverse::DirectoryDomainStorage user{argv[3]};
-    ae::Domain domain{user};
+    ae::RamDomainStorage supply;
+    apptraverse::test::InstallEmbeddedSupplyConstantLayers(supply);
+    apptraverse::OverlayDomainStorage storage{
+        user, supply,
+        apptraverse::EmbeddedSupplyConstantIdSet(
+            apptraverse::test::WindowCatalogEmbeddedGraph())};
+    ae::Domain domain{storage};
     (void)apptraverse::LoadApplication<apptraverse::WindowCatalog>(
         domain, apptraverse::test::CatalogRootObjId());
     return 1;

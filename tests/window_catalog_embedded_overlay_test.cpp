@@ -20,7 +20,9 @@
 #include "embedded_distilled_window_catalog_supply.h"
 #include "window_catalog_graph.h"
 #include "window_catalog_ids.h"
+#include "window_catalog_list_row_text.h"
 #include "window_catalog_model.h"
+#include "window_catalog_supply_constant_ids.h"
 
 namespace apptraverse::test {
 namespace {
@@ -114,6 +116,21 @@ void ExpectNoPrefabBodiesInUser(std::filesystem::path const& user_root) {
   CHECK(!UserDirectoryHasObjectBody(user_root, kWindowPrefabPresenterId));
 }
 
+void ExpectNoLocalizationSupplyBodiesInUser(
+    WindowCatalog const& catalog, OverlayDomainStorage const& overlay,
+    std::filesystem::path const& user_root) {
+  std::vector<ae::ObjId> const ids =
+      CollectWindowCatalogSupplyConstantIds(catalog);
+  CHECK(!ids.empty());
+  for (ae::ObjId const& id : ids) {
+    CHECK(overlay.IsSupplyConstant(id));
+    CHECK(!UserDirectoryHasObjectBody(user_root, id));
+  }
+  auto const& texts = catalog.persisted.texts;
+  CHECK(overlay.IsSupplyConstant(texts.list_row_title_format.id()));
+  CHECK(overlay.IsSupplyConstant(texts.list_row_title_closed_suffix.id()));
+}
+
 void TestColdLoadEmptyUserFromEmbeddedBacking() {
   ae::ObjId const catalog_id{
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
@@ -182,10 +199,27 @@ void TestUserOverlayPersistsAddWindow() {
     CHECK(presenter.id() != kWindowPrefabPresenterId);
     CHECK(presenter->origin_id() == kWindowPrefabPresenterId);
     CHECK(!catalog->persisted.window_prefab.is_loaded());
+    catalog->CloseHolderWindow(*holder);
+    catalog->persisted.locale.Load();
+    catalog->MaterializeCatalogStrings(1);
+    catalog->persisted.locale->SubmitLanguageIndexFromUi(1);
+    catalog->MaterializeCatalogStrings(0);
+    catalog->persisted.locale->SubmitLanguageIndexFromUi(0);
+    CHECK(ResolveWindowCatalogHolderListRowText(*holder, *catalog, 0) ==
+          "Window 1 (Closed)");
     ShutdownSaveCatalog(*catalog, user_storage);
     CHECK(!std::filesystem::is_empty(user_dir));
     CHECK(backing.state == backing_snapshot);
     ExpectNoPrefabBodiesInUser(user_dir);
+    ExpectNoLocalizationSupplyBodiesInUser(*catalog, overlay, user_dir);
+    CHECK(holder->primary_text.id() ==
+          catalog->persisted.texts.list_row_title_format.id());
+    CHECK(!holder->window.is_loaded());
+    catalog->OpenHolderWindow(*holder);
+    CHECK(holder->window.id() == first_window_id);
+    catalog->CloseHolderWindow(*holder);
+    ShutdownSaveCatalog(*catalog, user_storage);
+    ExpectNoLocalizationSupplyBodiesInUser(*catalog, overlay, user_dir);
   }
 
   ae::RamDomainStorage replay_backing;
@@ -203,8 +237,22 @@ void TestUserOverlayPersistsAddWindow() {
   CHECK(replay_catalog->persisted.list->rows.size() == 1);
   CHECK(AsHolder(replay_catalog->persisted.list->rows[0])->obj_id == holder_id);
   CHECK(AsHolder(replay_catalog->persisted.list->rows[0])->window.id() == first_window_id);
+  CHECK(AsHolder(replay_catalog->persisted.list->rows[0])->primary_text.id() ==
+        replay_catalog->persisted.texts.list_row_title_format.id());
+  CHECK(!AsHolder(replay_catalog->persisted.list->rows[0])->window.is_loaded());
+  CHECK(replay_catalog->persisted.locale->language_index() == 0);
   CHECK(replay_catalog->persisted.window_prefab.is_valid());
   CHECK(!replay_catalog->persisted.window_prefab.is_loaded());
+  CHECK(ResolveWindowCatalogHolderListRowText(
+            *AsHolder(replay_catalog->persisted.list->rows[0]), *replay_catalog,
+            0) == "Window 1 (Closed)");
+  replay_catalog->OpenHolderWindow(
+      *AsHolder(replay_catalog->persisted.list->rows[0]));
+  CHECK(AsHolder(replay_catalog->persisted.list->rows[0])->window.id() ==
+        first_window_id);
+  CHECK(ResolveWindowCatalogHolderListRowText(
+            *AsHolder(replay_catalog->persisted.list->rows[0]), *replay_catalog,
+            0) == "Window 1");
 
   replay_catalog->AddWindow();
   CHECK(replay_catalog->persisted.list->rows.size() == 2);

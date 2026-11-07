@@ -3,7 +3,6 @@
 #include "window_catalog_graph_builder.h"
 #include "window_catalog_list_presenter_mixin.h"
 #include "window_catalog_model.h"
-#include "window_catalog_presenter_wiring.h"
 
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/object_macros.h"
@@ -55,12 +54,6 @@ APPTRAVERSE_REGISTER(HeadlessCatalogListContainerPresenter);
 
 namespace apptraverse {
 
-void BindCatalogDesktopPresenter(ui::UiWindowPresenter& presenter,
-                                 WindowCatalog& catalog) {
-  (void)presenter;
-  (void)catalog;
-}
-
 WindowCatalog::ptr BuildHeadlessWindowCatalogGraph(ae::Domain& domain) {
   return BuildHeadlessWindowCatalogGraph(domain, WindowCatalogGraphOptions{});
 }
@@ -70,7 +63,8 @@ WindowCatalog::ptr BuildHeadlessWindowCatalogGraph(
   ui::EnsureUiPresenterRegistration();
 
   WindowCatalogPresenterFactory factory;
-  factory.create_window = [](ae::Domain& build_domain, ae::ObjId presenter_id) {
+  factory.create_window = [](ae::Domain& build_domain, ae::ObjId presenter_id,
+                             WindowCatalog::ptr const&) {
     return ui::UiDesktopWindowPresenter::ptr::Create(
         ae::CreateWith{build_domain}.with_id(presenter_id));
   };

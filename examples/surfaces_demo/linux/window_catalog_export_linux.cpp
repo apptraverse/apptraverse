@@ -15,6 +15,7 @@
 #include "window_catalog_graph.h"
 #include "window_catalog_ids.h"
 #include "window_catalog_model.h"
+#include "window_catalog_supply_constant_ids.h"
 
 namespace {
 
@@ -68,12 +69,12 @@ int main(int argc, char** argv) {
       apptraverse::CollectStoredObjectIds(export_storage);
   std::filesystem::remove_all(export_dir, remove_ec);
 
-  std::vector<ae::ObjId> const supply_constant_ids{
-      ae::ObjId{apptraverse::window_catalog_demo::ToObjId(
-          apptraverse::window_catalog_demo::ObjId::WindowPrefab)},
-      ae::ObjId{apptraverse::window_catalog_demo::ToObjId(
-          apptraverse::window_catalog_demo::ObjId::WindowPrefabPresenter)},
-  };
+  std::vector<ae::ObjId> supply_constant_ids =
+      apptraverse::CollectWindowCatalogSupplyConstantIds(*root);
+  supply_constant_ids.push_back(ae::ObjId{apptraverse::window_catalog_demo::ToObjId(
+      apptraverse::window_catalog_demo::ObjId::WindowPrefab)});
+  supply_constant_ids.push_back(ae::ObjId{apptraverse::window_catalog_demo::ToObjId(
+      apptraverse::window_catalog_demo::ObjId::WindowPrefabPresenter)});
 
   if (!apptraverse::WriteEmbeddedDistilledSupplyHeader(
           argv[1], kGraphNamespace, kHeaderGuard, CatalogRootId(),

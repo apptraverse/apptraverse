@@ -14,7 +14,8 @@
 namespace apptraverse {
 
 struct WindowCatalogPresenterFactory {
-  std::function<ui::UiDesktopWindowPresenter::ptr(ae::Domain&, ae::ObjId)>
+  std::function<ui::UiDesktopWindowPresenter::ptr(
+      ae::Domain&, ae::ObjId, WindowCatalog::ptr const&)>
       create_window;
   std::function<ui::UiListContainerPresenter::ptr(
       ae::Domain&, ae::ObjId, WindowCatalog::ptr const&)>

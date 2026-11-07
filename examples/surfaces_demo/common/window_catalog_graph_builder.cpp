@@ -67,7 +67,7 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   auto main_window = CatalogWindow::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::MainWindow)));
   ui::UiDesktopWindowPresenter::ptr main_presenter = factory.create_window(
-      domain, ae::ObjId{ToObjId(ObjId::MainWindowPresenter)});
+      domain, ae::ObjId{ToObjId(ObjId::MainWindowPresenter)}, catalog);
   ui::ComposePresentedWindow(main_window, main_presenter, main_title,
                              catalog->persisted.locale);
   InitializeRuntimeNode(*main_window, *catalog);
@@ -152,7 +152,8 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   prefab_frame->client_height = kPrefabClientHeight;
   window_prefab_body->Apply(*prefab_frame);
   ui::UiDesktopWindowPresenter::ptr window_prefab_presenter =
-      factory.create_window(domain, ae::ObjId{window_prefab_presenter_id});
+      factory.create_window(domain, ae::ObjId{window_prefab_presenter_id},
+                            catalog);
   ui::ComposePresentedWindow(window_prefab, window_prefab_presenter,
                              catalog->persisted.texts.window_title_prefix,
                              catalog->persisted.locale);

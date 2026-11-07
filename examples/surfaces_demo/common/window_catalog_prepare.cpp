@@ -36,7 +36,6 @@ void PrepareWindowCatalogForRun(WindowCatalog& catalog) {
   catalog.MaterializeCatalogStrings(language);
   catalog.RefreshChromeButtonEnabledState();
   RestoreLoadedCatalogWindows(catalog);
-  RebindWindowCatalogHolderListPrimaryText(catalog);
 }
 
 }  // namespace apptraverse

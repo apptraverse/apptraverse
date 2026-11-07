@@ -365,8 +365,6 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
 void SaveWindowCatalogPersistentSnapshot(WindowCatalog& catalog);
 
-void RebindWindowCatalogHolderListPrimaryText(WindowCatalog& catalog);
-
 void RestoreLoadedCatalogWindows(WindowCatalog& catalog);
 
 class CatalogListContainer : public ui::UiListContainer {

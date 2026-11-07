@@ -124,6 +124,7 @@ add_library(surfaces_demo_window_catalog_common STATIC
   common/window_catalog_graph_mobile_prefab.cpp
   common/window_catalog_chrome_layout.cpp
   common/window_catalog_list_row_text.cpp
+  common/window_catalog_supply_constant_ids.cpp
 )
 target_include_directories(surfaces_demo_window_catalog_common PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/common

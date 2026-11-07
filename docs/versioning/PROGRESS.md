@@ -7,6 +7,37 @@
 
 **Branch (рабочая):** **feature/linux-window-catalog**, base `d590ee7f932d1f6df82c196f36c99e3b5e0b9102` (`origin/integration/unified-application`). Историческая координация: [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+<a id="p4-wc-adaptive-save-after-close-language--2026-11-07"></a>
+
+## P4 / WindowCatalog — Save после close child + смена языка, supply-локализация (2026-11-07) — PASS (Windows/Android Debug, verified)
+
+**Ветка:** **`feature/window-catalog-adaptive`**, base `9b74f16`.
+
+### Причина (cdb)
+
+- **Chrome E2E assert:** UI-поток, домен UI mirror: `ResolveWindowCatalogHolderListRowText` → `ObjPtr<UiString>::operator->` для слота EN у `list_row_title_format`. Модель (`MaterializeCatalogStrings`) не материализовала активный слот у `list_row_title_format`, `list_row_title_closed_suffix` и `window_title_prefix`, поэтому слот не попадал в publication и mirror не мог его загрузить. Общий `primary_text` и Save здесь ни при чём.
+- **`TestCatalogSaveAfterLanguageToggleAndChildClose` exit 3:** `dynamic_cast` в `BindCatalogDesktopPresenter` при `/GR-` → `__RTDynamicCast` → terminate.
+
+### Исправление
+
+- `MaterializeCatalogStrings` материализует активный язык у format/suffix/title prefix.
+- Связь presenter → catalog задаётся при создании presenter-а (typed `create_window(domain, id, catalog)`), а не отдельным Bind. `window_catalog_presenter_wiring.h` и все `Bind*` удалены, RTTI нет.
+- Удалены обходы WIP: `Declare` в `UnloadPresentedWindow`, `FinalizeWindowCatalogJournalForPersist`, Clear/Rebind `primary_text`, close-mark, overlay-подмена в headless E2E. Save — единственный путь.
+- Supply-классификация по роли (`CollectWindowCatalogSupplyConstantIds`) используется во всех экспортёрах (Windows, Linux, Android): тела локализации лежат только в BACKING.
+- Win32 acceptance: профиль читается так, как его читает приложение (USER поверх embedded BACKING). `--user-only-load-probe` берёт user-owned объекты только из USER, а supply — из embedded. Позитивный контроль на валидном профиле проходит. Negative «нет `label_add` в USER» заменён проверкой контракта: `label_add` — supply, в USER тела нет.
+
+### Прогоны (incremental Debug)
+
+| Контур | Итог |
+| --- | --- |
+| `apptraverse_window_catalog_headless_test` (вкл. Chrome E2E) | PASS |
+| `apptraverse_window_catalog_embedded_overlay_test` (close → EN→RU→EN → Save → reopen → cold) | PASS |
+| `apptraverse_window_catalog_win32_acceptance_test` | PASS |
+| `TestCatalogSaveAfterLanguageToggleAndChildClose` и прочие сценарии model | PASS (по отдельности) |
+| `apptraverse_window_catalog_model_test` целиком | FAIL: известный `main_base.presenter.id()` (стр. 1591); при пропуске — `list_presenter.id()` (стр. 898) того же класса historical base |
+| Android `:app:assembleDebug` | PASS |
+| Linux | NOT RUN |
+
 <a id="p4-wc-linux-child-close-list-identity--2026-11-05"></a>
 
 ## P4 / WindowCatalog — Linux child close SIGSEGV, list identity, frame request (2026-11-05) — PASS (Linux slice, verified)
@@ -184,7 +215,7 @@ wsl -d Ubuntu env GDK_BACKEND=x11 /mnt/c/Users/nickc/Projects/apptraverse-wt-web
 - **`RunRestartPersistenceAcceptance`**: Add/Open/native Close/reopen, identity, **два cold-load цикла**.
 - **`RunDeleteAndColdReloadAcceptance`**: Delete chrome → proxy/Event, **состояние списка** и cold reload (соседняя строка, новая команда); **не** проверяет HWND identity открытых окон (это в restart/open-path acceptance).
 - **`RunLanguageAndFocusAcceptance`**: EN→RU→EN **до** negative subprocess (не зависит от порядка negatives).
-- Negatives: **`Remove`/tombstone** — overlay in-process probe + embedded load_only subprocess; **schema/unknown ClassId** — **`--user-only-load-probe`** (USER `DirectoryDomainStorage`, не embedded exe).
+- Negatives: **`Remove`/tombstone** — overlay in-process probe + embedded load_only subprocess; **schema/unknown ClassId** — **`--user-only-load-probe`** (user-owned объекты только из USER `DirectoryDomainStorage`, supply-константы из embedded; не embedded exe).
 
 ### Прогоны (incremental Debug)
 
