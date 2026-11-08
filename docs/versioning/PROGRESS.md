@@ -9,20 +9,28 @@
 
 <a id="p4-wc-close-timing-diagnostic--2026-11-08"></a>
 
-## P4 / WindowCatalog — диагностика медленного Close (Debug vs MinSizeRel) (2026-11-08)
+## P4 / WindowCatalog — диагностика Close timing harness + `AE_NO_DEBUG_LOG` A/B (2026-11-08)
 
-**База:** `a94f90c8aed524d9892adf4a54d510bd443bbc2e`. **Production:** без изменений. **Harness:** `apptraverse_window_catalog_win32_close_timing_diagnostic_test` (субпроцесс + in-process RAM).
+**База harness:** `088ea28e59610c3b95a66f65979293baed13354f`. **Production:** без изменений. **Target:** `apptraverse_window_catalog_win32_close_timing_diagnostic_test` — только subprocess demo Debug, логи stdout/stderr в каталог прогона **вне** USER.
 
-| Условие | Child list `(Closed)` | Main `WM_CLOSE` → exit |
+**Ошибки старого harness (до fix, ~30 s «зависания» — не подтверждённый production hang):** подстрока в title (`Window 1` / локаль / `Window 10`); stderr-файл внутри профиля; `PeekMessage` в harness; `(Closed)` в list трактовался как destroy HWND; timeout записывался как время операции; MinSizeRel/in-process смешаны в отчёт.
+
+**Исправленный harness:** HWND child по Δ top-level после Add или точное совпадение строки list ↔ title; `TARGET_NOT_FOUND` без WM_CLOSE; отдельно wm_close / hidden / destroy / list / main exit; burst = `WM_ENTERSIZEMOVE`…`WM_EXITSIZEMOVE` на HWND demo; CMakeCache `AE_NO_DEBUG_LOG` + compile defs `aether-objects` (`-DAE_NO_DEBUG_LOG=1` при ON). Артефакт `surfaces_catalog_agent_fresh_embedded` рядом с demo **невалиден** (`LoadApplication failed id=1`); seed для saved-сценария — runtime copy после cold Add+Save (`SAVED_PROFILE_SEED=runtime_prepared`).
+
+**Медианы HWND destroy / list (ms), 3× rep, `win64-ninja-msvc-debug`:**
+
+| Сценарий | `AE_NO_DEBUG_LOG=OFF` | `AE_NO_DEBUG_LOG=ON` |
 | --- | --- | --- |
-| Debug, cold, 1× Add | ~329 ms | ~105 ms |
-| Debug, после burst resize (31) | **timeout 30 s** | ~354 ms (после child wait) |
-| Debug, копия `agent_fresh` USER (read-only copy) | **timeout 30 s** | ~441 ms |
-| MinSizeRel (бинарник не пересобран, тот же SHA worktree) cold | **timeout 30 s** | ~217 ms |
+| COLD_ADD_CLOSE | 354 / 344 | 352 / 329 |
+| BURST_CLOSE_IMMEDIATE | 527 / 516 | 476 / 451 |
+| BURST_CLOSE_AFTER_SETTLE | 580 / 568 | 515 / 499 |
+| SAVED_PROFILE (runtime seed) | 200 / 179 | 153 / 131 |
 
-**In-process (RAM, без `DirectoryDomainStorage`):** `UserCloseWindow` + `ApplyStructural` ~89–136 ms; structural bytes ~2875; RAM snapshot ~5–18 ms. **OBJ_SYS:** при `AE_NO_DEBUG_LOG=OFF` (CMake cache) один прогон harness печатает **~19k** строк `OBJ_SYS:` на stdout при in-process Save/serialize (не отключение AE_TELE). Субпроцесс demo: унаследованный stderr почти пуст (`WINDOW_CATALOG_LOADED_*` only) — `FreeConsole`.
+**OBJ_SYS (subprocess stdout, не stderr после redirect):** OFF ~4.6k–11.7k строк/close (burst выше); ON → **0**. Main exit ~107–185 ms; **30 s child timeout на исправленном harness не воспроизведён**. Debugger stacks / CPU% — **NOT RUN** (нет реального timeout).
 
-**Вывод (измерения, не фикс):** холодное закрытие child в короткой сессии быстрое; после длительного resize или на сохранённом профиле **застревает этап UI/list после `UserCloseWindow`** (HWND teardown в тесте не детектирован отдельно). Main shutdown остаётся субсекундным в автоматическом сценарии. Доля `BuildDecrementGraphImpl` / `PtrBase::DecrementGraphCount` **не измерена** (нет sampling profiler). Двойной `Save` в `UnloadPresentedWindow` подтверждён по коду; отдельная стоимость Save/Reset на диске в этом шаге не дедуплицирована.
+**Неизвестно:** абсолютная стоимость двойного `Save` в `UnloadPresentedWindow`; decrement graph / sampling; валидность bundled `agent_fresh_embedded` в tree (отдельно от harness seed).
+
+**Устаревшие строки (первый прогон `088ea28e`, невалидный измеритель):** MinSizeRel cold ~30 s, burst/saved «timeout 30 s» — **снято как доказательство production**, оставлено только как артефакт flawed harness.
 
 <a id="p4-wc-adaptive-windows-acceptance--2026-11-07"></a>
 
