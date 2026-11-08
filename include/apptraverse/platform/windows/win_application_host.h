@@ -44,7 +44,6 @@ struct WinApplicationHostCallbacks {
   std::function<void(ae::Obj& application_root)> after_incremental;
   std::function<void(ae::Obj& application_root)> after_initial;
   UiPresentersPrepareHook prepare_ui_presenters;
-  ui::windows::WinPresentationHost* presentation_host_override{nullptr};
 };
 
 class WinApplicationHost {

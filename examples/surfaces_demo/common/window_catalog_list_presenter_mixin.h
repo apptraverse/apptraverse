@@ -44,24 +44,28 @@ class WindowCatalogDesktopPresenterMixin : public BaseDesktopPresenter {
 
   WindowCatalogDesktopPresenterMixin()
       : session_main_native_frame_queue_(nullptr),
+        session_catalog_obj_id_(),
         session_catalog_main_window_id_() {}
 
   explicit WindowCatalogDesktopPresenterMixin(ae::ObjProp prop)
       : BaseDesktopPresenter{prop},
         session_main_native_frame_queue_(nullptr),
+        session_catalog_obj_id_(),
         session_catalog_main_window_id_() {}
 
   WindowCatalog::ptr catalog;
 
   void AttachSessionMainNativeFrameQueue(
       ::apptraverse::WindowCatalogMainNativeFrameQueue* queue,
-      ae::ObjId catalog_main_window_id) {
+      ae::ObjId catalog_obj_id, ae::ObjId catalog_main_window_id) {
     session_main_native_frame_queue_ = queue;
+    session_catalog_obj_id_ = catalog_obj_id;
     session_catalog_main_window_id_ = catalog_main_window_id;
   }
 
   void DetachSessionMainNativeFrameQueue() {
     session_main_native_frame_queue_ = nullptr;
+    session_catalog_obj_id_ = {};
     session_catalog_main_window_id_ = {};
   }
 
@@ -73,6 +77,7 @@ class WindowCatalogDesktopPresenterMixin : public BaseDesktopPresenter {
  protected:
   ::apptraverse::WindowCatalogMainNativeFrameQueue*
       session_main_native_frame_queue_;
+  ae::ObjId session_catalog_obj_id_;
   ae::ObjId session_catalog_main_window_id_;
   void SubmitMainCatalogViewportFromNative(std::int32_t width,
                                            std::int32_t height) {

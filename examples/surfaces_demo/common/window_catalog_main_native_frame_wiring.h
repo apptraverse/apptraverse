@@ -11,6 +11,11 @@ void WireWindowCatalogMainNativeFrameQueue(
     ae::Obj& gui_root, WindowCatalogMainNativeFrameQueue& queue);
 void UnwireWindowCatalogMainNativeFrameQueue(ae::Obj& gui_root);
 [[nodiscard]] bool WindowCatalogMainNativeFrameQueueAttached(ae::Obj& gui_root);
+// Confirms prepare wired the main catalog desktop presenter: domain object
+// matches live graph traversal and session queue pointer.
+[[nodiscard]] bool WindowCatalogMainNativeFrameQueuePrepareBinding(
+    ae::Obj& gui_root, ae::ObjId main_presenter_id,
+    WindowCatalogMainNativeFrameQueue& queue, bool require_presentation_pending);
 
 }  // namespace apptraverse
 

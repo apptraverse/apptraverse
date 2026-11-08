@@ -25,7 +25,6 @@
 #include "window_catalog_model.h"
 #include "window_catalog_main_native_frame_queue.h"
 #include "window_catalog_main_native_frame_wiring.h"
-#include "window_catalog_win_presentation_host.h"
 
 namespace {
 
@@ -253,9 +252,6 @@ int main(int argc, char** argv) {
     WireWindowCatalogMainNativeFrameQueue(ui_root,
                                           session.main_native_frame_queue);
   };
-  apptraverse::WindowCatalogWinPresentationHost catalog_presentation_host{
-      &session.main_native_frame_queue};
-  callbacks.presentation_host_override = &catalog_presentation_host;
   apptraverse::windows::WinApplicationLoadingOptions loading{
       L"AppTraverseWindowCatalogLoading", L"Loading catalog", L"Loading catalog",
       200, 200, 320, 120};

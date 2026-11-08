@@ -22,7 +22,6 @@ int main() { return 0; }
 #include "window_catalog_prepare.h"
 #include "window_catalog_main_native_frame_queue.h"
 #include "window_catalog_main_native_frame_wiring.h"
-#include "window_catalog_win_presentation_host.h"
 #include "apptraverse/ui/ui_presented_window.h"
 
 namespace apptraverse::test {
@@ -115,7 +114,6 @@ struct Harness {
   ae::ObjId const main_window_id;
 
   WindowCatalogMainNativeFrameQueue main_native_frame_queue;
-  WindowCatalogWinPresentationHost presentation_host_;
 
   Harness()
       : model_proxy{[this](ModelObjectProxy::ModelWork work) {
@@ -124,8 +122,7 @@ struct Harness {
         list_presenter_id{window_catalog_demo::ToObjId(
             window_catalog_demo::ObjId::CatalogListPresenter)},
         main_window_id{window_catalog_demo::ToObjId(
-            window_catalog_demo::ObjId::MainWindow)},
-        presentation_host_{&main_native_frame_queue} {
+            window_catalog_demo::ObjId::MainWindow)} {
     EnsureObjectRegistration();
     EnsureWindowCatalogGraphRegistration();
     main_native_frame_queue.BindPostWork(
@@ -137,7 +134,7 @@ struct Harness {
     ByteSink initial;
     SerializeInitialPublication(*model_catalog, initial);
     ui_session = std::make_unique<ApplicationUiSession>(
-        initial.bytes, &presentation_host_, model_proxy, PresenterWireHook());
+        initial.bytes, nullptr, model_proxy, PresenterWireHook());
     ui_catalog = static_cast<WindowCatalog*>(&ui_session->root());
     ae::ObjId const main_presenter_id = window_catalog_demo::ToObjId(
         window_catalog_demo::ObjId::MainWindowPresenter);
@@ -235,6 +232,52 @@ void ExpectTallChrome(HWND main, std::int32_t client_w, std::int32_t client_h) {
   CHECK(add_r.y == layout.add.y);
 }
 
+void TestPrepareBindsQueueBeforeNativeOnLoad() {
+  ae::RamDomainStorage model_storage;
+  ae::Domain model_domain{model_storage};
+  WindowCatalogMainNativeFrameQueue queue;
+  std::deque<ModelObjectProxy::ModelWork> model_work;
+  ModelObjectProxy model_proxy{[&](ModelObjectProxy::ModelWork work) {
+    model_work.push_back(std::move(work));
+  }};
+  EnsureObjectRegistration();
+  EnsureWindowCatalogGraphRegistration();
+  queue.BindPostWork([&](ModelObjectProxy::ModelWork work) {
+    model_work.push_back(std::move(work));
+  });
+  WindowCatalog::ptr model_catalog = BuildWindowCatalogGraph(model_domain);
+  PrepareWindowCatalogForRun(*model_catalog);
+  ByteSink initial;
+  SerializeInitialPublication(*model_catalog, initial);
+
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  ByteSource in;
+  in.data = initial.bytes.data();
+  in.size = initial.bytes.size();
+  auto root = LoadInitialPublication(in, ui_domain, ui_storage);
+  auto& ui_catalog = static_cast<WindowCatalog&>(*root);
+  ae::ObjId const main_presenter_id = window_catalog_demo::ToObjId(
+      window_catalog_demo::ObjId::MainWindowPresenter);
+
+  WireWindowCatalogMainNativeFrameQueue(ui_catalog, queue);
+  ae::Obj* const domain_presenter =
+      &*ui_catalog.domain->Find(main_presenter_id);
+  auto* const win_view =
+      static_cast<ui::windows::WinDesktopWindowPresenter*>(domain_presenter);
+  CHECK(win_view != nullptr);
+  CHECK(static_cast<void*>(domain_presenter) == static_cast<void*>(win_view));
+  CHECK(WindowCatalogMainNativeFrameQueuePrepareBinding(
+      ui_catalog, main_presenter_id, queue, true));
+  InitializePresenters(ui_catalog, nullptr, &model_proxy);
+  CHECK(WindowCatalogMainNativeFrameQueuePrepareBinding(
+      ui_catalog, main_presenter_id, queue, false));
+  CHECK(WindowCatalogMainNativeFrameQueueAttached(ui_catalog));
+  UnloadPresenters(ui_catalog);
+  DispatchPendingWin32Messages();
+  queue.ClosePosting();
+}
+
 void TestBurstResizeWithoutPerStepPump() {
   Harness h;
   HWND const main = h.MainHwnd();
@@ -294,6 +337,7 @@ void TestNativeAdaptiveChromeResizePath() {
 
 int main() {
   apptraverse::EnableNoninteractiveCrt();
+  apptraverse::test::TestPrepareBindsQueueBeforeNativeOnLoad();
   apptraverse::test::TestBurstResizeWithoutPerStepPump();
   apptraverse::test::TestNativeAdaptiveChromeResizePath();
   std::cout << "window_catalog_win32_chrome_adaptive_test OK\n";
