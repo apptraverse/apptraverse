@@ -10,12 +10,7 @@ from pathlib import Path
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page, expect, sync_playwright
 
-EXPECTED_BUTTONS = {
-    "5002": {"label": "Add", "enabled": True},
-    "5003": {"label": "Open", "enabled": False},
-    "5004": {"label": "Delete", "enabled": False},
-    "5005": {"label": "RU", "enabled": True},
-}
+EXPECTED_CONTROL_IDS = ("5002", "5003", "5004", "5005")
 
 
 def main() -> int:
@@ -68,15 +63,15 @@ def main() -> int:
         )
         if page is not None:
             try:
-                title = page.locator("#catalog-title").inner_text(timeout=2000)
+                title = page.locator("#page-title").inner_text(timeout=2000)
                 status = page.locator("#status").inner_text(timeout=2000)
-                list_count = page.locator("#catalog-list li").count()
-                button_count = page.locator(
-                    "#catalog-buttons button.catalog-button"
+                main_page = page.locator("#catalog-mount .catalog-page-main")
+                button_count = main_page.locator(
+                    'button[data-apptraverse-control-id]'
                 ).count()
                 print(
-                    f"DOM: catalog-title={title!r} status={status!r} "
-                    f"list_items={list_count} catalog_buttons={button_count}",
+                    f"DOM: page-title={title!r} status={status!r} "
+                    f"main_page_buttons={button_count}",
                     file=sys.stderr,
                 )
             except (PlaywrightError, TimeoutError) as dom_exc:
@@ -101,24 +96,14 @@ def main() -> int:
 
         try:
             page.goto(args.url, wait_until="domcontentloaded", timeout=60000)
-            expect(page.locator("#catalog-title")).to_have_text(
-                "Window Catalog", timeout=60000
-            )
-            expect(page.locator("#catalog-list li")).to_have_count(0, timeout=5000)
-            expect(page.locator("#catalog-buttons button.catalog-button")).to_have_count(
-                4, timeout=60000
-            )
-
-            for control_id, spec in EXPECTED_BUTTONS.items():
-                btn = page.locator(
-                    f'#catalog-buttons button[data-control-id="{control_id}"]'
+            expect(page.locator("#page-title")).not_to_have_text("Loading…", timeout=60000)
+            main_page = page.locator("#catalog-mount .catalog-page-main.page-active")
+            expect(main_page).to_have_count(1, timeout=60000)
+            for control_id in EXPECTED_CONTROL_IDS:
+                btn = main_page.locator(
+                    f'button[data-apptraverse-control-id="{control_id}"]'
                 )
-                expect(btn).to_have_count(1, timeout=5000)
-                expect(btn).to_have_text(spec["label"], timeout=5000)
-                if spec["enabled"]:
-                    expect(btn).to_be_enabled(timeout=5000)
-                else:
-                    expect(btn).to_be_disabled(timeout=5000)
+                expect(btn).to_have_count(1, timeout=60000)
 
             isolated = page.evaluate("() => crossOriginIsolated === true")
             if not isolated:

@@ -12,8 +12,8 @@
 namespace apptraverse {
 
 // Web WindowCatalog host: model thread + main-thread UI mirror via
-// web::WebApplicationHost, mobile pager (same model as Android), USER profile
-// persisted to IDBFS (/persistent) on Save and shutdown.
+// web::WebApplicationHost, mobile pager (same model as Android), embedded
+// BACKING plus USER overlay on IDBFS (/persistent) on Save and shutdown.
 class WebWindowCatalogApp {
  public:
   static WebWindowCatalogApp& Instance();
@@ -31,13 +31,12 @@ class WebWindowCatalogApp {
  private:
   WebWindowCatalogApp() = default;
 
-  int PersistCatalog(ae::Domain& domain);
   void PublishMobilePages(ae::Obj& application_root);
 
   std::filesystem::path state_dir_;
   ApplicationModelRuntime runtime_;
   ui::web::WebPresentationHost presentation_host_;
-  std::unique_ptr<DirectoryDomainStorage> storage_;
+  std::unique_ptr<DirectoryDomainStorage> user_storage_;
   std::unique_ptr<web::WebApplicationHost> host_;
 };
 

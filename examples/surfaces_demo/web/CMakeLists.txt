@@ -1,6 +1,48 @@
 if(NOT EMSCRIPTEN)
   message(FATAL_ERROR "surfaces_demo/web requires an Emscripten toolchain")
 endif()
+if(NOT CMAKE_CROSSCOMPILING_EMULATOR)
+  message(FATAL_ERROR "surfaces_demo/web requires CMAKE_CROSSCOMPILING_EMULATOR (node)")
+endif()
+
+include(${CMAKE_SOURCE_DIR}/cmake/apptraverse_embed_distilled_supply.cmake)
+
+set(_window_catalog_web_embed_graph_sources
+  ${CMAKE_CURRENT_SOURCE_DIR}/window_catalog_graph_web.cpp
+  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/window_catalog_graph_builder.cpp
+  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/window_catalog_model.cpp)
+
+add_executable(apptraverse_export_window_catalog_distilled_graph_web
+  window_catalog_export_web.cpp
+  window_catalog_graph_web.cpp
+)
+target_compile_definitions(apptraverse_export_window_catalog_distilled_graph_web PRIVATE
+  APPTRAVERSE_ENABLE_DISTILLATION
+  EMSCRIPTEN_HAS_UNBOUND_TYPE_NAMES=0
+)
+target_include_directories(apptraverse_export_window_catalog_distilled_graph_web PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
+)
+target_link_libraries(apptraverse_export_window_catalog_distilled_graph_web PRIVATE
+  surfaces_demo_window_catalog_common
+  apptraverse_ui_web
+)
+target_compile_options(apptraverse_export_window_catalog_distilled_graph_web PRIVATE
+  -fno-rtti
+  -fno-exceptions
+)
+target_link_options(apptraverse_export_window_catalog_distilled_graph_web PRIVATE
+  -sENVIRONMENT=node
+  -sNODERAWFS=1
+  -sEXIT_RUNTIME=1
+  -sINITIAL_MEMORY=67108864
+  --bind
+)
+set_target_properties(apptraverse_export_window_catalog_distilled_graph_web PROPERTIES
+  SUFFIX ".js"
+  CROSSCOMPILING_EMULATOR "${CMAKE_CROSSCOMPILING_EMULATOR}"
+)
 
 add_executable(web_surfaces_demo
   main.cpp
@@ -89,13 +131,23 @@ set_target_properties(web_surfaces_model_compile_check PROPERTIES
 add_executable(web_window_catalog_demo
   window_catalog_main.cpp
   window_catalog_web_app.cpp
+  window_catalog_web_persistence.cpp
   window_catalog_graph_web.cpp
 )
 
 target_compile_definitions(web_window_catalog_demo PRIVATE
   APPTRAVERSE_ENABLE_DISTILLATION
+  APPTRAVERSE_WEB_CATALOG_DOM_TAGGING
   EMSCRIPTEN_HAS_UNBOUND_TYPE_NAMES=0
 )
+
+apptraverse_embed_distilled_supply(
+  web_window_catalog_demo
+  apptraverse_export_window_catalog_distilled_graph_web
+  embedded_distilled_window_catalog_web_supply.h
+  ${_window_catalog_web_embed_graph_sources})
+add_dependencies(web_window_catalog_demo
+  apptraverse_export_window_catalog_distilled_graph_web)
 
 target_include_directories(web_window_catalog_demo PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
@@ -131,3 +183,39 @@ set_target_properties(web_window_catalog_demo PROPERTIES
   OUTPUT_NAME "web_window_catalog_demo"
   SUFFIX ".html"
 )
+
+add_executable(apptraverse_window_catalog_web_embedded_session_test
+  ${CMAKE_SOURCE_DIR}/tests/window_catalog_web_embedded_session_test.cpp
+  window_catalog_graph_web.cpp
+)
+target_compile_definitions(apptraverse_window_catalog_web_embedded_session_test PRIVATE
+  APPTRAVERSE_ENABLE_DISTILLATION
+  EMSCRIPTEN_HAS_UNBOUND_TYPE_NAMES=0
+)
+target_include_directories(apptraverse_window_catalog_web_embedded_session_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_BINARY_DIR}/examples/surfaces_demo/web/generated_distilled/web_window_catalog_demo
+  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
+)
+target_link_libraries(apptraverse_window_catalog_web_embedded_session_test PRIVATE
+  surfaces_demo_window_catalog_common
+  apptraverse_ui_web
+  apptraverse
+)
+target_compile_options(apptraverse_window_catalog_web_embedded_session_test PRIVATE
+  -fno-rtti
+  -fno-exceptions
+)
+target_link_options(apptraverse_window_catalog_web_embedded_session_test PRIVATE
+  -sENVIRONMENT=node
+  -sNODERAWFS=1
+  -sEXIT_RUNTIME=1
+  -sINITIAL_MEMORY=134217728
+  --bind
+)
+set_target_properties(apptraverse_window_catalog_web_embedded_session_test PROPERTIES
+  SUFFIX ".js"
+  CROSSCOMPILING_EMULATOR "${CMAKE_CROSSCOMPILING_EMULATOR}"
+)
+add_dependencies(apptraverse_window_catalog_web_embedded_session_test
+  web_window_catalog_demo)

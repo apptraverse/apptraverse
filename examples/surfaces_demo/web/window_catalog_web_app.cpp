@@ -8,14 +8,16 @@
 #include <emscripten/em_js.h>
 #include <emscripten/threading.h>
 
+#include "embedded_distilled_window_catalog_web_supply.h"
 #include "window_catalog_graph_web.h"
 #include "window_catalog_ids.h"
 #include "window_catalog_model.h"
 #include "window_catalog_prepare.h"
+#include "window_catalog_web_persistence.h"
 
 #include "apptraverse/application_model_session.h"
 #include "apptraverse/directory_domain_storage.h"
-#include "apptraverse/distill.h"
+#include "apptraverse/embedded_application_model_session.h"
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/object_macros.h"
@@ -66,44 +68,9 @@ void EnsureBrowserEnvironment() {
   }
 }
 
-#if defined(APPTRAVERSE_ENABLE_DISTILLATION)
-void BootstrapDistilledProfileIfAbsent(std::filesystem::path const& state_dir) {
-  std::error_code profile_error;
-  bool const profile_exists = std::filesystem::exists(state_dir, profile_error);
-  if (profile_error) {
-    WriteFatalStderr("fatal: cannot inspect catalog profile\n");
-    std::abort();
-  }
-  bool const profile_absent =
-      !profile_exists || std::filesystem::is_empty(state_dir, profile_error);
-  if (profile_error) {
-    WriteFatalStderr("fatal: cannot inspect catalog profile contents\n");
-    std::abort();
-  }
-  if (!profile_absent) {
-    return;
-  }
-  DirectoryDomainStorage bootstrap_storage{state_dir};
-  ae::Domain bootstrap_domain{bootstrap_storage};
-  auto bootstrap_catalog = BuildWebWindowCatalogGraph(bootstrap_domain);
-  FinalizeDistilledGraph(*bootstrap_catalog);
-  StabilizeDistilledPersistentSnapshot(*bootstrap_catalog);
-  SaveDistilledRoot(*bootstrap_catalog);
-}
-#endif
-
-// USER overlay persistence: the profile directory is the USER storage (no
-// embedded BACKING on Web), so the persistent snapshot is written in place and
-// WebApplicationHost then flushes IDBFS.
-int PersistCatalogSnapshot(DirectoryDomainStorage& user_storage,
-                           WindowCatalog& catalog) {
-  user_storage.BeginSaveSession();
-  SaveWindowCatalogPersistentSnapshot(catalog);
-  if (user_storage.SaveSessionHadFailure()) {
-    WriteFatalStderr("fatal: WindowCatalog Web persist failed\n");
-    return 1;
-  }
-  return 0;
+bool UserProfilePresent(std::filesystem::path const& state_dir) {
+  return std::filesystem::exists(state_dir) &&
+         !std::filesystem::is_empty(state_dir);
 }
 
 bool g_saving = false;
@@ -160,25 +127,30 @@ void WebWindowCatalogApp::Start(std::filesystem::path state_dir) {
     host.mount = ApptraverseCatalogGetMountElement();
   };
   callbacks.run_model = [this](ApplicationPublishedCallback on_published) -> int {
-#if defined(APPTRAVERSE_ENABLE_DISTILLATION)
-    BootstrapDistilledProfileIfAbsent(state_dir_);
-#endif
-    storage_ = std::make_unique<DirectoryDomainStorage>(state_dir_);
+    if (!user_storage_) {
+      user_storage_ = std::make_unique<DirectoryDomainStorage>(state_dir_);
+    }
+    bool const user_profile_present = UserProfilePresent(state_dir_);
+    if (user_profile_present) {
+      EM_ASM({ console.log('WINDOW_CATALOG_LOADED_FROM_PROFILE'); });
+    } else {
+      EM_ASM({ console.log('WINDOW_CATALOG_LOADED_FROM_EMBEDDED_BACKING'); });
+    }
 
     ApplicationModelSessionHooks<WindowCatalog> hooks;
     hooks.prepare = PrepareWindowCatalogForRun;
-    // One-shot model->UI hints must not pin closed windows between publishes.
     hooks.before_incremental = [](WindowCatalog& catalog) {
       catalog.pending_focus_window = {};
       catalog.pending_mobile_active_window = {};
     };
     hooks.persist = [this](WindowCatalog& catalog) -> int {
-      return PersistCatalogSnapshot(*storage_, catalog);
+      return PersistWindowCatalogEmbeddedUserOverlay(*catalog, *user_storage_);
     };
 
-    int const session_result = RunApplicationModelSession(
-        *storage_, CatalogRootId(), runtime_, std::move(on_published), hooks);
-    storage_.reset();
+    int const session_result = RunEmbeddedApplicationModelSession(
+        *user_storage_, embedded_distilled::window_catalog_web::kEmbeddedGraph,
+        runtime_, std::move(on_published), hooks);
+    user_storage_.reset();
     return session_result;
   };
   callbacks.request_stop = [this] { runtime_.RequestStop(); };
@@ -192,7 +164,8 @@ void WebWindowCatalogApp::Start(std::filesystem::path state_dir) {
   };
   callbacks.after_incremental = [this](ae::Obj& root) { PublishMobilePages(root); };
   callbacks.persist_model = [this](ae::Domain& domain) -> int {
-    return PersistCatalog(domain);
+    return PersistWindowCatalogEmbeddedUserOverlayFromDomain(domain,
+                                                             *user_storage_);
   };
   callbacks.on_save_started = [] {
     g_saving = true;
@@ -238,15 +211,6 @@ void WebWindowCatalogApp::FinishTeardown(bool shutdown_succeeded) {
          shutdown_succeeded ? 1 : 0);
 }
 
-int WebWindowCatalogApp::PersistCatalog(ae::Domain& domain) {
-  ae::Ptr<ae::Obj> const held = domain.Find(CatalogRootId());
-  if (!held) {
-    WriteFatalStderr("fatal: WindowCatalog missing for Web persist\n");
-    return 1;
-  }
-  return PersistCatalogSnapshot(*storage_, static_cast<WindowCatalog&>(*held));
-}
-
 void WebWindowCatalogApp::RequestSave() {
   if (host_) {
     host_->RequestSave();
@@ -284,7 +248,6 @@ void WebWindowCatalogApp::ViewportChanged(int width, int height) {
   if (width <= 0 || height <= 0) {
     return;
   }
-  // Skipped while saving/stopping; replayed from g_last_viewport_* afterwards.
   if (!host_ || g_saving || !host_->ui_session() ||
       host_->lifecycle() != web::WebApplicationHostLifecycle::kRunning) {
     return;

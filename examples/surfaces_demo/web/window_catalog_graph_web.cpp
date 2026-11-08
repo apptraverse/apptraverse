@@ -1,7 +1,9 @@
 #include "window_catalog_graph_web.h"
 
+#if defined(APPTRAVERSE_WEB_CATALOG_DOM_TAGGING)
 #include <emscripten.h>
 #include <emscripten/em_js.h>
+#endif
 
 #include "window_catalog_graph_builder.h"
 #include "window_catalog_ids.h"
@@ -17,6 +19,7 @@
 namespace apptraverse::example::surfaces {
 namespace {
 
+#if defined(APPTRAVERSE_WEB_CATALOG_DOM_TAGGING)
 // Tags the presenter's DOM window element with the model window ObjId so the
 // shell pager can map ring ids to pages.
 EM_JS(void, ApptraverseCatalogTagWindowElement,
@@ -32,6 +35,7 @@ EM_JS(void, ApptraverseCatalogTagWindowElement,
           win.classList.add('catalog-page-main');
         }
       });
+#endif
 
 }  // namespace
 
@@ -61,12 +65,14 @@ class WebCatalogWindowPresenter : public ui::web::WebDesktopWindowPresenter {
 
   void OnLoad() override {
     WebDesktopWindowPresenter::OnLoad();
+#if defined(APPTRAVERSE_WEB_CATALOG_DOM_TAGGING)
     ae::ObjId const window_id = desktop_window().id();
     bool const is_main =
         window_id.id() ==
         window_catalog_demo::ToObjId(window_catalog_demo::ObjId::MainWindow);
     ApptraverseCatalogTagWindowElement(ClientMountHandle(), window_id.id(),
                                        is_main ? 1 : 0);
+#endif
   }
 };
 
