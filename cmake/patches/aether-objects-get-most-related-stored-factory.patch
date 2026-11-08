@@ -1,0 +1,15 @@
+diff --git a/src/aether-objects/obj/domain.cpp b/src/aether-objects/obj/domain.cpp
+index d033fba..8e4c2a1 100644
+--- a/src/aether-objects/obj/domain.cpp
++++ b/src/aether-objects/obj/domain.cpp
+@@ -266,6 +266,10 @@ Factory* Domain::GetMostRelatedFactory(ObjId id) {
+   if (classes.back() == Obj::kClassId) {
+     return nullptr;
+   }
++
++  if (auto* stored_factory = FindClassFactory(classes.back())) {
++    return stored_factory;
++  }
+ 
+   // Find the Final class for the most derived class provided and create it.
+   for (auto& f : registry_->factories) {

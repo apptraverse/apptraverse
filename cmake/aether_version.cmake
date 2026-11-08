@@ -18,6 +18,7 @@ set(APPTRAVERSE_AETHER_OBJECTS_PATCH_NAMES
   should-save-version-scope
   origin-s0
   obj-layer-factory
+  get-most-related-stored-factory
   domain-registered-objects
   clone-save-remap
   clone-canonical-scope

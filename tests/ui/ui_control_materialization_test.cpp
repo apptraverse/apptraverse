@@ -28,6 +28,24 @@
 using namespace apptraverse;
 using namespace apptraverse::ui;
 
+namespace apptraverse::test {
+
+class DerivedUiLocalizationString
+    : public NodeFor<DerivedUiLocalizationString, UiLocalizationString> {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::DerivedUiLocalizationString",
+                           DerivedUiLocalizationString, UiLocalizationString, 0)
+
+ protected:
+  DerivedUiLocalizationString() = default;
+
+ public:
+  explicit DerivedUiLocalizationString(ae::ObjProp prop) : NodeFor{prop} {}
+};
+
+APPTRAVERSE_REGISTER(DerivedUiLocalizationString);
+
+}  // namespace apptraverse::test
+
 namespace {
 
 #define CHECK(cond)                                                          \
@@ -58,6 +76,7 @@ APPTRAVERSE_REGISTER(TestClickButton);
 
 void EnsureTestRegistration() {
   (void)&g_apptraverse_registrar_TestClickButton;
+  (void)&apptraverse::test::g_apptraverse_registrar_DerivedUiLocalizationString;
 }
 
 void PendingNotify(void* ctx, Node&) {
@@ -749,6 +768,143 @@ static_assert(
 static_assert(
     std::is_same_v<LocalizationCompactionScratchProbe::CompactionOperationScratch,
                    UiLocalizationString::CompactionOperationScratch>);
+static_assert(
+    std::is_same_v<apptraverse::test::DerivedUiLocalizationString::
+                       CompactionOperationScratch,
+                   UiLocalizationString::CompactionOperationScratch>);
+static_assert(
+    sizeof(apptraverse::test::DerivedUiLocalizationString::
+               CompactionOperationScratch) ==
+    sizeof(UiLocalizationString::CompactionOperationScratch));
+
+void TestDerivedUiLocalizationCompactionScratchInheritance() {
+  ae::RamDomainStorage storage_full;
+  ae::RamDomainStorage storage_partial;
+  ae::ObjId const root_id_full{501};
+  ae::ObjId const root_id_partial{502};
+  char const* const kEnBootstrap = "Derived EN base";
+  char const* const kRuBootstrap = "Derived RU base";
+  ae::ObjId en_string_id;
+  ae::ObjId ru_string_id;
+
+  auto bootstrap = [&](ae::RamDomainStorage& ram_storage, ae::ObjId root_id) {
+    ae::Domain domain{ram_storage};
+    auto localized = apptraverse::test::DerivedUiLocalizationString::ptr::Create(
+        ae::CreateWith{domain}.with_id(root_id));
+    InitializeRuntimeNode(*localized);
+
+    auto en = UiString::ptr::Create(ae::CreateWith{domain});
+    en->utf8 = kEnBootstrap;
+    auto ru = UiString::ptr::Create(ae::CreateWith{domain});
+    ru->utf8 = kRuBootstrap;
+    en_string_id = en->obj_id;
+    ru_string_id = ru->obj_id;
+    en.Save();
+    ru.Save();
+
+    localized->strings = {
+        UiString::ptr::Declare(
+            ae::CreateWith{domain}
+                .with_id(en_string_id)
+                .with_flags(ae::ObjFlags::kUnloadedByDefault)),
+        UiString::ptr::Declare(
+            ae::CreateWith{domain}
+                .with_id(ru_string_id)
+                .with_flags(ae::ObjFlags::kUnloadedByDefault)),
+    };
+    apptraverse::test::DerivedUiLocalizationString::ptr::MakeFromThis(
+        &*localized)
+        .Save();
+  };
+
+  bootstrap(storage_full, root_id_full);
+  bootstrap(storage_partial, root_id_partial);
+
+  ae::ObjId en_slot_id;
+  ae::ObjId ru_slot_id;
+  {
+    ae::Domain domain{storage_full};
+    auto localized =
+        apptraverse::test::DerivedUiLocalizationString::ptr::Declare(
+            ae::CreateWith{domain}.with_id(root_id_full));
+    localized.Load();
+    localized->CaptureBaseState();
+    localized->MaterializeLanguage(0);
+    CommitSlotUtf8(*localized, domain, 0, "Derived EN v1");
+    CommitSlotUtf8(*localized, domain, 1, "Derived RU v1");
+    CommitSlotUtf8(*localized, domain, 0, "Derived EN v2");
+    en_slot_id = localized->strings[0].id();
+    ru_slot_id = localized->strings[1].id();
+
+    localized->SetJournalRetentionPolicy(JournalRetentionPolicy{.max_events = 0});
+    localized->CompactJournal(SystemUtcMicros());
+    CHECK(localized->journal.empty());
+    localized->MaterializeLanguage(0);
+    CHECK(localized->Resolve(0) == "Derived EN v2");
+    localized->MaterializeLanguage(1);
+    CHECK(localized->Resolve(1) == "Derived RU v1");
+    CHECK(localized->strings[0].id() == en_slot_id);
+    CHECK(localized->strings[1].id() == ru_slot_id);
+    apptraverse::test::DerivedUiLocalizationString::ptr::MakeFromThis(
+        &*localized)
+        .Save();
+    localized.Reset();
+  }
+
+  {
+    ae::Domain cold_domain{storage_full};
+    auto cold = apptraverse::test::DerivedUiLocalizationString::ptr::Declare(
+        ae::CreateWith{cold_domain}.with_id(root_id_full));
+    cold.Load();
+    CHECK(cold->TryReplayFromBase());
+    cold->MaterializeLanguage(0);
+    CHECK(cold->Resolve(0) == "Derived EN v2");
+    cold->MaterializeLanguage(1);
+    CHECK(cold->Resolve(1) == "Derived RU v1");
+    cold.Reset();
+  }
+
+  ae::ObjId ru_slot_id_partial;
+  {
+    ae::Domain domain{storage_partial};
+    auto localized =
+        apptraverse::test::DerivedUiLocalizationString::ptr::Declare(
+            ae::CreateWith{domain}.with_id(root_id_partial));
+    localized.Load();
+    localized->CaptureBaseState();
+    localized->MaterializeLanguage(0);
+    CommitSlotUtf8(*localized, domain, 0, "Partial EN v1");
+    CommitSlotUtf8(*localized, domain, 1, "Partial RU v1");
+    CommitSlotUtf8(*localized, domain, 0, "Partial EN v2");
+    ru_slot_id_partial = localized->strings[1].id();
+    localized->MaterializeLanguage(0);
+
+    localized->SetJournalRetentionPolicy(JournalRetentionPolicy{.max_events = 1});
+    localized->CompactJournal(SystemUtcMicros());
+    CHECK(localized->journal.size() == 1);
+    localized->MaterializeLanguage(1);
+    CHECK(localized->Resolve(1) == "Partial RU v1");
+    apptraverse::test::DerivedUiLocalizationString::ptr::MakeFromThis(
+        &*localized)
+        .Save();
+    localized.Reset();
+  }
+
+  {
+    ae::Domain cold_domain{storage_partial};
+    auto cold = apptraverse::test::DerivedUiLocalizationString::ptr::Declare(
+        ae::CreateWith{cold_domain}.with_id(root_id_partial));
+    cold.Load();
+    CHECK(cold->TryReplayFromBase());
+    cold->MaterializeLanguage(0);
+    CHECK(cold->Resolve(0) == "Partial EN v2");
+    cold->MaterializeLanguage(1);
+    CHECK(cold->Resolve(1) == "Partial RU v1");
+    CHECK(cold->strings[1].id() == ru_slot_id_partial);
+    CHECK(cold->base.is_valid() && cold->base.is_loaded());
+    CHECK(cold->base.id() != cold->obj_id);
+  }
+}
 
 void TestLocalizationHistoricalCaptureScratchIsolationTwoOwners() {
   LazyLocalizationBootstrap boot_a{26, "IsoA EN", "IsoA RU"};
@@ -1421,6 +1577,7 @@ int main(int argc, char** argv) {
   TestLocalizationJournalCompactionMatchesLoad();
   TestLocalizationHistoricalCaptureScratchIsolationTwoOwners();
   TestLocalizationJournalPartialCompactionRetainsOtherSlot();
+  TestDerivedUiLocalizationCompactionScratchInheritance();
   TestLocalizationHistoricalBaseIndependentOfOwnerSaveOnDisk();
   TestLocalizationApplyUnloadedSlotSkipsStorage();
   TestPushButtonClickViaPresenter();
