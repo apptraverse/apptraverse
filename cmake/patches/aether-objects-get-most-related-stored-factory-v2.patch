@@ -1,0 +1,23 @@
+diff --git a/src/aether-objects/obj/domain.cpp b/src/aether-objects/obj/domain.cpp
+--- a/src/aether-objects/obj/domain.cpp
++++ b/src/aether-objects/obj/domain.cpp
+@@ -218,18 +218,7 @@
+     return nullptr;
+   }
+ 
+-  // Find the Final class for the most derived class provided and create it.
+-  for (auto& f : registry_->factories) {
+-    if (IsLast(f.first)) {
+-      // check with most derived class
+-      int distance = registry_->GenerationDistance(classes.back(), f.first);
+-      if (distance >= 0) {
+-        return &f.second;
+-      }
+-    }
+-  }
+-
+-  return nullptr;
++  return FindClassFactory(classes.back());
+ }
+ 
+ Factory* Domain::FindClassFactory(std::uint32_t class_id) {

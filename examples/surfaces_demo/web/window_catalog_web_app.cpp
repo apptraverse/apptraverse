@@ -144,7 +144,7 @@ void WebWindowCatalogApp::Start(std::filesystem::path state_dir) {
       catalog.pending_mobile_active_window = {};
     };
     hooks.persist = [this](WindowCatalog& catalog) -> int {
-      return PersistWindowCatalogEmbeddedUserOverlay(*catalog, *user_storage_);
+      return PersistWindowCatalogEmbeddedUserOverlay(catalog, *user_storage_);
     };
 
     int const session_result = RunEmbeddedApplicationModelSession(
@@ -258,9 +258,10 @@ void WebWindowCatalogApp::ViewportChanged(int width, int height) {
       mirror.persisted.main_client_viewport.height == height) {
     return;
   }
-  host_->model_proxy().Invoke(CatalogRootId(),
-                              &WindowCatalog::SubmitMainClientViewportFromUi,
-                              width, height);
+  host_->model_proxy().Invoke(
+      CatalogRootId(), &WindowCatalog::SubmitMainClientViewportFromUi,
+      static_cast<std::int32_t>(width), static_cast<std::int32_t>(height),
+      static_cast<std::int32_t>(160));
 }
 
 void WebWindowCatalogApp::PublishMobilePages(ae::Obj& application_root) {
