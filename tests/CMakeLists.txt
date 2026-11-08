@@ -1547,6 +1547,15 @@ if(MSVC)
     /utf-8)
 endif()
 
+apptraverse_add_test(
+  apptraverse_unload_presented_window_presenter_branch_disk_roundtrip_test
+  unload_presented_window_presenter_branch_disk_roundtrip_test.cpp)
+if(MSVC)
+  target_compile_options(
+    apptraverse_unload_presented_window_presenter_branch_disk_roundtrip_test PRIVATE
+    /utf-8)
+endif()
+
 if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
   include(${CMAKE_SOURCE_DIR}/cmake/apptraverse_embed_distilled_supply.cmake)
   add_executable(apptraverse_minimal_app_embedded_export_test
