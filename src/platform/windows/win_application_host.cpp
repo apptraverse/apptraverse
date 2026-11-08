@@ -30,6 +30,8 @@ WinApplicationHost::WinApplicationHost(ApplicationModelRuntime& runtime,
   presentation_host_.opaque = this;
   presentation_host_.on_desktop_window_user_close =
       &WinApplicationHost::OnDesktopWindowUserClose;
+  presentation_host_.catalog_main_native_frame_queue =
+      callbacks_.catalog_main_native_frame_queue;
 }
 
 WinApplicationHost::~WinApplicationHost() = default;

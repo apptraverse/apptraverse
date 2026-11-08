@@ -42,6 +42,11 @@ class WindowCatalogDesktopPresenterMixin : public BaseDesktopPresenter {
  public:
   using BaseDesktopPresenter::BaseDesktopPresenter;
 
+  WindowCatalogDesktopPresenterMixin() : session_main_native_frame_queue_(nullptr) {}
+
+  explicit WindowCatalogDesktopPresenterMixin(ae::ObjProp prop)
+      : BaseDesktopPresenter{prop}, session_main_native_frame_queue_(nullptr) {}
+
   WindowCatalog::ptr catalog;
 
   void AttachSessionMainNativeFrameQueue(
@@ -60,7 +65,7 @@ class WindowCatalogDesktopPresenterMixin : public BaseDesktopPresenter {
 
  protected:
   ::apptraverse::WindowCatalogMainNativeFrameQueue*
-      session_main_native_frame_queue_{nullptr};
+      session_main_native_frame_queue_;
   void SubmitMainCatalogViewportFromNative(std::int32_t width,
                                            std::int32_t height) {
     if (!catalog.is_valid() || !this->window.is_valid() ||

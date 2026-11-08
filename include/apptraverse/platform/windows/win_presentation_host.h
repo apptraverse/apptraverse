@@ -10,6 +10,10 @@ namespace ae {
 class Obj;
 }
 
+namespace apptraverse {
+class WindowCatalogMainNativeFrameQueue;
+}
+
 namespace apptraverse::ui::windows {
 
 // Passed as Presenter::presentation_host for Win32 UI shells.
@@ -19,6 +23,8 @@ struct WinPresentationHost {
   void (*on_desktop_window_user_close)(void* opaque, ae::Obj* desktop_window){
       nullptr};
   void* opaque{nullptr};
+  ::apptraverse::WindowCatalogMainNativeFrameQueue*
+      catalog_main_native_frame_queue{nullptr};
 };
 
 }  // namespace apptraverse::ui::windows

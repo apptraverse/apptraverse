@@ -243,35 +243,16 @@ int main(int argc, char** argv) {
     SetForegroundWindow(hwnd);
     pending_focus = {};
   };
-  callbacks.after_initial = [&session](ae::Obj& application_root) {
+  callbacks.after_initial = [](ae::Obj& application_root) {
     auto& catalog =
         static_cast<apptraverse::WindowCatalog&>(application_root);
     RestoreCatalogDesktopZOrder(catalog);
-    catalog.persisted.main_window.Load();
-    catalog.persisted.main_window->presenter.Load();
-  if (!catalog.persisted.main_window->presenter) {
-      return;
-    }
-    auto* ui_presenter = catalog.persisted.main_window->presenter.operator->();
-    auto& registry = ae::Registry::GetRegistry();
-    if (registry.GenerationDistance(
-            apptraverse::ui::windows::WinDesktopWindowPresenter::kClassId,
-            ui_presenter->GetClassId()) < 0) {
-      return;
-    }
-    auto* win_presenter =
-        static_cast<apptraverse::ui::windows::WinDesktopWindowPresenter*>(
-            ui_presenter);
-    HWND const hwnd = win_presenter->hwnd();
-    if (hwnd != nullptr) {
-      WireWindowCatalogMainNativeFrameQueueForHwnd(
-          hwnd, session.main_native_frame_queue);
-    }
   };
   callbacks.prepare_ui_presenters = [&session](ae::Obj& ui_root) {
     WireWindowCatalogMainNativeFrameQueue(ui_root,
                                           session.main_native_frame_queue);
   };
+  callbacks.catalog_main_native_frame_queue = &session.main_native_frame_queue;
 
   apptraverse::windows::WinApplicationLoadingOptions loading{
       L"AppTraverseWindowCatalogLoading", L"Loading catalog", L"Loading catalog",

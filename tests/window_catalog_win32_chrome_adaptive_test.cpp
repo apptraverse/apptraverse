@@ -14,6 +14,7 @@ int main() { return 0; }
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/object_serialization.h"
+#include "apptraverse/platform/windows/win_presentation_host.h"
 #include "apptraverse/platform/windows/win_ui_frame.h"
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "window_catalog_graph.h"
@@ -110,6 +111,7 @@ struct Harness {
   std::deque<ModelObjectProxy::ModelWork> model_work;
   ModelObjectProxy model_proxy;
   ui::windows::WinDesktopWindowPresenter* main_presenter{nullptr};
+  ui::windows::WinPresentationHost presentation_host{};
   ae::ObjId const list_presenter_id;
   ae::ObjId const main_window_id;
 
@@ -133,27 +135,33 @@ struct Harness {
     PrepareWindowCatalogForRun(*model_catalog);
     ByteSink initial;
     SerializeInitialPublication(*model_catalog, initial);
+    presentation_host.catalog_main_native_frame_queue =
+        &main_native_frame_queue;
     ui_session = std::make_unique<ApplicationUiSession>(
-        initial.bytes, nullptr, model_proxy, PresenterWireHook());
+        initial.bytes, &presentation_host, model_proxy, PresenterWireHook());
     ui_catalog = static_cast<WindowCatalog*>(&ui_session->root());
+    CHECK(WindowCatalogMainNativeFrameQueueAttached(*ui_catalog));
     ui_catalog->persisted.main_window.Load();
     ui_catalog->persisted.main_window->presenter.Load();
-    main_presenter = static_cast<ui::windows::WinDesktopWindowPresenter*>(
-        ui_catalog->persisted.main_window->presenter.operator->());
+    ae::ObjId const presenter_id =
+        ui_catalog->persisted.main_window->presenter.id();
+    ae::Obj* const presenter_obj = &*ui_catalog->domain->Find(presenter_id);
+    main_presenter =
+        static_cast<ui::windows::WinDesktopWindowPresenter*>(presenter_obj);
     CHECK(main_presenter != nullptr);
     CHECK(main_presenter->hwnd() != nullptr);
-    WireWindowCatalogMainNativeFrameQueueForHwnd(main_presenter->hwnd(),
-                                                 main_native_frame_queue);
-    CHECK(WindowCatalogMainNativeFrameQueueAttached(*ui_catalog));
     DispatchPendingWin32Messages();
   }
 
   ~Harness() {
-    main_native_frame_queue.ClosePosting();
     if (ui_catalog != nullptr) {
       UnwireWindowCatalogMainNativeFrameQueue(*ui_catalog);
     }
     ui_session.reset();
+    ui_catalog = nullptr;
+    main_presenter = nullptr;
+    DispatchPendingWin32Messages();
+    main_native_frame_queue.ClosePosting();
   }
 
   UiPresentersPrepareHook PresenterWireHook() {
@@ -162,16 +170,7 @@ struct Harness {
     };
   }
 
-  void EnsureMainNativeFrameQueueWired() {
-    WireWindowCatalogMainNativeFrameQueue(*ui_catalog, main_native_frame_queue);
-    if (main_presenter != nullptr && main_presenter->hwnd() != nullptr) {
-      WireWindowCatalogMainNativeFrameQueueForHwnd(main_presenter->hwnd(),
-                                                   main_native_frame_queue);
-    }
-  }
-
   void PumpModelAndApply() {
-    EnsureMainNativeFrameQueueWired();
     while (!model_work.empty()) {
       auto work = std::move(model_work.front());
       model_work.pop_front();
@@ -179,12 +178,7 @@ struct Harness {
     }
     ByteSink sink;
     SerializeStructuralNodePublication(*model_catalog, sink);
-    ByteSource in;
-    in.data = sink.bytes.data();
-    in.size = sink.bytes.size();
     ui_session->ApplyStructural(sink.bytes);
-    WireWindowCatalogMainNativeFrameQueueForHwnd(main_presenter->hwnd(),
-                                                 main_native_frame_queue);
     DispatchPendingWin32Messages();
   }
 
@@ -245,7 +239,6 @@ void ExpectTallChrome(HWND main, std::int32_t client_w, std::int32_t client_h) {
 
 void TestBurstResizeWithoutPerStepPump() {
   Harness h;
-  h.EnsureMainNativeFrameQueueWired();
   HWND const main = h.MainHwnd();
   for (int i = 0; i < 31; ++i) {
     std::int32_t const w = (i % 2 == 0) ? 900 : 500;

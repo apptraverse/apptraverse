@@ -20,6 +20,7 @@
 #include "apptraverse/platform/windows/win_presentation_host.h"
 
 namespace apptraverse {
+class WindowCatalogMainNativeFrameQueue;
 namespace windows {
 
 struct WinApplicationLoadingOptions {
@@ -44,6 +45,7 @@ struct WinApplicationHostCallbacks {
   std::function<void(ae::Obj& application_root)> after_incremental;
   std::function<void(ae::Obj& application_root)> after_initial;
   UiPresentersPrepareHook prepare_ui_presenters;
+  WindowCatalogMainNativeFrameQueue* catalog_main_native_frame_queue{nullptr};
 };
 
 class WinApplicationHost {

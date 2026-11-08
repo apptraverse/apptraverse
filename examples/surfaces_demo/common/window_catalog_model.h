@@ -32,6 +32,8 @@
 
 namespace apptraverse {
 
+class WindowCatalogMainNativeFrameQueue;
+
 namespace example::surfaces {
 
 class CatalogCloseButton;
@@ -255,11 +257,26 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
  protected:
 
-  WindowCatalog() = default;
+  WindowCatalog() : session_main_native_frame_queue_(nullptr) {}
 
  public:
 
-  explicit WindowCatalog(ae::ObjProp prop) : NodeFor{prop} {}
+  explicit WindowCatalog(ae::ObjProp prop)
+      : NodeFor{prop}, session_main_native_frame_queue_(nullptr) {}
+
+  void AttachSessionMainNativeFrameQueue(
+      WindowCatalogMainNativeFrameQueue* queue) {
+    session_main_native_frame_queue_ = queue;
+  }
+
+  void DetachSessionMainNativeFrameQueue() {
+    session_main_native_frame_queue_ = nullptr;
+  }
+
+  [[nodiscard]] WindowCatalogMainNativeFrameQueue* SessionMainNativeFrameQueue()
+      const {
+    return session_main_native_frame_queue_;
+  }
 
   AE_OBJECT_REFLECT(AE_MMBR(persisted))
 
@@ -360,6 +377,10 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   CatalogWindow::ptr pending_focus_window;
 
   CatalogWindow::ptr pending_mobile_active_window;
+
+ private:
+
+  WindowCatalogMainNativeFrameQueue* session_main_native_frame_queue_;
 
 };
 

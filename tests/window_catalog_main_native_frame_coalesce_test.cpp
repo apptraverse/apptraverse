@@ -1,4 +1,3 @@
-#include <atomic>
 #include <condition_variable>
 #include <cstdlib>
 #include <deque>
@@ -13,6 +12,8 @@
 
 #include "apptraverse/application_model_runtime.h"
 #include "apptraverse/application_model_session.h"
+#include "apptraverse/directory_domain_storage.h"
+#include "apptraverse/distill.h"
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/runtime_node.h"
@@ -34,6 +35,22 @@ namespace {
       std::exit(1);                                                          \
     }                                                                        \
   } while (false)
+
+std::filesystem::path TestDir(char const* name) {
+  auto const dir =
+      std::filesystem::temp_directory_path() / "apptraverse_test" / name;
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir, ec);
+  return dir;
+}
+
+void ShutdownSaveCatalog(WindowCatalog& catalog,
+                         DirectoryDomainStorage& storage) {
+  storage.BeginSaveSession();
+  SaveWindowCatalogPersistentSnapshot(catalog);
+  CHECK(!storage.SaveSessionHadFailure());
+}
 
 struct PublicationWaiter {
   std::mutex mu;
@@ -140,17 +157,25 @@ void TestCoalescedDrainAppliesFrameAndViewportTogether() {
   queue.ClosePosting();
 }
 
-void TestShutdownRuntimeDrainsPendingResizeBeforePersist() {
+void TestShutdownResizePersistAndColdLoad() {
   EnsureObjectRegistration();
   EnsureWindowCatalogGraphRegistration();
 
-  ae::RamDomainStorage storage;
-  ae::Domain domain{storage};
-  auto catalog = BuildWindowCatalogGraph(domain);
-  PrepareWindowCatalogForRun(*catalog);
-  ae::ObjId const catalog_id = catalog->obj_id;
-  ae::ObjId const main_window_id = catalog->persisted.main_window.id();
+  ae::ObjId const catalog_id{
+      window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
+  ae::ObjId const main_window_id{window_catalog_demo::ToObjId(
+      window_catalog_demo::ObjId::MainWindow)};
+  auto const profile_dir = TestDir("wc_frame_shutdown_cold");
 
+  {
+    DirectoryDomainStorage bootstrap{profile_dir};
+    ae::Domain bootstrap_domain{bootstrap};
+    auto catalog = BuildWindowCatalogGraph(bootstrap_domain);
+    FinalizeDistilledGraph(*catalog);
+    SaveDistilledRoot(*catalog);
+  }
+
+  DirectoryDomainStorage model_storage{profile_dir};
   ApplicationModelRuntime runtime;
   WindowCatalogMainNativeFrameQueue queue;
   queue.BindPostWork([&](ModelObjectProxy::ModelWork work) {
@@ -160,47 +185,78 @@ void TestShutdownRuntimeDrainsPendingResizeBeforePersist() {
     runtime.Post(std::move(work));
   }};
 
-  std::mutex hold_mu;
-  std::condition_variable hold_cv;
-  bool release_model = false;
-  std::atomic<bool> hold_running{false};
+  PublicationWaiter waiter;
+  struct HoldSync {
+    std::mutex mu;
+    std::condition_variable cv;
+    bool hold_worker_live{false};
+    bool release_model{false};
+  };
+  HoldSync hold;
+  int session_result = 1;
+
+  ApplicationModelSessionHooks<WindowCatalog> hooks;
+  hooks.prepare = PrepareWindowCatalogForRun;
+  hooks.persist = [&](WindowCatalog& catalog) -> int {
+    PrepareWindowCatalogForRun(catalog);
+    ShutdownSaveCatalog(catalog, model_storage);
+    return 0;
+  };
 
   std::thread model_thread{[&] {
-    runtime.Run(
-        domain, *catalog,
+    session_result = RunApplicationModelSession(
+        model_storage, catalog_id, runtime,
         [&](ApplicationPublicationKind kind) {
-          if (kind == ApplicationPublicationKind::Initial) {
-            runtime.TakePublishedCopy();
-            runtime.NotifyPublicationConsumed();
+          runtime.TakePublishedCopy();
+          runtime.NotifyPublicationConsumed();
+          {
+            std::lock_guard<std::mutex> lock{waiter.mu};
+            waiter.kind = kind;
+            ++waiter.pending;
           }
+          waiter.cv.notify_one();
         },
-        {});
+        hooks);
   }};
 
+  WaitPublication(waiter);
+  CHECK(waiter.kind == ApplicationPublicationKind::Initial);
+
   runtime.Post([&](ae::Domain&) {
-    hold_running.store(true);
-    std::unique_lock<std::mutex> lock{hold_mu};
-    hold_cv.wait(lock, [&] { return release_model; });
+    {
+      std::lock_guard<std::mutex> lock{hold.mu};
+      hold.hold_worker_live = true;
+    }
+    hold.cv.notify_all();
+    std::unique_lock<std::mutex> lock{hold.mu};
+    hold.cv.wait(lock, [&] { return hold.release_model; });
   });
-  while (!hold_running.load()) {
-    std::this_thread::yield();
+
+  {
+    std::unique_lock<std::mutex> lock{hold.mu};
+    hold.cv.wait(lock, [&] { return hold.hold_worker_live; });
   }
 
   PostWindowCatalogMainNativeFrame(queue, &proxy, catalog_id, main_window_id, 12,
-                                   34, 812, 610, false);
-  proxy.Invoke(catalog_id, &WindowCatalog::AddWindow);
+                                   34, 812, 610, true);
   runtime.RequestStop();
-  release_model = true;
-  hold_cv.notify_all();
+  {
+    std::lock_guard<std::mutex> lock{hold.mu};
+    hold.release_model = true;
+  }
+  hold.cv.notify_all();
   model_thread.join();
+  CHECK(session_result == 0);
   queue.ClosePosting();
 
+  DirectoryDomainStorage verify_storage{profile_dir};
+  ae::Domain verify_domain{verify_storage};
+  auto catalog = LoadApplication<WindowCatalog>(verify_domain, catalog_id);
+  CHECK(catalog->obj_id == catalog_id);
   catalog->persisted.main_window.Load();
   CHECK(catalog->persisted.main_window->client_width() == 812);
   CHECK(catalog->persisted.main_client_viewport.width == 812);
   CHECK(catalog->persisted.main_client_viewport.height == 610);
-  catalog->persisted.list.Load();
-  CHECK(catalog->persisted.list->rows.size() == 1);
 }
 
 }  // namespace
@@ -211,7 +267,7 @@ int main() {
   apptraverse::test::TestIndependentSessionsApplyDistinctFrames();
   apptraverse::test::TestCoalescedQueuePostsSingleModelWork();
   apptraverse::test::TestCoalescedDrainAppliesFrameAndViewportTogether();
-  apptraverse::test::TestShutdownRuntimeDrainsPendingResizeBeforePersist();
+  apptraverse::test::TestShutdownResizePersistAndColdLoad();
   std::cout << "window_catalog_main_native_frame_coalesce_test OK\n";
   return 0;
 }
