@@ -44,21 +44,13 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
  protected:
 
-  WinDesktopWindowPresenter() : hwnd_{nullptr}, applying_native_frame_{false}, interactive_move_active_{false} {
-#if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
-    test_model_frame_submit_count_ = 0;
-#endif
-  }
+  WinDesktopWindowPresenter() : hwnd_{nullptr}, applying_native_frame_{false}, interactive_move_active_{false} {}
 
  public:
 
   explicit WinDesktopWindowPresenter(ae::ObjProp prop)
 
-      : UiDesktopWindowPresenter{prop}, hwnd_{nullptr}, applying_native_frame_{false}, interactive_move_active_{false} {
-#if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
-    test_model_frame_submit_count_ = 0;
-#endif
-  }
+      : UiDesktopWindowPresenter{prop}, hwnd_{nullptr}, applying_native_frame_{false}, interactive_move_active_{false} {}
 
   template <typename Dnv>
 
@@ -134,10 +126,6 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
  public:
 
-  static int TestSetWindowPosCount();
-
-  static void TestResetSetWindowPosCount();
-
   bool TestInteractiveMoveActive() const { return interactive_move_active_; }
 
   void TestSetInteractiveMoveActive(bool active) {
@@ -165,16 +153,6 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
                                          std::int32_t client_height);
 
   void TestFinishInteractiveNativeMove();
-
-  int TestModelFrameSubmitCount() const { return test_model_frame_submit_count_; }
-
-  void TestResetModelFrameSubmitCount() { test_model_frame_submit_count_ = 0; }
-
- private:
-
-  static int test_set_window_pos_count_;
-
-  int test_model_frame_submit_count_;
 
 #endif
 

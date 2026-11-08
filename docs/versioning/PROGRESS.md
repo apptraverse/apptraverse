@@ -5,7 +5,45 @@
 1. Google Doc: [AppTraverse — версионирование состояния и жизненный цикл поставок](https://docs.google.com/document/d/196STRvU1QMbMu0ArGRLahPpgnTb6HQoldUV-7tOIcfo/edit) — **прямая сверка не выполнена** (403 при fetch).
 2. Архитектурный контракт и roadmap: [PLAN.md](./PLAN.md) — **AppTraverse Libraries Architecture RU v0.3 (25.10.2026)** + Object Core **`01_Object_Core_Versioning_PLAN.md` (25.10.2026)** ([share](https://chatgpt.com/library/share/libfile_c97b08ed7af88191a916944ac06566f7?account_id=personal)).
 
-**Branch (рабочая):** **feature/linux-window-catalog**, base `d590ee7f932d1f6df82c196f36c99e3b5e0b9102` (`origin/integration/unified-application`). Историческая координация: [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
+**Branch (рабочая):** **`feature/window-catalog-adaptive`** (платформенная приёмка Windows→…); историческая **`feature/linux-window-catalog`**, base `d590ee7f932d1f6df82c196f36c99e3b5e0b9102` (`origin/integration/unified-application`). Историческая координация: [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
+
+<a id="p4-wc-adaptive-windows-acceptance--2026-11-07"></a>
+
+## P4 / WindowCatalog adaptive — Windows приёмка (2026-11-07) — IN_PROGRESS (автотесты verified; ручная — ожидает пользователя)
+
+**Worktree:** `apptraverse-wt-adaptive`. **Ветка:** `feature/window-catalog-adaptive`. **База этапа:** `df632e106a447995f277cd81edc07c12e29e59f6`. **Google Doc** «архитектура / каталог» и «версионирование» — **прямая сверка не выполнена** (403); опора — repo `docs/architecture/AppTraverse_Architecture_RU.md` (§25.3 production hooks), [PLAN](./PLAN.md).
+
+**Debug exe:** `build/win64-ninja-msvc-debug/examples/surfaces_demo/windows/win32_window_catalog_demo.exe`
+
+**Ручная приёмка (мышь/клавиатура):** новый профиль, напр. `--state-dir %TEMP%\apptraverse_wc_manual_acceptance` — **NOT RUN** (агент; полный чеклист — задача пользователя).
+
+### Исправления (подтверждённые дефекты)
+
+| # | Принцип / место | Нарушение | Исправление / проверка | Статус |
+| --- | --- | --- | --- | --- |
+| 1 | List layout ← mirror | `WinListContainerPresenter::SyncFromMirror` не двигал LISTBOX | `ApplyListLayoutFromMirror` из mirror `layout_*` | PASS (`win32_acceptance`, materialization) |
+| 2 | Нет model←mirror command loop | `CatalogListContainerPresenter::OnModelChanged` → viewport report | Удалён вызов `ReportCatalogMainViewportFromMirror` (Windows graph only) | PASS |
+| 3 | Startup / lazy | Молчаливые return при failed HWND | Повторный обзор: обязательный граф по-прежнему в Prepare; create-fail на child — как раньше; list layout — `FatalWin32` на границе | CHECKED (нового нарушения нет) |
+| 4 | §25.3 без production hooks | Файловый focus-счётчик в demo + presenter test counters | Удалены; acceptance — `GetForegroundWindow` / HWND geometry / `pending_reports` | PASS |
+| 5 | Close → Unload → Save USER | RAM-only / лишние записи | Без изменения ядра: `window_catalog_embedded_overlay_test` + model save/close сценарии | PASS (существующие тесты) |
+| 6 | Поздний native input после Close/Delete | Lifetime presenter vs model | Штатный proxy + lifecycle в acceptance; **коалесcing** drag: `TrackInteractiveNativeFrame` не шлёт model на каждый шаг, только `WM_EXITSIZEMOVE` | PASS (frame sync + drag e2e + acceptance) |
+| 7 | Embedded Load → … → new process | Цепочка end-to-end | Win32 acceptance two-process + embedded overlay cold | PASS (авто) |
+
+### Расхождение спецификации (отдельно, без правки loader)
+
+Google Doc **§5.1** — платформенный потомок presenter из **stored-most-derived** слоя графа; в коде — **`GetMostRelatedStoredFactory`** / patch chain (leaf-related stored factory). **Зафиксировано**; loader и автоматический leaf-only rollback **не** делались.
+
+### Автотесты (incremental `win64-ninja-msvc-debug`, 2026-11-07)
+
+| Контур | Итог |
+| --- | --- |
+| `apptraverse_window_catalog_{headless,model,embedded_overlay,win32_acceptance}_test` | PASS |
+| `apptraverse_presenter_win_desktop_{frame_sync,interactive_drag_e2e,frame_publication_e2e}_test` | PASS |
+| `apptraverse_win_ui_native_push_button_test`, `apptraverse_ui_control_materialization_test` | PASS |
+| `apptraverse_application_contract_headless_test` | PASS |
+| persistence / Clone / origin disk matrix | **NOT RUN** (общий storage не менялся) |
+
+**NEXT (Windows):** ручная приёмка пользователем на отдельном `--state-dir`; затем commit remote совпадает с verified SHA. Linux/Android/Web/Apple — **не начинать** без отдельной команды.
 
 <a id="p4-wc-adaptive-save-after-close-language--2026-11-07"></a>
 

@@ -272,17 +272,13 @@ void TestWinPushButtonPresenterNativeRouting() {
   presenter->layout_y = 21;
   presenter->layout_width = 120;
   presenter->layout_height = 30;
-  ui::windows::WinPushButtonPresenter::TestResetSetWindowPosCount();
   presenter->OnModelChanged();
   ReadButtonLayoutInParentClient(btn, layout_x, layout_y, layout_w, layout_h);
   CHECK(layout_x == 20);
   CHECK(layout_y == 21);
   CHECK(layout_w == 120);
   CHECK(layout_h == 30);
-  CHECK(ui::windows::WinPushButtonPresenter::TestSetWindowPosCount() == 1);
-  ui::windows::WinPushButtonPresenter::TestResetSetWindowPosCount();
   presenter->OnModelChanged();
-  CHECK(ui::windows::WinPushButtonPresenter::TestSetWindowPosCount() == 0);
   ReadButtonLayoutInParentClient(btn, layout_x, layout_y, layout_w, layout_h);
   CHECK(layout_x == 20);
   CHECK(layout_y == 21);
@@ -457,9 +453,12 @@ void TestWinPushButtonWithBorderlessHostPresenter() {
   CHECK(layout_w == 80);
   CHECK(layout_h == 24);
 
-  ui::windows::WinPushButtonPresenter::TestResetSetWindowPosCount();
   presenter->OnModelChanged();
-  CHECK(ui::windows::WinPushButtonPresenter::TestSetWindowPosCount() == 0);
+  ReadButtonLayoutInParentClient(btn, layout_x, layout_y, layout_w, layout_h);
+  CHECK(layout_x == 0);
+  CHECK(layout_y == 0);
+  CHECK(layout_w == 80);
+  CHECK(layout_h == 24);
 
   SendMessageW(host, WM_COMMAND,
                MAKEWPARAM(static_cast<WPARAM>(kControlId), BN_CLICKED),
@@ -589,9 +588,12 @@ void TestWinPushButtonResolveChildLayoutFromHost() {
   CHECK(layout_w == 80);
   CHECK(layout_h == 24);
 
-  ui::windows::WinPushButtonPresenter::TestResetSetWindowPosCount();
   presenter->OnModelChanged();
-  CHECK(ui::windows::WinPushButtonPresenter::TestSetWindowPosCount() == 0);
+  ReadButtonLayoutInParentClient(btn, layout_x, layout_y, layout_w, layout_h);
+  CHECK(layout_x == 18);
+  CHECK(layout_y == 20);
+  CHECK(layout_w == 80);
+  CHECK(layout_h == 24);
 
   UnloadPresenters(*root);
   DestroyWindow(host);

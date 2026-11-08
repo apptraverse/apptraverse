@@ -30,20 +30,11 @@ class WinPushButtonPresenter : public UiPushButtonPresenter {
 
   HWND hwnd() const { return hwnd_; }
 
-#if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
-  static int TestSetWindowPosCount();
-  static void TestResetSetWindowPosCount();
-#endif
-
  private:
   void SyncFromMirror();
   void ApplyLayout();
 
   HWND hwnd_;
-
-#if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
-  static int test_set_window_pos_count_;
-#endif
 };
 
 }  // namespace apptraverse::ui::windows

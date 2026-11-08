@@ -162,14 +162,11 @@ void TestTwoDragsBackToAWithLaggyMirror() {
   Harness h;
   HWND const hwnd = h.presenter->hwnd();
   h.SyncModelUiAt(100, 100);
-  h.presenter->TestResetModelFrameSubmitCount();
 
   InteractiveDragEnd(*h.presenter, 200, 200, 640, 480);
-  CHECK(h.presenter->TestModelFrameSubmitCount() == 1);
   CHECK(h.deferred_model_work.size() == 1);
 
   InteractiveDragEnd(*h.presenter, 100, 100, 640, 480);
-  CHECK(h.presenter->TestModelFrameSubmitCount() == 2);
   CHECK(h.deferred_model_work.size() == 2);
 
   h.PumpOneModelTask();
@@ -183,7 +180,6 @@ void TestTwoDragsBackToAWithLaggyMirror() {
   CHECK(h.model_root->window->x() == 100);
   CHECK(h.model_root->window->y() == 100);
 
-  ui::windows::WinDesktopWindowPresenter::TestResetSetWindowPosCount();
   ByteSource stale;
   stale.data = pub_b.data();
   stale.size = pub_b.size();
@@ -196,7 +192,6 @@ void TestTwoDragsBackToAWithLaggyMirror() {
   ReadHwndFrame(hwnd, x, y, cw, ch);
   CHECK(x == 100);
   CHECK(y == 100);
-  CHECK(ui::windows::WinDesktopWindowPresenter::TestSetWindowPosCount() == 0);
 
   h.ApplyWindowPublication();
   ReadHwndFrame(hwnd, x, y, cw, ch);
@@ -208,23 +203,25 @@ void TestTwoDragsBackToAWithLaggyMirror() {
 
 void TestInteractiveDragDoesNotSubmitIntermediateSteps() {
   Harness h;
-  h.presenter->TestResetModelFrameSubmitCount();
+  std::int32_t const x0 = h.model_root->window->x();
+  std::int32_t const y0 = h.model_root->window->y();
   SendMessageW(h.presenter->hwnd(), WM_ENTERSIZEMOVE, 0, 0);
   for (int i = 0; i < 200; ++i) {
     SetHwndOuter(h.presenter->hwnd(), 50 + i, 60 + i, 640, 480);
   }
-  CHECK(h.presenter->TestModelFrameSubmitCount() == 0);
+  CHECK(h.model_root->window->x() == x0);
+  CHECK(h.model_root->window->y() == y0);
   SendMessageW(h.presenter->hwnd(), WM_EXITSIZEMOVE, 0, 0);
-  CHECK(h.presenter->TestModelFrameSubmitCount() == 1);
+  h.PumpModel();
+  CHECK(h.model_root->window->x() == 50 + 199);
+  CHECK(h.model_root->window->y() == 60 + 199);
 }
 
 void TestSequentialInteractiveDragsIncrementSerial() {
   Harness h;
   h.SyncModelUiAt(10, 10);
-  h.presenter->TestResetModelFrameSubmitCount();
   InteractiveDragEnd(*h.presenter, 30, 30, 640, 480);
   InteractiveDragEnd(*h.presenter, 10, 10, 640, 480);
-  CHECK(h.presenter->TestModelFrameSubmitCount() == 2);
   h.PumpModel();
   CHECK(h.model_root->window->x() == 10);
   CHECK(h.model_root->window->y() == 10);

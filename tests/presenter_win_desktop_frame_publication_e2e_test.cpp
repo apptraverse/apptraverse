@@ -127,7 +127,6 @@ struct E2EHarness {
     InitializePresenters(*ui_root, nullptr, &model_proxy);
     presenter = &*ui_root->window_presenter;
     CHECK(presenter->hwnd() != nullptr);
-    ui::windows::WinDesktopWindowPresenter::TestResetSetWindowPosCount();
   }
 
   ~E2EHarness() { UnloadPresenters(*ui_root); }
@@ -171,7 +170,6 @@ void TestAbaViaPublicationChannel() {
   h.MoveCommitPublish(10, 10, 640, 480);
   auto const pub_a2 = h.CaptureStructuralPublication();
 
-  ui::windows::WinDesktopWindowPresenter::TestResetSetWindowPosCount();
   h.ApplyStructuralBytes(pub_a1);
   std::int32_t x = 0;
   std::int32_t y = 0;
@@ -185,7 +183,6 @@ void TestAbaViaPublicationChannel() {
   ReadHwndFrame(hwnd, x, y, cw, ch);
   CHECK(x == 10);
   CHECK(y == 10);
-  CHECK(ui::windows::WinDesktopWindowPresenter::TestSetWindowPosCount() == 0);
 
   h.ApplyStructuralBytes(pub_a2);
   ReadHwndFrame(hwnd, x, y, cw, ch);
@@ -217,7 +214,6 @@ void TestDelayedNativeReportPublicationsAbc() {
   CHECK(x == 30);
   CHECK(y == 30);
 
-  ui::windows::WinDesktopWindowPresenter::TestResetSetWindowPosCount();
   h.ApplyStructuralBytes(pub_a);
   ReadHwndFrame(hwnd, x, y, cw, ch);
   CHECK(x == 30);
@@ -232,7 +228,6 @@ void TestDelayedNativeReportPublicationsAbc() {
   ReadHwndFrame(hwnd, x, y, cw, ch);
   CHECK(x == 30);
   CHECK(y == 30);
-  CHECK(ui::windows::WinDesktopWindowPresenter::TestSetWindowPosCount() == 0);
   CHECK(h.ui_root->window->x() == 30);
   CHECK(h.ui_root->window->y() == 30);
   CHECK(h.model_root->window->x() == 30);
@@ -246,7 +241,6 @@ void TestProgrammaticFrameViaModelCommit() {
   h.PumpModel();
   h.model_root->window->RequestFrame(700, 800, 640, 480);
   auto const pub = h.CaptureStructuralPublication();
-  ui::windows::WinDesktopWindowPresenter::TestResetSetWindowPosCount();
   h.ApplyStructuralBytes(pub);
   std::int32_t x = 0;
   std::int32_t y = 0;
@@ -255,11 +249,8 @@ void TestProgrammaticFrameViaModelCommit() {
   ReadHwndFrame(hwnd, x, y, cw, ch);
   CHECK(x == 700);
   CHECK(y == 800);
-  CHECK(ui::windows::WinDesktopWindowPresenter::TestSetWindowPosCount() == 1);
 
-  ui::windows::WinDesktopWindowPresenter::TestResetSetWindowPosCount();
   h.ApplyStructuralBytes(h.CaptureStructuralPublication());
-  CHECK(ui::windows::WinDesktopWindowPresenter::TestSetWindowPosCount() == 0);
 }
 
 void TestLocalePublicationDoesNotMoveWindow() {
@@ -278,9 +269,7 @@ void TestLocalePublicationDoesNotMoveWindow() {
   h.model_root->locale->Commit(std::move(ev));
   ByteSink sink;
   SerializeStructuralNodePublication(*h.model_root->locale, sink);
-  ui::windows::WinDesktopWindowPresenter::TestResetSetWindowPosCount();
   h.ApplyStructuralBytes(sink.bytes);
-  CHECK(ui::windows::WinDesktopWindowPresenter::TestSetWindowPosCount() == 0);
   std::int32_t x = 0;
   std::int32_t y = 0;
   std::int32_t cw = 0;

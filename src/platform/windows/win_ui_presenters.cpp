@@ -33,19 +33,59 @@ WinDesktopWindowPresenter* DesktopFromHwnd(HWND hwnd) {
 
 bool CreateFailed(HWND hwnd) { return hwnd == nullptr; }
 
+bool ReadChildClientFrame(HWND hwnd, int& x, int& y, int& width, int& height) {
+  RECT rect{};
+  if (GetWindowRect(hwnd, &rect) == 0) {
+    return false;
+  }
+  width = rect.right - rect.left;
+  height = rect.bottom - rect.top;
+  HWND const parent = GetParent(hwnd);
+  if (parent == nullptr) {
+    return false;
+  }
+  POINT origin{rect.left, rect.top};
+  SetLastError(0);
+  if (MapWindowPoints(HWND_DESKTOP, parent, &origin, 1) == 0) {
+    DWORD const err = GetLastError();
+    if (err != ERROR_SUCCESS) {
+      return false;
+    }
+  }
+  x = origin.x;
+  y = origin.y;
+  return true;
+}
+
+void ApplyListLayoutFromMirror(HWND hwnd, std::int32_t layout_x,
+                               std::int32_t layout_y,
+                               std::int32_t layout_width,
+                               std::int32_t layout_height) {
+  if (hwnd == nullptr) {
+    return;
+  }
+  int x = 0;
+  int y = 0;
+  int width = 0;
+  int height = 0;
+  if (!ReadChildClientFrame(hwnd, x, y, width, height)) {
+    DWORD const err = GetLastError();
+    FatalWin32("GetWindowRect Ui list layout", err);
+  }
+  if (x == layout_x && y == layout_y && width == layout_width &&
+      height == layout_height) {
+    return;
+  }
+  if (SetWindowPos(hwnd, nullptr, layout_x, layout_y, layout_width,
+                   layout_height, SWP_NOZORDER | SWP_NOACTIVATE) == 0) {
+    DWORD const err = GetLastError();
+    FatalWin32("SetWindowPos Ui list", err);
+  }
+}
+
 }  // namespace
 
 #if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
-int WinDesktopWindowPresenter::test_set_window_pos_count_{0};
-
-int WinDesktopWindowPresenter::TestSetWindowPosCount() {
-  return test_set_window_pos_count_;
-}
-
-void WinDesktopWindowPresenter::TestResetSetWindowPosCount() {
-  test_set_window_pos_count_ = 0;
-}
-
 void WinDesktopWindowPresenter::TestReportNativeFrame(std::int32_t x,
                                                       std::int32_t y,
                                                       std::int32_t client_width,
@@ -196,7 +236,8 @@ bool WinDesktopWindowPresenter::FramesEqual(ClientFrame a, ClientFrame b) {
 }
 
 void WinDesktopWindowPresenter::TrackInteractiveNativeFrame() {
-  HandleNativeFrameChanged(true);
+  // Interactive move/resize coalesces to a single model report on
+  // WM_EXITSIZEMOVE (see TestInteractiveDragCoalescesModelSubmits).
 }
 
 WinDesktopWindowPresenter::ClientFrame
@@ -228,9 +269,6 @@ void WinDesktopWindowPresenter::ApplyRequestedFrameFromMirror() {
   int outer_h = 0;
   ClientSizeToOuter(mirror.client_width, mirror.client_height, outer_w,
                     outer_h);
-#if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
-  ++test_set_window_pos_count_;
-#endif
   SetWindowPos(hwnd_, nullptr, mirror.x, mirror.y, outer_w, outer_h,
                SWP_NOZORDER | SWP_NOACTIVATE);
   applying_native_frame_ = false;
@@ -246,9 +284,6 @@ void WinDesktopWindowPresenter::HandleNativeFrameChanged(
     return;
   }
   ClientFrame const native = ReadNativeClientFrame();
-#if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
-  ++test_model_frame_submit_count_;
-#endif
   SubmitFrameFromNative(native.x, native.y, native.client_width,
                         native.client_height, updates_restore_geometry);
 }
@@ -394,6 +429,10 @@ void WinListContainerPresenter::SyncFromMirror() {
   if (hwnd_ == nullptr || !container) {
     return;
   }
+  auto const apply_layout = [this] {
+    ApplyListLayoutFromMirror(hwnd_, layout_x, layout_y, layout_width,
+                              layout_height);
+  };
   int language_index = 0;
   if (window_presenter && window_presenter->locale) {
     language_index = window_presenter->locale->language_index();
@@ -410,6 +449,7 @@ void WinListContainerPresenter::SyncFromMirror() {
   if (current == desired) {
     ApplyPublishedListSelection(hwnd_, notify_list_selection_change,
                                 container.operator->(), desired.size());
+    apply_layout();
     return;
   }
 
@@ -435,6 +475,7 @@ void WinListContainerPresenter::SyncFromMirror() {
     if (previous_top != LB_ERR && previous_top >= 0) {
       SendMessageW(hwnd_, LB_SETTOPINDEX, static_cast<WPARAM>(previous_top), 0);
     }
+    apply_layout();
     return;
   }
 
@@ -453,6 +494,7 @@ void WinListContainerPresenter::SyncFromMirror() {
   if (previous_top != LB_ERR && previous_top >= 0) {
     SendMessageW(hwnd_, LB_SETTOPINDEX, static_cast<WPARAM>(previous_top), 0);
   }
+  apply_layout();
 }
 
 void WinListContainerPresenter::OnModelChanged() { SyncFromMirror(); }

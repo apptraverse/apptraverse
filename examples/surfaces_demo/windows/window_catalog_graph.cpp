@@ -64,7 +64,6 @@ class CatalogListContainerPresenter
 
   void SubmitListRowSelectionChangedFromUi(std::size_t row_index) override;
   void SubmitListRowActivatedFromUi(std::size_t row_index) override;
-  void OnModelChanged() override;
 };
 
 void CatalogListContainerPresenter::SubmitListRowSelectionChangedFromUi(
@@ -76,16 +75,6 @@ void CatalogListContainerPresenter::SubmitListRowSelectionChangedFromUi(
 void CatalogListContainerPresenter::SubmitListRowActivatedFromUi(
     std::size_t row_index) {
   model_proxy->Invoke(catalog->obj_id, &WindowCatalog::OpenRow, row_index);
-}
-
-// Main client size is reported to the model by the desktop window presenter
-// (WM_SIZE / client mount size-allocate); mirror it into the catalog viewport
-// so chrome layout adapts.
-void CatalogListContainerPresenter::OnModelChanged() {
-  WinListContainerPresenter::OnModelChanged();
-  if (catalog.is_loaded()) {
-    ReportCatalogMainViewportFromMirror(*catalog, model_proxy);
-  }
 }
 
 APPTRAVERSE_REGISTER(CatalogDesktopWindowPresenter);

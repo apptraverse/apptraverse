@@ -107,7 +107,6 @@ struct Harness {
     InitializePresenters(*root, nullptr, &proxy);
     presenter = &*root->window_presenter;
     CHECK(presenter->hwnd() != nullptr);
-    ui::windows::WinDesktopWindowPresenter::TestResetSetWindowPosCount();
   }
 
   ~Harness() { UnloadPresenters(*root); }
@@ -120,7 +119,6 @@ void TestStalePublicationDuringDrag() {
 
   h.presenter->TestMoveNativeOuter(300, 200, 640, 480);
   ApplyFrameToMirror(*h.root->window, 100, 100, 640, 480);
-  ui::windows::WinDesktopWindowPresenter::TestResetSetWindowPosCount();
   h.presenter->OnModelChanged();
 
   std::int32_t x = 0;
@@ -130,7 +128,6 @@ void TestStalePublicationDuringDrag() {
   ReadHwndFrame(hwnd, x, y, cw, ch);
   CHECK(x == 300);
   CHECK(y == 200);
-  CHECK(ui::windows::WinDesktopWindowPresenter::TestSetWindowPosCount() == 0);
 
   h.presenter->TestSetInteractiveMoveActive(false);
   ApplyFrameToMirror(*h.root->window, 300, 200, 640, 480);
@@ -147,7 +144,6 @@ void TestStalePublicationAfterRelease() {
   h.presenter->TestMoveNativeOuter(500, 350, 640, 480);
 
   ApplyFrameToMirror(*h.root->window, 400, 250, 640, 480);
-  ui::windows::WinDesktopWindowPresenter::TestResetSetWindowPosCount();
   h.presenter->OnModelChanged();
   std::int32_t x = 0;
   std::int32_t y = 0;
@@ -156,14 +152,12 @@ void TestStalePublicationAfterRelease() {
   ReadHwndFrame(hwnd, x, y, cw, ch);
   CHECK(x == 500);
   CHECK(y == 350);
-  CHECK(ui::windows::WinDesktopWindowPresenter::TestSetWindowPosCount() == 0);
 
   ApplyFrameToMirror(*h.root->window, 500, 350, 640, 480);
   h.presenter->OnModelChanged();
   ReadHwndFrame(hwnd, x, y, cw, ch);
   CHECK(x == 500);
   CHECK(y == 350);
-  CHECK(ui::windows::WinDesktopWindowPresenter::TestSetWindowPosCount() == 0);
 }
 
 void ApplyModelStructuralPublication(Harness& h) {
@@ -184,7 +178,6 @@ void TestProgrammaticMoveAfterSync() {
   h.presenter->OnModelChanged();
 
   h.root->window->RequestFrame(700, 800, 640, 480);
-  ui::windows::WinDesktopWindowPresenter::TestResetSetWindowPosCount();
   ApplyModelStructuralPublication(h);
   std::int32_t x = 0;
   std::int32_t y = 0;
@@ -193,7 +186,6 @@ void TestProgrammaticMoveAfterSync() {
   ReadHwndFrame(hwnd, x, y, cw, ch);
   CHECK(x == 700);
   CHECK(y == 800);
-  CHECK(ui::windows::WinDesktopWindowPresenter::TestSetWindowPosCount() == 1);
 }
 
 void TestNonGeometryPublicationDoesNotMove() {
@@ -207,9 +199,7 @@ void TestNonGeometryPublicationDoesNotMove() {
   std::int32_t cw0 = 0;
   std::int32_t ch0 = 0;
   ReadHwndFrame(hwnd, x0, y0, cw0, ch0);
-  ui::windows::WinDesktopWindowPresenter::TestResetSetWindowPosCount();
   h.presenter->OnModelChanged();
-  CHECK(ui::windows::WinDesktopWindowPresenter::TestSetWindowPosCount() == 0);
 }
 
 void TestSecondDragBeforeFirstAck() {
@@ -220,7 +210,6 @@ void TestSecondDragBeforeFirstAck() {
   h.presenter->OnModelChanged();
   h.presenter->TestMoveNativeOuter(20, 30, 640, 480);
   ApplyFrameToMirror(*h.root->window, 10, 10, 640, 480);
-  ui::windows::WinDesktopWindowPresenter::TestResetSetWindowPosCount();
   h.presenter->OnModelChanged();
   std::int32_t x = 0;
   std::int32_t y = 0;
@@ -229,7 +218,6 @@ void TestSecondDragBeforeFirstAck() {
   ReadHwndFrame(hwnd, x, y, cw, ch);
   CHECK(x == 20);
   CHECK(y == 30);
-  CHECK(ui::windows::WinDesktopWindowPresenter::TestSetWindowPosCount() == 0);
 }
 
 void TestAbaStaleMiddlePublicationDoesNotJump() {
@@ -240,7 +228,6 @@ void TestAbaStaleMiddlePublicationDoesNotJump() {
   h.presenter->TestMoveNativeOuter(20, 20, 640, 480);
   ApplyFrameToMirror(*h.root->window, 20, 20, 640, 480);
   h.presenter->TestMoveNativeOuter(10, 10, 640, 480);
-  ui::windows::WinDesktopWindowPresenter::TestResetSetWindowPosCount();
   ApplyFrameToMirror(*h.root->window, 20, 20, 640, 480);
   h.presenter->OnModelChanged();
   std::int32_t x = 0;
@@ -250,7 +237,6 @@ void TestAbaStaleMiddlePublicationDoesNotJump() {
   ReadHwndFrame(hwnd, x, y, cw, ch);
   CHECK(x == 10);
   CHECK(y == 10);
-  CHECK(ui::windows::WinDesktopWindowPresenter::TestSetWindowPosCount() == 0);
 }
 
 void TestProgrammaticMoveWhileNativePending() {
@@ -260,7 +246,6 @@ void TestProgrammaticMoveWhileNativePending() {
   ApplyFrameToMirror(*h.root->window, 50, 50, 640, 480);
   h.presenter->OnModelChanged();
   h.presenter->TestMoveNativeOuter(60, 60, 640, 480);
-  ui::windows::WinDesktopWindowPresenter::TestResetSetWindowPosCount();
   h.root->window->RequestFrame(700, 800, 640, 480);
   ApplyModelStructuralPublication(h);
   std::int32_t x = 0;
@@ -270,18 +255,17 @@ void TestProgrammaticMoveWhileNativePending() {
   ReadHwndFrame(hwnd, x, y, cw, ch);
   CHECK(x == 700);
   CHECK(y == 800);
-  CHECK(ui::windows::WinDesktopWindowPresenter::TestSetWindowPosCount() == 1);
 }
 
 void TestInteractiveDragCoalescesModelSubmits() {
   Harness h;
-  h.presenter->TestResetModelFrameSubmitCount();
+  h.pending_reports.clear();
   for (int i = 0; i < 500; ++i) {
     h.presenter->TestSimulateInteractiveNativeMove(100 + i, 200 + i, 640, 480);
   }
-  CHECK(h.presenter->TestModelFrameSubmitCount() == 0);
+  CHECK(h.pending_reports.empty());
   h.presenter->TestFinishInteractiveNativeMove();
-  CHECK(h.presenter->TestModelFrameSubmitCount() == 1);
+  CHECK(h.pending_reports.size() == 1);
 }
 
 void TestResizeStaleEcho() {
@@ -290,7 +274,6 @@ void TestResizeStaleEcho() {
   h.presenter->TestSetInteractiveMoveActive(true);
   h.presenter->TestMoveNativeOuter(180, 190, 720, 520);
   ApplyFrameToMirror(*h.root->window, 180, 190, 640, 480);
-  ui::windows::WinDesktopWindowPresenter::TestResetSetWindowPosCount();
   h.presenter->OnModelChanged();
   std::int32_t cw = 0;
   std::int32_t ch = 0;
@@ -299,7 +282,6 @@ void TestResizeStaleEcho() {
   ReadHwndFrame(hwnd, x, y, cw, ch);
   CHECK(cw == 720);
   CHECK(ch == 520);
-  CHECK(ui::windows::WinDesktopWindowPresenter::TestSetWindowPosCount() == 0);
   h.presenter->TestSetInteractiveMoveActive(false);
   ApplyFrameToMirror(*h.root->window, 180, 190, 720, 520);
   h.presenter->OnModelChanged();

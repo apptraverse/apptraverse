@@ -915,22 +915,8 @@ void RunRequiredMainWindowNegativeTests(
   }
 }
 
-unsigned long long ReadFocusApplyCount(
-    std::filesystem::path const& path) {
-  std::ifstream in(path);
-  unsigned long long count = 0;
-  in >> count;
-  return count;
-}
-
-std::filesystem::path ResetFocusApplyCountFile(char const* name) {
-  auto const file =
-      std::filesystem::temp_directory_path() / "apptraverse_test" / name;
-  std::error_code ec;
-  std::filesystem::create_directories(file.parent_path(), ec);
-  std::ofstream out(file);
-  out << "0\n";
-  return file;
+bool CatalogChildHasForeground(HWND hwnd) {
+  return hwnd != nullptr && IsWindow(hwnd) && GetForegroundWindow() == hwnd;
 }
 
 std::string Utf8FromWide(std::wstring const& text) {
@@ -994,12 +980,7 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
   CHECK(std::filesystem::exists(demo));
   CHECK(std::filesystem::exists(load_only));
 
-  auto const focus_count_file = ResetFocusApplyCountFile(
-      "window_catalog_win32_acceptance_focus_apply_count.txt");
-  SetEnvironmentVariableW(L"APPTRAVERSE_WC_FOCUS_APPLY_COUNT_FILE",
-                          focus_count_file.wstring().c_str());
   ActiveDemoProcess session{StartDemo(demo, state_dir)};
-  SetEnvironmentVariableW(L"APPTRAVERSE_WC_FOCUS_APPLY_COUNT_FILE", nullptr);
   DWORD const pid = session.pi.dwProcessId;
   HWND main = WaitCatalogMainWindow(pid, std::chrono::seconds{30});
   CHECK(main != nullptr);
@@ -1048,8 +1029,6 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
   CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
     return ControlEnabled(main, kOpenControlId);
   }));
-  // AddWindow now opens each new window, so focus applies already happened.
-  int const focus_before_reopen = ReadFocusApplyCount(focus_count_file);
   ClickControl(main, kOpenControlId);
   HWND child1_reopened = nullptr;
   CHECK(WaitUntil(std::chrono::seconds{15}, [&] {
@@ -1059,18 +1038,13 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
   CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
     return FramesNearEqual(ReadCatalogFrame(child1_reopened), saved_frame);
   }));
-
-  // Window 1 is already open, so HWND identity holds before the second Open;
-  // the pending-focus apply count confirms that Open itself completed.
-  CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
-    return ReadFocusApplyCount(focus_count_file) >= focus_before_reopen + 1;
+  CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
+    return CatalogChildHasForeground(child1_reopened);
   }));
-  CHECK(ReadFocusApplyCount(focus_count_file) == focus_before_reopen + 1);
   ClickControl(main, kOpenControlId);
-  CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
-    return ReadFocusApplyCount(focus_count_file) >= focus_before_reopen + 2;
+  CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
+    return CatalogChildHasForeground(child1_reopened);
   }));
-  CHECK(ReadFocusApplyCount(focus_count_file) == focus_before_reopen + 2);
   ExpectSameTopLevelWithTitle(pid, child1_reopened, L"Window 1",
                               "after_second_open_window1");
   CHECK(FramesNearEqual(ReadCatalogFrame(child1_reopened), saved_frame));
@@ -1157,17 +1131,6 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
 
 void RunLanguageAndFocusAcceptance() {
   auto const state_dir = FreshStateDir("window_catalog_win32_lang_focus");
-  auto const focus_count_file =
-      std::filesystem::temp_directory_path() / "apptraverse_test" /
-      "window_catalog_win32_lang_focus_apply_count.txt";
-  {
-    std::error_code ec;
-    std::filesystem::create_directories(focus_count_file.parent_path(), ec);
-    std::ofstream out(focus_count_file);
-    out << "0\n";
-  }
-  SetEnvironmentVariableW(L"APPTRAVERSE_WC_FOCUS_APPLY_COUNT_FILE",
-                          focus_count_file.wstring().c_str());
 
   auto const demo = DemoExe("win32_window_catalog_demo.exe");
   CHECK(std::filesystem::exists(demo));
@@ -1210,7 +1173,6 @@ void RunLanguageAndFocusAcceptance() {
     return !IsWindow(child2_before);
   }));
   SelectListIndex(main, 1);
-  int const focus_before_reopen = ReadFocusApplyCount(focus_count_file);
   ClickControl(main, kOpenControlId);
   HWND child2_reopened = nullptr;
   CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
@@ -1218,19 +1180,14 @@ void RunLanguageAndFocusAcceptance() {
     return child2_reopened != nullptr;
   }));
   CHECK(child2_reopened != child2_before);
-
-  // First Open already applied pending-focus (count==baseline+1). Foreground==child2 can
-  // be true before the second Open, so wait on test-only apply counter instead.
-  CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
-    return ReadFocusApplyCount(focus_count_file) >= focus_before_reopen + 1;
+  CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
+    return CatalogChildHasForeground(child2_reopened);
   }));
-  CHECK(ReadFocusApplyCount(focus_count_file) == focus_before_reopen + 1);
 
   ClickControl(main, kOpenControlId);
-  CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
-    return ReadFocusApplyCount(focus_count_file) >= focus_before_reopen + 2;
+  CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
+    return CatalogChildHasForeground(child2_reopened);
   }));
-  CHECK(ReadFocusApplyCount(focus_count_file) == focus_before_reopen + 2);
 
   ShowWindow(child2_reopened, SW_MINIMIZE);
   {

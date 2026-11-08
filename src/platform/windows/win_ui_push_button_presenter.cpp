@@ -7,18 +7,6 @@
 
 namespace apptraverse::ui::windows {
 
-#if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
-int WinPushButtonPresenter::test_set_window_pos_count_{0};
-
-int WinPushButtonPresenter::TestSetWindowPosCount() {
-  return test_set_window_pos_count_;
-}
-
-void WinPushButtonPresenter::TestResetSetWindowPosCount() {
-  test_set_window_pos_count_ = 0;
-}
-#endif
-
 namespace {
 
 bool ReadChildClientFrame(HWND hwnd, int& x, int& y, int& width, int& height) {
@@ -97,9 +85,6 @@ void WinPushButtonPresenter::ApplyLayout() {
       height == layout.height) {
     return;
   }
-#if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
-  ++test_set_window_pos_count_;
-#endif
   if (SetWindowPos(hwnd_, nullptr, layout.x, layout.y, layout.width,
                    layout.height, SWP_NOZORDER | SWP_NOACTIVATE) == 0) {
     DWORD const err = GetLastError();

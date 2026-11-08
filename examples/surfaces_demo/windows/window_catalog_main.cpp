@@ -26,28 +26,6 @@
 
 namespace {
 
-// Test-only (acceptance): when APPTRAVERSE_WC_FOCUS_APPLY_COUNT_FILE is set,
-// increment after each after_incremental pending-focus apply. Unset in production.
-void IncrementPendingFocusApplyCountFile() {
-  wchar_t const* path = _wgetenv(L"APPTRAVERSE_WC_FOCUS_APPLY_COUNT_FILE");
-  if (path == nullptr || path[0] == L'\0') {
-    return;
-  }
-  std::filesystem::path const file{path};
-  unsigned long long count = 0;
-  if (FILE* in = _wfopen(file.c_str(), L"r")) {
-    if (std::fscanf(in, "%llu", &count) != 1) {
-      count = 0;
-    }
-    std::fclose(in);
-  }
-  ++count;
-  if (FILE* out = _wfopen(file.c_str(), L"w")) {
-    std::fprintf(out, "%llu\n", count);
-    std::fclose(out);
-  }
-}
-
 std::filesystem::path DefaultStateDir() {
   wchar_t module_path[MAX_PATH]{};
   DWORD const len = GetModuleFileNameW(nullptr, module_path, MAX_PATH);
@@ -261,7 +239,6 @@ int main(int argc, char** argv) {
       ShowWindow(hwnd, SW_RESTORE);
     }
     SetForegroundWindow(hwnd);
-    IncrementPendingFocusApplyCountFile();
     pending_focus = {};
   };
   callbacks.after_initial = [](ae::Obj& application_root) {
