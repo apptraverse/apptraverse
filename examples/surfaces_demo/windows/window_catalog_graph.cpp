@@ -1,6 +1,7 @@
 #include "window_catalog_graph.h"
 
 #include "window_catalog_actions.h"
+#include "window_catalog_main_native_frame_queue.h"
 #include "window_catalog_graph_builder.h"
 #include "window_catalog_ids.h"
 #include "window_catalog_list_presenter_mixin.h"
@@ -37,9 +38,23 @@ class CatalogDesktopWindowPresenter
     dnv(base_, catalog);
   }
 
-  void OnNativeClientFrameObserved(std::int32_t client_width,
-                                   std::int32_t client_height) override {
-    SubmitMainCatalogViewportFromNative(client_width, client_height);
+  void ReportNativeFrameToModel(std::int32_t x, std::int32_t y,
+                                std::int32_t client_width,
+                                std::int32_t client_height,
+                                bool updates_restore_geometry) override {
+    if (!catalog.is_valid() || !this->window.is_valid() ||
+        this->model_proxy == nullptr) {
+      return;
+    }
+    catalog.Load();
+    if (this->window->obj_id != catalog->persisted.main_window.id()) {
+      ui::UiDesktopWindowPresenter::ReportNativeFrameToModel(
+          x, y, client_width, client_height, updates_restore_geometry);
+      return;
+    }
+    PostWindowCatalogMainNativeFrame(
+        this->model_proxy, catalog->obj_id, this->window->obj_id, x, y,
+        client_width, client_height, updates_restore_geometry);
   }
 };
 

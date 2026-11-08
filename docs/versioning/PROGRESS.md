@@ -11,7 +11,7 @@
 
 ## P4 / WindowCatalog adaptive — Windows приёмка (2026-11-07) — IN_PROGRESS (автотесты verified; ручная — ожидает пользователя)
 
-**Worktree:** `apptraverse-wt-adaptive`. **Ветка:** `feature/window-catalog-adaptive`. **База этапа:** `df632e106a447995f277cd81edc07c12e29e59f6`. **Google Doc** «архитектура / каталог» и «версионирование» — **прямая сверка не выполнена** (403); опора — repo `docs/architecture/AppTraverse_Architecture_RU.md` (§25.3 production hooks), [PLAN](./PLAN.md).
+**Worktree:** `apptraverse-wt-adaptive`. **Ветка:** `feature/window-catalog-adaptive`. **База этапа (resize coalesce):** `d7fb0267e7fc0f4e0675d57265b020d5ddf211e4`. **Google Doc** «архитектура / каталог» и «версионирование» — **прямая сверка не выполнена** (403); опора — repo `docs/architecture/AppTraverse_Architecture_RU.md` (§25.3 production hooks), [PLAN](./PLAN.md).
 
 **Debug exe:** `build/win64-ninja-msvc-debug/examples/surfaces_demo/windows/win32_window_catalog_demo.exe`
 
@@ -22,7 +22,8 @@
 | # | Принцип / место | Нарушение | Исправление / проверка | Статус |
 | --- | --- | --- | --- | --- |
 | 1 | List layout ← mirror | `WinListContainerPresenter::SyncFromMirror` не двигал LISTBOX | `ApplyListLayoutFromMirror` из mirror `layout_*` | PASS (`win32_acceptance`, materialization) |
-| 2 | Viewport native → model (без mirror loop) | После снятия list `OnModelChanged` report не было Windows-доставки | `CatalogDesktopWindowPresenter::OnNativeClientFrameObserved` → `SubmitMainClientViewportFromUi`; `TrackInteractiveNativeFrame` → live client report | PASS (`win32_chrome_adaptive_test`) |
+| 2 | Viewport native → model (без mirror loop) | После снятия list `OnModelChanged` report не было Windows-доставки | `ReportNativeFrameToModel` → Main: один coalesced `runtime.Post` (frame+viewport); child: `SubmitFrameFromNative` | PASS (`win32_chrome_adaptive_test`) |
+| 2b | Interactive resize backlog | Два FIFO job на resize → хвост публикаций; geometry/viewport рассинхрон | `WindowCatalogMainNativeFrameQueue`: slot replace до drain, один model work на окно | PASS (`main_native_frame_coalesce_test`: burst 8× → **1** post vs fallback **16**) |
 | 3 | Startup / lazy | Молчаливые return при failed HWND | Повторный обзор: обязательный граф по-прежнему в Prepare; create-fail на child — как раньше; list layout — `FatalWin32` на границе | CHECKED (нового нарушения нет) |
 | 4 | §25.3 без production hooks | Файловый focus-счётчик в demo + presenter test counters | Удалены; acceptance — `GetForegroundWindow` / HWND geometry / `pending_reports` | PASS |
 | 5 | Close → Unload → Save USER | RAM-only / лишние записи | Без изменения ядра: `window_catalog_embedded_overlay_test` + model save/close сценарии | PASS (существующие тесты) |
@@ -39,12 +40,15 @@ Google Doc **§5.1** — платформенный потомок presenter и�
 | --- | --- |
 | `apptraverse_window_catalog_{headless,model,embedded_overlay,win32_acceptance}_test` | PASS |
 | `apptraverse_presenter_win_desktop_{frame_sync,interactive_drag_e2e,frame_publication_e2e}_test` | PASS |
-| `apptraverse_window_catalog_win32_chrome_adaptive_test` | PASS (native HWND wide/tall/square) |
+| `apptraverse_window_catalog_win32_chrome_adaptive_test` | PASS (burst resize без pump каждого шага) |
+| `apptraverse_window_catalog_main_native_frame_coalesce_test` | PASS |
 | `apptraverse_win_ui_native_push_button_test`, `apptraverse_ui_control_materialization_test` | PASS |
 | `apptraverse_application_contract_headless_test` | PASS |
 | persistence / Clone / origin disk matrix | **NOT RUN** (общий storage не менялся) |
 
-**NEXT (Windows):** ручная приёмка пользователем на отдельном `--state-dir`; затем commit remote совпадает с verified SHA. Linux/Android/Web/Apple — **не начинать** без отдельной команды.
+**Измерения (harness, не live drag):** pending model jobs на 8 burst resize Main — **16** (fallback) vs **1** (coalesce); время публикации/live lag — **NOT MEASURED** (без внешнего профиля в этом прогоне).
+
+**NEXT (Windows):** ручная приёмка пользователем: живой drag Main wide↔tall на отдельном `--state-dir` (агент: **WAITING USER**). Linux/Android/Web/Apple — **не начинать** без отдельной команды.
 
 <a id="p4-wc-adaptive-save-after-close-language--2026-11-07"></a>
 

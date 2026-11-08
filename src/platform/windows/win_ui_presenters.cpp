@@ -217,7 +217,8 @@ void WinDesktopWindowPresenter::OnLoad() {
   ClientFrame const initial = ReadNativeClientFrame();
   last_native_client_width_ = initial.client_width;
   last_native_client_height_ = initial.client_height;
-  OnNativeClientFrameObserved(initial.client_width, initial.client_height);
+  ReportNativeFrameToModel(initial.x, initial.y, initial.client_width,
+                           initial.client_height, false);
 }
 
 WinDesktopWindowPresenter::ClientFrame
@@ -294,16 +295,14 @@ void WinDesktopWindowPresenter::HandleNativeFrameChanged(
     if (!client_dims_changed) {
       return;
     }
-    SubmitFrameFromNative(native.x, native.y, native.client_width,
-                          native.client_height, false);
-    OnNativeClientFrameObserved(native.client_width, native.client_height);
+    ReportNativeFrameToModel(native.x, native.y, native.client_width,
+                             native.client_height, false);
     last_native_client_width_ = native.client_width;
     last_native_client_height_ = native.client_height;
     return;
   }
-  SubmitFrameFromNative(native.x, native.y, native.client_width,
-                        native.client_height, updates_restore_geometry);
-  OnNativeClientFrameObserved(native.client_width, native.client_height);
+  ReportNativeFrameToModel(native.x, native.y, native.client_width,
+                           native.client_height, updates_restore_geometry);
   if (client_dims_changed || updates_restore_geometry) {
     last_native_client_width_ = native.client_width;
     last_native_client_height_ = native.client_height;

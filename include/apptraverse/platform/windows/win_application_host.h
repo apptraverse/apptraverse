@@ -56,6 +56,9 @@ class WinApplicationHost {
 
   void Run();
 
+  ModelObjectProxy& model_proxy() { return model_proxy_; }
+  ModelObjectProxy const& model_proxy() const { return model_proxy_; }
+
  private:
   void OnInitialPublished();
   void OnIncrementalPublished();

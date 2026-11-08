@@ -23,6 +23,7 @@
 
 #include "window_catalog_lifecycle.h"
 #include "window_catalog_model.h"
+#include "window_catalog_main_native_frame_queue.h"
 
 namespace {
 
@@ -250,6 +251,11 @@ int main(int argc, char** argv) {
   apptraverse::windows::WinApplicationLoadingOptions loading{
       L"AppTraverseWindowCatalogLoading", L"Loading catalog", L"Loading catalog",
       200, 200, 320, 120};
+
+  apptraverse::SharedWindowCatalogMainNativeFrameQueue().BindPostWork(
+      [&session](apptraverse::ModelObjectProxy::ModelWork work) {
+        session.runtime.Post(std::move(work));
+      });
 
   apptraverse::windows::WinApplicationHost host(session.runtime, loading,
                                               std::move(callbacks));

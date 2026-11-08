@@ -125,6 +125,7 @@ add_library(surfaces_demo_window_catalog_common STATIC
   common/window_catalog_chrome_layout.cpp
   common/window_catalog_list_row_text.cpp
   common/window_catalog_supply_constant_ids.cpp
+  common/window_catalog_main_native_frame_queue.cpp
 )
 target_include_directories(surfaces_demo_window_catalog_common PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/common

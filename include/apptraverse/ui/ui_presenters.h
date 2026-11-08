@@ -46,8 +46,10 @@ class UiDesktopWindowPresenter : public UiWindowPresenter {
                              std::int32_t client_height,
                              bool updates_restore_geometry = false);
 
-  virtual void OnNativeClientFrameObserved(std::int32_t client_width,
-                                           std::int32_t client_height) {}
+  virtual void ReportNativeFrameToModel(std::int32_t x, std::int32_t y,
+                                        std::int32_t client_width,
+                                        std::int32_t client_height,
+                                        bool updates_restore_geometry);
 
   virtual void ApplyRequestedFrameFromMirror() {}
 };

@@ -20,6 +20,7 @@ int main() { return 0; }
 #include "window_catalog_chrome_layout.h"
 #include "window_catalog_ids.h"
 #include "window_catalog_prepare.h"
+#include "window_catalog_main_native_frame_queue.h"
 #include "apptraverse/ui/ui_presented_window.h"
 
 namespace apptraverse::test {
@@ -114,6 +115,10 @@ struct Harness {
             window_catalog_demo::ObjId::MainWindow)} {
     EnsureObjectRegistration();
     EnsureWindowCatalogGraphRegistration();
+    SharedWindowCatalogMainNativeFrameQueue().BindPostWork(
+        [this](ModelObjectProxy::ModelWork work) {
+          model_work.push_back(std::move(work));
+        });
     model_catalog = BuildWindowCatalogGraph(model_domain);
     PrepareWindowCatalogForRun(*model_catalog);
     auto ui_obj =
@@ -200,6 +205,19 @@ void ExpectTallChrome(HWND main, std::int32_t client_w, std::int32_t client_h) {
   CHECK(add_r.y == layout.add.y);
 }
 
+void TestBurstResizeWithoutPerStepPump() {
+  Harness h;
+  HWND const main = h.MainHwnd();
+  for (int i = 0; i < 32; ++i) {
+  std::int32_t const w = (i % 2 == 0) ? 900 : 500;
+  std::int32_t const ch = (i % 2 == 0) ? 500 : 900;
+    SetMainClientSize(main, w, ch, true);
+  }
+  SetMainClientSize(main, 900, 500, false);
+  h.PumpModelAndApply();
+  ExpectWideChrome(main, 900, 500);
+}
+
 void TestNativeAdaptiveChromeResizePath() {
   Harness h;
   HWND const main = h.MainHwnd();
@@ -240,6 +258,7 @@ void TestNativeAdaptiveChromeResizePath() {
 
 int main() {
   apptraverse::EnableNoninteractiveCrt();
+  apptraverse::test::TestBurstResizeWithoutPerStepPump();
   apptraverse::test::TestNativeAdaptiveChromeResizePath();
   std::cout << "window_catalog_win32_chrome_adaptive_test OK\n";
   return 0;

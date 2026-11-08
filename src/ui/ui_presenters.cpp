@@ -4,6 +4,13 @@
 
 namespace apptraverse::ui {
 
+void UiDesktopWindowPresenter::ReportNativeFrameToModel(
+    std::int32_t x, std::int32_t y, std::int32_t client_width,
+    std::int32_t client_height, bool updates_restore_geometry) {
+  SubmitFrameFromNative(x, y, client_width, client_height,
+                        updates_restore_geometry);
+}
+
 void UiDesktopWindowPresenter::SubmitFrameFromNative(
     std::int32_t x, std::int32_t y, std::int32_t client_width,
     std::int32_t client_height, bool updates_restore_geometry) {
