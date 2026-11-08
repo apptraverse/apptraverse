@@ -1027,6 +1027,69 @@ void TestLocalizationJournalPartialCompactionRetainsOtherSlot() {
   }
 }
 
+void TestColdLoadStoredClassFactoryContract() {
+  {
+    LazyLocalizationBootstrap boot{6101, "FactoryContract EN", "FactoryContract RU"};
+    ae::Domain domain{boot.storage};
+    auto loaded = boot.LoadRoot(domain);
+    CHECK(loaded->GetClassId() == ui::UiLocalizationString::kClassId);
+    CHECK(loaded->GetClassId() !=
+          apptraverse::test::DerivedUiLocalizationString::kClassId);
+    loaded->MaterializeLanguage(0);
+    CHECK(loaded->Resolve(0) == "FactoryContract EN");
+  }
+
+  ae::RamDomainStorage derived_storage;
+  ae::ObjId const derived_root{6102};
+  {
+    ae::Domain domain{derived_storage};
+    auto localized =
+        apptraverse::test::DerivedUiLocalizationString::ptr::Create(
+            ae::CreateWith{domain}.with_id(derived_root));
+    InitializeRuntimeNode(*localized);
+    auto en = ui::UiString::ptr::Create(ae::CreateWith{domain});
+    en->utf8 = "Derived factory contract";
+    en.Save();
+    localized->strings = {ui::UiString::ptr::Declare(
+        ae::CreateWith{domain}
+            .with_id(en->obj_id)
+            .with_flags(ae::ObjFlags::kUnloadedByDefault))};
+    apptraverse::test::DerivedUiLocalizationString::ptr::MakeFromThis(
+        &*localized)
+        .Save();
+  }
+  {
+    ae::Domain cold{derived_storage};
+    auto loaded =
+        apptraverse::test::DerivedUiLocalizationString::ptr::Declare(
+            ae::CreateWith{cold}.with_id(derived_root));
+    loaded.Load();
+    CHECK(loaded->GetClassId() ==
+          apptraverse::test::DerivedUiLocalizationString::kClassId);
+    loaded->MaterializeLanguage(0);
+    CHECK(loaded->Resolve(0) == "Derived factory contract");
+  }
+
+  constexpr std::uint32_t kUnknownStoredClass = 0xC1D00002u;
+  CHECK(!ae::Registry::GetRegistry().IsExisting(kUnknownStoredClass));
+  LazyLocalizationBootstrap tainted{6103, "Reject unknown EN", "Reject unknown RU"};
+  {
+    auto& obj_layers = tainted.storage.state[tainted.root_id];
+    CHECK(obj_layers.has_value());
+    auto const& loc_v0 =
+        (*obj_layers)[ui::UiLocalizationString::kClassId][0];
+    tainted.storage.SaveData(
+        ae::DomainQuery{tainted.root_id, kUnknownStoredClass, 0},
+        ae::ObjectData{loc_v0});
+  }
+  {
+    ae::Domain domain{tainted.storage};
+    ae::DomainGraph graph{&domain};
+    ae::Ptr<ae::Obj> loaded;
+    CHECK(graph.LoadRoot(tainted.root_id, loaded).IsErr());
+  }
+}
+
 void TestLocalizationHistoricalBaseIndependentOfOwnerSaveOnDisk() {
   auto const dir = LocalizationTestDir("historical_base_ru_slot");
   ae::ObjId const root_id{25};
@@ -1578,6 +1641,7 @@ int main(int argc, char** argv) {
   TestLocalizationHistoricalCaptureScratchIsolationTwoOwners();
   TestLocalizationJournalPartialCompactionRetainsOtherSlot();
   TestDerivedUiLocalizationCompactionScratchInheritance();
+  TestColdLoadStoredClassFactoryContract();
   TestLocalizationHistoricalBaseIndependentOfOwnerSaveOnDisk();
   TestLocalizationApplyUnloadedSlotSkipsStorage();
   TestPushButtonClickViaPresenter();

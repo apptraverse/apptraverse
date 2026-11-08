@@ -333,6 +333,8 @@ legacy `ModelRuntime`/`UiMirror`; runtime bootstrap removal (**9D/9E**).
 
 **Production (Æther patch only, pinned SHA unchanged):** `cmake/patches/aether-objects-reject-unknown-stored-class.patch` from `integration/serialization-surfaces` — `Domain::GetMostRelatedFactory` returns `nullptr` when storage enumerates any unregistered ClassId other than `ae::Obj::kClassId` (no silent filter via `KnownStoredClasses` alone). Registered in `cmake/aether_version.cmake` + root `CMakeLists.txt` after `domain-storage-access.patch`.
 
+**Factory selection (shipping, `feature/window-catalog-adaptive`):** `get-most-related-stored-factory` — after `KnownStoredClasses` (registry `IsExisting`) and `reject-unknown-stored-class`, `GetMostRelatedFactory` returns `FindClassFactory(classes.back())` only. Leaf-only `IsLast` substitution is **removed** as unreachable (stored back is always registered). No automatic upgrade of a stored ancestor to a newer registered leaf; cold load materializes the stored most-derived class. Regression: `apptraverse_ui_control_materialization_test` (`TestColdLoadStoredClassFactoryContract`, derived + disk historical).
+
 | Scenario | Manipulation | Observed failure |
 |----------|--------------|------------------|
 | Unknown ClassId alongside valid root | Copy `WindowCatalog` S=0 bytes to unregistered ClassId `0xC1D00001` on Catalog (1); valid catalog layer retained | `fatal: LoadApplication failed id=1` |
