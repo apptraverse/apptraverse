@@ -7,6 +7,23 @@
 
 **Branch (рабочая):** **`feature/window-catalog-adaptive`** (платформенная приёмка Windows→…); историческая **`feature/linux-window-catalog`**, base `d590ee7f932d1f6df82c196f36c99e3b5e0b9102` (`origin/integration/unified-application`). Историческая координация: [PLAN §Unified](./PLAN.md#unified-integration-историческая-координация--merge).
 
+<a id="p4-wc-close-timing-diagnostic--2026-11-08"></a>
+
+## P4 / WindowCatalog — диагностика медленного Close (Debug vs MinSizeRel) (2026-11-08)
+
+**База:** `a94f90c8aed524d9892adf4a54d510bd443bbc2e`. **Production:** без изменений. **Harness:** `apptraverse_window_catalog_win32_close_timing_diagnostic_test` (субпроцесс + in-process RAM).
+
+| Условие | Child list `(Closed)` | Main `WM_CLOSE` → exit |
+| --- | --- | --- |
+| Debug, cold, 1× Add | ~329 ms | ~105 ms |
+| Debug, после burst resize (31) | **timeout 30 s** | ~354 ms (после child wait) |
+| Debug, копия `agent_fresh` USER (read-only copy) | **timeout 30 s** | ~441 ms |
+| MinSizeRel (бинарник не пересобран, тот же SHA worktree) cold | **timeout 30 s** | ~217 ms |
+
+**In-process (RAM, без `DirectoryDomainStorage`):** `UserCloseWindow` + `ApplyStructural` ~89–136 ms; structural bytes ~2875; RAM snapshot ~5–18 ms. **OBJ_SYS:** при `AE_NO_DEBUG_LOG=OFF` (CMake cache) один прогон harness печатает **~19k** строк `OBJ_SYS:` на stdout при in-process Save/serialize (не отключение AE_TELE). Субпроцесс demo: унаследованный stderr почти пуст (`WINDOW_CATALOG_LOADED_*` only) — `FreeConsole`.
+
+**Вывод (измерения, не фикс):** холодное закрытие child в короткой сессии быстрое; после длительного resize или на сохранённом профиле **застревает этап UI/list после `UserCloseWindow`** (HWND teardown в тесте не детектирован отдельно). Main shutdown остаётся субсекундным в автоматическом сценарии. Доля `BuildDecrementGraphImpl` / `PtrBase::DecrementGraphCount` **не измерена** (нет sampling profiler). Двойной `Save` в `UnloadPresentedWindow` подтверждён по коду; отдельная стоимость Save/Reset на диске в этом шаге не дедуплицирована.
+
 <a id="p4-wc-adaptive-windows-acceptance--2026-11-07"></a>
 
 ## P4 / WindowCatalog adaptive — Windows приёмка (2026-11-07) — IN_PROGRESS (автотесты verified; ручная resize/layout PASS @ `baa90bf`; очередь — повторная ручная после ownership fix)

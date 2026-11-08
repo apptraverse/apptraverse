@@ -1648,6 +1648,17 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
   set_tests_properties(apptraverse_window_catalog_win32_chrome_adaptive_test PROPERTIES
     LABELS "window_catalog")
 
+  apptraverse_add_test(apptraverse_window_catalog_win32_close_timing_diagnostic_test
+    window_catalog_win32_close_timing_diagnostic_test.cpp surfaces_demo_window_catalog)
+  target_link_libraries(apptraverse_window_catalog_win32_close_timing_diagnostic_test PRIVATE
+    apptraverse_ui_windows_extended apptraverse)
+  if(MSVC)
+    target_compile_options(apptraverse_window_catalog_win32_close_timing_diagnostic_test PRIVATE
+      /utf-8)
+  endif()
+  set_tests_properties(apptraverse_window_catalog_win32_close_timing_diagnostic_test PROPERTIES
+    LABELS "window_catalog;diagnostic" TIMEOUT 600)
+
   apptraverse_add_test(apptraverse_window_catalog_main_native_frame_coalesce_test
     window_catalog_main_native_frame_coalesce_test.cpp surfaces_demo_window_catalog)
   target_link_libraries(apptraverse_window_catalog_main_native_frame_coalesce_test PRIVATE
