@@ -1,7 +1,6 @@
 #include "window_catalog_android_lifecycle.h"
 
 #include "window_catalog_android_embedded_profile.h"
-#include "window_catalog_android_persistence.h"
 #include "window_catalog_graph_android.h"
 #include "window_catalog_ids.h"
 #include "window_catalog_prepare.h"
@@ -38,11 +37,7 @@ int RunWindowCatalogAndroidModel(WindowCatalogAndroidEmbeddedProfile& profile,
   }
 
   ApplicationModelSessionHooks<apptraverse::WindowCatalog> hooks;
-  hooks.prepare = [user_profile_present](apptraverse::WindowCatalog& catalog) {
-    if (user_profile_present) {
-      NormalizeWindowCatalogAfterEmbeddedUserLoad(catalog);
-    }
-    catalog.persisted.mobile_pager = true;
+  hooks.prepare = [](apptraverse::WindowCatalog& catalog) {
     PrepareWindowCatalogForRun(catalog);
   };
   hooks.persist = [&profile](apptraverse::WindowCatalog& catalog) -> int {

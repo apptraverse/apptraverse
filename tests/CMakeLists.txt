@@ -1566,6 +1566,37 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
   endif()
   add_test(NAME apptraverse_window_catalog_embedded_overlay_test
     COMMAND apptraverse_window_catalog_embedded_overlay_test)
+
+  set(_android_wc_embedded_test_sources
+    window_catalog_android_embedded_session_test.cpp
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/android/window_catalog_graph_android.cpp)
+  add_executable(apptraverse_window_catalog_android_embedded_session_test
+    ${_android_wc_embedded_test_sources})
+  target_link_libraries(apptraverse_window_catalog_android_embedded_session_test PRIVATE
+    surfaces_demo_window_catalog_common apptraverse apptraverse_ui_android_presenters)
+  target_include_directories(apptraverse_window_catalog_android_embedded_session_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/android/generated
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/android
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common)
+  target_compile_definitions(apptraverse_window_catalog_android_embedded_session_test PRIVATE
+    APPTRAVERSE_ENABLE_DISTILLATION)
+  if(MSVC)
+    target_compile_options(apptraverse_window_catalog_android_embedded_session_test PRIVATE
+      /utf-8)
+  endif()
+  if(TARGET apptraverse_android_window_catalog_supply)
+    add_dependencies(apptraverse_window_catalog_android_embedded_session_test
+      apptraverse_android_window_catalog_supply)
+    target_sources(apptraverse_window_catalog_android_embedded_session_test PRIVATE
+      "${CMAKE_SOURCE_DIR}/examples/surfaces_demo/android/generated/embedded_distilled_window_catalog_android_supply.h")
+  else()
+    target_sources(apptraverse_window_catalog_android_embedded_session_test PRIVATE
+      "${CMAKE_SOURCE_DIR}/examples/surfaces_demo/android/generated/embedded_distilled_window_catalog_android_supply.h")
+  endif()
+  add_test(NAME apptraverse_window_catalog_android_embedded_session_test
+    COMMAND apptraverse_window_catalog_android_embedded_session_test)
+  set_tests_properties(apptraverse_window_catalog_android_embedded_session_test
+    PROPERTIES LABELS "window_catalog;android_embedded")
 endif()
 
 apptraverse_add_test(apptraverse_application_model_runtime_test

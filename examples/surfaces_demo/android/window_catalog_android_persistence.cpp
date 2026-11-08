@@ -4,19 +4,9 @@
 #include "window_catalog_model.h"
 #include "window_catalog_prepare.h"
 
-#include "apptraverse/distill.h"
 #include "apptraverse/noninteractive_crt.h"
 
 namespace apptraverse::example::surfaces {
-
-void NormalizeWindowCatalogAfterEmbeddedUserLoad(
-    apptraverse::WindowCatalog& catalog) {
-#if defined(APPTRAVERSE_ENABLE_DISTILLATION)
-  FinalizeDistilledGraph(catalog);
-#else
-  (void)catalog;
-#endif
-}
 
 int PersistWindowCatalogEmbeddedUserOverlayFromDomain(
     ae::Domain& domain, DirectoryDomainStorage& user_storage) {

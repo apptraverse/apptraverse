@@ -9,9 +9,6 @@
 
 namespace apptraverse::example::surfaces {
 
-void NormalizeWindowCatalogAfterEmbeddedUserLoad(
-    apptraverse::WindowCatalog& catalog);
-
 int PersistWindowCatalogEmbeddedUserOverlayFromDomain(
     ae::Domain& domain, DirectoryDomainStorage& user_storage);
 
