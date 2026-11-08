@@ -1252,7 +1252,11 @@ void UnloadPresenters(ae::Obj& gui_root) {
 
 void UpdatePresentersAfterStructuralPublication(
     ae::Obj& gui_root, std::vector<Presenter::ptr> const& previously_active,
-    void* host, ModelObjectProxy* model_proxy) {
+    void* host, ModelObjectProxy* model_proxy,
+    UiPresentersPrepareHook prepare_presenters) {
+  if (prepare_presenters) {
+    prepare_presenters(gui_root);
+  }
   std::vector<ae::Obj*> live_objects;
   CollectLiveReachableObjects(gui_root, live_objects);
   std::unordered_set<Presenter*> live_presenters;
@@ -1320,7 +1324,8 @@ StructuralPresentationKeepalive CaptureStructuralPresentationKeepalive(
 
 ae::Obj& ApplyStructuralPublicationAndUpdatePresenters(
     ByteSource& in, ae::Domain& domain, ae::IDomainStorage& storage,
-    ae::Obj& gui_root, void* host, ModelObjectProxy* model_proxy) {
+    ae::Obj& gui_root, void* host, ModelObjectProxy* model_proxy,
+    UiPresentersPrepareHook prepare_presenters) {
   StructuralPresentationKeepalive keepalive =
       CaptureStructuralPresentationKeepalive(gui_root);
   std::uint8_t sidecar = kStructuralPublicationSidecarNone;
@@ -1330,7 +1335,8 @@ ae::Obj& ApplyStructuralPublicationAndUpdatePresenters(
     ApplyUiDesktopFrameRequestPresentation(gui_root, changed.obj_id);
   }
   UpdatePresentersAfterStructuralPublication(
-      gui_root, keepalive.active_presenters, host, model_proxy);
+      gui_root, keepalive.active_presenters, host, model_proxy,
+      prepare_presenters);
   // Release presenter anchors before live_objects so derived Presenter::ptr
   // teardown cannot race Obj graph decrement during wasm Ptr GC.
   keepalive.active_presenters.clear();

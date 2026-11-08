@@ -14,6 +14,7 @@
 #include "apptraverse/application_model_runtime.h"
 #include "apptraverse/application_ui_session.h"
 #include "apptraverse/model_object_proxy.h"
+#include "apptraverse/object_serialization.h"
 #include "apptraverse/platform/windows/win_application_loading_window.h"
 #include "apptraverse/platform/windows/win_application_message_host.h"
 #include "apptraverse/platform/windows/win_presentation_host.h"
@@ -42,6 +43,7 @@ struct WinApplicationHostCallbacks {
   TakePublishedSidecarCallback take_incremental_sidecar;
   std::function<void(ae::Obj& application_root)> after_incremental;
   std::function<void(ae::Obj& application_root)> after_initial;
+  UiPresentersPrepareHook prepare_ui_presenters;
 };
 
 class WinApplicationHost {

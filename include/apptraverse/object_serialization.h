@@ -2,6 +2,7 @@
 #define APPTRAVERSE_OBJECT_SERIALIZATION_H_
 
 #include <cstdint>
+#include <functional>
 #include <set>
 #include <vector>
 
@@ -17,6 +18,8 @@
 namespace apptraverse {
 
 class ModelObjectProxy;
+
+using UiPresentersPrepareHook = std::function<void(ae::Obj& gui_root)>;
 
 // Future optimization: serialize reflected concrete state without reflected base
 // class for UI publication, so Node::base/journal do not enter the buffer.
@@ -175,7 +178,8 @@ void UnloadPresenters(ae::Obj& gui_root);
 // OnUnload runs while the objects still exist.
 void UpdatePresentersAfterStructuralPublication(
     ae::Obj& gui_root, std::vector<Presenter::ptr> const& previously_active,
-    void* host = nullptr, ModelObjectProxy* model_proxy = nullptr);
+    void* host = nullptr, ModelObjectProxy* model_proxy = nullptr,
+    UiPresentersPrepareHook prepare_presenters = nullptr);
 
 // Capture live ObjPtr anchors and active Presenter::ptr before a structural
 // apply. Keeps survivor C++ identity and removed presenters alive across apply.
@@ -193,7 +197,8 @@ StructuralPresentationKeepalive CaptureStructuralPresentationKeepalive(
 ae::Obj& ApplyStructuralPublicationAndUpdatePresenters(
     ByteSource& in, ae::Domain& domain, ae::IDomainStorage& storage,
     ae::Obj& gui_root, void* host = nullptr,
-    ModelObjectProxy* model_proxy = nullptr);
+    ModelObjectProxy* model_proxy = nullptr,
+    UiPresentersPrepareHook prepare_presenters = nullptr);
 
 void FinalizeUiNodeState(ae::Obj& object, std::uint64_t generation);
 

@@ -11,7 +11,6 @@
 namespace apptraverse {
 
 class SurfacesPresentationSizeQueue;
-class WindowCatalogMainNativeFrameQueue;
 
 // Cross-domain GUI → model invoke: only ObjId + member-function identity and
 // by-value arguments cross the thread boundary. The queued work resolves the
@@ -48,14 +47,9 @@ class ModelObjectProxy {
     return presentation_size_queue_;
   }
 
-  void BindMainNativeFrameQueue(WindowCatalogMainNativeFrameQueue* queue);
-  void UnbindMainNativeFrameQueue(WindowCatalogMainNativeFrameQueue* queue);
-  [[nodiscard]] WindowCatalogMainNativeFrameQueue* MainNativeFrameQueue() const;
-
  private:
   Enqueue enqueue_;
   SurfacesPresentationSizeQueue* presentation_size_queue_{nullptr};
-  WindowCatalogMainNativeFrameQueue* main_native_frame_queue_{nullptr};
 };
 
 }  // namespace apptraverse

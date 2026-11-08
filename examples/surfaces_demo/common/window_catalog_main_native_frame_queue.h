@@ -22,9 +22,6 @@ class WindowCatalogMainNativeFrameQueue {
   void BindPostWork(PostWork post);
   void ClosePosting();
 
-  void BindProxy(ModelObjectProxy* proxy);
-  void UnbindProxy(ModelObjectProxy* proxy);
-
   void Post(ModelObjectProxy* proxy, ae::ObjId catalog_id,
             ae::ObjId main_window_id, std::int32_t x, std::int32_t y,
             std::int32_t client_width, std::int32_t client_height,
@@ -51,13 +48,11 @@ class WindowCatalogMainNativeFrameQueue {
   bool slot_active_{false};
 };
 
-void PostWindowCatalogMainNativeFrame(ModelObjectProxy* proxy,
-                                      ae::ObjId catalog_id,
-                                      ae::ObjId main_window_id,
-                                      std::int32_t x, std::int32_t y,
-                                      std::int32_t client_width,
-                                      std::int32_t client_height,
-                                      bool updates_restore_geometry);
+void PostWindowCatalogMainNativeFrame(
+    WindowCatalogMainNativeFrameQueue& queue, ModelObjectProxy* proxy,
+    ae::ObjId catalog_id, ae::ObjId main_window_id, std::int32_t x,
+    std::int32_t y, std::int32_t client_width, std::int32_t client_height,
+    bool updates_restore_geometry);
 
 }  // namespace apptraverse
 

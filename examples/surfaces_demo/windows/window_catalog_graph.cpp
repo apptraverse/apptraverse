@@ -2,6 +2,7 @@
 
 #include "window_catalog_actions.h"
 #include "window_catalog_main_native_frame_queue.h"
+#include "window_catalog_main_native_frame_wiring.h"
 #include "window_catalog_graph_builder.h"
 #include "window_catalog_ids.h"
 #include "window_catalog_list_presenter_mixin.h"
@@ -9,7 +10,10 @@
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/platform/windows/win_ui_presenters.h"
+#include <windows.h>
 #include "apptraverse/platform/windows/win_ui_push_button_presenter.h"
+#include "apptraverse/object_serialization.h"
+#include "apptraverse/presenter.h"
 #include "apptraverse/ui/ui_presenters.h"
 
 namespace apptraverse::example::surfaces {
@@ -53,9 +57,13 @@ class CatalogDesktopWindowPresenter
       return;
     }
     assert(catalog.is_valid() && this->window.is_valid());
-    PostWindowCatalogMainNativeFrame(
-        this->model_proxy, catalog->obj_id, this->window->obj_id, x, y,
-        client_width, client_height, updates_restore_geometry);
+    WindowCatalogMainNativeFrameQueue* const queue =
+        SessionMainNativeFrameQueue();
+    assert(queue != nullptr);
+    ::apptraverse::PostWindowCatalogMainNativeFrame(
+        *queue, this->model_proxy, catalog->obj_id,
+                                     this->window->obj_id, x, y, client_width,
+                                     client_height, updates_restore_geometry);
   }
 };
 
@@ -144,6 +152,102 @@ void EnsureWindowCatalogGraphRegistration() {
   ui::windows::EnsureWinUiPresenterRegistration();
   (void)&example::surfaces::g_apptraverse_registrar_CatalogListContainerPresenter;
   (void)&example::surfaces::g_apptraverse_registrar_CatalogDesktopWindowPresenter;
+}
+
+namespace {
+
+void ForEachCatalogDesktopPresenter(
+    ae::Obj& gui_root,
+    void (*fn)(example::surfaces::CatalogDesktopWindowPresenter&, void*),
+    void* arg) {
+  std::vector<ae::Obj*> objects;
+  CollectLiveReachableObjects(gui_root, objects);
+  auto& registry = ae::Registry::GetRegistry();
+  for (ae::Obj* obj : objects) {
+    if (registry.GenerationDistance(
+            example::surfaces::CatalogDesktopWindowPresenter::kClassId,
+            obj->GetClassId()) < 0) {
+      continue;
+    }
+    auto* catalog_presenter =
+        static_cast<example::surfaces::CatalogDesktopWindowPresenter*>(obj);
+    fn(*catalog_presenter, arg);
+  }
+}
+
+void AttachQueue(example::surfaces::CatalogDesktopWindowPresenter& presenter,
+                 void* arg) {
+  auto* queue = static_cast<WindowCatalogMainNativeFrameQueue*>(arg);
+  presenter.AttachSessionMainNativeFrameQueue(queue);
+}
+
+void DetachQueue(example::surfaces::CatalogDesktopWindowPresenter& presenter,
+                 void*) {
+  presenter.DetachSessionMainNativeFrameQueue();
+}
+
+}  // namespace
+
+void WireWindowCatalogMainNativeFrameQueue(
+    ae::Obj& gui_root, WindowCatalogMainNativeFrameQueue& queue) {
+  ForEachCatalogDesktopPresenter(gui_root, AttachQueue, &queue);
+  auto& catalog = static_cast<WindowCatalog&>(gui_root);
+  catalog.persisted.main_window.Load();
+  catalog.persisted.main_window->presenter.Load();
+  if (!catalog.persisted.main_window->presenter) {
+    return;
+  }
+  ui::UiWindowPresenter* const ui_presenter =
+      catalog.persisted.main_window->presenter.operator->();
+  auto& registry = ae::Registry::GetRegistry();
+  if (registry.GenerationDistance(
+          ui::windows::WinDesktopWindowPresenter::kClassId,
+          ui_presenter->GetClassId()) < 0) {
+    return;
+  }
+  auto* win_presenter =
+      static_cast<ui::windows::WinDesktopWindowPresenter*>(ui_presenter);
+  static_cast<example::surfaces::CatalogDesktopWindowPresenter*>(win_presenter)
+      ->AttachSessionMainNativeFrameQueue(&queue);
+}
+
+void UnwireWindowCatalogMainNativeFrameQueue(ae::Obj& gui_root) {
+  ForEachCatalogDesktopPresenter(gui_root, DetachQueue, nullptr);
+}
+
+void WireWindowCatalogMainNativeFrameQueueForHwnd(
+    HWND hwnd, WindowCatalogMainNativeFrameQueue& queue) {
+  LONG_PTR const user = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+  if (user == 0) {
+    return;
+  }
+  auto* win_presenter = static_cast<ui::windows::WinDesktopWindowPresenter*>(
+      reinterpret_cast<void*>(user));
+  auto* presenter = static_cast<example::surfaces::CatalogDesktopWindowPresenter*>(
+      win_presenter);
+  presenter->AttachSessionMainNativeFrameQueue(&queue);
+}
+
+bool WindowCatalogMainNativeFrameQueueAttached(ae::Obj& gui_root) {
+  auto& catalog = static_cast<WindowCatalog&>(gui_root);
+  catalog.persisted.main_window.Load();
+  catalog.persisted.main_window->presenter.Load();
+  if (!catalog.persisted.main_window->presenter) {
+    return false;
+  }
+  ui::UiWindowPresenter* const ui_presenter =
+      catalog.persisted.main_window->presenter.operator->();
+  auto& registry = ae::Registry::GetRegistry();
+  if (registry.GenerationDistance(
+          ui::windows::WinDesktopWindowPresenter::kClassId,
+          ui_presenter->GetClassId()) < 0) {
+    return false;
+  }
+  auto* win_presenter =
+      static_cast<ui::windows::WinDesktopWindowPresenter*>(ui_presenter);
+  return static_cast<example::surfaces::CatalogDesktopWindowPresenter*>(
+             win_presenter)
+      ->SessionMainNativeFrameQueue() != nullptr;
 }
 
 }  // namespace apptraverse

@@ -9,6 +9,7 @@
 #include "aether-objects/obj/obj.h"
 
 #include "apptraverse/model_object_proxy.h"
+#include "apptraverse/object_serialization.h"
 
 namespace apptraverse {
 
@@ -16,7 +17,8 @@ class ApplicationUiSession {
  public:
   ApplicationUiSession(std::vector<std::uint8_t> const& initial_publication,
                        void* presentation_host,
-                       ModelObjectProxy& model_proxy);
+                       ModelObjectProxy& model_proxy,
+                       UiPresentersPrepareHook prepare_presenters = nullptr);
   ~ApplicationUiSession();
 
   ApplicationUiSession(ApplicationUiSession const&) = delete;
@@ -37,6 +39,7 @@ class ApplicationUiSession {
   ae::Ptr<ae::Obj> root_;
   void* presentation_host_;
   ModelObjectProxy& model_proxy_;
+  UiPresentersPrepareHook prepare_presenters_;
 };
 
 }  // namespace apptraverse

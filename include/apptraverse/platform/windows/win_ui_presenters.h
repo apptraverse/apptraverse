@@ -90,12 +90,6 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
                                   LPARAM lparam);
 
-#if defined(APPTRAVERSE_WINDOW_CATALOG_WIN32_CHROME_ADAPTIVE_TEST)
-  void ChromeAdaptiveTestSetApplyingNativeFrame(bool value) {
-    applying_native_frame_ = value;
-  }
-#endif
-
  private:
 
   struct ClientFrame {

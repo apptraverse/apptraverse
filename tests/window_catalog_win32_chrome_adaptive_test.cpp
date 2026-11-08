@@ -5,15 +5,15 @@ int main() { return 0; }
 #include <cstdlib>
 #include <deque>
 #include <iostream>
+#include <memory>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
 
-#include "apptraverse/graph_mirror.h"
+#include "apptraverse/application_ui_session.h"
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/object_serialization.h"
-#include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/platform/windows/win_ui_frame.h"
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "window_catalog_graph.h"
@@ -21,6 +21,7 @@ int main() { return 0; }
 #include "window_catalog_ids.h"
 #include "window_catalog_prepare.h"
 #include "window_catalog_main_native_frame_queue.h"
+#include "window_catalog_main_native_frame_wiring.h"
 #include "apptraverse/ui/ui_presented_window.h"
 
 namespace apptraverse::test {
@@ -70,13 +71,42 @@ bool RectsOverlap(ClientRect const& a, ClientRect const& b) {
          b.y < a.y + a.height;
 }
 
+void SetMainClientSize(HWND hwnd, std::int32_t client_w, std::int32_t client_h,
+                       bool interactive) {
+  if (interactive) {
+    SendMessageW(hwnd, WM_ENTERSIZEMOVE, 0, 0);
+  }
+  std::int32_t x = 0;
+  std::int32_t y = 0;
+  std::int32_t cw = 0;
+  std::int32_t ch = 0;
+  ui::windows::ReadModelFrameFromHwnd(hwnd, x, y, cw, ch);
+  int outer_w = 0;
+  int outer_h = 0;
+  ui::windows::ClientSizeToOuter(client_w, client_h, outer_w, outer_h);
+  CHECK(SetWindowPos(hwnd, nullptr, x, y, outer_w, outer_h,
+                     SWP_NOZORDER | SWP_NOACTIVATE) != 0);
+  if (!interactive) {
+    return;
+  }
+}
+
+void EndInteractive(HWND hwnd) { SendMessageW(hwnd, WM_EXITSIZEMOVE, 0, 0); }
+
+void DispatchPendingWin32Messages() {
+  MSG msg{};
+  while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE) != 0) {
+    TranslateMessage(&msg);
+    DispatchMessageW(&msg);
+  }
+}
+
 struct Harness {
   ae::RamDomainStorage model_storage;
-  OverlayDomainStorage ui_storage{model_storage};
   ae::Domain model_domain{model_storage};
-  ae::Domain ui_domain{ui_storage};
   WindowCatalog::ptr model_catalog;
-  WindowCatalog::ptr ui_catalog;
+  std::unique_ptr<ApplicationUiSession> ui_session;
+  WindowCatalog* ui_catalog{nullptr};
   std::deque<ModelObjectProxy::ModelWork> model_work;
   ModelObjectProxy model_proxy;
   ui::windows::WinDesktopWindowPresenter* main_presenter{nullptr};
@@ -99,31 +129,49 @@ struct Harness {
         [this](ModelObjectProxy::ModelWork work) {
           model_work.push_back(std::move(work));
         });
-    main_native_frame_queue.BindProxy(&model_proxy);
     model_catalog = BuildWindowCatalogGraph(model_domain);
     PrepareWindowCatalogForRun(*model_catalog);
-    auto ui_obj =
-        CopyModelGraphToUiDomain(*model_catalog, ui_domain, ui_storage);
-    ui_catalog =
-        WindowCatalog::ptr::MakeFromThis(static_cast<WindowCatalog*>(ui_obj.get()));
-    InitializePresenters(*ui_catalog, nullptr, &model_proxy);
+    ByteSink initial;
+    SerializeInitialPublication(*model_catalog, initial);
+    ui_session = std::make_unique<ApplicationUiSession>(
+        initial.bytes, nullptr, model_proxy, PresenterWireHook());
+    ui_catalog = static_cast<WindowCatalog*>(&ui_session->root());
     ui_catalog->persisted.main_window.Load();
     ui_catalog->persisted.main_window->presenter.Load();
     main_presenter = static_cast<ui::windows::WinDesktopWindowPresenter*>(
         ui_catalog->persisted.main_window->presenter.operator->());
     CHECK(main_presenter != nullptr);
     CHECK(main_presenter->hwnd() != nullptr);
+    WireWindowCatalogMainNativeFrameQueueForHwnd(main_presenter->hwnd(),
+                                                 main_native_frame_queue);
+    CHECK(WindowCatalogMainNativeFrameQueueAttached(*ui_catalog));
+    DispatchPendingWin32Messages();
   }
 
   ~Harness() {
     main_native_frame_queue.ClosePosting();
-    main_native_frame_queue.UnbindProxy(&model_proxy);
-    UnloadPresenters(*ui_catalog);
+    if (ui_catalog != nullptr) {
+      UnwireWindowCatalogMainNativeFrameQueue(*ui_catalog);
+    }
+    ui_session.reset();
+  }
+
+  UiPresentersPrepareHook PresenterWireHook() {
+    return [this](ae::Obj& root) {
+      WireWindowCatalogMainNativeFrameQueue(root, main_native_frame_queue);
+    };
+  }
+
+  void EnsureMainNativeFrameQueueWired() {
+    WireWindowCatalogMainNativeFrameQueue(*ui_catalog, main_native_frame_queue);
+    if (main_presenter != nullptr && main_presenter->hwnd() != nullptr) {
+      WireWindowCatalogMainNativeFrameQueueForHwnd(main_presenter->hwnd(),
+                                                   main_native_frame_queue);
+    }
   }
 
   void PumpModelAndApply() {
-    main_native_frame_queue.BindProxy(&model_proxy);
-    main_presenter->ChromeAdaptiveTestSetApplyingNativeFrame(true);
+    EnsureMainNativeFrameQueueWired();
     while (!model_work.empty()) {
       auto work = std::move(model_work.front());
       model_work.pop_front();
@@ -134,16 +182,10 @@ struct Harness {
     ByteSource in;
     in.data = sink.bytes.data();
     in.size = sink.bytes.size();
-    ApplyStructuralPublicationAndUpdatePresenters(
-        in, ui_domain, ui_storage, *ui_catalog, nullptr, &model_proxy);
-    main_presenter->ChromeAdaptiveTestSetApplyingNativeFrame(true);
-    MSG msg{};
-    HWND const hwnd = main_presenter->hwnd();
-    while (PeekMessageW(&msg, hwnd, 0, 0, PM_REMOVE) != 0) {
-      TranslateMessage(&msg);
-      DispatchMessageW(&msg);
-    }
-    main_presenter->ChromeAdaptiveTestSetApplyingNativeFrame(false);
+    ui_session->ApplyStructural(sink.bytes);
+    WireWindowCatalogMainNativeFrameQueueForHwnd(main_presenter->hwnd(),
+                                                 main_native_frame_queue);
+    DispatchPendingWin32Messages();
   }
 
   HWND MainHwnd() const { return main_presenter->hwnd(); }
@@ -152,44 +194,10 @@ struct Harness {
     return GetDlgItem(MainHwnd(), static_cast<int>(control_id));
   }
 
-  void SetMainClientSize(HWND hwnd, std::int32_t client_w, std::int32_t client_h,
-                         bool interactive) {
-    if (interactive) {
-      SendMessageW(hwnd, WM_ENTERSIZEMOVE, 0, 0);
-    }
-    std::int32_t x = 0;
-    std::int32_t y = 0;
-    std::int32_t cw = 0;
-    std::int32_t ch = 0;
-    ui::windows::ReadModelFrameFromHwnd(hwnd, x, y, cw, ch);
-    int outer_w = 0;
-    int outer_h = 0;
-    ui::windows::ClientSizeToOuter(client_w, client_h, outer_w, outer_h);
-    main_presenter->ChromeAdaptiveTestSetApplyingNativeFrame(true);
-    CHECK(SetWindowPos(hwnd, nullptr, x, y, outer_w, outer_h,
-                       SWP_NOZORDER | SWP_NOACTIVATE) != 0);
-    main_presenter->ChromeAdaptiveTestSetApplyingNativeFrame(false);
-    ui::windows::ReadModelFrameFromHwnd(hwnd, x, y, cw, ch);
-    PostWindowCatalogMainNativeFrame(&model_proxy, ui_catalog->obj_id,
-                                     main_window_id, x, y, cw, ch, !interactive);
-  }
-
   void ResizeClient(std::int32_t w, std::int32_t h, bool interactive) {
     SetMainClientSize(MainHwnd(), w, h, interactive);
+    DispatchPendingWin32Messages();
     PumpModelAndApply();
-  }
-
-  void EndInteractiveResize(HWND hwnd) {
-    main_presenter->ChromeAdaptiveTestSetApplyingNativeFrame(true);
-    SendMessageW(hwnd, WM_EXITSIZEMOVE, 0, 0);
-    main_presenter->ChromeAdaptiveTestSetApplyingNativeFrame(false);
-    std::int32_t x = 0;
-    std::int32_t y = 0;
-    std::int32_t cw = 0;
-    std::int32_t ch = 0;
-    ui::windows::ReadModelFrameFromHwnd(hwnd, x, y, cw, ch);
-    PostWindowCatalogMainNativeFrame(&model_proxy, ui_catalog->obj_id, main_window_id,
-                                     x, y, cw, ch, true);
   }
 };
 
@@ -237,19 +245,19 @@ void ExpectTallChrome(HWND main, std::int32_t client_w, std::int32_t client_h) {
 
 void TestBurstResizeWithoutPerStepPump() {
   Harness h;
+  h.EnsureMainNativeFrameQueueWired();
   HWND const main = h.MainHwnd();
-  ae::ObjId const catalog_id = h.ui_catalog->obj_id;
   for (int i = 0; i < 31; ++i) {
     std::int32_t const w = (i % 2 == 0) ? 900 : 500;
     std::int32_t const ch = (i % 2 == 0) ? 500 : 900;
-    PostWindowCatalogMainNativeFrame(&h.model_proxy, catalog_id, h.main_window_id,
-                                     0, 0, w, ch, false);
+    SetMainClientSize(main, w, ch, true);
+    DispatchPendingWin32Messages();
   }
-  PostWindowCatalogMainNativeFrame(&h.model_proxy, catalog_id, h.main_window_id, 0,
-                                   0, 900, 500, false);
-  CHECK(h.model_work.size() == 1);
+  SetMainClientSize(main, 900, 500, false);
+  DispatchPendingWin32Messages();
+  EndInteractive(main);
+  DispatchPendingWin32Messages();
   h.PumpModelAndApply();
-  h.SetMainClientSize(main, 900, 500, false);
   ExpectWideChrome(main, 900, 500);
 }
 
@@ -268,10 +276,12 @@ void TestNativeAdaptiveChromeResizePath() {
   CHECK(h.model_catalog->persisted.main_client_viewport.width == 900);
   CHECK(h.model_catalog->persisted.main_client_viewport.height == 500);
 
-  h.SetMainClientSize(main, 500, 900, true);
+  SetMainClientSize(main, 500, 900, true);
+  DispatchPendingWin32Messages();
   h.PumpModelAndApply();
   ExpectTallChrome(main, 500, 900);
-  h.EndInteractiveResize(main);
+  EndInteractive(main);
+  DispatchPendingWin32Messages();
   h.PumpModelAndApply();
 
   h.ResizeClient(600, 600, false);
@@ -294,6 +304,7 @@ void TestNativeAdaptiveChromeResizePath() {
 int main() {
   apptraverse::EnableNoninteractiveCrt();
   apptraverse::test::TestBurstResizeWithoutPerStepPump();
+  apptraverse::test::TestNativeAdaptiveChromeResizePath();
   std::cout << "window_catalog_win32_chrome_adaptive_test OK\n";
   return 0;
 }

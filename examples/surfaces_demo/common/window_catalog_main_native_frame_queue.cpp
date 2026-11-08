@@ -7,25 +7,6 @@
 #include "apptraverse/ui/ui_desktop_window.h"
 
 namespace apptraverse {
-
-void ModelObjectProxy::BindMainNativeFrameQueue(
-    WindowCatalogMainNativeFrameQueue* queue) {
-  assert(queue != nullptr);
-  main_native_frame_queue_ = queue;
-}
-
-void ModelObjectProxy::UnbindMainNativeFrameQueue(
-    WindowCatalogMainNativeFrameQueue* queue) {
-  if (main_native_frame_queue_ == queue) {
-    main_native_frame_queue_ = nullptr;
-  }
-}
-
-WindowCatalogMainNativeFrameQueue* ModelObjectProxy::MainNativeFrameQueue()
-    const {
-  return main_native_frame_queue_;
-}
-
 namespace {
 
 struct MainFrameApply {
@@ -64,16 +45,6 @@ void WindowCatalogMainNativeFrameQueue::BindPostWork(PostWork post) {
 void WindowCatalogMainNativeFrameQueue::ClosePosting() {
   std::lock_guard<std::mutex> lock{mu_};
   posting_closed_ = true;
-}
-
-void WindowCatalogMainNativeFrameQueue::BindProxy(ModelObjectProxy* proxy) {
-  assert(proxy != nullptr);
-  proxy->BindMainNativeFrameQueue(this);
-}
-
-void WindowCatalogMainNativeFrameQueue::UnbindProxy(ModelObjectProxy* proxy) {
-  assert(proxy != nullptr);
-  proxy->UnbindMainNativeFrameQueue(this);
 }
 
 void WindowCatalogMainNativeFrameQueue::EnsureDrainScheduled() {
@@ -133,7 +104,6 @@ void WindowCatalogMainNativeFrameQueue::Post(ModelObjectProxy* proxy,
                                              std::int32_t client_height,
                                              bool updates_restore_geometry) {
   assert(proxy != nullptr);
-  assert(proxy->MainNativeFrameQueue() == this);
   {
     std::lock_guard<std::mutex> lock{mu_};
     assert(post_);
@@ -150,18 +120,14 @@ void WindowCatalogMainNativeFrameQueue::Post(ModelObjectProxy* proxy,
   EnsureDrainScheduled();
 }
 
-void PostWindowCatalogMainNativeFrame(ModelObjectProxy* proxy,
-                                      ae::ObjId catalog_id,
-                                      ae::ObjId main_window_id,
-                                      std::int32_t x, std::int32_t y,
-                                      std::int32_t client_width,
-                                      std::int32_t client_height,
-                                      bool updates_restore_geometry) {
+void PostWindowCatalogMainNativeFrame(
+    WindowCatalogMainNativeFrameQueue& queue, ModelObjectProxy* proxy,
+    ae::ObjId catalog_id, ae::ObjId main_window_id, std::int32_t x,
+    std::int32_t y, std::int32_t client_width, std::int32_t client_height,
+    bool updates_restore_geometry) {
   assert(proxy != nullptr);
-  WindowCatalogMainNativeFrameQueue* queue = proxy->MainNativeFrameQueue();
-  assert(queue != nullptr);
-  queue->Post(proxy, catalog_id, main_window_id, x, y, client_width,
-              client_height, updates_restore_geometry);
+  queue.Post(proxy, catalog_id, main_window_id, x, y, client_width,
+             client_height, updates_restore_geometry);
 }
 
 }  // namespace apptraverse

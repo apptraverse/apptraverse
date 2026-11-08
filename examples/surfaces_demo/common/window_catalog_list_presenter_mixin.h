@@ -2,6 +2,7 @@
 #define APPTRAVERSE_WINDOW_CATALOG_LIST_PRESENTER_MIXIN_H_
 
 #include "window_catalog_list_row_text.h"
+#include "window_catalog_main_native_frame_queue.h"
 #include "window_catalog_model.h"
 
 #include "apptraverse/ui/ui_presenters.h"
@@ -43,7 +44,23 @@ class WindowCatalogDesktopPresenterMixin : public BaseDesktopPresenter {
 
   WindowCatalog::ptr catalog;
 
+  void AttachSessionMainNativeFrameQueue(
+      ::apptraverse::WindowCatalogMainNativeFrameQueue* queue) {
+    session_main_native_frame_queue_ = queue;
+  }
+
+  void DetachSessionMainNativeFrameQueue() {
+    session_main_native_frame_queue_ = nullptr;
+  }
+
+  [[nodiscard]] ::apptraverse::WindowCatalogMainNativeFrameQueue*
+  SessionMainNativeFrameQueue() const {
+    return session_main_native_frame_queue_;
+  }
+
  protected:
+  ::apptraverse::WindowCatalogMainNativeFrameQueue*
+      session_main_native_frame_queue_{nullptr};
   void SubmitMainCatalogViewportFromNative(std::int32_t width,
                                            std::int32_t height) {
     if (!catalog.is_valid() || !this->window.is_valid() ||

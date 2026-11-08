@@ -36,7 +36,8 @@ WinApplicationHost::~WinApplicationHost() = default;
 
 void WinApplicationHost::OnInitialPublished() {
   std::vector<std::uint8_t> bytes = runtime_.TakePublishedCopyForUiApply();
-  ui_session_.emplace(bytes, &presentation_host_, model_proxy_);
+  ui_session_.emplace(bytes, &presentation_host_, model_proxy_,
+                      callbacks_.prepare_ui_presenters);
   if (callbacks_.after_initial) {
     callbacks_.after_initial(ui_session_->root());
   }
