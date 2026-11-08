@@ -214,6 +214,10 @@ void WinDesktopWindowPresenter::OnLoad() {
   SetUserData(hwnd_, this);
   ShowWindow(hwnd_, SW_SHOW);
   UpdateWindow(hwnd_);
+  ClientFrame const initial = ReadNativeClientFrame();
+  last_native_client_width_ = initial.client_width;
+  last_native_client_height_ = initial.client_height;
+  OnNativeClientFrameObserved(initial.client_width, initial.client_height);
 }
 
 WinDesktopWindowPresenter::ClientFrame
@@ -236,8 +240,7 @@ bool WinDesktopWindowPresenter::FramesEqual(ClientFrame a, ClientFrame b) {
 }
 
 void WinDesktopWindowPresenter::TrackInteractiveNativeFrame() {
-  // Interactive move/resize coalesces to a single model report on
-  // WM_EXITSIZEMOVE (see TestInteractiveDragCoalescesModelSubmits).
+  HandleNativeFrameChanged(false);
 }
 
 WinDesktopWindowPresenter::ClientFrame
@@ -284,8 +287,27 @@ void WinDesktopWindowPresenter::HandleNativeFrameChanged(
     return;
   }
   ClientFrame const native = ReadNativeClientFrame();
+  bool const client_dims_changed =
+      native.client_width != last_native_client_width_ ||
+      native.client_height != last_native_client_height_;
+  if (interactive_move_active_ && !updates_restore_geometry) {
+    if (!client_dims_changed) {
+      return;
+    }
+    SubmitFrameFromNative(native.x, native.y, native.client_width,
+                          native.client_height, false);
+    OnNativeClientFrameObserved(native.client_width, native.client_height);
+    last_native_client_width_ = native.client_width;
+    last_native_client_height_ = native.client_height;
+    return;
+  }
   SubmitFrameFromNative(native.x, native.y, native.client_width,
                         native.client_height, updates_restore_geometry);
+  OnNativeClientFrameObserved(native.client_width, native.client_height);
+  if (client_dims_changed || updates_restore_geometry) {
+    last_native_client_width_ = native.client_width;
+    last_native_client_height_ = native.client_height;
+  }
 }
 
 bool WinDesktopWindowPresenter::RouteChildCommand(std::uint32_t command_id,

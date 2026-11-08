@@ -43,7 +43,7 @@ WindowCatalogMainChromeLayout ComputeWindowCatalogMainChromeLayout(
   WindowCatalogChromeRect* buttons[kButtonCount] = {
       &layout.add, &layout.open, &layout.delete_button, &layout.language};
 
-  if (h >= w) {
+  if (h > w) {
     std::int32_t const inner_w = w - 2 * margin;
     std::int32_t const list_top = margin;
     std::int32_t const list_bottom_max = h - margin - margin;

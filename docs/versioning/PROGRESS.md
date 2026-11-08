@@ -22,11 +22,11 @@
 | # | Принцип / место | Нарушение | Исправление / проверка | Статус |
 | --- | --- | --- | --- | --- |
 | 1 | List layout ← mirror | `WinListContainerPresenter::SyncFromMirror` не двигал LISTBOX | `ApplyListLayoutFromMirror` из mirror `layout_*` | PASS (`win32_acceptance`, materialization) |
-| 2 | Нет model←mirror command loop | `CatalogListContainerPresenter::OnModelChanged` → viewport report | Удалён вызов `ReportCatalogMainViewportFromMirror` (Windows graph only) | PASS |
+| 2 | Viewport native → model (без mirror loop) | После снятия list `OnModelChanged` report не было Windows-доставки | `CatalogDesktopWindowPresenter::OnNativeClientFrameObserved` → `SubmitMainClientViewportFromUi`; `TrackInteractiveNativeFrame` → live client report | PASS (`win32_chrome_adaptive_test`) |
 | 3 | Startup / lazy | Молчаливые return при failed HWND | Повторный обзор: обязательный граф по-прежнему в Prepare; create-fail на child — как раньше; list layout — `FatalWin32` на границе | CHECKED (нового нарушения нет) |
 | 4 | §25.3 без production hooks | Файловый focus-счётчик в demo + presenter test counters | Удалены; acceptance — `GetForegroundWindow` / HWND geometry / `pending_reports` | PASS |
 | 5 | Close → Unload → Save USER | RAM-only / лишние записи | Без изменения ядра: `window_catalog_embedded_overlay_test` + model save/close сценарии | PASS (существующие тесты) |
-| 6 | Поздний native input после Close/Delete | Lifetime presenter vs model | Штатный proxy + lifecycle в acceptance; **коалесcing** drag: `TrackInteractiveNativeFrame` не шлёт model на каждый шаг, только `WM_EXITSIZEMOVE` | PASS (frame sync + drag e2e + acceptance) |
+| 6 | Поздний native input после Close/Delete | Lifetime presenter vs model | Штатный proxy + lifecycle в acceptance; interactive resize: live client + viewport до `WM_EXITSIZEMOVE`, restore geometry — на exit | PASS |
 | 7 | Embedded Load → … → new process | Цепочка end-to-end | Win32 acceptance two-process + embedded overlay cold | PASS (авто) |
 
 ### Расхождение спецификации (отдельно, без правки loader)
@@ -39,6 +39,7 @@ Google Doc **§5.1** — платформенный потомок presenter и�
 | --- | --- |
 | `apptraverse_window_catalog_{headless,model,embedded_overlay,win32_acceptance}_test` | PASS |
 | `apptraverse_presenter_win_desktop_{frame_sync,interactive_drag_e2e,frame_publication_e2e}_test` | PASS |
+| `apptraverse_window_catalog_win32_chrome_adaptive_test` | PASS (native HWND wide/tall/square) |
 | `apptraverse_win_ui_native_push_button_test`, `apptraverse_ui_control_materialization_test` | PASS |
 | `apptraverse_application_contract_headless_test` | PASS |
 | persistence / Clone / origin disk matrix | **NOT RUN** (общий storage не менялся) |

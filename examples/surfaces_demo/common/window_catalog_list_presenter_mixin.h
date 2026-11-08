@@ -43,6 +43,25 @@ class WindowCatalogDesktopPresenterMixin : public BaseDesktopPresenter {
 
   WindowCatalog::ptr catalog;
 
+ protected:
+  void SubmitMainCatalogViewportFromNative(std::int32_t width,
+                                           std::int32_t height) {
+    if (!catalog.is_valid() || !this->window.is_valid() ||
+        this->model_proxy == nullptr) {
+      return;
+    }
+    catalog.Load();
+    if (this->window->obj_id != catalog->persisted.main_window.id()) {
+      return;
+    }
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+    this->model_proxy->Invoke(catalog->obj_id,
+                              &WindowCatalog::SubmitMainClientViewportFromUi,
+                              width, height, 160);
+  }
+
   std::string ResolvePresentedWindowTitle(int language_index) const override {
     if (!catalog.is_valid() || !this->window.is_valid()) {
       return BaseDesktopPresenter::ResolvePresentedWindowTitle(language_index);

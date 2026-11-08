@@ -1637,6 +1637,17 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
   target_link_libraries(apptraverse_window_catalog_win32_acceptance_test PRIVATE
     apptraverse_ui_windows_extended apptraverse)
 
+  apptraverse_add_test(apptraverse_window_catalog_win32_chrome_adaptive_test
+    window_catalog_win32_chrome_adaptive_test.cpp surfaces_demo_window_catalog)
+  target_link_libraries(apptraverse_window_catalog_win32_chrome_adaptive_test PRIVATE
+    apptraverse_ui_windows_extended apptraverse)
+  if(MSVC)
+    target_compile_options(apptraverse_window_catalog_win32_chrome_adaptive_test PRIVATE
+      /utf-8)
+  endif()
+  set_tests_properties(apptraverse_window_catalog_win32_chrome_adaptive_test PROPERTIES
+    LABELS "window_catalog")
+
   apptraverse_add_test(apptraverse_minimal_app_win32_acceptance_test
     minimal_app_win32_acceptance_test.cpp minimal_app_common)
   target_compile_definitions(apptraverse_minimal_app_win32_acceptance_test PRIVATE

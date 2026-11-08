@@ -23,7 +23,7 @@ struct WindowCatalogMainChromeLayout {
 };
 
 // Adaptive main chrome layout.
-//  * Portrait (client_h >= client_w): list on top, the four buttons stacked in
+//  * Portrait (client_h > client_w): list on top, the four buttons stacked in
 //    a full-width column at the bottom.
 //  * Landscape: list on the left half, the four buttons stacked in a column on
 //    the right half.

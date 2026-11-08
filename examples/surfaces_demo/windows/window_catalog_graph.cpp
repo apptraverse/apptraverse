@@ -36,6 +36,11 @@ class CatalogDesktopWindowPresenter
   void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, catalog);
   }
+
+  void OnNativeClientFrameObserved(std::int32_t client_width,
+                                   std::int32_t client_height) override {
+    SubmitMainCatalogViewportFromNative(client_width, client_height);
+  }
 };
 
 class CatalogListContainerPresenter

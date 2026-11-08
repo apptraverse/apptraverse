@@ -954,6 +954,12 @@ void TestMobileCloseButtonAndAdaptiveLayout() {
   CHECK(add_presenter.layout_x == landscape.add.x);
   CHECK(list_presenter.layout_width == landscape.list.width);
   CHECK(list_presenter.layout_height == landscape.list.height);
+
+  auto const square = ComputeWindowCatalogMainChromeLayout(600, 600, 160);
+  CHECK(square.list.x < square.add.x);
+  catalog->SubmitMainClientViewportFromUi(600, 600);
+  CHECK(list_presenter.layout_x == square.list.x);
+  CHECK(add_presenter.layout_x == square.add.x);
 }
 }  // namespace
 }  // namespace apptraverse::test

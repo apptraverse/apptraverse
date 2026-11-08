@@ -122,6 +122,10 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
   bool interactive_move_active_;
 
+  std::int32_t last_native_client_width_{-1};
+
+  std::int32_t last_native_client_height_{-1};
+
 #if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
 
  public:
