@@ -1641,6 +1641,8 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
     window_catalog_win32_chrome_adaptive_test.cpp surfaces_demo_window_catalog)
   target_link_libraries(apptraverse_window_catalog_win32_chrome_adaptive_test PRIVATE
     apptraverse_ui_windows_extended apptraverse)
+  target_compile_definitions(apptraverse_window_catalog_win32_chrome_adaptive_test PRIVATE
+    APPTRAVERSE_WINDOW_CATALOG_WIN32_CHROME_ADAPTIVE_TEST)
   if(MSVC)
     target_compile_options(apptraverse_window_catalog_win32_chrome_adaptive_test PRIVATE
       /utf-8)

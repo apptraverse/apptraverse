@@ -7,9 +7,26 @@
 #include "apptraverse/ui/ui_desktop_window.h"
 
 namespace apptraverse {
-namespace {
 
-WindowCatalogMainNativeFrameQueue g_shared_queue;
+void ModelObjectProxy::BindMainNativeFrameQueue(
+    WindowCatalogMainNativeFrameQueue* queue) {
+  assert(queue != nullptr);
+  main_native_frame_queue_ = queue;
+}
+
+void ModelObjectProxy::UnbindMainNativeFrameQueue(
+    WindowCatalogMainNativeFrameQueue* queue) {
+  if (main_native_frame_queue_ == queue) {
+    main_native_frame_queue_ = nullptr;
+  }
+}
+
+WindowCatalogMainNativeFrameQueue* ModelObjectProxy::MainNativeFrameQueue()
+    const {
+  return main_native_frame_queue_;
+}
+
+namespace {
 
 struct MainFrameApply {
   ae::ObjId catalog_id;
@@ -24,17 +41,13 @@ struct MainFrameApply {
 void ApplyCoalescedMainNativeFrame(ae::Domain& domain,
                                    MainFrameApply const& slot) {
   auto window_obj = domain.Find(slot.main_window_id);
-  if (!window_obj) {
-    return;
-  }
+  assert(window_obj && "main window native frame target must exist");
   auto* window = window_obj.as<ui::UiDesktopWindow>();
   window->SubmitFrameFromNative(slot.x, slot.y, slot.client_width,
                                 slot.client_height,
                                 slot.updates_restore_geometry);
   auto catalog_obj = domain.Find(slot.catalog_id);
-  if (!catalog_obj) {
-    return;
-  }
+  assert(catalog_obj && "catalog viewport target must exist");
   auto* catalog = catalog_obj.as<WindowCatalog>();
   catalog->SubmitMainClientViewportFromUi(slot.client_width, slot.client_height,
                                           160);
@@ -44,25 +57,23 @@ void ApplyCoalescedMainNativeFrame(ae::Domain& domain,
 
 void WindowCatalogMainNativeFrameQueue::BindPostWork(PostWork post) {
   std::lock_guard<std::mutex> lock{mu_};
+  posting_closed_ = false;
   post_ = std::move(post);
-  drain_scheduled_ = false;
-  slot_active_ = false;
 }
 
-bool WindowCatalogMainNativeFrameQueue::post_bound() const {
+void WindowCatalogMainNativeFrameQueue::ClosePosting() {
   std::lock_guard<std::mutex> lock{mu_};
-  return static_cast<bool>(post_);
+  posting_closed_ = true;
 }
 
-std::size_t WindowCatalogMainNativeFrameQueue::pending_catalog_count_for_test()
-    const {
-  std::lock_guard<std::mutex> lock{mu_};
-  return slot_active_ ? 1U : 0U;
+void WindowCatalogMainNativeFrameQueue::BindProxy(ModelObjectProxy* proxy) {
+  assert(proxy != nullptr);
+  proxy->BindMainNativeFrameQueue(this);
 }
 
-bool WindowCatalogMainNativeFrameQueue::drain_scheduled_for_test() const {
-  std::lock_guard<std::mutex> lock{mu_};
-  return drain_scheduled_;
+void WindowCatalogMainNativeFrameQueue::UnbindProxy(ModelObjectProxy* proxy) {
+  assert(proxy != nullptr);
+  proxy->UnbindMainNativeFrameQueue(this);
 }
 
 void WindowCatalogMainNativeFrameQueue::EnsureDrainScheduled() {
@@ -121,10 +132,12 @@ void WindowCatalogMainNativeFrameQueue::Post(ModelObjectProxy* proxy,
                                              std::int32_t client_width,
                                              std::int32_t client_height,
                                              bool updates_restore_geometry) {
-  (void)proxy;
+  assert(proxy != nullptr);
+  assert(proxy->MainNativeFrameQueue() == this);
   {
     std::lock_guard<std::mutex> lock{mu_};
     assert(post_);
+    assert(!posting_closed_);
     slot_active_ = true;
     slot_.catalog_id = catalog_id;
     slot_.main_window_id = main_window_id;
@@ -137,10 +150,6 @@ void WindowCatalogMainNativeFrameQueue::Post(ModelObjectProxy* proxy,
   EnsureDrainScheduled();
 }
 
-WindowCatalogMainNativeFrameQueue& SharedWindowCatalogMainNativeFrameQueue() {
-  return g_shared_queue;
-}
-
 void PostWindowCatalogMainNativeFrame(ModelObjectProxy* proxy,
                                       ae::ObjId catalog_id,
                                       ae::ObjId main_window_id,
@@ -149,17 +158,10 @@ void PostWindowCatalogMainNativeFrame(ModelObjectProxy* proxy,
                                       std::int32_t client_height,
                                       bool updates_restore_geometry) {
   assert(proxy != nullptr);
-  WindowCatalogMainNativeFrameQueue& queue =
-      SharedWindowCatalogMainNativeFrameQueue();
-  if (queue.post_bound()) {
-    queue.Post(proxy, catalog_id, main_window_id, x, y, client_width,
-               client_height, updates_restore_geometry);
-    return;
-  }
-  proxy->Invoke(main_window_id, &ui::UiDesktopWindow::SubmitFrameFromNative, x,
-                y, client_width, client_height, updates_restore_geometry);
-  proxy->Invoke(catalog_id, &WindowCatalog::SubmitMainClientViewportFromUi,
-                client_width, client_height, 160);
+  WindowCatalogMainNativeFrameQueue* queue = proxy->MainNativeFrameQueue();
+  assert(queue != nullptr);
+  queue->Post(proxy, catalog_id, main_window_id, x, y, client_width,
+              client_height, updates_restore_geometry);
 }
 
 }  // namespace apptraverse

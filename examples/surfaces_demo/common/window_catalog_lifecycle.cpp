@@ -68,6 +68,10 @@ void LogEmbeddedLoadMarker(std::filesystem::path const& state_dir) {
 
 int WindowCatalogModelSession::Run(
     ApplicationPublishedCallback on_published) {
+  main_native_frame_queue.BindPostWork(
+      [this](ModelObjectProxy::ModelWork work) {
+        runtime.Post(std::move(work));
+      });
   EnsureObjectRegistration();
   EnsureWindowCatalogGraphRegistration();
 #if defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)

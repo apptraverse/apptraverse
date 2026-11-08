@@ -42,16 +42,17 @@ class CatalogDesktopWindowPresenter
                                 std::int32_t client_width,
                                 std::int32_t client_height,
                                 bool updates_restore_geometry) override {
-    if (!catalog.is_valid() || !this->window.is_valid() ||
-        this->model_proxy == nullptr) {
+    if (this->model_proxy == nullptr) {
       return;
     }
     catalog.Load();
     if (this->window->obj_id != catalog->persisted.main_window.id()) {
+      assert(this->window.is_valid());
       ui::UiDesktopWindowPresenter::ReportNativeFrameToModel(
           x, y, client_width, client_height, updates_restore_geometry);
       return;
     }
+    assert(catalog.is_valid() && this->window.is_valid());
     PostWindowCatalogMainNativeFrame(
         this->model_proxy, catalog->obj_id, this->window->obj_id, x, y,
         client_width, client_height, updates_restore_geometry);

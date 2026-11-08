@@ -13,21 +13,22 @@ namespace apptraverse {
 
 // Coalesces main-window native frame + catalog viewport reports before model
 // Commit. One drain task per catalog at a time; the slot keeps the latest
-// native client geometry.
+// native client geometry. Owned by WindowCatalogModelSession; bound to the
+// session ModelObjectProxy for the lifetime of UI presenters.
 class WindowCatalogMainNativeFrameQueue {
  public:
   using PostWork = std::function<void(ModelObjectProxy::ModelWork)>;
 
   void BindPostWork(PostWork post);
+  void ClosePosting();
+
+  void BindProxy(ModelObjectProxy* proxy);
+  void UnbindProxy(ModelObjectProxy* proxy);
 
   void Post(ModelObjectProxy* proxy, ae::ObjId catalog_id,
             ae::ObjId main_window_id, std::int32_t x, std::int32_t y,
             std::int32_t client_width, std::int32_t client_height,
             bool updates_restore_geometry);
-
-  [[nodiscard]] bool post_bound() const;
-  [[nodiscard]] std::size_t pending_catalog_count_for_test() const;
-  [[nodiscard]] bool drain_scheduled_for_test() const;
 
  private:
   struct CatalogSlot {
@@ -44,12 +45,11 @@ class WindowCatalogMainNativeFrameQueue {
 
   mutable std::mutex mu_;
   PostWork post_;
+  bool posting_closed_{false};
   bool drain_scheduled_{false};
   CatalogSlot slot_{};
   bool slot_active_{false};
 };
-
-WindowCatalogMainNativeFrameQueue& SharedWindowCatalogMainNativeFrameQueue();
 
 void PostWindowCatalogMainNativeFrame(ModelObjectProxy* proxy,
                                       ae::ObjId catalog_id,

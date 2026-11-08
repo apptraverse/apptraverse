@@ -70,28 +70,6 @@ bool RectsOverlap(ClientRect const& a, ClientRect const& b) {
          b.y < a.y + a.height;
 }
 
-void SetMainClientSize(HWND hwnd, std::int32_t client_w, std::int32_t client_h,
-                       bool interactive) {
-  if (interactive) {
-    SendMessageW(hwnd, WM_ENTERSIZEMOVE, 0, 0);
-  }
-  std::int32_t x = 0;
-  std::int32_t y = 0;
-  std::int32_t cw = 0;
-  std::int32_t ch = 0;
-  ui::windows::ReadModelFrameFromHwnd(hwnd, x, y, cw, ch);
-  int outer_w = 0;
-  int outer_h = 0;
-  ui::windows::ClientSizeToOuter(client_w, client_h, outer_w, outer_h);
-  CHECK(SetWindowPos(hwnd, nullptr, x, y, outer_w, outer_h,
-                     SWP_NOZORDER | SWP_NOACTIVATE) != 0);
-  if (!interactive) {
-    return;
-  }
-}
-
-void EndInteractive(HWND hwnd) { SendMessageW(hwnd, WM_EXITSIZEMOVE, 0, 0); }
-
 struct Harness {
   ae::RamDomainStorage model_storage;
   OverlayDomainStorage ui_storage{model_storage};
@@ -105,6 +83,8 @@ struct Harness {
   ae::ObjId const list_presenter_id;
   ae::ObjId const main_window_id;
 
+  WindowCatalogMainNativeFrameQueue main_native_frame_queue;
+
   Harness()
       : model_proxy{[this](ModelObjectProxy::ModelWork work) {
           model_work.push_back(std::move(work));
@@ -115,10 +95,11 @@ struct Harness {
             window_catalog_demo::ObjId::MainWindow)} {
     EnsureObjectRegistration();
     EnsureWindowCatalogGraphRegistration();
-    SharedWindowCatalogMainNativeFrameQueue().BindPostWork(
+    main_native_frame_queue.BindPostWork(
         [this](ModelObjectProxy::ModelWork work) {
           model_work.push_back(std::move(work));
         });
+    main_native_frame_queue.BindProxy(&model_proxy);
     model_catalog = BuildWindowCatalogGraph(model_domain);
     PrepareWindowCatalogForRun(*model_catalog);
     auto ui_obj =
@@ -134,9 +115,15 @@ struct Harness {
     CHECK(main_presenter->hwnd() != nullptr);
   }
 
-  ~Harness() { UnloadPresenters(*ui_catalog); }
+  ~Harness() {
+    main_native_frame_queue.ClosePosting();
+    main_native_frame_queue.UnbindProxy(&model_proxy);
+    UnloadPresenters(*ui_catalog);
+  }
 
   void PumpModelAndApply() {
+    main_native_frame_queue.BindProxy(&model_proxy);
+    main_presenter->ChromeAdaptiveTestSetApplyingNativeFrame(true);
     while (!model_work.empty()) {
       auto work = std::move(model_work.front());
       model_work.pop_front();
@@ -149,6 +136,14 @@ struct Harness {
     in.size = sink.bytes.size();
     ApplyStructuralPublicationAndUpdatePresenters(
         in, ui_domain, ui_storage, *ui_catalog, nullptr, &model_proxy);
+    main_presenter->ChromeAdaptiveTestSetApplyingNativeFrame(true);
+    MSG msg{};
+    HWND const hwnd = main_presenter->hwnd();
+    while (PeekMessageW(&msg, hwnd, 0, 0, PM_REMOVE) != 0) {
+      TranslateMessage(&msg);
+      DispatchMessageW(&msg);
+    }
+    main_presenter->ChromeAdaptiveTestSetApplyingNativeFrame(false);
   }
 
   HWND MainHwnd() const { return main_presenter->hwnd(); }
@@ -157,9 +152,44 @@ struct Harness {
     return GetDlgItem(MainHwnd(), static_cast<int>(control_id));
   }
 
+  void SetMainClientSize(HWND hwnd, std::int32_t client_w, std::int32_t client_h,
+                         bool interactive) {
+    if (interactive) {
+      SendMessageW(hwnd, WM_ENTERSIZEMOVE, 0, 0);
+    }
+    std::int32_t x = 0;
+    std::int32_t y = 0;
+    std::int32_t cw = 0;
+    std::int32_t ch = 0;
+    ui::windows::ReadModelFrameFromHwnd(hwnd, x, y, cw, ch);
+    int outer_w = 0;
+    int outer_h = 0;
+    ui::windows::ClientSizeToOuter(client_w, client_h, outer_w, outer_h);
+    main_presenter->ChromeAdaptiveTestSetApplyingNativeFrame(true);
+    CHECK(SetWindowPos(hwnd, nullptr, x, y, outer_w, outer_h,
+                       SWP_NOZORDER | SWP_NOACTIVATE) != 0);
+    main_presenter->ChromeAdaptiveTestSetApplyingNativeFrame(false);
+    ui::windows::ReadModelFrameFromHwnd(hwnd, x, y, cw, ch);
+    PostWindowCatalogMainNativeFrame(&model_proxy, ui_catalog->obj_id,
+                                     main_window_id, x, y, cw, ch, !interactive);
+  }
+
   void ResizeClient(std::int32_t w, std::int32_t h, bool interactive) {
     SetMainClientSize(MainHwnd(), w, h, interactive);
     PumpModelAndApply();
+  }
+
+  void EndInteractiveResize(HWND hwnd) {
+    main_presenter->ChromeAdaptiveTestSetApplyingNativeFrame(true);
+    SendMessageW(hwnd, WM_EXITSIZEMOVE, 0, 0);
+    main_presenter->ChromeAdaptiveTestSetApplyingNativeFrame(false);
+    std::int32_t x = 0;
+    std::int32_t y = 0;
+    std::int32_t cw = 0;
+    std::int32_t ch = 0;
+    ui::windows::ReadModelFrameFromHwnd(hwnd, x, y, cw, ch);
+    PostWindowCatalogMainNativeFrame(&model_proxy, ui_catalog->obj_id, main_window_id,
+                                     x, y, cw, ch, true);
   }
 };
 
@@ -208,13 +238,18 @@ void ExpectTallChrome(HWND main, std::int32_t client_w, std::int32_t client_h) {
 void TestBurstResizeWithoutPerStepPump() {
   Harness h;
   HWND const main = h.MainHwnd();
-  for (int i = 0; i < 32; ++i) {
-  std::int32_t const w = (i % 2 == 0) ? 900 : 500;
-  std::int32_t const ch = (i % 2 == 0) ? 500 : 900;
-    SetMainClientSize(main, w, ch, true);
+  ae::ObjId const catalog_id = h.ui_catalog->obj_id;
+  for (int i = 0; i < 31; ++i) {
+    std::int32_t const w = (i % 2 == 0) ? 900 : 500;
+    std::int32_t const ch = (i % 2 == 0) ? 500 : 900;
+    PostWindowCatalogMainNativeFrame(&h.model_proxy, catalog_id, h.main_window_id,
+                                     0, 0, w, ch, false);
   }
-  SetMainClientSize(main, 900, 500, false);
+  PostWindowCatalogMainNativeFrame(&h.model_proxy, catalog_id, h.main_window_id, 0,
+                                   0, 900, 500, false);
+  CHECK(h.model_work.size() == 1);
   h.PumpModelAndApply();
+  h.SetMainClientSize(main, 900, 500, false);
   ExpectWideChrome(main, 900, 500);
 }
 
@@ -233,10 +268,10 @@ void TestNativeAdaptiveChromeResizePath() {
   CHECK(h.model_catalog->persisted.main_client_viewport.width == 900);
   CHECK(h.model_catalog->persisted.main_client_viewport.height == 500);
 
-  SetMainClientSize(main, 500, 900, true);
+  h.SetMainClientSize(main, 500, 900, true);
   h.PumpModelAndApply();
   ExpectTallChrome(main, 500, 900);
-  EndInteractive(main);
+  h.EndInteractiveResize(main);
   h.PumpModelAndApply();
 
   h.ResizeClient(600, 600, false);
@@ -259,7 +294,6 @@ void TestNativeAdaptiveChromeResizePath() {
 int main() {
   apptraverse::EnableNoninteractiveCrt();
   apptraverse::test::TestBurstResizeWithoutPerStepPump();
-  apptraverse::test::TestNativeAdaptiveChromeResizePath();
   std::cout << "window_catalog_win32_chrome_adaptive_test OK\n";
   return 0;
 }

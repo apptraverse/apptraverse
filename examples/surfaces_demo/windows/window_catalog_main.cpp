@@ -252,13 +252,11 @@ int main(int argc, char** argv) {
       L"AppTraverseWindowCatalogLoading", L"Loading catalog", L"Loading catalog",
       200, 200, 320, 120};
 
-  apptraverse::SharedWindowCatalogMainNativeFrameQueue().BindPostWork(
-      [&session](apptraverse::ModelObjectProxy::ModelWork work) {
-        session.runtime.Post(std::move(work));
-      });
-
   apptraverse::windows::WinApplicationHost host(session.runtime, loading,
                                               std::move(callbacks));
+  session.main_native_frame_queue.BindProxy(&host.model_proxy());
   host.Run();
+  session.main_native_frame_queue.ClosePosting();
+  session.main_native_frame_queue.UnbindProxy(&host.model_proxy());
   return model_exit_status;
 }

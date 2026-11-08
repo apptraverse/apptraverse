@@ -9,7 +9,7 @@
 
 <a id="p4-wc-adaptive-windows-acceptance--2026-11-07"></a>
 
-## P4 / WindowCatalog adaptive — Windows приёмка (2026-11-07) — IN_PROGRESS (автотесты verified; ручная — ожидает пользователя)
+## P4 / WindowCatalog adaptive — Windows приёмка (2026-11-07) — IN_PROGRESS (автотесты verified; ручная resize/layout PASS @ `baa90bf`; очередь — повторная ручная после ownership fix)
 
 **Worktree:** `apptraverse-wt-adaptive`. **Ветка:** `feature/window-catalog-adaptive`. **База этапа (resize coalesce):** `d7fb0267e7fc0f4e0675d57265b020d5ddf211e4`. **Google Doc** «архитектура / каталог» и «версионирование» — **прямая сверка не выполнена** (403); опора — repo `docs/architecture/AppTraverse_Architecture_RU.md` (§25.3 production hooks), [PLAN](./PLAN.md).
 
@@ -23,7 +23,8 @@
 | --- | --- | --- | --- | --- |
 | 1 | List layout ← mirror | `WinListContainerPresenter::SyncFromMirror` не двигал LISTBOX | `ApplyListLayoutFromMirror` из mirror `layout_*` | PASS (`win32_acceptance`, materialization) |
 | 2 | Viewport native → model (без mirror loop) | После снятия list `OnModelChanged` report не было Windows-доставки | `ReportNativeFrameToModel` → Main: один coalesced `runtime.Post` (frame+viewport); child: `SubmitFrameFromNative` | PASS (`win32_chrome_adaptive_test`) |
-| 2b | Interactive resize backlog | Два FIFO job на resize → хвост публикаций; geometry/viewport рассинхрон | `WindowCatalogMainNativeFrameQueue`: slot replace до drain, один model work на окно | PASS (`main_native_frame_coalesce_test`: burst 8× → **1** post vs fallback **16**) |
+| 2b | Interactive resize backlog | Два FIFO job на resize → хвост публикаций; geometry/viewport рассинхрон | `WindowCatalogMainNativeFrameQueue` на `WindowCatalogModelSession`, bind через `ModelObjectProxy`; coalesce до drain | PASS (coalesce/isolation tests; user live resize **PASS** @ `baa90bf`, не полная архитектурная приёмка) |
+| 2c | Queue ownership | process-global queue, fallback 2× Post, `_for_test`, `BindPostWork` сбрасывал slot | Сессионная очередь, без fallback/shared; proxy route; `ClosePosting` + drain | PASS (авто isolation/shutdown) |
 | 3 | Startup / lazy | Молчаливые return при failed HWND | Повторный обзор: обязательный граф по-прежнему в Prepare; create-fail на child — как раньше; list layout — `FatalWin32` на границе | CHECKED (нового нарушения нет) |
 | 4 | §25.3 без production hooks | Файловый focus-счётчик в demo + presenter test counters | Удалены; acceptance — `GetForegroundWindow` / HWND geometry / `pending_reports` | PASS |
 | 5 | Close → Unload → Save USER | RAM-only / лишние записи | Без изменения ядра: `window_catalog_embedded_overlay_test` + model save/close сценарии | PASS (существующие тесты) |
@@ -40,7 +41,7 @@ Google Doc **§5.1** — платформенный потомок presenter и�
 | --- | --- |
 | `apptraverse_window_catalog_{headless,model,embedded_overlay,win32_acceptance}_test` | PASS |
 | `apptraverse_presenter_win_desktop_{frame_sync,interactive_drag_e2e,frame_publication_e2e}_test` | PASS |
-| `apptraverse_window_catalog_win32_chrome_adaptive_test` | PASS (burst resize без pump каждого шага) |
+| `apptraverse_window_catalog_win32_chrome_adaptive_test` | PASS (burst coalesce enqueue; HWND layout — `win32_acceptance`) |
 | `apptraverse_window_catalog_main_native_frame_coalesce_test` | PASS |
 | `apptraverse_win_ui_native_push_button_test`, `apptraverse_ui_control_materialization_test` | PASS |
 | `apptraverse_application_contract_headless_test` | PASS |
@@ -48,7 +49,7 @@ Google Doc **§5.1** — платформенный потомок presenter и�
 
 **Измерения (harness, не live drag):** pending model jobs на 8 burst resize Main — **16** (fallback) vs **1** (coalesce); время публикации/live lag — **NOT MEASURED** (без внешнего профиля в этом прогоне).
 
-**NEXT (Windows):** ручная приёмка пользователем: живой drag Main wide↔tall на отдельном `--state-dir` (агент: **WAITING USER**). Linux/Android/Web/Apple — **не начинать** без отдельной команды.
+**NEXT (Windows):** повторная ручная проверка ownership-fix на свежем Debug EXE / отдельном `--state-dir`; user resize/layout **PASS** зафиксирован @ `baa90bf` (не full arch). Linux/Android/Web/Apple — **не начинать** без отдельной команды.
 
 <a id="p4-wc-adaptive-save-after-close-language--2026-11-07"></a>
 

@@ -7,11 +7,14 @@
 
 #include "apptraverse/application_model_runtime.h"
 
+#include "window_catalog_main_native_frame_queue.h"
+
 namespace apptraverse {
 
 struct WindowCatalogModelSession {
   std::filesystem::path state_dir;
   ApplicationModelRuntime runtime;
+  WindowCatalogMainNativeFrameQueue main_native_frame_queue;
   ae::ObjId pending_focus_for_ui{};
   ae::ObjId pending_mobile_active_for_ui{};
 
