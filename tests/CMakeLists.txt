@@ -1652,9 +1652,19 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
     window_catalog_main_native_frame_coalesce_test.cpp surfaces_demo_window_catalog)
   target_link_libraries(apptraverse_window_catalog_main_native_frame_coalesce_test PRIVATE
     apptraverse)
+  target_include_directories(apptraverse_window_catalog_main_native_frame_coalesce_test PRIVATE
+    ${APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR}
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/windows)
   if(MSVC)
     target_compile_options(apptraverse_window_catalog_main_native_frame_coalesce_test PRIVATE
       /utf-8)
+  endif()
+  if(TARGET apptraverse_window_catalog_embedded_supply)
+    add_dependencies(apptraverse_window_catalog_main_native_frame_coalesce_test
+      apptraverse_window_catalog_embedded_supply)
+    target_sources(apptraverse_window_catalog_main_native_frame_coalesce_test PRIVATE
+      "${APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR}/embedded_distilled_window_catalog_supply.h")
   endif()
   set_tests_properties(apptraverse_window_catalog_main_native_frame_coalesce_test PROPERTIES
     LABELS "window_catalog")

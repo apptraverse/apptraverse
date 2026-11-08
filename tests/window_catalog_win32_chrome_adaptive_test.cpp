@@ -14,7 +14,6 @@ int main() { return 0; }
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/object_serialization.h"
-#include "apptraverse/platform/windows/win_presentation_host.h"
 #include "apptraverse/platform/windows/win_ui_frame.h"
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "window_catalog_graph.h"
@@ -23,6 +22,7 @@ int main() { return 0; }
 #include "window_catalog_prepare.h"
 #include "window_catalog_main_native_frame_queue.h"
 #include "window_catalog_main_native_frame_wiring.h"
+#include "window_catalog_win_presentation_host.h"
 #include "apptraverse/ui/ui_presented_window.h"
 
 namespace apptraverse::test {
@@ -111,11 +111,11 @@ struct Harness {
   std::deque<ModelObjectProxy::ModelWork> model_work;
   ModelObjectProxy model_proxy;
   ui::windows::WinDesktopWindowPresenter* main_presenter{nullptr};
-  ui::windows::WinPresentationHost presentation_host{};
   ae::ObjId const list_presenter_id;
   ae::ObjId const main_window_id;
 
   WindowCatalogMainNativeFrameQueue main_native_frame_queue;
+  WindowCatalogWinPresentationHost presentation_host_;
 
   Harness()
       : model_proxy{[this](ModelObjectProxy::ModelWork work) {
@@ -124,7 +124,8 @@ struct Harness {
         list_presenter_id{window_catalog_demo::ToObjId(
             window_catalog_demo::ObjId::CatalogListPresenter)},
         main_window_id{window_catalog_demo::ToObjId(
-            window_catalog_demo::ObjId::MainWindow)} {
+            window_catalog_demo::ObjId::MainWindow)},
+        presentation_host_{&main_native_frame_queue} {
     EnsureObjectRegistration();
     EnsureWindowCatalogGraphRegistration();
     main_native_frame_queue.BindPostWork(
@@ -135,21 +136,18 @@ struct Harness {
     PrepareWindowCatalogForRun(*model_catalog);
     ByteSink initial;
     SerializeInitialPublication(*model_catalog, initial);
-    presentation_host.catalog_main_native_frame_queue =
-        &main_native_frame_queue;
     ui_session = std::make_unique<ApplicationUiSession>(
-        initial.bytes, &presentation_host, model_proxy, PresenterWireHook());
+        initial.bytes, &presentation_host_, model_proxy, PresenterWireHook());
     ui_catalog = static_cast<WindowCatalog*>(&ui_session->root());
-    CHECK(WindowCatalogMainNativeFrameQueueAttached(*ui_catalog));
-    ui_catalog->persisted.main_window.Load();
-    ui_catalog->persisted.main_window->presenter.Load();
-    ae::ObjId const presenter_id =
-        ui_catalog->persisted.main_window->presenter.id();
-    ae::Obj* const presenter_obj = &*ui_catalog->domain->Find(presenter_id);
+    ae::ObjId const main_presenter_id = window_catalog_demo::ToObjId(
+        window_catalog_demo::ObjId::MainWindowPresenter);
+    ae::Obj* const presenter_obj =
+        &*ui_catalog->domain->Find(main_presenter_id);
     main_presenter =
         static_cast<ui::windows::WinDesktopWindowPresenter*>(presenter_obj);
     CHECK(main_presenter != nullptr);
     CHECK(main_presenter->hwnd() != nullptr);
+    CHECK(WindowCatalogMainNativeFrameQueueAttached(*ui_catalog));
     DispatchPendingWin32Messages();
   }
 

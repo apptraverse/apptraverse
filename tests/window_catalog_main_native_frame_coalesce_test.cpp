@@ -14,7 +14,12 @@
 #include "apptraverse/application_model_session.h"
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
+#include "apptraverse/embedded_application_model_session.h"
+#include "apptraverse/embedded_distilled_domain.h"
 #include "apptraverse/model_object_proxy.h"
+#include "apptraverse/overlay_domain_storage.h"
+
+#include "embedded_distilled_window_catalog_supply.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/runtime_node.h"
 
@@ -161,19 +166,11 @@ void TestShutdownResizePersistAndColdLoad() {
   EnsureObjectRegistration();
   EnsureWindowCatalogGraphRegistration();
 
-  ae::ObjId const catalog_id{
-      window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
+  auto const& graph = embedded_distilled::window_catalog::kEmbeddedGraph;
+  ae::ObjId const catalog_id{graph.root_object_id};
   ae::ObjId const main_window_id{window_catalog_demo::ToObjId(
       window_catalog_demo::ObjId::MainWindow)};
-  auto const profile_dir = TestDir("wc_frame_shutdown_cold");
-
-  {
-    DirectoryDomainStorage bootstrap{profile_dir};
-    ae::Domain bootstrap_domain{bootstrap};
-    auto catalog = BuildWindowCatalogGraph(bootstrap_domain);
-    FinalizeDistilledGraph(*catalog);
-    SaveDistilledRoot(*catalog);
-  }
+  auto const profile_dir = TestDir("wc_frame_shutdown_cold_embedded");
 
   DirectoryDomainStorage model_storage{profile_dir};
   ApplicationModelRuntime runtime;
@@ -198,14 +195,13 @@ void TestShutdownResizePersistAndColdLoad() {
   ApplicationModelSessionHooks<WindowCatalog> hooks;
   hooks.prepare = PrepareWindowCatalogForRun;
   hooks.persist = [&](WindowCatalog& catalog) -> int {
-    PrepareWindowCatalogForRun(catalog);
     ShutdownSaveCatalog(catalog, model_storage);
     return 0;
   };
 
   std::thread model_thread{[&] {
-    session_result = RunApplicationModelSession(
-        model_storage, catalog_id, runtime,
+    session_result = RunEmbeddedApplicationModelSession(
+        model_storage, graph, runtime,
         [&](ApplicationPublicationKind kind) {
           runtime.TakePublishedCopy();
           runtime.NotifyPublicationConsumed();
@@ -249,10 +245,18 @@ void TestShutdownResizePersistAndColdLoad() {
   CHECK(session_result == 0);
   queue.ClosePosting();
 
-  DirectoryDomainStorage verify_storage{profile_dir};
-  ae::Domain verify_domain{verify_storage};
+  ae::RamDomainStorage backing;
+  InstallEmbeddedDistilledBacking(backing, graph);
+  DirectoryDomainStorage user_storage{profile_dir};
+  OverlayDomainStorage overlay{
+      user_storage, backing, EmbeddedSupplyConstantIdSet(graph)};
+  ae::Domain verify_domain{overlay};
   auto catalog = LoadApplication<WindowCatalog>(verify_domain, catalog_id);
   CHECK(catalog->obj_id == catalog_id);
+  CHECK(catalog_id ==
+        window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog));
+  CHECK(main_window_id ==
+        window_catalog_demo::ToObjId(window_catalog_demo::ObjId::MainWindow));
   catalog->persisted.main_window.Load();
   CHECK(catalog->persisted.main_window->client_width() == 812);
   CHECK(catalog->persisted.main_client_viewport.width == 812);

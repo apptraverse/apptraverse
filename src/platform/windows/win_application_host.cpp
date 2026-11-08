@@ -30,15 +30,21 @@ WinApplicationHost::WinApplicationHost(ApplicationModelRuntime& runtime,
   presentation_host_.opaque = this;
   presentation_host_.on_desktop_window_user_close =
       &WinApplicationHost::OnDesktopWindowUserClose;
-  presentation_host_.catalog_main_native_frame_queue =
-      callbacks_.catalog_main_native_frame_queue;
 }
 
 WinApplicationHost::~WinApplicationHost() = default;
 
 void WinApplicationHost::OnInitialPublished() {
   std::vector<std::uint8_t> bytes = runtime_.TakePublishedCopyForUiApply();
-  ui_session_.emplace(bytes, &presentation_host_, model_proxy_,
+  ui::windows::WinPresentationHost* presentation_host = &presentation_host_;
+  if (callbacks_.presentation_host_override != nullptr) {
+    presentation_host = callbacks_.presentation_host_override;
+    presentation_host->notify_hwnd = presentation_host_.notify_hwnd;
+    presentation_host->opaque = presentation_host_.opaque;
+    presentation_host->on_desktop_window_user_close =
+        presentation_host_.on_desktop_window_user_close;
+  }
+  ui_session_.emplace(bytes, presentation_host, model_proxy_,
                       callbacks_.prepare_ui_presenters);
   if (callbacks_.after_initial) {
     callbacks_.after_initial(ui_session_->root());
