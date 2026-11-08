@@ -305,8 +305,8 @@ class IosNativeViews final
 - (ATIosWindowState*)windowState:(uint64_t)token {
   auto& presenter = FromToken<IosDesktopWindowPresenter>(token);
   auto desktop = presenter.desktop_window();
-  NSString* title = ToNSString(
-      presenter.title->Resolve(presenter.locale->language_index()));
+  NSString* title = ToNSString(presenter.ResolvePresentedWindowTitle(
+      presenter.locale->language_index()));
   return [[ATIosWindowState alloc]
       initWithTitle:title
                   x:desktop->x()

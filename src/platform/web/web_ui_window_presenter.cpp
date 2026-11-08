@@ -88,8 +88,8 @@ void WebDesktopWindowPresenter::OnLoad() {
 
 void WebDesktopWindowPresenter::SyncTitleFromMirror() {
   std::string title_text;
-  if (title.is_valid()) {
-    title_text = title->Resolve(locale->language_index());
+  if (title.is_valid() && locale.is_valid()) {
+    title_text = ResolvePresentedWindowTitle(locale->language_index());
   }
   ApptraverseSetDesktopWindowTitleDataset(dom_refs_->window_element,
                                           title_text.c_str());

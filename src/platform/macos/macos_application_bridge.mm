@@ -245,8 +245,8 @@ class MacNativeViews final
 - (ATMacWindowState*)windowState:(uint64_t)token {
   auto& presenter = FromToken<MacDesktopWindowPresenter>(token);
   auto desktop = presenter.desktop_window();
-  NSString* title = ToNSString(
-      presenter.title->Resolve(presenter.locale->language_index()));
+  NSString* title = ToNSString(presenter.ResolvePresentedWindowTitle(
+      presenter.locale->language_index()));
   return [[ATMacWindowState alloc]
       initWithTitle:title
                   x:desktop->x()

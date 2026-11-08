@@ -54,8 +54,9 @@ void AndroidPresentationHost::SyncDesktopWindow(
   }
   JNIEnv* env = RequireUiThreadEnv(*this);
   std::string title_text;
-  if (presenter.title.is_valid()) {
-    title_text = presenter.title->Resolve(presenter.locale->language_index());
+  if (presenter.title.is_valid() && presenter.locale.is_valid()) {
+    title_text = presenter.ResolvePresentedWindowTitle(
+        presenter.locale->language_index());
   }
   jclass ui_class = env->FindClass("com/apptraverse/ui/android/AppTraverseAndroidUi");
   jmethodID set_title = env->GetStaticMethodID(

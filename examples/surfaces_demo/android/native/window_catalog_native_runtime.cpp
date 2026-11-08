@@ -63,7 +63,7 @@ std::string ResolveWindowTitle(CatalogWindow& window) {
     return {};
   }
   int const language = presented.presenter->locale->language_index();
-  return presented.presenter->title->Resolve(language);
+  return presented.presenter->ResolvePresentedWindowTitle(language);
 }
 
 apptraverse::WindowCatalog& CatalogRoot(ae::Obj& root) {

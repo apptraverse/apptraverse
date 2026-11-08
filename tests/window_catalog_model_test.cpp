@@ -18,6 +18,8 @@
 #include "apptraverse/ui/ui_presenters.h"
 
 #include "apptraverse/platform/windows/win_ui_presenters.h"
+#include "apptraverse/platform/windows/win_ui_utf8.h"
+#include "apptraverse/ui/ui_window_presenter.h"
 
 #include "window_catalog_graph.h"
 #include "window_catalog_ids.h"
@@ -1920,6 +1922,117 @@ void TestCatalogDeleteUnloadedWindowDoesNotLoad() {
   CHECK(catalog->persisted.list->rows.empty());
 }
 
+ui::UiWindowPresenter& LoadedWindowPresenter(
+    ui::UiPresentedWindow& presented_window) {
+  auto loaded = presented_window.presenter.Load();
+  return static_cast<ui::UiWindowPresenter&>(*loaded);
+}
+
+void ExpectPresentedTitleContract(ui::UiWindowPresenter const& presenter,
+                                  int language_index,
+                                  std::string const& expected_presented,
+                                  bool child_title_bypass_must_differ) {
+  presenter.locale.Load();
+  presenter.title.Load();
+  std::string const presented =
+      presenter.ResolvePresentedWindowTitle(language_index);
+  std::string const raw_title = presenter.title->Resolve(language_index);
+  CHECK(presented == expected_presented);
+  if (child_title_bypass_must_differ) {
+    CHECK(raw_title != presented);
+  } else {
+    CHECK(raw_title == presented);
+  }
+}
+
+void TestPresentedWindowTitleUsesPresenterVirtualContract() {
+  EnsureObjectRegistration();
+  EnsureWindowCatalogModelRegistration();
+  EnsureWindowCatalogGraphRegistration();
+
+  auto const dir = TestDir("window_catalog_presented_title_contract");
+  ae::ObjId const catalog_id{
+      window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
+
+  auto assert_live_titles = [&](WindowCatalog& catalog, int language_index) {
+    ui::UiWindowPresenter& main_presenter =
+        LoadedWindowPresenter(MainWindowPresented(catalog));
+    std::string const main_title =
+        language_index == 0 ? "Window Catalog" : "Каталог окон";
+    ExpectPresentedTitleContract(main_presenter, language_index, main_title,
+                                 false);
+    CHECK(ui::windows::Utf8ToWide(
+              main_presenter.ResolvePresentedWindowTitle(language_index)) ==
+          ui::windows::Utf8ToWide(main_title));
+
+    catalog.persisted.list.Load();
+    CHECK(catalog.persisted.list->rows.size() >= 2);
+    WindowHolder* holder0 = AsHolder(catalog.persisted.list->rows[0]);
+    WindowHolder* holder1 = AsHolder(catalog.persisted.list->rows[1]);
+    holder0->window.Load();
+    holder1->window.Load();
+
+    ui::UiWindowPresenter& child0_presenter =
+        LoadedWindowPresenter(CatalogWindowPresented(*holder0->window));
+    ui::UiWindowPresenter& child1_presenter =
+        LoadedWindowPresenter(CatalogWindowPresented(*holder1->window));
+    CHECK(child0_presenter.title.id() ==
+          catalog.persisted.texts.window_title_prefix.id());
+    CHECK(child1_presenter.title.id() ==
+          catalog.persisted.texts.window_title_prefix.id());
+    CHECK(ae::Registry::GetRegistry().GenerationDistance(
+              ui::windows::WinDesktopWindowPresenter::kClassId,
+              child0_presenter.GetClassId()) >= 0);
+
+    std::string const child0 =
+        ResolveWindowCatalogHolderListRowText(*holder0, catalog, language_index);
+    std::string const child1 =
+        ResolveWindowCatalogHolderListRowText(*holder1, catalog, language_index);
+    ExpectPresentedTitleContract(child0_presenter, language_index, child0, true);
+    ExpectPresentedTitleContract(child1_presenter, language_index, child1, true);
+    CHECK(ui::windows::Utf8ToWide(
+              child0_presenter.ResolvePresentedWindowTitle(language_index)) ==
+          ui::windows::Utf8ToWide(child0));
+    CHECK(ui::windows::Utf8ToWide(
+              child1_presenter.ResolvePresentedWindowTitle(language_index)) ==
+          ui::windows::Utf8ToWide(child1));
+  };
+
+  {
+    DirectoryDomainStorage storage{dir};
+    ae::Domain domain{storage};
+    auto catalog = BuildWindowCatalogGraph(domain);
+    FinalizeDistilledGraph(*catalog);
+    catalog->AddWindow();
+    catalog->AddWindow();
+    catalog->OpenHolderWindow(*AsHolder(catalog->persisted.list->rows[0]));
+    catalog->OpenHolderWindow(*AsHolder(catalog->persisted.list->rows[1]));
+    catalog->MaterializeCatalogStrings(0);
+    assert_live_titles(*catalog, 0);
+
+    catalog->persisted.locale->SubmitLanguageIndexFromUi(1);
+    catalog->MaterializeCatalogStrings(1);
+    assert_live_titles(*catalog, 1);
+    catalog->persisted.locale->SubmitLanguageIndexFromUi(0);
+    catalog->MaterializeCatalogStrings(0);
+    assert_live_titles(*catalog, 0);
+
+    catalog->CloseHolderWindow(*AsHolder(catalog->persisted.list->rows[0]));
+    catalog->OpenHolderWindow(*AsHolder(catalog->persisted.list->rows[0]));
+    assert_live_titles(*catalog, 0);
+
+    ShutdownSaveCatalog(*catalog, storage);
+    catalog.Reset();
+  }
+
+  DirectoryDomainStorage reload_storage{dir};
+  ae::Domain reload_domain{reload_storage};
+  auto reloaded = LoadPersistedWindowCatalog(reload_domain, catalog_id);
+  reloaded->MaterializeCatalogStrings(reloaded->persisted.locale->language_index());
+  RestoreLoadedCatalogWindows(*reloaded);
+  assert_live_titles(*reloaded, 0);
+}
+
 void TestLiveReachableNodesCoverOpenCatalogWindow() {
   EnsureObjectRegistration();
   EnsureWindowCatalogModelRegistration();
@@ -1971,6 +2084,7 @@ int main() {
   apptraverse::test::TestWindowCatalogChromeButtonDistilledBaseReplay();
   apptraverse::test::TestManyHoldersClosedGraphsAbsentFromDomain();
   apptraverse::test::TestLiveReachableNodesCoverOpenCatalogWindow();
+  apptraverse::test::TestPresentedWindowTitleUsesPresenterVirtualContract();
   std::cout << "window_catalog_model_test OK\n";
   return 0;
 }
