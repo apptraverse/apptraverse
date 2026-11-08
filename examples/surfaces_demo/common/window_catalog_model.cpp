@@ -11,6 +11,7 @@
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_localization_string.h"
 #include "apptraverse/ui/ui_string.h"
+#include "apptraverse/application_model_session_storage.h"
 #include "apptraverse/ui/ui_presented_window_lifecycle.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/ui/ui_presenters.h"
@@ -667,6 +668,15 @@ void WindowCatalog::CloseHolderWindow(WindowHolder& holder) {
   close_event->open = false;
   Commit(std::move(close_event));
   ui::UnloadPresentedWindow(holder.window);
+  if (ApplicationModelSessionStorage* const session =
+          ApplicationModelSessionStorage::Active()) {
+    session->disk_user().BeginSaveSession();
+    session->FlushReachableSubgraphToDisk(holder);
+    if (session->disk_user().SaveSessionHadFailure()) {
+      WriteFatalStderr("fatal: WindowCatalog close USER flush failed\n");
+      std::abort();
+    }
+  }
 }
 void WindowCatalog::AddWindow() {
   ae::Domain& domain = *persisted.list->domain;

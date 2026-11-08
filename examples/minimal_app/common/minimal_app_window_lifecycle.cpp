@@ -2,6 +2,8 @@
 
 #include "minimal_application.h"
 
+#include "apptraverse/application_model_session_storage.h"
+#include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/ui/ui_presented_window_lifecycle.h"
 
 namespace apptraverse::example::minimal {
@@ -11,6 +13,20 @@ void SealAuxiliaryWindowClosed(MinimalApplication& application) {
   if (application.auxiliary.window.is_valid() &&
       application.auxiliary.window.is_loaded()) {
     ui::UnloadPresentedWindow(application.auxiliary.window);
+    if (ApplicationModelSessionStorage* const session =
+            ApplicationModelSessionStorage::Active()) {
+      if (application.auxiliary.window.is_valid() &&
+          application.auxiliary.window.cached()) {
+        session->disk_user().BeginSaveSession();
+        session->FlushReachableSubgraphToDisk(
+            *application.auxiliary.window.cached());
+        if (session->disk_user().SaveSessionHadFailure()) {
+          WriteFatalStderr(
+              "fatal: MinimalApp auxiliary close USER flush failed\n");
+          std::abort();
+        }
+      }
+    }
   }
   application.auxiliary.apply_button.Reset();
   application.auxiliary.row_list.Reset();

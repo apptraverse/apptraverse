@@ -14,6 +14,7 @@
 #include "window_catalog_model.h"
 
 #include "apptraverse/application_model_session.h"
+#include "apptraverse/application_model_session_storage.h"
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/embedded_application_model_session.h"
@@ -100,6 +101,11 @@ int WindowCatalogModelSession::Run(
   hooks.persist = [&user_storage](WindowCatalog& catalog) -> int {
     user_storage.BeginSaveSession();
     SaveWindowCatalogPersistentSnapshot(catalog);
+    if (ApplicationModelSessionStorage* const session =
+            ApplicationModelSessionStorage::Active()) {
+      session->StagePersistentGraphInSessionOverlay(catalog);
+      session->FlushEntireSessionOverlayToDisk();
+    }
     if (user_storage.SaveSessionHadFailure()) {
       WriteFatalStderr("fatal: WindowCatalog shutdown save failed\n");
       return 1;
@@ -136,6 +142,11 @@ int WindowCatalogModelSession::Run(
   hooks.persist = [&user_storage](WindowCatalog& catalog) -> int {
     user_storage.BeginSaveSession();
     SaveWindowCatalogPersistentSnapshot(catalog);
+    if (ApplicationModelSessionStorage* const session =
+            ApplicationModelSessionStorage::Active()) {
+      session->StagePersistentGraphInSessionOverlay(catalog);
+      session->FlushEntireSessionOverlayToDisk();
+    }
     if (user_storage.SaveSessionHadFailure()) {
       WriteFatalStderr("fatal: WindowCatalog shutdown save failed\n");
       return 1;

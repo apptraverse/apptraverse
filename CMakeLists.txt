@@ -97,6 +97,7 @@ add_library(apptraverse STATIC
   src/noninteractive_crt.cpp
   src/directory_domain_storage.cpp
   src/overlay_domain_storage.cpp
+  src/application_model_session_storage.cpp
   src/embedded_distilled_domain.cpp
   src/distilled_domain_export.cpp
   src/distilled_supply_package.cpp

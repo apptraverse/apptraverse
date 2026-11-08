@@ -6,6 +6,7 @@
 
 #include "minimal_app_prepare.h"
 
+#include "apptraverse/application_model_session_storage.h"
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/journal_retention_policy.h"
@@ -131,6 +132,11 @@ int PersistMinimalApplicationEmbeddedUserOverlay(
   if (save_root.IsErr()) {
     WriteFatalStderr("fatal: MinimalApplication embedded SaveRoot failed\n");
     return 1;
+  }
+  if (ApplicationModelSessionStorage* const session =
+          ApplicationModelSessionStorage::Active()) {
+    session->StagePersistentGraphInSessionOverlay(application);
+    session->FlushEntireSessionOverlayToDisk();
   }
   if (storage.SaveSessionHadFailure()) {
     WriteFatalStderr("fatal: MinimalApplication embedded save failed\n");
