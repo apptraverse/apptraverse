@@ -16,7 +16,6 @@ void SavePresentedWindow(ae::ObjPtr<WindowT>& window) {
 template <typename WindowT>
 void UnloadPresentedWindow(ae::ObjPtr<WindowT>& window) {
   static_assert(std::is_base_of_v<UiPresentedWindow, WindowT>);
-  SavePresentedWindow(window);
   window->presenter.Reset();
   window.Save();
   window.Reset();

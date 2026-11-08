@@ -28,7 +28,9 @@
 
 **OBJ_SYS (subprocess stdout, не stderr после redirect):** OFF ~4.6k–11.7k строк/close (burst выше); ON → **0**. Main exit ~107–185 ms; **30 s child timeout на исправленном harness не воспроизведён**. Debugger stacks / CPU% — **NOT RUN** (нет реального timeout).
 
-**Неизвестно:** абсолютная стоимость двойного `Save` в `UnloadPresentedWindow`; decrement graph / sampling; валидность bundled `agent_fresh_embedded` в tree (отдельно от harness seed).
+**Локализация (Debug, `AE_NO_DEBUG_LOG=ON`, disk USER+BACKING):** узкое место — **двойной `Save` в `UnloadPresentedWindow`**: pre-`presenter.Reset()` сохранял уже выгружаемый loaded-presenter subgraph; достаточен один `Save` после `Reset` (unloaded lazy flags; open-state — journal `SetWindowCatalogOpenEvent`). Harness medians hwnd_destroy: cold **381→319 ms**, burst immediate **520→430**, after settle **563→474** (5× rep). Тест `apptraverse_window_catalog_close_unload_disk_stage_test` — model-only close ms + `InstrumentedDomainStorage` store_calls.
+
+**Неизвестно:** decrement graph / sampling на UI keepalive teardown; валидность bundled `agent_fresh_embedded` в tree.
 
 **Устаревшие строки (первый прогон `088ea28e`, невалидный измеритель):** MinSizeRel cold ~30 s, burst/saved «timeout 30 s» — **снято как доказательство production**, оставлено только как артефакт flawed harness.
 

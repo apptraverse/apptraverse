@@ -30,7 +30,7 @@ namespace {
 
 constexpr std::uint32_t kListControlId = 5001;
 constexpr std::uint32_t kAddControlId = 5002;
-constexpr int kRepeats = 3;
+constexpr int kRepeats = 5;
 constexpr DWORD kSendTimeoutMs = 5000;
 constexpr auto kObserveDeadline = std::chrono::seconds{30};
 constexpr auto kMainExitDeadline = std::chrono::seconds{120};

@@ -1502,6 +1502,23 @@ apptraverse_add_test(apptraverse_historical_base_materialization_test
 apptraverse_add_test(apptraverse_window_catalog_headless_test
   window_catalog_headless_test.cpp
   surfaces_demo_window_catalog_headless)
+
+apptraverse_add_test(apptraverse_window_catalog_close_unload_disk_stage_test
+  window_catalog_close_unload_disk_stage_test.cpp
+  surfaces_demo_window_catalog)
+target_include_directories(apptraverse_window_catalog_close_unload_disk_stage_test PRIVATE
+  ${APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR}
+  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
+  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/windows)
+if(MSVC)
+  target_compile_options(apptraverse_window_catalog_close_unload_disk_stage_test PRIVATE /utf-8)
+endif()
+if(TARGET apptraverse_window_catalog_embedded_supply)
+  add_dependencies(apptraverse_window_catalog_close_unload_disk_stage_test
+    apptraverse_window_catalog_embedded_supply)
+endif()
+set_tests_properties(apptraverse_window_catalog_close_unload_disk_stage_test PROPERTIES
+  LABELS "window_catalog;diagnostic")
 target_include_directories(apptraverse_window_catalog_headless_test PRIVATE
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
   ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/headless)
