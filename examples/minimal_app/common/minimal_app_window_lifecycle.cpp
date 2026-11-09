@@ -6,8 +6,6 @@
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/ui/ui_presented_window_lifecycle.h"
 
-#include <set>
-
 namespace apptraverse::example::minimal {
 
 void MinimalApplication::BindEmbeddedUserSession(
@@ -24,13 +22,6 @@ void SealAuxiliaryWindowClosed(MinimalApplication& application) {
   if (application.auxiliary.window.is_valid() &&
       application.auxiliary.window.is_loaded()) {
     ae::ObjId const aux_window_id = application.auxiliary.window.id();
-    std::set<ae::ObjId> extra_flush_ids;
-    if (aux_window_id.is_valid()) {
-      extra_flush_ids.insert(aux_window_id);
-    }
-  if (application.auxiliary.closer.is_valid()) {
-      extra_flush_ids.insert(application.auxiliary.closer.id());
-    }
     ui::UnloadPresentedWindow(application.auxiliary.window);
     if (ApplicationModelSessionStorage* const session =
             application.EmbeddedUserSession()) {
@@ -40,8 +31,7 @@ void SealAuxiliaryWindowClosed(MinimalApplication& application) {
       }
       if (flush_root) {
         session->disk_user().BeginSaveSession();
-        session->FlushReachableSubgraphToDisk(*flush_root,
-                                              std::move(extra_flush_ids));
+        session->FlushReachableSubgraphToDisk(*flush_root);
         if (session->disk_user().SaveSessionHadFailure()) {
           WriteFatalStderr(
               "fatal: MinimalApp auxiliary close USER flush failed\n");

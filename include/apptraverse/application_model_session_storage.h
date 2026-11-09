@@ -30,8 +30,7 @@ class ApplicationModelSessionStorage {
   ae::ObjId root_id() const { return root_id_; }
 
   void StagePersistentGraphInSessionOverlay(ae::Obj& root);
-  void FlushReachableSubgraphToDisk(
-      ae::Obj& subgraph_root, std::set<ae::ObjId> extra_flush_ids = {});
+  void FlushReachableSubgraphToDisk(ae::Obj& subgraph_root);
   void FlushEntireSessionOverlayToDisk();
 
   class ActivateScope {

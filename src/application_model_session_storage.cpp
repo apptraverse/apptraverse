@@ -1,9 +1,12 @@
 #include "apptraverse/application_model_session_storage.h"
 
+#include <deque>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
 #include "apptraverse/application_model_runtime.h"
+#include "apptraverse/graph_walk.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/object_serialization.h"
 
@@ -156,28 +159,77 @@ void ApplicationModelSessionStorage::StagePersistentGraphInSessionOverlay(
 }
 
 void ApplicationModelSessionStorage::FlushReachableSubgraphToDisk(
-    ae::Obj& subgraph_root, std::set<ae::ObjId> extra_flush_ids) {
-  ae::RamDomainStorage staged;
-  SavePersistedObjectGraphToRam(subgraph_root, staged);
+    ae::Obj& subgraph_root) {
+  std::set<ae::ObjId> session_keys;
+  for (auto const& [key, map] : session_overlay_.state) {
+    if (map && supply_constant_ids_.count(key) == 0) {
+      session_keys.insert(key);
+    }
+  }
 
-  std::set<ae::ObjId> flush_ids =
-      CollectPersistedSerializationObjectIds(subgraph_root);
-  for (auto const& [obj_id, class_map_opt] : staged.state) {
-    if (class_map_opt) {
-      flush_ids.insert(obj_id);
+  std::set<ae::ObjId> flush_ids;
+  std::deque<ae::ObjId> pending;
+  std::unordered_set<std::uint32_t> seen;
+  auto enqueue_session = [&](ae::ObjId const& id) {
+    if (!id.is_valid() || session_keys.count(id) == 0) {
+      return;
+    }
+    if (!seen.insert(id.id()).second) {
+      return;
+    }
+    pending.push_back(id);
+    flush_ids.insert(id);
+  };
+
+  enqueue_session(subgraph_root.obj_id);
+  ForEachGraphEdgeObjPtrOnObject(subgraph_root, [&](ae::ObjectPtrBase& edge) {
+    if (edge.is_valid()) {
+      enqueue_session(edge.id());
+    }
+  });
+
+  while (!pending.empty()) {
+    ae::ObjId const id = pending.front();
+    pending.pop_front();
+    ae::Ptr<ae::Obj> obj = subgraph_root.domain->Find(id);
+    if (!obj) {
+      continue;
+    }
+    ForEachGraphEdgeObjPtrOnObject(*obj, [&](ae::ObjectPtrBase& edge) {
+      if (edge.is_valid()) {
+        enqueue_session(edge.id());
+      }
+    });
+    std::set<ae::ObjId> const ids =
+        CollectPersistedSerializationObjectIds(*obj);
+    for (ae::ObjId const next : ids) {
+      enqueue_session(next);
+    }
+    std::vector<ae::Obj*> persist_reach;
+    CollectPersistentSerializationReachableObjects(*obj, persist_reach);
+    for (ae::Obj* next : persist_reach) {
+      if (next != nullptr) {
+        enqueue_session(next->obj_id);
+      }
     }
   }
-  for (ae::ObjId const id : extra_flush_ids) {
-    if (id.is_valid()) {
-      flush_ids.insert(id);
+
+  ae::RamDomainStorage staged;
+  for (ae::ObjId const id : flush_ids) {
+    auto const session_it = session_overlay_.state.find(id);
+    if (session_it != session_overlay_.state.end() && session_it->second) {
+      staged.state[id] = session_it->second;
+    } else if (auto obj = subgraph_root.domain->Find(id)) {
+      SavePersistedObjectGraphToRam(*obj, staged);
     }
   }
-  flush_ids.insert(subgraph_root.obj_id);
 
   OverlaySessionLayersOntoStaged(staged, session_overlay_, flush_ids);
   FlushRamToDisk(staged, &flush_ids, false);
   for (ae::ObjId const id : flush_ids) {
-    session_overlay_.state.erase(id);
+    if (supply_constant_ids_.count(id) == 0) {
+      session_overlay_.state.erase(id);
+    }
   }
 }
 

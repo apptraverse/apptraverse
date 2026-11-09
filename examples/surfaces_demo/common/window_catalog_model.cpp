@@ -680,15 +680,17 @@ void WindowCatalog::CloseHolderWindow(WindowHolder& holder) {
   Commit(std::move(close_event));
   ae::ObjId const closing_window_id =
       holder.window.is_valid() ? holder.window.id() : ae::ObjId{};
+  if (holder.window.is_loaded()) {
+    ui::SavePresentedWindow(holder.window);
+    if (ApplicationModelSessionStorage* const session = embedded_user_session_) {
+      session->StagePersistentGraphInSessionOverlay(*holder.window);
+    }
+  }
   ui::UnloadPresentedWindow(holder.window);
   WindowHolder::ptr::MakeFromThis(&holder).Save();
   if (ApplicationModelSessionStorage* const session = embedded_user_session_) {
-    std::set<ae::ObjId> extra_flush_ids;
-    if (closing_window_id.is_valid()) {
-      extra_flush_ids.insert(closing_window_id);
-    }
     session->disk_user().BeginSaveSession();
-    session->FlushReachableSubgraphToDisk(holder, std::move(extra_flush_ids));
+    session->FlushReachableSubgraphToDisk(holder);
     if (session->disk_user().SaveSessionHadFailure()) {
       WriteFatalStderr("fatal: WindowCatalog close USER flush failed\n");
       std::abort();

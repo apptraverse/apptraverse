@@ -13,6 +13,7 @@
 #include "aether-objects/obj/domain.h"
 
 #include "apptraverse/application_model_runtime.h"
+#include "apptraverse/application_model_session_storage.h"
 #include "apptraverse/application_model_session.h"
 #include "apptraverse/application_ui_session.h"
 #include "apptraverse/directory_domain_storage.h"
@@ -93,6 +94,20 @@ std::size_t CountJournalEventsWithClass(Node const& node,
   std::size_t count = 0;
   for (auto const& entry : node.journal) {
     if (entry.event && entry.event->GetClassId() == class_id) {
+      ++count;
+    }
+  }
+  return count;
+}
+
+std::size_t CountRegularFiles(std::filesystem::path const& root) {
+  std::size_t count = 0;
+  if (!std::filesystem::exists(root)) {
+    return 0;
+  }
+  for (auto const& entry :
+       std::filesystem::recursive_directory_iterator(root)) {
+    if (entry.is_regular_file()) {
       ++count;
     }
   }
@@ -990,6 +1005,62 @@ void TestMinimalAppAuxiliaryCloseEmbeddedUserShutdownColdLoad() {
   CHECK(cold_app->auxiliary.row_list->window_title->Resolve(0) == "Applied");
 }
 
+void TestMinimalAppAuxiliaryCloseSessionUserFlushCold() {
+  OwnedEmbeddedMinimalGraph owned = DistillHeadlessMinimalAppEmbeddedGraph();
+  std::filesystem::path const user_dir =
+      std::filesystem::temp_directory_path() /
+      "minimal_app_aux_close_session_flush_cold";
+  std::error_code ec;
+  std::filesystem::remove_all(user_dir, ec);
+
+  ae::ObjId aux_window_id{};
+  ae::ObjId aux_presenter_id{};
+
+  {
+    DirectoryDomainStorage disk{user_dir};
+    ApplicationModelSessionStorage session{disk, owned.graph};
+    ApplicationModelRuntime runtime;
+    ApplicationModelSessionStorage::ActivateScope const scope{session, runtime};
+    ae::Domain domain{session.model_overlay()};
+    auto app = LoadApplication<MinimalApplication>(
+        domain, MinimalApplicationRootId());
+    app->BindEmbeddedUserSession(&session);
+    PrepareMinimalApplicationForRun(*app);
+    app->OpenAuxiliaryWindowImpl();
+    app->auxiliary.window.Load();
+    ui::UiDesktopWindow& aux = *app->auxiliary.window;
+    aux.SubmitFrameFromNative(77, 88, 400, 300, true);
+    aux_window_id = aux.obj_id;
+    aux_presenter_id = aux.presenter.id();
+    app->CloseAuxiliaryWindowImpl();
+    CHECK(app->auxiliary.window.is_valid());
+    CHECK(!app->auxiliary.window.is_loaded());
+    CHECK(!app->auxiliary_presented_open);
+    CHECK(CountRegularFiles(user_dir) > 0);
+  }
+
+  {
+    DirectoryDomainStorage cold_disk{user_dir};
+    ApplicationModelSessionStorage cold_session{cold_disk, owned.graph};
+    ae::Domain cold_domain{cold_session.model_overlay()};
+    auto cold_app = LoadApplication<MinimalApplication>(
+        cold_domain, MinimalApplicationRootId());
+    CHECK(cold_app->auxiliary.window.id() == aux_window_id);
+    CHECK(!cold_app->auxiliary_presented_open);
+    CHECK(!cold_app->auxiliary.window.is_loaded());
+    cold_app->auxiliary.window.Load();
+    ui::UiDesktopWindow& loaded = *cold_app->auxiliary.window;
+    CHECK(loaded.x() == 77);
+    CHECK(loaded.y() == 88);
+    CHECK(loaded.restore_client_width() == 400);
+    CHECK(loaded.restore_client_height() == 300);
+    CHECK(loaded.presenter.is_valid());
+    CHECK(!loaded.presenter.is_loaded());
+    loaded.presenter.Load();
+    CHECK(loaded.presenter.id() == aux_presenter_id);
+  }
+}
+
 constexpr char kOpenerProbeLabel[] = "OpenerLabel-A1R1-probe";
 
 enum class OpenerLabelState {
@@ -1583,6 +1654,7 @@ int main() {
   apptraverse::test::TestMinimalAppAuxiliaryPersistColdLoad();
   apptraverse::test::TestMinimalAppAuxiliaryCloseOpenHeadless();
   apptraverse::test::TestMinimalAppAuxiliaryCloseEmbeddedUserShutdownColdLoad();
+  apptraverse::test::TestMinimalAppAuxiliaryCloseSessionUserFlushCold();
   apptraverse::test::TestMinimalAppPrepareMaterializesActiveLanguageOnly(0);
   apptraverse::test::TestMinimalAppPrepareMaterializesActiveLanguageOnly(1);
   apptraverse::test::TestMinimalAppPrepareActiveLanguageOpenDetail();
