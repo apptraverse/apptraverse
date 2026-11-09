@@ -10,6 +10,7 @@
 #include "apptraverse/distill.h"
 #include "apptraverse/application_model_runtime.h"
 #include "apptraverse/application_model_session.h"
+#include "apptraverse/application_model_session_storage.h"
 #include "apptraverse/embedded_application_model_session.h"
 #include "apptraverse/embedded_distilled_domain.h"
 #include "apptraverse/overlay_domain_storage.h"
@@ -73,6 +74,11 @@ void ShutdownSaveCatalog(WindowCatalog& catalog,
                          DirectoryDomainStorage& user_storage) {
   user_storage.BeginSaveSession();
   SaveWindowCatalogPersistentSnapshot(catalog);
+  if (ApplicationModelSessionStorage* const session =
+          ApplicationModelSessionStorage::Active()) {
+    session->StagePersistentGraphInSessionOverlay(catalog);
+    session->FlushEntireSessionOverlayToDisk();
+  }
   CHECK(!user_storage.SaveSessionHadFailure());
 }
 

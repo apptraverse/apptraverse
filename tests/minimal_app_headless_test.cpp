@@ -344,7 +344,8 @@ void TestMinimalAppEmbeddedBackingUserHeadlessE2e() {
       CHECK(window.client_height() == kInitialH);
     };
     hooks.persist = [&](MinimalApplication& application) -> int {
-      return PersistMinimalApplication(application, user_storage);
+      return PersistMinimalApplicationEmbeddedUserOverlay(application,
+                                                          user_storage);
     };
 
     std::thread model_thread{[&] {
@@ -411,7 +412,8 @@ void TestMinimalAppEmbeddedBackingUserHeadlessE2e() {
       CHECK(window.client_height() == kReportedH);
     };
     hooks.persist = [&](MinimalApplication& application) -> int {
-      return PersistMinimalApplication(application, user_storage);
+      return PersistMinimalApplicationEmbeddedUserOverlay(application,
+                                                          user_storage);
     };
 
     std::thread model_thread{[&] {
