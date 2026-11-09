@@ -80,7 +80,6 @@ int WindowCatalogModelSession::Run(
 #endif
 
   ApplicationModelSessionHooks<WindowCatalog> hooks;
-  hooks.prepare = PrepareWindowCatalogForRun;
   hooks.before_incremental = [this](WindowCatalog& catalog) {
     pending_focus_for_ui = catalog.pending_focus_window.is_valid()
                                ? catalog.pending_focus_window.id()
@@ -98,14 +97,18 @@ int WindowCatalogModelSession::Run(
 
 #if defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
   DirectoryDomainStorage user_storage{state_dir};
-  hooks.persist = [&user_storage](WindowCatalog& catalog) -> int {
+  ApplicationModelSessionStorage session_storage{
+      user_storage, embedded_distilled::window_catalog::kEmbeddedGraph};
+  hooks.prepare = [&session_storage](WindowCatalog& catalog) {
+    catalog.BindEmbeddedUserSession(&session_storage);
+    PrepareWindowCatalogForRun(catalog);
+  };
+  hooks.persist = [&user_storage, &session_storage](WindowCatalog& catalog)
+                        -> int {
     user_storage.BeginSaveSession();
     SaveWindowCatalogPersistentSnapshot(catalog);
-    if (ApplicationModelSessionStorage* const session =
-            ApplicationModelSessionStorage::Active()) {
-      session->StagePersistentGraphInSessionOverlay(catalog);
-      session->FlushEntireSessionOverlayToDisk();
-    }
+    session_storage.StagePersistentGraphInSessionOverlay(catalog);
+    session_storage.FlushEntireSessionOverlayToDisk();
     if (user_storage.SaveSessionHadFailure()) {
       WriteFatalStderr("fatal: WindowCatalog shutdown save failed\n");
       return 1;
@@ -113,8 +116,7 @@ int WindowCatalogModelSession::Run(
     return 0;
   };
   return RunEmbeddedApplicationModelSession(
-      user_storage, embedded_distilled::window_catalog::kEmbeddedGraph, runtime,
-      std::move(on_published), hooks);
+      session_storage, runtime, std::move(on_published), hooks);
 #else
 #if defined(APPTRAVERSE_ENABLE_DISTILLATION)
   std::error_code profile_error;
@@ -139,14 +141,10 @@ int WindowCatalogModelSession::Run(
 #endif
 
   DirectoryDomainStorage user_storage{state_dir};
+  hooks.prepare = PrepareWindowCatalogForRun;
   hooks.persist = [&user_storage](WindowCatalog& catalog) -> int {
     user_storage.BeginSaveSession();
     SaveWindowCatalogPersistentSnapshot(catalog);
-    if (ApplicationModelSessionStorage* const session =
-            ApplicationModelSessionStorage::Active()) {
-      session->StagePersistentGraphInSessionOverlay(catalog);
-      session->FlushEntireSessionOverlayToDisk();
-    }
     if (user_storage.SaveSessionHadFailure()) {
       WriteFatalStderr("fatal: WindowCatalog shutdown save failed\n");
       return 1;

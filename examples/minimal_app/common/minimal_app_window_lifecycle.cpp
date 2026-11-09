@@ -6,20 +6,42 @@
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/ui/ui_presented_window_lifecycle.h"
 
+#include <set>
+
 namespace apptraverse::example::minimal {
+
+void MinimalApplication::BindEmbeddedUserSession(
+    ApplicationModelSessionStorage* session) {
+  embedded_user_session_ = session;
+}
+
+ApplicationModelSessionStorage* MinimalApplication::EmbeddedUserSession() const {
+  return embedded_user_session_;
+}
 
 void SealAuxiliaryWindowClosed(MinimalApplication& application) {
   application.auxiliary_presented_open = false;
   if (application.auxiliary.window.is_valid() &&
       application.auxiliary.window.is_loaded()) {
+    ae::ObjId const aux_window_id = application.auxiliary.window.id();
+    std::set<ae::ObjId> extra_flush_ids;
+    if (aux_window_id.is_valid()) {
+      extra_flush_ids.insert(aux_window_id);
+    }
+  if (application.auxiliary.closer.is_valid()) {
+      extra_flush_ids.insert(application.auxiliary.closer.id());
+    }
     ui::UnloadPresentedWindow(application.auxiliary.window);
     if (ApplicationModelSessionStorage* const session =
-            ApplicationModelSessionStorage::Active()) {
-      if (application.auxiliary.window.is_valid() &&
-          application.auxiliary.window.cached()) {
+            application.EmbeddedUserSession()) {
+      ae::Ptr<ae::Obj> flush_root = application.domain->Find(aux_window_id);
+      if (!flush_root && application.auxiliary.closer.is_valid()) {
+        flush_root = application.domain->Find(application.auxiliary.closer.id());
+      }
+      if (flush_root) {
         session->disk_user().BeginSaveSession();
-        session->FlushReachableSubgraphToDisk(
-            *application.auxiliary.window.cached());
+        session->FlushReachableSubgraphToDisk(*flush_root,
+                                              std::move(extra_flush_ids));
         if (session->disk_user().SaveSessionHadFailure()) {
           WriteFatalStderr(
               "fatal: MinimalApp auxiliary close USER flush failed\n");

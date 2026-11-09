@@ -13,34 +13,37 @@
 
 namespace apptraverse {
 
+class ApplicationModelRuntime;
+
 // Session-owned USER change buffer: runtime Save/Clone/history land in RAM;
 // DirectoryDomainStorage is written only at explicit flush boundaries
 // (unloaded subgraph close, application shutdown persist).
 class ApplicationModelSessionStorage {
  public:
   ApplicationModelSessionStorage(DirectoryDomainStorage& disk_user,
-                                 EmbeddedDistilledGraph const& graph);
+                                 EmbeddedDistilledGraph const& graph,
+                                 ae::IDomainStorage* disk_write_target = nullptr);
 
   OverlayDomainStorage& model_overlay() { return model_overlay_; }
   OverlayDomainStorage const& model_overlay() const { return model_overlay_; }
   DirectoryDomainStorage& disk_user() { return disk_user_; }
   ae::ObjId root_id() const { return root_id_; }
 
-  void Activate();
-  void Deactivate();
-  static ApplicationModelSessionStorage* Active();
-
   void StagePersistentGraphInSessionOverlay(ae::Obj& root);
-  void FlushReachableSubgraphToDisk(ae::Obj& subgraph_root);
+  void FlushReachableSubgraphToDisk(
+      ae::Obj& subgraph_root, std::set<ae::ObjId> extra_flush_ids = {});
   void FlushEntireSessionOverlayToDisk();
 
   class ActivateScope {
    public:
-    explicit ActivateScope(ApplicationModelSessionStorage& storage);
+    ActivateScope(ApplicationModelSessionStorage& storage,
+                  ApplicationModelRuntime& runtime);
     ~ActivateScope();
 
    private:
-    ApplicationModelSessionStorage* previous_{nullptr};
+    ApplicationModelSessionStorage* storage_{nullptr};
+    ApplicationModelRuntime* runtime_{nullptr};
+    ApplicationModelSessionStorage* previous_storage_{nullptr};
   };
 
  private:
@@ -50,6 +53,7 @@ class ApplicationModelSessionStorage {
   void FlushSessionLayers(std::set<ae::ObjId> const* only_ids);
 
   DirectoryDomainStorage& disk_user_;
+  ae::IDomainStorage& disk_write_target_;
   ae::ObjId root_id_{};
   std::set<ae::ObjId> supply_constant_ids_;
   ae::RamDomainStorage embedded_backing_;

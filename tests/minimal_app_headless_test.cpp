@@ -335,7 +335,8 @@ void TestMinimalAppEmbeddedBackingUserHeadlessE2e() {
     }};
 
     ApplicationModelSessionHooks<MinimalApplication> hooks;
-    hooks.prepare = [](MinimalApplication& application) {
+    hooks.prepare = [&](MinimalApplication& application) {
+      application.BindEmbeddedUserSession(runtime.user_session_storage());
       PrepareMinimalApplicationForRun(application);
       ui::UiDesktopWindow& window = UiMainWindow(application);
       CHECK(window.x() == kInitialX);
@@ -403,6 +404,7 @@ void TestMinimalAppEmbeddedBackingUserHeadlessE2e() {
 
     ApplicationModelSessionHooks<MinimalApplication> hooks;
     hooks.prepare = [&](MinimalApplication& application) {
+      application.BindEmbeddedUserSession(runtime.user_session_storage());
       prepare_ran = true;
       PrepareMinimalApplicationForRun(application);
       ui::UiDesktopWindow& window = UiMainWindow(application);

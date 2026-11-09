@@ -56,7 +56,7 @@ void ShutdownSaveCatalog(WindowCatalog& catalog,
   storage.BeginSaveSession();
   SaveWindowCatalogPersistentSnapshot(catalog);
   if (ApplicationModelSessionStorage* const session =
-          ApplicationModelSessionStorage::Active()) {
+          catalog.EmbeddedUserSession()) {
     session->StagePersistentGraphInSessionOverlay(catalog);
     session->FlushEntireSessionOverlayToDisk();
   }
@@ -199,7 +199,10 @@ void TestShutdownResizePersistAndColdLoad() {
   int session_result = 1;
 
   ApplicationModelSessionHooks<WindowCatalog> hooks;
-  hooks.prepare = PrepareWindowCatalogForRun;
+  hooks.prepare = [&](WindowCatalog& catalog) {
+    catalog.BindEmbeddedUserSession(runtime.user_session_storage());
+    PrepareWindowCatalogForRun(catalog);
+  };
   hooks.persist = [&](WindowCatalog& catalog) -> int {
     ShutdownSaveCatalog(catalog, model_storage);
     return 0;

@@ -15,6 +15,7 @@
 
 namespace apptraverse {
 
+class ApplicationModelSessionStorage;
 class Node;
 
 enum class ApplicationPublicationKind {
@@ -64,7 +65,11 @@ class ApplicationModelRuntime {
 
   [[nodiscard]] std::uint64_t publish_count() const;
 
+  void BindUserSessionStorage(ApplicationModelSessionStorage* storage);
+  [[nodiscard]] ApplicationModelSessionStorage* user_session_storage() const;
+
  private:
+  ApplicationModelSessionStorage* user_session_storage_{nullptr};
   PublicationChannel<3> channel_;
   mutable std::mutex mu_;
   std::condition_variable cv_;

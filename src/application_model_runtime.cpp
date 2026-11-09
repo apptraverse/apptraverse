@@ -1,5 +1,7 @@
 #include "apptraverse/application_model_runtime.h"
 
+#include "apptraverse/application_model_session_storage.h"
+
 #include <chrono>
 #include <condition_variable>
 #include <optional>
@@ -181,6 +183,16 @@ void ApplicationModelRuntime::AbandonUnconsumedPublicationsForTeardown() {
 
 std::uint64_t ApplicationModelRuntime::publish_count() const {
   return channel_.publish_count();
+}
+
+void ApplicationModelRuntime::BindUserSessionStorage(
+    ApplicationModelSessionStorage* storage) {
+  user_session_storage_ = storage;
+}
+
+ApplicationModelSessionStorage* ApplicationModelRuntime::user_session_storage()
+    const {
+  return user_session_storage_;
 }
 
 }  // namespace apptraverse

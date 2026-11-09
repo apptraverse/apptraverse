@@ -134,7 +134,7 @@ int PersistMinimalApplicationEmbeddedUserOverlay(
     return 1;
   }
   if (ApplicationModelSessionStorage* const session =
-          ApplicationModelSessionStorage::Active()) {
+          application.EmbeddedUserSession()) {
     session->StagePersistentGraphInSessionOverlay(application);
     session->FlushEntireSessionOverlayToDisk();
   }

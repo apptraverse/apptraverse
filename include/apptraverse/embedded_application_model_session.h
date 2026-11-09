@@ -16,7 +16,7 @@ int RunEmbeddedApplicationModelSession(
     ApplicationModelSessionStorage& session, ApplicationModelRuntime& runtime,
     ApplicationPublishedCallback on_published,
     ApplicationModelSessionHooks<TApplication> const& hooks) {
-  ApplicationModelSessionStorage::ActivateScope const scope{session};
+  ApplicationModelSessionStorage::ActivateScope const scope{session, runtime};
   ae::ObjId const root_id{session.root_id()};
   return RunApplicationModelSession(session.model_overlay(), root_id, runtime,
                                     std::move(on_published), hooks);

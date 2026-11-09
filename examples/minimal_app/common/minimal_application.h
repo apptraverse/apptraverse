@@ -9,6 +9,10 @@
 #include "apptraverse/ui/ui_presenters.h"
 #include "apptraverse/ui/ui_push_button_presenter.h"
 
+namespace apptraverse {
+class ApplicationModelSessionStorage;
+}  // namespace apptraverse
+
 namespace apptraverse::example::minimal {
 
 struct MinimalMainPresenters {
@@ -150,6 +154,13 @@ class MinimalApplication : public NodeFor<MinimalApplication> {
   void LoadAuxiliaryPresentation();
   void OpenAuxiliaryWindowImpl();
   void CloseAuxiliaryWindowImpl();
+
+  void BindEmbeddedUserSession(apptraverse::ApplicationModelSessionStorage* session);
+  [[nodiscard]] apptraverse::ApplicationModelSessionStorage* EmbeddedUserSession()
+      const;
+
+ private:
+  apptraverse::ApplicationModelSessionStorage* embedded_user_session_{nullptr};
 };
 
 }  // namespace apptraverse::example::minimal

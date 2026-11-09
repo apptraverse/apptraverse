@@ -12,6 +12,8 @@
 #include "apptraverse/ui/ui_localization_string.h"
 #include "apptraverse/ui/ui_string.h"
 #include "apptraverse/application_model_session_storage.h"
+
+#include <set>
 #include "apptraverse/ui/ui_presented_window_lifecycle.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/ui/ui_presenters.h"
@@ -160,6 +162,15 @@ void SaveWindowCatalogPersistentSnapshotImpl(WindowCatalog& catalog) {
 
 void SaveWindowCatalogPersistentSnapshot(WindowCatalog& catalog) {
   SaveWindowCatalogPersistentSnapshotImpl(catalog);
+}
+
+void WindowCatalog::BindEmbeddedUserSession(
+    ApplicationModelSessionStorage* session) {
+  embedded_user_session_ = session;
+}
+
+ApplicationModelSessionStorage* WindowCatalog::EmbeddedUserSession() const {
+  return embedded_user_session_;
 }
 void RestoreLoadedCatalogWindows(WindowCatalog& catalog) {
   int const language = catalog.persisted.locale->language_index();
@@ -667,11 +678,17 @@ void WindowCatalog::CloseHolderWindow(WindowHolder& holder) {
   close_event->holder = WindowHolder::ptr::MakeFromThis(&holder);
   close_event->open = false;
   Commit(std::move(close_event));
+  ae::ObjId const closing_window_id =
+      holder.window.is_valid() ? holder.window.id() : ae::ObjId{};
   ui::UnloadPresentedWindow(holder.window);
-  if (ApplicationModelSessionStorage* const session =
-          ApplicationModelSessionStorage::Active()) {
+  WindowHolder::ptr::MakeFromThis(&holder).Save();
+  if (ApplicationModelSessionStorage* const session = embedded_user_session_) {
+    std::set<ae::ObjId> extra_flush_ids;
+    if (closing_window_id.is_valid()) {
+      extra_flush_ids.insert(closing_window_id);
+    }
     session->disk_user().BeginSaveSession();
-    session->FlushReachableSubgraphToDisk(holder);
+    session->FlushReachableSubgraphToDisk(holder, std::move(extra_flush_ids));
     if (session->disk_user().SaveSessionHadFailure()) {
       WriteFatalStderr("fatal: WindowCatalog close USER flush failed\n");
       std::abort();
