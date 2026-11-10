@@ -64,7 +64,7 @@ if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/surface_v1_package")
   endforeach()
 endif()
 
-# WindowCatalog application executables (build-time embedded BACKING + USER).
+# Debug prepares a fresh graph; consumers load the supply prepared by Debug.
 set(_window_catalog_win_sources
   window_catalog_main.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/../common/window_catalog_lifecycle.cpp
@@ -74,9 +74,15 @@ set(_window_catalog_embed_header
   "${CMAKE_CURRENT_BINARY_DIR}/../generated_distilled/embedded_distilled_window_catalog_supply.h")
 
 add_executable(win32_window_catalog_demo ${_window_catalog_win_sources})
-target_compile_definitions(win32_window_catalog_demo PRIVATE
-  APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL
-)
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  target_compile_definitions(win32_window_catalog_demo PRIVATE
+    APPTRAVERSE_WINDOW_CATALOG_DEBUG_BOOTSTRAP)
+  target_sources(win32_window_catalog_demo PRIVATE
+    ../common/window_catalog_distillation.cpp)
+else()
+  target_compile_definitions(win32_window_catalog_demo PRIVATE
+    APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
+endif()
 
 add_executable(win32_window_catalog_demo_load_only ${_window_catalog_win_sources})
 target_compile_definitions(win32_window_catalog_demo_load_only PRIVATE
@@ -84,8 +90,37 @@ target_compile_definitions(win32_window_catalog_demo_load_only PRIVATE
   APPTRAVERSE_WINDOW_CATALOG_LOAD_ONLY
 )
 
+set(_window_catalog_embed_dir "${CMAKE_CURRENT_BINARY_DIR}/../generated_distilled")
+file(MAKE_DIRECTORY "${_window_catalog_embed_dir}")
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  # The regular Debug application owns distillation, including this non-GUI mode.
+  add_custom_command(OUTPUT "${_window_catalog_embed_header}"
+    COMMAND $<TARGET_FILE:win32_window_catalog_demo>
+            --distill-only "${_window_catalog_embed_dir}"
+    DEPENDS win32_window_catalog_demo
+    VERBATIM COMMENT "Prepare WindowCatalog supply with the Debug application")
+else()
+  set(APPTRAVERSE_WINDOW_CATALOG_DEBUG_SUPPLY_HEADER
+    "${PROJECT_SOURCE_DIR}/build/win64-ninja-msvc-debug/examples/surfaces_demo/generated_distilled/embedded_distilled_window_catalog_supply.h"
+    CACHE FILEPATH "WindowCatalog supply prepared by the Debug application")
+  if(NOT EXISTS "${APPTRAVERSE_WINDOW_CATALOG_DEBUG_SUPPLY_HEADER}")
+    message(FATAL_ERROR
+      "Build Debug win32_window_catalog_demo_load_only first, or set APPTRAVERSE_WINDOW_CATALOG_DEBUG_SUPPLY_HEADER to a header prepared by Debug --distill-only.")
+  endif()
+  add_custom_command(OUTPUT "${_window_catalog_embed_header}"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${APPTRAVERSE_WINDOW_CATALOG_DEBUG_SUPPLY_HEADER}"
+            "${_window_catalog_embed_header}"
+    DEPENDS "${APPTRAVERSE_WINDOW_CATALOG_DEBUG_SUPPLY_HEADER}"
+    VERBATIM COMMENT "Embed the WindowCatalog supply prepared by Debug")
+endif()
+add_custom_target(apptraverse_window_catalog_embedded_supply
+  DEPENDS "${_window_catalog_embed_header}")
+set(APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR
+    "${_window_catalog_embed_dir}" CACHE INTERNAL "")
+
 foreach(_catalog_demo win32_window_catalog_demo win32_window_catalog_demo_load_only)
-  if(TARGET apptraverse_window_catalog_embedded_supply)
+  if(NOT (CMAKE_BUILD_TYPE STREQUAL "Debug" AND _catalog_demo STREQUAL "win32_window_catalog_demo"))
     target_sources(${_catalog_demo} PRIVATE "${_window_catalog_embed_header}")
     target_include_directories(${_catalog_demo} PRIVATE
       "${CMAKE_CURRENT_BINARY_DIR}/../generated_distilled")

@@ -93,15 +93,18 @@ void BurstResizeChild(CatalogWindow& window) {
 
 void LogModelCloseLine(char const* label, int64_t close_ms,
                        InstrumentedDomainStorageStats const& d,
+                       DirectoryDomainStorageStoreStats const& disk,
                        std::size_t pub_bytes) {
   std::cout << "CLOSE_STAGE " << label << " model_close_ms=" << close_ms
             << " store_calls=" << d.store_calls
-            << " store_disk_bytes=" << d.store_disk_bytes_written
+            << " disk_layers_written=" << disk.layers_written
+            << " disk_layers_skipped=" << disk.layers_skipped_unchanged
+            << " disk_bytes_written=" << disk.layers_written_bytes
             << " store_accepted_bytes=" << d.store_bytes_accepted
             << " publication_bytes=" << pub_bytes << '\n';
 }
 
-void TestModelOnlyCloseOnDisk(bool burst_resize) {
+void TestModelOnlyCloseStorage(bool burst_resize, bool ram_user = false) {
   ae::ObjId const catalog_id{
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
   ae::RamDomainStorage backing;
@@ -111,8 +114,12 @@ void TestModelOnlyCloseOnDisk(bool burst_resize) {
       TestDir(burst_resize ? "wc_close_stage_burst_user"
                            : "wc_close_stage_cold_user");
   DirectoryDomainStorage user_storage{user_dir};
+  ae::RamDomainStorage ram_storage;
+  ae::IDomainStorage& user = ram_user
+      ? static_cast<ae::IDomainStorage&>(ram_storage)
+      : static_cast<ae::IDomainStorage&>(user_storage);
   OverlayDomainStorage overlay{
-      user_storage, backing,
+      user, backing,
       EmbeddedSupplyConstantIdSet(
           embedded_distilled::window_catalog::kEmbeddedGraph)};
   InstrumentedDomainStorage instrumented{overlay};
@@ -128,14 +135,19 @@ void TestModelOnlyCloseOnDisk(bool burst_resize) {
     BurstResizeChild(*holder->window);
   }
   InstrumentedDomainStorageStats const before = instrumented.SnapshotStats();
+  user_storage.BeginSaveSession();
   auto const t0 = Clock::now();
   catalog->CloseHolderWindow(*holder);
   auto const t1 = Clock::now();
   InstrumentedDomainStorageStats const after = instrumented.SnapshotStats();
   CHECK(!holder->window.is_loaded());
   CHECK(holder->window.is_valid());
-  LogModelCloseLine(burst_resize ? "MODEL_BURST" : "MODEL_COLD",
-                    MsBetween(t0, t1), DeltaStats(after, before), 0);
+  char const* label = ram_user ? (burst_resize ? "RAM_BURST" : "RAM_COLD")
+                               : (burst_resize ? "MODEL_BURST" : "MODEL_COLD");
+  LogModelCloseLine(label,
+                    MsBetween(t0, t1), DeltaStats(after, before),
+                    user_storage.SnapshotSaveSessionStats(), 0);
+  CHECK(!user_storage.SaveSessionHadFailure());
 }
 
 void TestPublicationPipelineCloseOnDisk(bool burst_resize) {
@@ -236,8 +248,10 @@ void TestPublicationPipelineCloseOnDisk(bool burst_resize) {
 int main() {
   apptraverse::EnsureObjectRegistration();
   apptraverse::EnsureWindowCatalogGraphRegistration();
-  apptraverse::test::TestModelOnlyCloseOnDisk(false);
-  apptraverse::test::TestModelOnlyCloseOnDisk(true);
+  apptraverse::test::TestModelOnlyCloseStorage(false);
+  apptraverse::test::TestModelOnlyCloseStorage(true);
+  apptraverse::test::TestModelOnlyCloseStorage(false, true);
+  apptraverse::test::TestModelOnlyCloseStorage(true, true);
   std::cout << "window_catalog_close_unload_disk_stage_test OK\n";
   return 0;
 }

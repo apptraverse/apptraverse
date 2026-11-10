@@ -1684,6 +1684,8 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
     APPTRAVERSE_ENABLE_DISTILLATION)
   add_dependencies(apptraverse_window_catalog_win32_acceptance_test
     win32_window_catalog_demo win32_window_catalog_demo_load_only)
+  target_compile_definitions(apptraverse_window_catalog_win32_acceptance_test PRIVATE
+    "$<$<CONFIG:Debug>:APPTRAVERSE_TEST_DEBUG_BOOTSTRAP>")
   if(TARGET apptraverse_window_catalog_embedded_supply)
     add_dependencies(apptraverse_window_catalog_win32_acceptance_test
       apptraverse_window_catalog_embedded_supply)
@@ -1711,7 +1713,7 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
   target_link_libraries(apptraverse_window_catalog_win32_close_timing_diagnostic_test PRIVATE
     apptraverse_ui_windows_extended apptraverse)
   add_dependencies(apptraverse_window_catalog_win32_close_timing_diagnostic_test
-    win32_window_catalog_demo)
+    win32_window_catalog_demo_load_only)
   if(MSVC)
     target_compile_options(apptraverse_window_catalog_win32_close_timing_diagnostic_test PRIVATE
       /utf-8)

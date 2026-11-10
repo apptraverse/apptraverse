@@ -225,6 +225,56 @@ void RunRoundTrip() {
             << " window_id=" << window_id.id() << '\n';
 }
 
+void TestAncestorPresenterKeepsStorageOwner() {
+  auto const dir = UserDir().string() + "_ancestor";
+  std::filesystem::remove_all(dir);
+  auto const parent_dir = std::filesystem::path{dir} / "parent";
+  auto const child_dir = std::filesystem::path{dir} / "child";
+  {
+    DirectoryDomainStorage parent_storage{parent_dir};
+    DirectoryDomainStorage child_storage{child_dir};
+    ae::Domain parent{parent_storage};
+    ae::Domain child{child_storage};
+    child.set_parent_domain(&parent);
+    auto presenter = ui::UiDesktopWindowPresenter::ptr::Create(
+        ae::CreateWith{parent}.with_id(kPresenterId));
+    auto title = ui::UiLocalizationString::ptr::Create(
+        ae::CreateWith{parent}.with_id(kTitleId));
+    auto text = ui::UiString::ptr::Create(
+        ae::CreateWith{parent}.with_id(kEnStringId));
+    text->utf8 = kProbeTitleUtf8;
+    title->strings = {text};
+    auto locale = ui::UiLocaleSettings::ptr::Create(
+        ae::CreateWith{parent}.with_id(kLocaleId));
+    auto window = ui::UiDesktopWindow::ptr::Create(
+        ae::CreateWith{child}.with_id(kWindowId));
+    ui::ComposePresentedWindow(window, presenter, title, locale);
+    ui::UnloadPresentedWindow(window);
+    CHECK(!window.is_loaded());
+    CHECK(std::filesystem::is_directory(
+        parent_dir / std::to_string(kPresenterId.id())));
+    CHECK(std::filesystem::is_directory(
+        parent_dir / std::to_string(kEnStringId.id())));
+    CHECK(std::filesystem::is_directory(
+        child_dir / std::to_string(kWindowId.id())));
+    CHECK(!std::filesystem::exists(
+        child_dir / std::to_string(kPresenterId.id())));
+    CHECK(!std::filesystem::exists(
+        child_dir / std::to_string(kEnStringId.id())));
+  }
+  {
+    DirectoryDomainStorage parent_storage{parent_dir};
+    ae::Domain parent{parent_storage};
+    auto presenter = ui::UiDesktopWindowPresenter::ptr::Declare(
+        ae::CreateWith{parent}.with_id(kPresenterId));
+    presenter.Load();
+    CHECK(presenter.is_loaded());
+    presenter->title.Load();
+    presenter->title->strings[0].Load();
+    CHECK(presenter->title->strings[0]->utf8 == kProbeTitleUtf8);
+  }
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -233,5 +283,6 @@ int main() {
   apptraverse::ui::EnsureUiPresenterRegistration();
   apptraverse::test::EnsurePresenterBranchUnloadRegistration();
   apptraverse::test::RunRoundTrip();
+  apptraverse::test::TestAncestorPresenterKeepsStorageOwner();
   return 0;
 }

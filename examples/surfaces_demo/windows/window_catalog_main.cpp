@@ -25,6 +25,9 @@
 #include "window_catalog_model.h"
 #include "window_catalog_main_native_frame_queue.h"
 #include "window_catalog_main_native_frame_wiring.h"
+#if defined(APPTRAVERSE_WINDOW_CATALOG_DEBUG_BOOTSTRAP)
+#include "window_catalog_distillation.h"
+#endif
 
 namespace {
 
@@ -190,6 +193,12 @@ int main(int argc, char** argv) {
   std::filesystem::path state_dir = DefaultStateDir();
   for (int i = 1; i < argc; ++i) {
     std::string_view arg{argv[i]};
+#if defined(APPTRAVERSE_WINDOW_CATALOG_DEBUG_BOOTSTRAP)
+    if (arg == "--distill-only" && i + 1 < argc) {
+      apptraverse::DistillWindowCatalog(std::filesystem::absolute(argv[++i]));
+      return 0;
+    }
+#endif
     if (arg == "--state-dir" && i + 1 < argc) {
       state_dir = argv[++i];
     }

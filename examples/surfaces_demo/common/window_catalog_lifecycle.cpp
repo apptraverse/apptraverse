@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <iostream>
 #include <optional>
+#include <string>
 #include <unordered_set>
 #include <vector>
 
@@ -28,6 +29,9 @@
 #include "apptraverse/object_macros.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_presented_window_lifecycle.h"
+#if defined(APPTRAVERSE_WINDOW_CATALOG_DEBUG_BOOTSTRAP)
+#include "window_catalog_distillation.h"
+#endif
 
 namespace apptraverse {
 
@@ -94,7 +98,45 @@ int WindowCatalogModelSession::Run(
     }
   };
 
-#if defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
+#if defined(APPTRAVERSE_WINDOW_CATALOG_DEBUG_BOOTSTRAP)
+  std::error_code directory_error;
+  std::filesystem::create_directories(state_dir, directory_error);
+  if (directory_error) {
+    WriteFatalStderr("fatal: cannot create catalog development directory\n");
+    std::abort();
+  }
+  std::filesystem::path run_directory;
+  do {
+    run_directory = state_dir /
+        ("debug-run-" + std::to_string(ae::ObjId::GenerateUnique().id()));
+    if (std::filesystem::create_directory(run_directory, directory_error)) {
+      break;
+    }
+    if (directory_error) {
+      WriteFatalStderr("fatal: cannot create catalog debug-run directory\n");
+      std::abort();
+    }
+  } while (true);
+  auto const initial = DistillWindowCatalog(run_directory);
+  state_dir = run_directory / "user";
+  std::cerr << "WINDOW_CATALOG_DEBUG_FRESH_PROFILE=" << state_dir.string()
+            << '\n';
+  DirectoryDomainStorage backing{initial.backing_directory};
+  DirectoryDomainStorage user_storage{state_dir};
+  OverlayDomainStorage overlay{user_storage, backing, initial.constant_ids};
+  hooks.prepare = PrepareWindowCatalogForRun;
+  hooks.persist = [&user_storage](WindowCatalog& catalog) -> int {
+    user_storage.BeginSaveSession();
+    SaveWindowCatalogPersistentSnapshot(catalog);
+    if (user_storage.SaveSessionHadFailure()) {
+      WriteFatalStderr("fatal: WindowCatalog shutdown save failed\n");
+      return 1;
+    }
+    return 0;
+  };
+  return RunApplicationModelSession(overlay, CatalogRootId(), runtime,
+                                    std::move(on_published), hooks);
+#elif defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
   DirectoryDomainStorage user_storage{state_dir};
   hooks.prepare = [](WindowCatalog& catalog) {
     PrepareWindowCatalogForRun(catalog);

@@ -806,7 +806,7 @@ void PrintBuildLoggingFacts() {
 int main() {
   apptraverse::EnableNoninteractiveCrt();
   auto const demo =
-      apptraverse::test::ResolveDemo("win32_window_catalog_demo.exe");
+      apptraverse::test::ResolveDemo("win32_window_catalog_demo_load_only.exe");
   std::cout << "CLOSE_TIMING_DIAG HARNESS_ORIGIN=088ea28e59610c3b95a66f65979293baed13354f\n";
   std::cout << "DEBUG_DEMO=" << demo.string() << '\n';
   apptraverse::test::PrintBuildLoggingFacts();

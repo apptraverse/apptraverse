@@ -975,7 +975,7 @@ void ExpectSameTopLevelWithTitle(DWORD pid, HWND expected,
 
 std::filesystem::path RunRestartPersistenceAcceptance() {
   auto const state_dir = FreshStateDir("window_catalog_win32_acceptance");
-  auto const demo = DemoExe("win32_window_catalog_demo.exe");
+  auto const demo = DemoExe("win32_window_catalog_demo_load_only.exe");
   auto const load_only = DemoExe("win32_window_catalog_demo_load_only.exe");
   CHECK(std::filesystem::exists(demo));
   CHECK(std::filesystem::exists(load_only));
@@ -1132,7 +1132,7 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
 void RunLanguageAndFocusAcceptance() {
   auto const state_dir = FreshStateDir("window_catalog_win32_lang_focus");
 
-  auto const demo = DemoExe("win32_window_catalog_demo.exe");
+  auto const demo = DemoExe("win32_window_catalog_demo_load_only.exe");
   CHECK(std::filesystem::exists(demo));
 
   PROCESS_INFORMATION pi = StartDemo(demo, state_dir);
@@ -1465,7 +1465,7 @@ void RunRequiredUnsupportedSchemaNegativeTests(
 
 void RunDeleteAndColdReloadAcceptance() {
   auto const state_dir = FreshStateDir("window_catalog_win32_delete_cold");
-  auto const demo = DemoExe("win32_window_catalog_demo.exe");
+  auto const demo = DemoExe("win32_window_catalog_demo_load_only.exe");
   auto const load_only = DemoExe("win32_window_catalog_demo_load_only.exe");
   CHECK(std::filesystem::exists(demo));
   CHECK(std::filesystem::exists(load_only));
@@ -1528,6 +1528,38 @@ void RunDeleteAndColdReloadAcceptance() {
 }
 
 void RunAcceptanceAndRequiredMainWindowNegatives() {
+#if defined(APPTRAVERSE_TEST_DEBUG_BOOTSTRAP)
+  // Normal Debug deliberately ignores previous USER, unlike the load consumer.
+  auto const debug_state = FreshStateDir("window_catalog_debug_always_fresh");
+  for (int run = 0; run != 2; ++run) {
+    ActiveDemoProcess debug{StartDemo(
+        DemoExe("win32_window_catalog_demo.exe"), debug_state)};
+    HWND main = WaitCatalogMainWindow(debug.pi.dwProcessId,
+                                     std::chrono::seconds{30});
+    CHECK(main != nullptr);
+    WaitChromeReady(main);
+    ExpectListRows(main, {});
+    CHECK(TopLevelWindowsForPid(debug.pi.dwProcessId).size() == 1);
+    ClickControl(main, kAddControlId);
+    CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
+      return TopLevelWindowsForPid(debug.pi.dwProcessId).size() == 2;
+    }));
+    ExpectListRows(main, {L"Window 1"});
+    CloseProcessGracefully(main, debug.pi);
+    debug.Release();
+  }
+  std::size_t debug_runs = 0;
+  for (auto const& entry : std::filesystem::directory_iterator(debug_state)) {
+    if (entry.is_directory() &&
+        entry.path().filename().string().starts_with("debug-run-")) {
+      CHECK(std::filesystem::exists(entry.path() / "user"));
+      CHECK(std::filesystem::exists(
+          entry.path() / "embedded_distilled_window_catalog_supply.h"));
+      ++debug_runs;
+    }
+  }
+  CHECK(debug_runs == 2);
+#endif
   auto const good_state = RunRestartPersistenceAcceptance();
   RunDeleteAndColdReloadAcceptance();
   RunLanguageAndFocusAcceptance();

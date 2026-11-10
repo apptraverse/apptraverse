@@ -106,7 +106,14 @@ bool ReplaceLayerFile(std::filesystem::path const& path,
 
   std::error_code ec;
 
-  std::filesystem::create_directories(path.parent_path(), ec);
+  // Most layer directories have an existing object directory. Avoid walking
+  // every ancestor on each tiny layer write; retain recursive creation for a
+  // new USER/object tree and the same error handling below.
+  std::filesystem::create_directory(path.parent_path(), ec);
+  if (ec) {
+    ec.clear();
+    std::filesystem::create_directories(path.parent_path(), ec);
+  }
 
   if (ec) {
 
