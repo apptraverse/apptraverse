@@ -28,6 +28,7 @@ set(APPTRAVERSE_AETHER_OBJECTS_PATCH_NAMES
   graph-load-instance-identity
   origin-layer-lookup
   historical-base-snapshot-scope
+  domain-hierarchy-v1
 )
 set(APPTRAVERSE_AETHER_OBJECTS_PATCHES)
 foreach(patch_name IN LISTS APPTRAVERSE_AETHER_OBJECTS_PATCH_NAMES)
