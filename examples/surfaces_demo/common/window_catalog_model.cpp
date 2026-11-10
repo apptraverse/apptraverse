@@ -537,6 +537,31 @@ void WindowCatalog::SelectHolder(WindowHolder::ptr holder) {
   event->holder = std::move(holder);
   Commit(std::move(event));
 }
+namespace {
+WindowHolder* FindCurrentHolderById(WindowCatalog& catalog, ae::ObjId holder_id) {
+  catalog.persisted.list.Load();
+  for (auto const& row : catalog.persisted.list->rows) {
+    if (row.id() == holder_id) {
+      row.Load();
+      return AsHolder(*row);
+    }
+  }
+  return nullptr;  // An accepted UI command may outlive the row's membership.
+}
+}  // namespace
+
+void WindowCatalog::SubmitSelectionByIdFromUi(ae::ObjId holder_id) {
+  if (auto* holder = FindCurrentHolderById(*this, holder_id)) {
+    SelectHolder(WindowHolder::ptr::MakeFromThis(holder));
+  }
+}
+
+void WindowCatalog::OpenHolderByIdFromUi(ae::ObjId holder_id) {
+  if (auto* holder = FindCurrentHolderById(*this, holder_id)) {
+    OpenHolderWindow(*holder);
+  }
+}
+
 void WindowCatalog::SubmitSelectionFromUi(std::size_t row_index) {
   persisted.list.Load();
   if (row_index >= persisted.list->rows.size()) {

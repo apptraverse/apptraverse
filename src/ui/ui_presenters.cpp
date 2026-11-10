@@ -37,18 +37,26 @@ bool UiListContainerPresenter::ReadyForPresentation() const {
 
 void UiListContainerPresenter::OnModelChanged() {}
 
+std::optional<ae::ObjId> UiListContainerPresenter::RowIdAtUiIndex(
+    std::size_t row_index) const {
+  if (row_index >= container->rows.size()) { return std::nullopt; }
+  return container->rows[row_index].id();
+}
+
 void UiListContainerPresenter::SubmitListRowActivatedFromUi(
     std::size_t row_index) {
+  auto const row_id = RowIdAtUiIndex(row_index);
+  if (!row_id) { return; }
   model_proxy->Invoke(container->obj_id,
-                      &UiListContainer::SubmitListRowActivatedFromUi,
-                      row_index);
+                      &UiListContainer::SubmitListRowActivatedById, *row_id);
 }
 
 void UiListContainerPresenter::SubmitListRowSelectionChangedFromUi(
     std::size_t row_index) {
+  auto const row_id = RowIdAtUiIndex(row_index);
+  if (!row_id) { return; }
   model_proxy->Invoke(container->obj_id,
-                      &UiListContainer::SubmitListRowSelectionChangedFromUi,
-                      row_index);
+                      &UiListContainer::SubmitListRowSelectionChangedById, *row_id);
 }
 
 void UiListContainerPresenter::OnListRowActivated(std::size_t row_index) {

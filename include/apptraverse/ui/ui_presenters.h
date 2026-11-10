@@ -1,6 +1,8 @@
 #ifndef APPTRAVERSE_UI_UI_PRESENTERS_H_
 #define APPTRAVERSE_UI_UI_PRESENTERS_H_
 
+#include <optional>
+
 #include "apptraverse/presenter.h"
 
 #include "apptraverse/ui/ui_desktop_window.h"
@@ -102,6 +104,11 @@ class UiListContainerPresenter : public Presenter {
   virtual void OnListRowActivated(std::size_t row_index);
   virtual void OnListRowSelectionChanged(std::size_t row_index);
 
+ protected:
+  // Resolve against the displayed mirror before posting; no model pointer crosses domains.
+  std::optional<ae::ObjId> RowIdAtUiIndex(std::size_t row_index) const;
+
+ public:
   virtual std::string ResolveListRowPrimaryText(ui::UiListRow::ptr const& row,
                                                int language_index) const;
 

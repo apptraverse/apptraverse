@@ -100,13 +100,17 @@ class CatalogListContainerPresenter
 
 void CatalogListContainerPresenter::SubmitListRowSelectionChangedFromUi(
     std::size_t row_index) {
-  model_proxy->Invoke(catalog->obj_id, &WindowCatalog::SubmitSelectionFromUi,
-                      row_index);
+  auto const row_id = RowIdAtUiIndex(row_index);
+  if (!row_id) { return; }
+  model_proxy->Invoke(catalog->obj_id, &WindowCatalog::SubmitSelectionByIdFromUi,
+                      *row_id);
 }
 
 void CatalogListContainerPresenter::SubmitListRowActivatedFromUi(
     std::size_t row_index) {
-  model_proxy->Invoke(catalog->obj_id, &WindowCatalog::OpenRow, row_index);
+  auto const row_id = RowIdAtUiIndex(row_index);
+  if (!row_id) { return; }
+  model_proxy->Invoke(catalog->obj_id, &WindowCatalog::OpenHolderByIdFromUi, *row_id);
 }
 
 APPTRAVERSE_REGISTER(CatalogDesktopWindowPresenter);

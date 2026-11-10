@@ -325,7 +325,12 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
   void OpenSelected();
 
+  // Indexed adapter retained for other platform ports/model callers.
   void OpenRow(std::size_t row_index);
+
+  // Windows/headless UI commands carry identity, not an index into an older mirror.
+  void SubmitSelectionByIdFromUi(ae::ObjId holder_id);
+  void OpenHolderByIdFromUi(ae::ObjId holder_id);
 
   void DeleteSelected();
 

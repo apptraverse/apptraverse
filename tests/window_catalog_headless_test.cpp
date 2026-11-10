@@ -1,4 +1,5 @@
 #include <condition_variable>
+#include <deque>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -191,6 +192,68 @@ void RunDeleteMatrixScenario(ae::Domain& domain, WindowCatalog& catalog,
     }
   }
   CHECK(loaded_after == loaded_before);
+}
+
+void TestQueuedCatalogActionsKeepRowIdentity() {
+  EnsureObjectRegistration();
+  EnsureHeadlessWindowCatalogGraphRegistration();
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto catalog = BuildHeadlessWindowCatalogGraph(domain);
+  PrepareWindowCatalogForRun(*catalog);
+  catalog->AddWindow();
+  catalog->AddWindow();
+  catalog->AddWindow();
+  auto a = WindowHolder::ptr::MakeFromThis(AsHolder(catalog->persisted.list->rows[0]));
+  auto b = WindowHolder::ptr::MakeFromThis(AsHolder(catalog->persisted.list->rows[1]));
+  auto c = WindowHolder::ptr::MakeFromThis(AsHolder(catalog->persisted.list->rows[2]));
+  catalog->UserCloseWindow(a->window.id());
+  catalog->UserCloseWindow(b->window.id());
+  catalog->UserCloseWindow(c->window.id());
+  std::deque<ModelObjectProxy::ModelWork> pending;
+  ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork work) {
+    pending.push_back(std::move(work));
+  }};
+  ByteSink initial;
+  SerializeInitialPublication(*catalog, initial);
+  ApplicationUiSession session{initial.bytes, nullptr, proxy};
+  auto& mirror = static_cast<WindowCatalog&>(session.root());
+  auto& presenter = ListPresenter(mirror);
+  auto drain = [&] {
+    while (!pending.empty()) {
+      auto work = std::move(pending.front());
+      pending.pop_front();
+      work(domain);
+    }
+  };
+
+  presenter.SubmitListRowSelectionChangedFromUi(1);
+  presenter.SubmitListRowActivatedFromUi(1);
+  CHECK(pending.size() == 2);
+  catalog->SelectHolder(a);
+  catalog->DeleteSelected();  // B moves from index 1 to 0; mirror still shows A,B,C.
+  drain();
+  CHECK(catalog->persisted.selected.id() == b.id());
+  CHECK(catalog->persisted.list->selection_index == 0);
+  CHECK(catalog->IsHolderWindowOpen(*b));
+  CHECK(!catalog->IsHolderWindowOpen(*c));
+  CHECK(mirror.persisted.list->rows.size() == 3);
+
+  presenter.SubmitListRowSelectionChangedFromUi(2);
+  presenter.SubmitListRowActivatedFromUi(2);
+  catalog->SelectHolder(c);
+  catalog->DeleteSelected();
+  catalog->SelectHolder(b);
+  auto const generation = catalog->Generation();
+  drain();  // C is still retained by this test/history, but no longer a list member.
+  CHECK(catalog->Generation() == generation);
+  CHECK(catalog->persisted.selected.id() == b.id());
+  CHECK(catalog->persisted.list->rows.size() == 1);
+  CHECK(!catalog->IsHolderWindowOpen(*c));
+
+  presenter.SubmitListRowSelectionChangedFromUi(99);
+  presenter.SubmitListRowActivatedFromUi(99);
+  CHECK(pending.empty());
 }
 
 void TestHeadlessDeleteClearsSelectionIndexRam() {
@@ -966,6 +1029,7 @@ void TestMobileCloseButtonAndAdaptiveLayout() {
 
 int main() {
   apptraverse::EnableNoninteractiveCrt();
+  apptraverse::test::TestQueuedCatalogActionsKeepRowIdentity();
   apptraverse::test::TestHeadlessDeleteClearsSelectionIndexRam();
   apptraverse::test::TestHeadlessDeleteSelectionAbPersistAndColdLoad();
   apptraverse::test::TestHeadlessCatalogChromeE2e();

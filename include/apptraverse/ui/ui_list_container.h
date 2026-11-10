@@ -74,9 +74,14 @@ class UiListContainer : public NodeFor<UiListContainer> {
   void Apply(RemoveUiListRowEvent const& event);
   void Apply(SetUiListSelectionEvent const& event);
 
-  // UI/native entry: routed through presenter ModelObjectProxy on the model thread.
+  // Indexed adapters for existing model/platform callers. Windows/headless
+  // presenters enqueue the identity-based entry points below.
   void SubmitListRowActivatedFromUi(std::size_t row_index);
   void SubmitListRowSelectionChangedFromUi(std::size_t row_index);
+
+  // Queued UI actions address the row identity. A removed row makes the action obsolete.
+  void SubmitListRowActivatedById(ae::ObjId row_id);
+  void SubmitListRowSelectionChangedById(ae::ObjId row_id);
 
   virtual void HandleListRowActivated(std::size_t row_index);
   virtual void HandleListRowSelectionChanged(std::size_t row_index);

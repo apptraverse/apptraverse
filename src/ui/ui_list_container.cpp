@@ -29,6 +29,20 @@ void UiListContainer::SubmitListRowSelectionChangedFromUi(
   HandleListRowSelectionChanged(row_index);
 }
 
+void UiListContainer::SubmitListRowActivatedById(ae::ObjId row_id) {
+  auto const row = std::find_if(rows.begin(), rows.end(),
+      [row_id](auto const& entry) { return entry.id() == row_id; });
+  if (row == rows.end()) { return; }  // Removed after the UI publication.
+  HandleListRowActivated(static_cast<std::size_t>(row - rows.begin()));
+}
+
+void UiListContainer::SubmitListRowSelectionChangedById(ae::ObjId row_id) {
+  auto const row = std::find_if(rows.begin(), rows.end(),
+      [row_id](auto const& entry) { return entry.id() == row_id; });
+  if (row == rows.end()) { return; }  // Keep the current selection for an obsolete action.
+  HandleListRowSelectionChanged(static_cast<std::size_t>(row - rows.begin()));
+}
+
 void UiListContainer::HandleListRowActivated(std::size_t row_index) {
   static_cast<void>(row_index);
 }

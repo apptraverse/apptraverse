@@ -1481,6 +1481,25 @@ void TestListSelectionViaPresenterProxy() {
                                     SetUiListSelectionEvent::kClassId) == 1);
   CHECK(materialize_notify == 1);
 
+  // Queue against the old mirror, then remove an earlier row in the model.
+  ui_list_presenter->SubmitListRowSelectionChangedFromUi(1);
+  auto remove_first = RemoveUiListRowEvent::ptr::Create(ae::CreateWith{model_domain});
+  remove_first->row_id = row0.id();
+  list->Commit(remove_first);
+  PumpModelWork(deferred, model_domain);
+  CHECK(list->selection_index == 0);
+  CHECK(list->rows[0].id() == row1.id());
+  CHECK(ui_list->rows.size() == 2);
+
+  auto const generation = list->Generation();
+  ui_list_presenter->SubmitListRowSelectionChangedFromUi(0);  // Deleted row0.
+  PumpModelWork(deferred, model_domain);
+  CHECK(list->Generation() == generation);
+  CHECK(list->selection_index == 0);
+  ui_list_presenter->SubmitListRowSelectionChangedFromUi(99);
+  ui_list_presenter->SubmitListRowActivatedFromUi(99);
+  CHECK(deferred.empty());
+
   list->ClearMaterializedChangeNotifier();
 }
 
