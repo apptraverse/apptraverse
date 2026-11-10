@@ -1393,6 +1393,15 @@ add_test(
   COMMAND apptraverse_object_clone_test
 )
 
+add_executable(apptraverse_aether_domain_hierarchy_test
+  aether_domain_hierarchy_test.cpp)
+target_link_libraries(apptraverse_aether_domain_hierarchy_test PRIVATE
+  apptraverse)
+add_test(
+  NAME apptraverse_aether_domain_hierarchy_test
+  COMMAND apptraverse_aether_domain_hierarchy_test
+)
+
 add_test(
   NAME apptraverse_object_origin_disk_roundtrip_test
   COMMAND ${CMAKE_COMMAND}

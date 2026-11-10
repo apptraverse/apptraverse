@@ -73,8 +73,11 @@ Constraints:
 
 | Stage | Status | Notes |
 |-------|--------|-------|
-| 1 | IN PROGRESS | Worktree created; plan file added |
-| 2–8 | NOT RUN | |
+| 1 | PASS | Worktree `feature/domain-hierarchy-cloning`; patch chain 19/19 on `/.cpm_cache_isolated_v3` |
+| 2 | PASS | `apptraverse_aether_domain_hierarchy_test` |
+| 3 | PASS | Parent lookup, sibling isolation, ObjPtr identity in hierarchy test |
+| 4 | PASS | Child-domain finalize path; `apptraverse_object_clone_test` |
+| 5–8 | NOT RUN | Session RAM removal, persistence boundary, full regression, Close timing |
 
 ## Validation log
 
@@ -82,15 +85,19 @@ Constraints:
 |---------|--------|------|--------|
 | `git rev-parse HEAD` (new worktree) | `feature/domain-hierarchy-cloning` | 0 | `0343a20` |
 | `git status -sb` (adaptive, read-only) | — | 0 | Dirty WIP present; untouched by agent |
+| `cmake configure` | `CPM_SOURCE_CACHE=.cpm_cache_isolated_v3`, 19 patches | 0 | PASS |
+| `apptraverse_aether_domain_hierarchy_test` | v3 Debug | 0 | PASS |
+| `apptraverse_object_clone_test` | v3 Debug | 0 | PASS |
+| `apptraverse_window_catalog_headless_test` | v3 Debug | 0 | PASS |
 
 ## Remaining issues
 
-- Full implementation and test matrix pending.
-- Adaptive WIP live-adopt path explicitly excluded unless re-derived via child domain.
+- `ApplicationModelSessionStorage` still present at base (stage 6 not started).
+- `window_catalog_user_persistence_boundary_test` and Debug Close timing harness not run in this worktree.
+- Adaptive WIP live-adopt path excluded; use child-domain finalize (`persist_layers_to_target_storage=false` default).
 
 ## Next action
 
-1. Populate isolated CPM cache via CMake configure in new worktree.
-2. Author `aether-objects-domain-hierarchy-v1.patch` and ObjPtr identity patch if not covered.
-3. Implement child-domain clone finalization in `object_clone.cpp`.
-4. Port selective WIP (session storage removal, persistence boundary tests) without live-adopt.
+1. Remove session RAM USER staging (port from adaptive WIP without live-adopt hooks).
+2. Run persistence boundary + cold round-trip suite.
+3. Full §W2/headless regression matrix and Debug Close timing (5×4 scenarios).

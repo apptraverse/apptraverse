@@ -569,6 +569,7 @@ void TestCanonicalCloneSingleObjectMemoryRoundtrip() {
   options.stable_origin = kPrefabId;
   options.boundary_ids = {kPrefabId};
   options.new_root_id = kCloneId;
+  options.persist_layers_to_target_storage = true;
 
   stores.user->BeginSaveSession();
   apptraverse::CloneCanonicalResult const cloned =
@@ -726,6 +727,7 @@ void TestCanonicalCloneTwoObjectGraphWithConstBoundary() {
     options.stable_origin = kOriginP;
     options.boundary_ids = {kOriginP, kOriginQ, kOriginC};
     options.new_root_id = kCloneR;
+    options.persist_layers_to_target_storage = true;
 
     target_stores.user->BeginSaveSession();
     apptraverse::CloneCanonicalResult const cloned =
@@ -967,6 +969,7 @@ void TestCanonicalCloneNodeGraphWithFreshHistory() {
     options.stable_origin = kHistOriginP;
     options.boundary_ids = {kHistOriginP, kHistOriginQ, kHistOriginC};
     options.new_root_id = kHistCloneR;
+    options.persist_layers_to_target_storage = true;
 
     target_stores.user->BeginSaveSession();
     apptraverse::CloneCanonicalResult const cloned =
@@ -1187,6 +1190,7 @@ void TestCanonicalCloneObjContainerWithNestedNodeHistory() {
     options.boundary_ids = {kHistOriginP, kHistOriginQ, kHistOriginC,
                             kHistOriginContainer};
     options.new_root_id = kHistCloneContainer;
+    options.persist_layers_to_target_storage = true;
 
     target_stores.user->BeginSaveSession();
     apptraverse::CloneCanonicalResult const cloned =
@@ -1391,6 +1395,7 @@ void TestCanonicalCloneUnloadedNodeChild() {
     options.boundary_ids = {kHistOriginP, kHistOriginQ, kHistOriginC,
                             kHistOriginContainer};
     options.new_root_id = kHistCloneLazyRoot;
+    options.persist_layers_to_target_storage = true;
 
     target_stores.user->BeginSaveSession();
     apptraverse::CloneCanonicalResult const cloned =
@@ -1509,6 +1514,7 @@ apptraverse::CloneOptions UiWindowPrefabCloneOptions(ae::ObjId new_root_id) {
   options.stable_prefab_ids = {kUiPrefabWindow, kUiPrefabPresenter};
   options.boundary_ids = UiWindowPrefabOverlayConstants();
   options.new_root_id = new_root_id;
+  options.persist_layers_to_target_storage = true;
   return options;
 }
 
