@@ -12,9 +12,7 @@
 #include "apptraverse/distill.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/runtime_node.h"
-#include "apptraverse/ui/ui_bitmap_image.h"
 #include "apptraverse/ui/ui_desktop_window.h"
-#include "apptraverse/ui/ui_edit_box.h"
 #include "apptraverse/ui/ui_localization_string.h"
 #include "apptraverse/ui/ui_locale_settings.h"
 #include "apptraverse/ui/ui_presenters.h"
@@ -41,18 +39,8 @@ ae::ObjId const kWindowId{0x70000001u};
 ae::ObjId const kLocaleId{0x70000002u};
 ae::ObjId const kTitleId{0x70000003u};
 ae::ObjId const kPresenterId{0x70000004u};
-ae::ObjId const kEditAId{0x70000005u};
-ae::ObjId const kEditBId{0x70000006u};
-ae::ObjId const kEditPresenterAId{0x70000007u};
-ae::ObjId const kEditPresenterBId{0x70000008u};
-ae::ObjId const kBitmapId{0x70000009u};
-ae::ObjId const kBitmapPresenterId{0x7000000au};
 ae::ObjId const kListId{0x7000000bu};
 ae::ObjId const kListPresenterId{0x7000000cu};
-
-std::vector<std::uint8_t> const kBitmapPixels{
-    255, 0, 17, 255, 0, 128, 255, 64,
-};
 
 using DesktopPresenter = ui::UiDesktopWindowPresenter;
 
@@ -67,26 +55,20 @@ class PresenterGraphRoot : public NodeFor<PresenterGraphRoot> {
   explicit PresenterGraphRoot(ae::ObjProp prop) : NodeFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(window), AE_MMBR(window_presenter),
-                    AE_MMBR(edit_presenter_a), AE_MMBR(edit_presenter_b),
-                    AE_MMBR(bitmap_presenter), AE_MMBR(list_presenter))
+                    AE_MMBR(list_presenter))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, window, window_presenter, edit_presenter_a, edit_presenter_b,
-        bitmap_presenter, list_presenter);
+    dnv(base_, window, window_presenter, list_presenter);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, window, window_presenter, edit_presenter_a, edit_presenter_b,
-        bitmap_presenter, list_presenter);
+    dnv(base_, window, window_presenter, list_presenter);
   }
 
   ui::UiDesktopWindow::ptr window;
   DesktopPresenter::ptr window_presenter;
-  ui::UiEditBoxPresenter::ptr edit_presenter_a;
-  ui::UiEditBoxPresenter::ptr edit_presenter_b;
-  ui::UiBitmapImagePresenter::ptr bitmap_presenter;
   ui::UiListContainerPresenter::ptr list_presenter;
 };
 
@@ -96,8 +78,6 @@ struct BuiltGraph {
   PresenterGraphRoot::ptr root;
   ui::UiLocaleSettings::ptr locale;
   ui::UiLocalizationString::ptr title;
-  ui::UiEditBox::ptr edit_a;
-  ui::UiEditBox::ptr edit_b;
 };
 
 BuiltGraph BuildGraph(ae::Domain& domain) {
@@ -130,39 +110,6 @@ BuiltGraph BuildGraph(ae::Domain& domain) {
   g.root->window_presenter->locale = g.locale;
   g.root->window_presenter->title = g.title;
 
-  g.edit_a = ui::UiEditBox::ptr::Create(
-      ae::CreateWith{domain}.with_id(kEditAId));
-  g.edit_a->BootstrapText("", 0, false);
-  InitializeRuntimeNode(*g.edit_a, *g.root->window);
-  g.edit_b = ui::UiEditBox::ptr::Create(
-      ae::CreateWith{domain}.with_id(kEditBId));
-  g.edit_b->BootstrapText("", 0, false);
-  InitializeRuntimeNode(*g.edit_b, *g.root->window);
-
-  g.root->edit_presenter_a = ui::UiEditBoxPresenter::ptr::Create(
-      ae::CreateWith{domain}.with_id(kEditPresenterAId));
-  g.root->edit_presenter_a->edit_box = g.edit_a;
-  g.root->edit_presenter_a->window_presenter = g.root->window_presenter;
-
-  g.root->edit_presenter_b = ui::UiEditBoxPresenter::ptr::Create(
-      ae::CreateWith{domain}.with_id(kEditPresenterBId));
-  g.root->edit_presenter_b->edit_box = g.edit_b;
-  g.root->edit_presenter_b->window_presenter = g.root->window_presenter;
-
-  auto bitmap = ui::UiBitmapImage::ptr::Create(
-      ae::CreateWith{domain}.with_id(kBitmapId));
-  bitmap->width = 0;
-  bitmap->height = 0;
-  InitializeRuntimeNode(*bitmap, *g.root->window);
-  bitmap->width = 2;
-  bitmap->height = 1;
-  bitmap->bgra_bytes = kBitmapPixels;
-  g.root->bitmap_presenter = ui::UiBitmapImagePresenter::ptr::Create(
-      ae::CreateWith{domain}.with_id(kBitmapPresenterId));
-  g.root->bitmap_presenter->image = bitmap;
-  g.root->bitmap_presenter->window_presenter = g.root->window_presenter;
-  bitmap->presenter = g.root->bitmap_presenter;
-
   auto list = ui::UiListContainer::ptr::Create(
       ae::CreateWith{domain}.with_id(kListId));
   list->selection_index = -1;
@@ -180,7 +127,6 @@ void RunPresenterGraphPersistenceTest() {
   EnableNoninteractiveCrt();
   EnsureObjectRegistration();
   ui::EnsureUiPresenterRegistration();
-  ui::EnsureExtendedUiPresenterRegistration();
   (void)&g_apptraverse_registrar_PresenterGraphRoot;
 
   ae::RamDomainStorage storage;
@@ -192,8 +138,6 @@ void RunPresenterGraphPersistenceTest() {
     ae::ObjId const presenter_id_before = live.root->window_presenter.id();
     ae::ObjId const locale_id_before = live.locale.id();
     CHECK(&*live.root->window_presenter->window == &*live.root->window);
-    CHECK(&*live.root->edit_presenter_a->window_presenter ==
-          &*live.root->window_presenter);
 
     ae::DomainGraph save_graph{&domain};
     ae::Ptr<ae::Obj> save_root = domain.Find(kRootId);
@@ -215,22 +159,6 @@ void RunPresenterGraphPersistenceTest() {
   CHECK(load_root->window_presenter->locale.is_valid());
   CHECK(load_root->window_presenter->locale->obj_id == kLocaleId);
   CHECK(load_root->window_presenter->title->strings[0]->utf8 == "Title EN");
-  CHECK(&*load_root->edit_presenter_a->window_presenter ==
-        &*load_root->window_presenter);
-  CHECK(&*load_root->edit_presenter_b->window_presenter ==
-        &*load_root->window_presenter);
-  CHECK(&*load_root->edit_presenter_a->window_presenter->locale ==
-        &*load_root->window_presenter->locale);
-
-  CHECK(load_root->bitmap_presenter.id() == kBitmapPresenterId);
-  auto const bitmap = load_root->bitmap_presenter->image;
-  CHECK(bitmap.id() == kBitmapId);
-  CHECK(bitmap->width == 2);
-  CHECK(bitmap->height == 1);
-  CHECK(bitmap->bgra_bytes == kBitmapPixels);
-  CHECK(&*bitmap->presenter == &*load_root->bitmap_presenter);
-  CHECK(&*load_root->bitmap_presenter->window_presenter ==
-        &*load_root->window_presenter);
   CHECK(load_root->list_presenter.id() == kListPresenterId);
   CHECK(load_root->list_presenter->container.id() == kListId);
   CHECK(load_root->list_presenter->notify_list_selection_change);

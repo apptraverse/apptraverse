@@ -161,3 +161,14 @@ Completed the Windows/headless implementation of the agreed principles on `featu
 Final incremental Debug acceptance: **84/84 non-timing tests + 1/1 Close diagnostic PASS**. Child Close medians **204/208/216/118 ms**; main exit after child Close **45–78 ms**. RAM model Close control **4/6 ms**, zero disk bytes. Fresh-window HWND latency is higher than the earlier single-file run; this is recorded without claiming a controlled performance improvement. No MinSizeRel or platform-device build/run was performed.
 
 See [implementation, limitations, all test results and 20 Close samples](validation/windows-principles-2026-11-10.md). History/replay remain intact; future distributed/platform work stays deferred.
+
+## Remove unused controls and enforce required window links — 2026-11-10
+
+Scope: Windows and headless, incremental Debug (`AE_NO_DEBUG_LOG=ON`). User explicitly requested removal of controls unused by WindowCatalog and MinimalApp, including their dedicated tests.
+
+- Removed Bitmap, EditBox and Label model/presenter classes, extended registration/libraries, Windows implementations, and unused EditBox caret conversion helpers. Consequently the remaining Bitmap in-class persistent defaults are gone with the component rather than repaired in unused code.
+- Removed three dedicated CTest targets (two Bitmap publication tests and EditBox headless). Preserved mixed presenter graph, localization, native command-routing and button/list/window coverage. Local commit journal scaling now uses UiWindow events; repeated-event materialization notification is checked on UiPushButton.
+- Removed missing-graph fallbacks for desktop window, list container, parent presenter and locale in the common accessor/Windows presenters. HWND lifetime, native creation results, interactive move state and selection notification policy remain runtime conditions.
+- No references to removed components remain in source/build files; historical reports retain their original evidence.
+- Final incremental Debug build PASS; full CTest **82/82 PASS**, including WindowCatalog/MinimalApp Windows acceptance, headless, USER persistence boundary, clone/history, and Close diagnostic. Logs: `.artifacts/remove-controls-final-build.log`, `.artifacts/remove-controls-final-tests.log`. Three fewer tests than the previous 85 are the explicitly removed dedicated component tests, not skipped failures.
+- No MinSizeRel, other platform device tests, migrations or adaptive worktree changes.

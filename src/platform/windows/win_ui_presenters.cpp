@@ -229,9 +229,6 @@ WinDesktopWindowPresenter::ClientFrame
 WinDesktopWindowPresenter::ReadMirrorClientFrame() const {
   ClientFrame frame{};
   auto const desktop = desktop_window();
-  if (!desktop) {
-    return frame;
-  }
   frame.x = desktop->x();
   frame.y = desktop->y();
   frame.client_width = desktop->restore_client_width();
@@ -263,10 +260,6 @@ void WinDesktopWindowPresenter::ApplyRequestedFrameFromMirror() {
   if (interactive_move_active_ || hwnd_ == nullptr) {
     return;
   }
-  auto const desktop = desktop_window();
-  if (!desktop) {
-    return;
-  }
   ClientFrame const mirror = ReadMirrorClientFrame();
   ClientFrame const native = ReadNativeClientFrame();
   if (FramesEqual(mirror, native)) {
@@ -288,7 +281,7 @@ void WinDesktopWindowPresenter::HandleNativeFrameChanged(
     return;
   }
   auto const desktop = desktop_window();
-  if (hwnd_ == nullptr || !desktop) {
+  if (hwnd_ == nullptr) {
     return;
   }
   ClientFrame const native = ReadNativeClientFrame();
@@ -351,15 +344,12 @@ void WinDesktopWindowPresenter::OnUnload() {
 }
 
 WinDesktopWindowPresenter* WinListContainerPresenter::Desktop() const {
-  if (!window_presenter) {
-    return nullptr;
-  }
   return static_cast<WinDesktopWindowPresenter*>(window_presenter.operator->());
 }
 
 void WinListContainerPresenter::OnLoad() {
   auto* desktop = Desktop();
-  if (desktop == nullptr || desktop->hwnd() == nullptr || !container) {
+  if (desktop->hwnd() == nullptr) {
     return;
   }
   hwnd_ = CreateWindowExW(
@@ -432,7 +422,7 @@ std::vector<std::wstring> ReadListBoxStrings(HWND hwnd) {
 void ApplyPublishedListSelection(HWND hwnd, bool notify_list_selection_change,
                                  ui::UiListContainer const* container,
                                  std::size_t row_count) {
-  if (hwnd == nullptr || !notify_list_selection_change || container == nullptr) {
+  if (hwnd == nullptr || !notify_list_selection_change) {
     return;
   }
   std::int32_t const desired = container->selection_index;
@@ -451,17 +441,14 @@ void ApplyPublishedListSelection(HWND hwnd, bool notify_list_selection_change,
 }  // namespace
 
 void WinListContainerPresenter::SyncFromMirror() {
-  if (hwnd_ == nullptr || !container) {
+  if (hwnd_ == nullptr) {
     return;
   }
   auto const apply_layout = [this] {
     ApplyListLayoutFromMirror(hwnd_, layout_x, layout_y, layout_width,
                               layout_height);
   };
-  int language_index = 0;
-  if (window_presenter && window_presenter->locale) {
-    language_index = window_presenter->locale->language_index();
-  }
+  int const language_index = window_presenter->locale->language_index();
   std::vector<std::string> const labels =
       ResolveListRowPrimaryTexts(language_index);
   std::vector<std::wstring> desired;

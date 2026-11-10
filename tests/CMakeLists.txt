@@ -218,26 +218,16 @@ add_executable(apptraverse_node_local_commit_journal_scaling_test
 )
 target_link_libraries(apptraverse_node_local_commit_journal_scaling_test PRIVATE
   apptraverse
-  apptraverse_ui_extended
 )
 add_test(
   NAME apptraverse_node_local_commit_journal_scaling_test
   COMMAND apptraverse_node_local_commit_journal_scaling_test
 )
 
-add_executable(apptraverse_ui_edit_box_headless_test
-  ui/ui_edit_box_headless_test.cpp
-)
-target_link_libraries(apptraverse_ui_edit_box_headless_test PRIVATE apptraverse apptraverse_ui_extended)
-add_test(
-  NAME apptraverse_ui_edit_box_headless_test
-  COMMAND apptraverse_ui_edit_box_headless_test
-)
-
 add_executable(apptraverse_ui_control_materialization_test
   ui/ui_control_materialization_test.cpp
 )
-target_link_libraries(apptraverse_ui_control_materialization_test PRIVATE apptraverse apptraverse_ui_extended)
+target_link_libraries(apptraverse_ui_control_materialization_test PRIVATE apptraverse)
 add_test(
   NAME apptraverse_ui_control_materialization_test
   COMMAND apptraverse_ui_control_materialization_test
@@ -750,7 +740,6 @@ add_test(
   COMMAND apptraverse_model_runtime_stop_test
 )
 
-
 add_executable(apptraverse_publication_channel_test
   publication_channel_test.cpp
 )
@@ -767,7 +756,6 @@ add_test(
   NAME apptraverse_publication_channel_test
   COMMAND apptraverse_publication_channel_test
 )
-
 
 endif() # APPTRAVERSE_BUILD_LEGACY_EXAMPLES
 
@@ -1205,7 +1193,6 @@ if(WIN32)
   endif() # APPTRAVERSE_BUILD_LEGACY_EXAMPLES
 endif()
 
-
 add_executable(apptraverse_partitioned_model_domain_storage_test
   partitioned_model_domain_storage_test.cpp
 )
@@ -1239,30 +1226,6 @@ add_test(
   COMMAND apptraverse_checkpoint_load_rehydration_test
 )
 
-add_executable(apptraverse_ui_bitmap_publication_test
-  ui_bitmap_publication_test.cpp
-)
-target_link_libraries(apptraverse_ui_bitmap_publication_test PRIVATE
-  apptraverse
-  apptraverse_ui_extended
-)
-add_test(
-  NAME apptraverse_ui_bitmap_publication_test
-  COMMAND apptraverse_ui_bitmap_publication_test
-)
-
-add_executable(apptraverse_ui_bitmap_structural_publication_test
-  ui_bitmap_structural_publication_test.cpp
-)
-target_link_libraries(apptraverse_ui_bitmap_structural_publication_test PRIVATE
-  apptraverse
-  apptraverse_ui_extended
-)
-add_test(
-  NAME apptraverse_ui_bitmap_structural_publication_test
-  COMMAND apptraverse_ui_bitmap_structural_publication_test
-)
-
 add_executable(apptraverse_checkpoint_load_cycle_persistence_test
   checkpoint_load_cycle_persistence_test.cpp
 )
@@ -1279,7 +1242,6 @@ add_executable(apptraverse_presenter_graph_persistence_test
 )
 target_link_libraries(apptraverse_presenter_graph_persistence_test PRIVATE
   apptraverse
-  apptraverse_ui_extended
 )
 add_test(
   NAME apptraverse_presenter_graph_persistence_test
@@ -1706,12 +1668,12 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
       "${APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR}/embedded_distilled_window_catalog_supply.h")
   endif()
   target_link_libraries(apptraverse_window_catalog_win32_acceptance_test PRIVATE
-    apptraverse_ui_windows_extended apptraverse)
+    apptraverse_ui_windows apptraverse)
 
   apptraverse_add_test(apptraverse_window_catalog_win32_chrome_adaptive_test
     window_catalog_win32_chrome_adaptive_test.cpp surfaces_demo_window_catalog)
   target_link_libraries(apptraverse_window_catalog_win32_chrome_adaptive_test PRIVATE
-    apptraverse_ui_windows_extended apptraverse)
+    apptraverse_ui_windows apptraverse)
   if(MSVC)
     target_compile_options(apptraverse_window_catalog_win32_chrome_adaptive_test PRIVATE
       /utf-8)
@@ -1722,7 +1684,7 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
   apptraverse_add_test(apptraverse_window_catalog_win32_close_timing_diagnostic_test
     window_catalog_win32_close_timing_diagnostic_test.cpp surfaces_demo_window_catalog)
   target_link_libraries(apptraverse_window_catalog_win32_close_timing_diagnostic_test PRIVATE
-    apptraverse_ui_windows_extended apptraverse)
+    apptraverse_ui_windows apptraverse)
   add_dependencies(apptraverse_window_catalog_win32_close_timing_diagnostic_test
     win32_window_catalog_demo_load_only)
   if(MSVC)
@@ -1758,7 +1720,7 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
   target_compile_definitions(apptraverse_minimal_app_win32_acceptance_test PRIVATE
     APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
   target_link_libraries(apptraverse_minimal_app_win32_acceptance_test PRIVATE
-    apptraverse_ui_windows_extended)
+    apptraverse_ui_windows)
   target_sources(apptraverse_minimal_app_win32_acceptance_test PRIVATE
     "${APPTRAVERSE_MINIMAL_APP_EMBED_INCLUDE_DIR}/embedded_distilled_minimal_app_supply.h")
   target_include_directories(apptraverse_minimal_app_win32_acceptance_test PRIVATE
@@ -1781,7 +1743,7 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
     win_ui_command_routing_test_nodes.cpp)
   target_link_libraries(apptraverse_win_ui_command_routing_test PRIVATE
     apptraverse
-    apptraverse_ui_windows_extended)
+    apptraverse_ui_windows)
   add_test(
     NAME apptraverse_win_ui_command_routing_test
     COMMAND apptraverse_win_ui_command_routing_test)

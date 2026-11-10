@@ -16,7 +16,6 @@
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/node.h"
-#include "apptraverse/ui/ui_edit_box.h"
 #include "apptraverse/ui/ui_list_container.h"
 #include "apptraverse/ui/ui_localization_string.h"
 #include "apptraverse/ui/ui_push_button_presenter.h"
@@ -134,33 +133,12 @@ void TestImmediateCompactionKeepsInactiveLanguageLazy() {
   CHECK(localized->Resolve(0) == "Changed English");
 }
 
-void TestEditBoxMaterializationNotifiesOnChange() {
+void TestPushButtonMaterializationNotifiesOnChange() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto doc = UiWindow::ptr::Create(ae::CreateWith{domain});
   doc->BootstrapClientSize(800, 600);
   InitializeRuntimeNode(*doc);
-  auto edit = UiEditBox::ptr::Create(ae::CreateWith{domain});
-  edit->BootstrapText("", 0, false);
-  InitializeRuntimeNode(*edit, *doc);
-
-  int notify_count = 0;
-  edit->BindMaterializedChangeNotifier(&notify_count, &PendingNotify);
-
-  auto const gen_before = edit->Generation();
-  auto text_event = SetUiEditBoxTextEvent::ptr::Create(
-      ae::CreateWith{*edit->domain});
-  text_event->text = "uid-123";
-  edit->Commit(text_event);
-  CHECK(notify_count == 1);
-  CHECK(edit->Generation() > gen_before);
-  CHECK(edit->text() == "uid-123");
-
-  auto caret = SetUiEditBoxCaretEvent::ptr::Create(ae::CreateWith{*edit->domain});
-  caret->caret_utf8_offset = 3;
-  edit->Commit(caret);
-  CHECK(notify_count == 2);
-
   auto enable = SetUiPushButtonEnabledEvent::ptr::Create(
       ae::CreateWith{domain});
   auto button = TestClickButton::ptr::Create(ae::CreateWith{domain});
@@ -173,14 +151,13 @@ void TestEditBoxMaterializationNotifiesOnChange() {
   CHECK(button_notify == 1);
   CHECK(!button->enabled());
 
-  auto const gen_after = edit->Generation();
-  auto dup = SetUiEditBoxTextEvent::ptr::Create(ae::CreateWith{*edit->domain});
-  dup->text = "uid-123";
-  edit->Commit(dup);
-  CHECK(edit->Generation() == gen_after);
-  CHECK(notify_count == 2);
-
-  edit->ClearMaterializedChangeNotifier();
+  auto const generation = button->Generation();
+  auto duplicate = SetUiPushButtonEnabledEvent::ptr::Create(
+      ae::CreateWith{domain});
+  duplicate->enabled = false;
+  button->Commit(duplicate);
+  CHECK(button->Generation() == generation);
+  CHECK(button_notify == 1);
   button->ClearMaterializedChangeNotifier();
 }
 
@@ -1694,12 +1671,11 @@ int main(int argc, char** argv) {
   EnableNoninteractiveCrt();
   EnsureObjectRegistration();
   apptraverse::ui::EnsureUiPresenterRegistration();
-  apptraverse::ui::EnsureExtendedUiPresenterRegistration();
   EnsureTestRegistration();
 
   TestExplicitEmptyLocalization();
   TestImmediateCompactionKeepsInactiveLanguageLazy();
-  TestEditBoxMaterializationNotifiesOnChange();
+  TestPushButtonMaterializationNotifiesOnChange();
   TestLocalizationLazyLoadRoundtrip();
   TestLocalizationLazyInitialPublication();
   TestLocalizationInactiveSlotAbaWithoutPersist();

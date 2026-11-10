@@ -4,8 +4,6 @@
 #include "apptraverse/presenter.h"
 
 #include "apptraverse/ui/ui_desktop_window.h"
-#include "apptraverse/ui/ui_edit_box.h"
-#include "apptraverse/ui/ui_label.h"
 #include "apptraverse/ui/ui_list_container.h"
 #include "apptraverse/ui/ui_window_presenter.h"
 
@@ -35,9 +33,8 @@ class UiDesktopWindowPresenter : public UiWindowPresenter {
   }
 
   UiDesktopWindow::ptr desktop_window() const {
-    return window ? UiDesktopWindow::ptr::MakeFromThis(
-                        static_cast<UiDesktopWindow*>(&*window))
-                  : UiDesktopWindow::ptr{};
+    return UiDesktopWindow::ptr::MakeFromThis(
+        static_cast<UiDesktopWindow*>(&*window));
   }
 
   // Native frame report: presenter → ModelObjectProxy → UiDesktopWindow Event.
@@ -55,46 +52,6 @@ class UiDesktopWindowPresenter : public UiWindowPresenter {
                               std::int32_t width, std::int32_t height);
 
   virtual void ApplyRequestedFrameFromMirror() {}
-};
-
-class UiEditBoxPresenter : public Presenter {
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::UiEditBoxPresenter",
-                           UiEditBoxPresenter, Presenter, 0)
-
- protected:
-  UiEditBoxPresenter() = default;
-
- public:
-  explicit UiEditBoxPresenter(ae::ObjProp prop) : Presenter{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(edit_box), AE_MMBR(window_presenter),
-                    AE_MMBR(layout_x), AE_MMBR(layout_y), AE_MMBR(layout_width),
-                    AE_MMBR(layout_height), AE_MMBR(control_id))
-
-  template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, edit_box, window_presenter, layout_x, layout_y, layout_width,
-        layout_height, control_id);
-  }
-
-  template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, edit_box, window_presenter, layout_x, layout_y, layout_width,
-        layout_height, control_id);
-  }
-
-  UiEditBox::ptr edit_box;
-  ae::ObjPtr<UiWindowPresenter> window_presenter;
-  std::int32_t layout_x;
-  std::int32_t layout_y;
-  std::int32_t layout_width;
-  std::int32_t layout_height;
-  std::uint32_t control_id;
-
-  bool ReadyForPresentation() const override;
-
-  void SubmitTextFromUi(std::string text, std::size_t caret_utf8_offset);
-  void SubmitCaretFromUi(std::size_t caret_utf8_offset);
 };
 
 class UiListContainerPresenter : public Presenter {
@@ -152,42 +109,7 @@ class UiListContainerPresenter : public Presenter {
       int language_index) const;
 };
 
-class UiLabelPresenter : public Presenter {
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::UiLabelPresenter", UiLabelPresenter,
-                           Presenter, 0)
-
- protected:
-  UiLabelPresenter() = default;
-
- public:
-  explicit UiLabelPresenter(ae::ObjProp prop) : Presenter{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(label), AE_MMBR(window_presenter), AE_MMBR(layout_x),
-                    AE_MMBR(layout_y), AE_MMBR(layout_width),
-                    AE_MMBR(layout_height))
-
-  template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, label, window_presenter, layout_x, layout_y, layout_width,
-        layout_height);
-  }
-
-  template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, label, window_presenter, layout_x, layout_y, layout_width,
-        layout_height);
-  }
-
-  UiLabel::ptr label;
-  ae::ObjPtr<UiWindowPresenter> window_presenter;
-  std::int32_t layout_x;
-  std::int32_t layout_y;
-  std::int32_t layout_width;
-  std::int32_t layout_height;
-};
-
 void EnsureUiPresenterRegistration();
-void EnsureExtendedUiPresenterRegistration();
 
 }  // namespace apptraverse::ui
 

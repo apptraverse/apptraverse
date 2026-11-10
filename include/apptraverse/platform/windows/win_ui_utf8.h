@@ -1,7 +1,6 @@
 #ifndef APPTRAVERSE_PLATFORM_WINDOWS_WIN_UI_UTF8_H_
 #define APPTRAVERSE_PLATFORM_WINDOWS_WIN_UI_UTF8_H_
 
-#include <cstddef>
 #include <string>
 #include <string_view>
 
@@ -9,8 +8,6 @@ namespace apptraverse::ui::windows {
 
 std::wstring Utf8ToWide(std::string_view utf8);
 std::string WideToUtf8(std::wstring_view wide);
-std::size_t Utf8OffsetFromWideCaret(std::wstring_view wide, int wide_caret);
-int WideCaretFromUtf8Offset(std::wstring_view wide, std::size_t utf8_offset);
 
 }  // namespace apptraverse::ui::windows
 

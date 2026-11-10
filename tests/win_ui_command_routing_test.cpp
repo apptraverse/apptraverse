@@ -129,54 +129,6 @@ CommandRoutingListRoot& AsListRoot(ae::Obj& root) {
   return static_cast<CommandRoutingListRoot&>(root);
 }
 
-void TestEditRouting() {
-  using namespace apptraverse;
-  using namespace apptraverse::ui;
-  using namespace apptraverse::ui::windows;
-  ae::RamDomainStorage storage;
-  ae::Domain domain{storage};
-  auto window = UiDesktopWindow::ptr::Create(ae::CreateWith{domain});
-  window->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
-  InitializeRuntimeNode(*window);
-  auto desktop = WinDesktopWindowPresenter::ptr::Create(ae::CreateWith{domain});
-  desktop->window = window;
-  apptraverse::test::BuildEmptyWindowTitle(*desktop);
-  std::size_t commands = 0;
-  ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork work) {
-    ++commands;
-    work(domain);
-  }};
-  desktop->model_proxy = &proxy;
-  desktop->OnLoad();
-  desktop->presentation_loaded = true;
-  auto edit = UiEditBox::ptr::Create(ae::CreateWith{domain});
-  edit->BootstrapText("", 0, false);
-  InitializeRuntimeNode(*edit);
-  auto presenter = WinEditBoxPresenter::ptr::Create(ae::CreateWith{domain});
-  presenter->edit_box = edit;
-  presenter->window_presenter = desktop;
-  presenter->layout_x = 10;
-  presenter->layout_y = 10;
-  presenter->layout_width = 100;
-  presenter->layout_height = 24;
-  presenter->control_id = 41;
-  presenter->model_proxy = &proxy;
-  presenter->OnLoad();
-  CHECK(presenter->hwnd() != nullptr);
-  commands = 0;
-  CHECK(SetWindowTextW(presenter->hwnd(), L"route through instance") != 0);
-  CHECK(edit->text() == "route through instance");
-  CHECK(commands == 1);
-  CHECK(!desktop->RouteChildCommand(42, EN_CHANGE, presenter->hwnd()));
-  CHECK(commands == 1);
-  EnsureExtendedWinUiPresenterRegistration();
-  CHECK(SetWindowTextW(presenter->hwnd(), L"second input") != 0);
-  CHECK(edit->text() == "second input");
-  CHECK(commands == 2);
-  presenter->OnUnload();
-  desktop->OnUnload();
-}
-
 void TestPushButtonNativeClickViaProxyAndPublication() {
   using namespace apptraverse;
   using namespace apptraverse::ui;
@@ -494,9 +446,7 @@ int main() {
   apptraverse::EnsureObjectRegistration();
   apptraverse::ui::EnsureUiPresenterRegistration();
   apptraverse::ui::windows::EnsureWinUiPresenterRegistration();
-  apptraverse::ui::windows::EnsureExtendedWinUiPresenterRegistration();
   apptraverse::test::EnsureCommandRoutingTestNodeRegistration();
-  apptraverse::test::TestEditRouting();
   apptraverse::test::TestPushButtonNativeClickViaProxyAndPublication();
   apptraverse::test::TestListNativeSelectionViaProxyAndPublication();
   apptraverse::test::TestListTopIndexPreservedWhenTitlePublicationUnchangedSelection();

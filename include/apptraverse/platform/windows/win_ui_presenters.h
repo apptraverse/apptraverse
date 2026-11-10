@@ -10,7 +10,6 @@
 
 #include <windows.h>
 
-#include "apptraverse/ui/ui_bitmap_image.h"
 
 #include "apptraverse/ui/ui_presenters.h"
 
@@ -162,48 +161,6 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
 };
 
-class WinEditBoxPresenter : public UiEditBoxPresenter {
-
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::windows::WinEditBoxPresenter",
-
-                           WinEditBoxPresenter, UiEditBoxPresenter, 0)
-
- protected:
-
-  WinEditBoxPresenter() : hwnd_{nullptr}, applying_mirror_text_{false}, last_applied_generation_{0}, mirror_text_applied_{false} {}
-
- public:
-
-  explicit WinEditBoxPresenter(ae::ObjProp prop) : UiEditBoxPresenter{prop}, hwnd_{nullptr}, applying_mirror_text_{false}, last_applied_generation_{0}, mirror_text_applied_{false} {}
-
-  void OnLoad() override;
-
-  void OnModelChanged() override;
-
-  void OnUnload() override;
-
-  HWND hwnd() const { return hwnd_; }
-
-  void ReadFromNativeAndSubmit();
-  bool OnCommand(std::uint32_t command_id,
-                 std::uint16_t notification_code) override;
-
- private:
-
-  void SyncFromMirror();
-
-  WinDesktopWindowPresenter* Desktop() const;
-
-  HWND hwnd_;
-
-  bool applying_mirror_text_;
-
-  std::uint64_t last_applied_generation_;
-
-  bool mirror_text_applied_;
-
-};
-
 class WinListContainerPresenter : public UiListContainerPresenter {
 
   APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::windows::WinListContainerPresenter",
@@ -245,70 +202,7 @@ class WinListContainerPresenter : public UiListContainerPresenter {
 
 };
 
-class WinLabelPresenter : public UiLabelPresenter {
-
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::windows::WinLabelPresenter",
-
-                           WinLabelPresenter, UiLabelPresenter, 0)
-
- protected:
-
-  WinLabelPresenter() : hwnd_{nullptr} {}
-
- public:
-
-  explicit WinLabelPresenter(ae::ObjProp prop) : UiLabelPresenter{prop}, hwnd_{nullptr} {}
-
-  void OnLoad() override;
-
-  void OnModelChanged() override;
-
-  void OnUnload() override;
-
- private:
-
-  void SyncFromMirror();
-
-  WinDesktopWindowPresenter* Desktop() const;
-
-  HWND hwnd_;
-
-};
-
-class WinBitmapImagePresenter : public UiBitmapImagePresenter {
-
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::windows::WinBitmapImagePresenter",
-
-                           WinBitmapImagePresenter, UiBitmapImagePresenter, 0)
-
- protected:
-
-  WinBitmapImagePresenter() : hwnd_{nullptr} {}
-
- public:
-
-  explicit WinBitmapImagePresenter(ae::ObjProp prop)
-
-      : UiBitmapImagePresenter{prop}, hwnd_{nullptr} {}
-
-  void OnLoad() override;
-
-  void OnModelChanged() override;
-
-  void OnUnload() override;
-
-  void PaintToHdc(HDC hdc) const;
-
- private:
-
-  WinDesktopWindowPresenter* Desktop() const;
-
-  HWND hwnd_;
-
-};
-
 void EnsureWinUiPresenterRegistration();
-void EnsureExtendedWinUiPresenterRegistration();
 
 }  // namespace apptraverse::ui::windows
 

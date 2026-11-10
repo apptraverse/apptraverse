@@ -7,7 +7,7 @@
 
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/runtime_node.h"
-#include "apptraverse/ui/ui_edit_box.h"
+#include "apptraverse/ui/ui_window.h"
 #include "apptraverse/ui/ui_presenters.h"
 
 using namespace apptraverse;
@@ -24,17 +24,19 @@ namespace {
     }                                                                        \
   } while (false)
 
-void SeedJournal(UiEditBox& edit, std::size_t count) {
+void SeedJournal(UiWindow& edit, std::size_t count) {
   for (std::size_t i = 0; i < count; ++i) {
-    auto event = SetUiEditBoxTextEvent::ptr::Create(ae::CreateWith{*edit.domain});
-    event->text = "seed-" + std::to_string(i);
+    auto event = SetUiWindowClientSizeEvent::ptr::Create(ae::CreateWith{*edit.domain});
+    event->width = static_cast<std::int32_t>(i + 1);
+    event->height = 600;
     edit.Commit(event);
   }
 }
 
-std::chrono::nanoseconds TimeOneLocalCommit(UiEditBox& edit) {
-  auto event = SetUiEditBoxTextEvent::ptr::Create(ae::CreateWith{*edit.domain});
-  event->text = "probe";
+std::chrono::nanoseconds TimeOneLocalCommit(UiWindow& edit) {
+  auto event = SetUiWindowClientSizeEvent::ptr::Create(ae::CreateWith{*edit.domain});
+  event->width = 1200;
+  event->height = 600;
   auto const start = std::chrono::steady_clock::now();
   edit.Commit(std::move(event));
   return std::chrono::steady_clock::now() - start;
@@ -43,8 +45,8 @@ std::chrono::nanoseconds TimeOneLocalCommit(UiEditBox& edit) {
 void TestLocalCommitScalesWithJournalSize() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
-  auto edit = UiEditBox::ptr::Create(ae::CreateWith{domain});
-  edit->BootstrapText("", 0, false);
+  auto edit = UiWindow::ptr::Create(ae::CreateWith{domain});
+  edit->BootstrapClientSize(800, 600);
   InitializeRuntimeNode(*edit);
 
   SeedJournal(*edit, 100);
@@ -71,7 +73,6 @@ int main() {
   EnableNoninteractiveCrt();
   EnsureObjectRegistration();
   EnsureUiPresenterRegistration();
-  EnsureExtendedUiPresenterRegistration();
   TestLocalCommitScalesWithJournalSize();
   std::cout << "node_local_commit_journal_scaling_test OK\n";
   return 0;

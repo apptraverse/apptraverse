@@ -129,15 +129,6 @@ target_link_libraries(apptraverse PUBLIC
   aether::objects aether::miscpp apptraverse_compile_policy)
 target_compile_features(apptraverse PUBLIC cxx_std_20)
 target_compile_definitions(apptraverse PUBLIC AE_DISTILLATION=1)
-# Optional controls do not enter a catalog-only build or its registration.
-add_library(apptraverse_ui_extended STATIC EXCLUDE_FROM_ALL
-  src/ui/ui_edit_box.cpp
-  src/ui/ui_bitmap_image.cpp
-  src/ui/ui_presenters_edit_box.cpp
-  src/ui/ui_registration_extended.cpp
-)
-target_link_libraries(apptraverse_ui_extended PUBLIC apptraverse)
-
 if(WIN32)
   target_compile_definitions(apptraverse PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
   add_library(apptraverse_ui_windows STATIC
@@ -154,12 +145,6 @@ if(WIN32)
   )
   target_link_libraries(apptraverse_ui_windows PUBLIC
     apptraverse user32 gdi32 comctl32)
-  add_library(apptraverse_ui_windows_extended STATIC EXCLUDE_FROM_ALL
-    src/platform/windows/win_ui_presenters_extended.cpp
-    src/platform/windows/win_ui_registration_extended.cpp
-  )
-  target_link_libraries(apptraverse_ui_windows_extended PUBLIC
-    apptraverse_ui_windows apptraverse_ui_extended)
 endif()
 
 # Android presenter classes without their JNI Views: the build-host exporter
