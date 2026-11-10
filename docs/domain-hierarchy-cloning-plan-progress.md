@@ -28,7 +28,7 @@ Constraints:
 
 - **CONFIRMED:** Adaptive worktree HEAD is `0343a20`; branch `feature/window-catalog-adaptive`; large uncommitted diff (~26 files, +837/−676 lines) including removed `ApplicationModelSessionStorage`, extended `object_clone.cpp`, and two new Æther patches not in patch list.
 - **CONFIRMED:** No existing `domain-hierarchy` branch/worktree before this task; created fresh.
-- **CONFIRMED:** Pinned patch chain has 18 patches; **no** parent-domain patch in chain yet.
+- **HISTORICAL @ `0343a20`:** Pin-era notes reported 18 patches and no parent-domain patch in chain (superseded after reconfigure; see run log below).
 - **REPORTED (not reproduced here yet):** Prior adaptive WIP reports mentioned history hydrate, live remap, and embedded overlay failures — treat as historical until re-run in this worktree.
 
 ## Proposed design and decisions
@@ -76,28 +76,73 @@ Constraints:
 | 1 | PASS | Worktree `feature/domain-hierarchy-cloning`; patch chain 19/19 on `/.cpm_cache_isolated_v3` |
 | 2 | PASS | `apptraverse_aether_domain_hierarchy_test` |
 | 3 | PASS | Parent lookup, sibling isolation, ObjPtr identity in hierarchy test |
-| 4 | PASS | Child-domain finalize path; `apptraverse_object_clone_test` |
-| 5–8 | NOT RUN | Session RAM removal, persistence boundary, full regression, Close timing |
+| 4 | PARTIAL | `object_clone_test` **PASS** (incl. disk hist `persist_layers_to_target_storage=true` ~972); live runtime clone not re-run this push |
+| 5 | PARTIAL | Capture: inject layers + `Load<ConcreteNode>` on base; core historical cases **PASS**; string-leaf disk cases **CRASH/FAIL** on full suite |
+| 6 | PARTIAL | Session RAM removed in this push; boundary **FLAKY** (see run log 2026-11-10) |
+| 7–8 | NOT RUN | Full regression, fresh v4 CPM cache, Debug Close timing |
 
-## Validation log
+## Run log (one row per executed run)
 
-| Command | Config | Exit | Result |
-|---------|--------|------|--------|
-| `git rev-parse HEAD` (new worktree) | `feature/domain-hierarchy-cloning` | 0 | `0343a20` |
-| `git status -sb` (adaptive, read-only) | — | 0 | Dirty WIP present; untouched by agent |
-| `cmake configure` | `CPM_SOURCE_CACHE=.cpm_cache_isolated_v3`, 19 patches | 0 | PASS |
-| `apptraverse_aether_domain_hierarchy_test` | v3 Debug | 0 | PASS |
-| `apptraverse_object_clone_test` | v3 Debug | 0 | PASS |
-| `apptraverse_window_catalog_headless_test` | v3 Debug | 0 | PASS |
+### 2026-11-09 ~21:35 PST — current WIP tree (uncommitted on `5828910`)
 
-## Remaining issues
+| Field | Value |
+|-------|--------|
+| Git HEAD | `58289101fca4ffa965543fb6529384e64c081087` + uncommitted WIP |
+| Build dir | `build/win64-ninja-msvc-debug` |
+| CPM cache | `.cpm_cache_isolated_v3` |
+| Command | `ninja apptraverse_*` then run exes under `build/.../tests/` |
+| `apptraverse_window_catalog_user_persistence_boundary_test` | exit **0**, tail `ALL_USER_PERSISTENCE_SCENARIOS_OK` |
+| `apptraverse_object_clone_test` | exit **1**, first failure `object_clone_test FAIL: clone bases must capture current state` (`object_clone_test.cpp` ~1005) |
+| `apptraverse_historical_base_materialization_test` | exit **1**, first `CHECK failed: main->value == 110` (`historical_base_materialization_test.cpp:629`) |
 
-- `ApplicationModelSessionStorage` still present at base (stage 6 not started).
-- `window_catalog_user_persistence_boundary_test` and Debug Close timing harness not run in this worktree.
-- Adaptive WIP live-adopt path excluded; use child-domain finalize (`persist_layers_to_target_storage=false` default).
+Full stdout/stderr (unfiltered): `.artifacts/test-logs/` (e.g. `boundary_20261109-212344.log`, `historical_quick.log`).
+
+**Expected vs actual (backing swap):** after `backing_b` mutates base to `999`, `ReplayFromBase` on overlay should yield **110**; actual ≠ 110.
+
+### 2026-11-10 ~06:10 PST — pre-push verification (WIP on `5828910`, about to commit)
+
+| Field | Value |
+|-------|--------|
+| Build | `ninja` in `build/win64-ninja-msvc-debug`, cache `.cpm_cache_isolated_v3` |
+| `apptraverse_object_clone_test` | exit **0**, tail `object_clone_test OK` |
+| `apptraverse_aether_domain_hierarchy_test` | exit **0** |
+| `apptraverse_window_catalog_user_persistence_boundary_test` | exit **2**, first `CHECK failed: CountRegularFiles(user_dir) == files_after_boot` (`window_catalog_user_persistence_boundary_test.cpp:190`) |
+| `apptraverse_historical_base_materialization_test` | exit **0** when `TestHistoricalStringLeaf*` disabled (diagnostic); full main: exit **3** or access violation during string-leaf remapped capture |
+
+**Historical fix (landed in this push):** `CaptureBaseStateInto` uses `ConcreteNode` for `DomainGraph::Load` after `InjectAllLayeredObjects`; `BuildRemappedHistoricalBaseScratch` uses `Save(owner)` with `ConcreteNode&` staging removed; rebind only for `owner_live_refs` / `live_references`.
+
+### Historical (superseded) — 2026-11-09 ~21:35 PST
+
+| Field | Value |
+|-------|--------|
+| `apptraverse_window_catalog_user_persistence_boundary_test` | exit **0** (historical) |
+| `apptraverse_object_clone_test` | exit **1** (historical) |
+| `apptraverse_historical_base_materialization_test` | exit **1**, `main->value == 110` (historical — fixed in WIP above for core path) |
+
+## Uncommitted work (feature/domain-hierarchy-cloning @ `5828910` + WIP)
+
+- `object_clone_hydrate.inl`: concrete `Load<T>`, conditional `rebind_live_graph`, scratch→live `id_remap`.
+- `BuildRemappedHistoricalBaseScratch`: staging overlay, owner-declared live refs, full scratch fast path.
+- `Node::CollectHistoricalCaptureLiveReferenceIds` + test hook on `HistorizedConstHostNode`.
+- Removed `ApplicationModelSessionStorage`; clone persist gated by `persist_layers_to_target_storage`.
+- `RemapLiveObjectGraph`: alias scratch ids to live registry entries for historical rebind.
+
+## Blocker: string-leaf remapped capture (disk tests)
+
+1. **Repro:** `apptraverse_historical_base_materialization_test` full `main()` (`TestHistoricalStringLeafBootstrapAfterOwnerSave` / compaction).
+2. **Observed:** access violation or invalid `ObjPtr` during remapped `BuildRemappedHistoricalBaseScratch` save / capture (after core tests through `TestSupplyConstantWithHistoricalBaseSave` pass).
+3. **Fact:** `TestHistoricalBaseSurvivesBackingSwap` expects `main->value == 110` after backing swap — **PASS** with inject+`Load<ConcreteNode>` path (verified with string tests temporarily disabled).
+4. **Next:** fix remapped leaf materialization for `HistorizedStringOwner::text` without rebinding to live leaf; re-run full historical suite.
+
+## Remaining acceptance (not done)
+
+- Historical materialization **PASS** (all cases including string disk + supply constant).
+- `object_clone_test` live historical base values.
+- Embedded overlay, Win32, MinimalApp, application contract, unload round-trips.
+- Two-session isolation, shutdown, `.cpm_cache_isolated_v4` patch chain, Debug Close timing (4×5, `AE_NO_DEBUG_LOG=ON`).
 
 ## Next action
 
-1. Remove session RAM USER staging (port from adaptive WIP without live-adopt hooks).
-2. Run persistence boundary + cold round-trip suite.
-3. Full §W2/headless regression matrix and Debug Close timing (5×4 scenarios).
+1. Fix base hydrate so `CaptureBaseStateInto` restores full concrete base state (derived layers), verify `value==110`.
+2. Re-run historical + `object_clone_test`; commit in small steps after PASS.
+3. Resume full plan matrix and progress doc updates per run.

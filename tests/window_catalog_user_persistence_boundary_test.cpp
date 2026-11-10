@@ -1,15 +1,18 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <memory>
 #include <string>
 
+#include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
 
 #include "apptraverse/application_model_runtime.h"
 #include "apptraverse/ui/ui_presenters.h"
-#include "apptraverse/application_model_session_storage.h"
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
+#include "apptraverse/embedded_distilled_domain.h"
+#include "apptraverse/overlay_domain_storage.h"
 
 #include "embedded_distilled_window_catalog_supply.h"
 #include "window_catalog_graph.h"
@@ -58,12 +61,10 @@ std::size_t CountRegularFiles(std::filesystem::path const& root) {
 }
 
 void FlushShutdownCatalog(WindowCatalog& catalog,
-                          ApplicationModelSessionStorage& session) {
-  session.disk_user().BeginSaveSession();
+                          DirectoryDomainStorage& disk) {
+  disk.BeginSaveSession();
   SaveWindowCatalogPersistentSnapshot(catalog);
-  session.StagePersistentGraphInSessionOverlay(catalog);
-  session.FlushEntireSessionOverlayToDisk();
-  CHECK(!session.disk_user().SaveSessionHadFailure());
+  CHECK(!disk.SaveSessionHadFailure());
 }
 
 WindowHolder* AsHolder(ui::UiListRow::ptr const& row) {
@@ -93,6 +94,29 @@ ui::UiDesktopWindowPresenter::ptr LoadCatalogWindowPresenter(
       static_cast<ui::UiDesktopWindowPresenter*>(presenter_obj.get()));
 }
 
+struct EmbeddedCatalogSession {
+  DirectoryDomainStorage disk;
+  ae::RamDomainStorage backing;
+  std::unique_ptr<OverlayDomainStorage> overlay;
+  std::unique_ptr<InstrumentedDomainStorage> instrumented;
+  std::unique_ptr<ae::Domain> domain;
+
+  explicit EmbeddedCatalogSession(std::filesystem::path const& user_dir,
+                                  bool instrument_user_writes)
+      : disk{user_dir} {
+    InstallEmbeddedDistilledBacking(backing, CatalogGraph());
+    overlay = std::make_unique<OverlayDomainStorage>(
+        disk, backing, EmbeddedSupplyConstantIdSet(CatalogGraph()));
+    if (instrument_user_writes) {
+      instrumented = std::make_unique<InstrumentedDomainStorage>(
+          *overlay, user_dir, &disk);
+      domain = std::make_unique<ae::Domain>(*instrumented);
+    } else {
+      domain = std::make_unique<ae::Domain>(*overlay);
+    }
+  }
+};
+
 void VerifyColdClosedChildOnDiskOnly(
     std::filesystem::path const& user_dir, ae::ObjId const& holder_id,
     ae::ObjId const& window_id, ae::ObjId const& expected_presenter_id,
@@ -102,9 +126,8 @@ void VerifyColdClosedChildOnDiskOnly(
   CHECK(std::filesystem::is_directory(holder_dir));
   CHECK(std::filesystem::is_directory(window_dir));
 
-  DirectoryDomainStorage cold_disk{user_dir};
-  ApplicationModelSessionStorage cold_session{cold_disk, CatalogGraph()};
-  ae::Domain cold_domain{cold_session.model_overlay()};
+  EmbeddedCatalogSession cold{user_dir, false};
+  ae::Domain& cold_domain = *cold.domain;
 
   ae::DomainGraph graph{&cold_domain};
   ae::Ptr<ae::Obj> holder_obj;
@@ -132,11 +155,9 @@ void VerifyColdClosedChildOnDiskOnly(
 
 void RunBoundaryScenario() {
   std::filesystem::path const user_dir = TestUserDir("primary");
-  DirectoryDomainStorage disk{user_dir};
-  InstrumentedDomainStorage instrumented{disk, user_dir, &disk};
-  ApplicationModelSessionStorage session{disk, CatalogGraph(), &instrumented};
+  EmbeddedCatalogSession setup{user_dir, true};
   ApplicationModelRuntime runtime;
-  ApplicationModelSessionStorage::ActivateScope const active{session, runtime};
+  (void)runtime;
 
   std::size_t files_after_boot = 0;
   std::size_t files_after_close = 0;
@@ -144,19 +165,17 @@ void RunBoundaryScenario() {
   ae::ObjId closed_window_id{};
 
   InstrumentedDomainStorageStats const stats_boot_before =
-      instrumented.SnapshotStats();
+      setup.instrumented->SnapshotStats();
 
   {
-    ae::Domain domain{session.model_overlay()};
-    auto catalog = LoadApplication<WindowCatalog>(domain, CatalogId());
-    catalog->BindEmbeddedUserSession(&session);
+    auto catalog = LoadApplication<WindowCatalog>(*setup.domain, CatalogId());
     PrepareWindowCatalogForRun(*catalog);
     files_after_boot = CountRegularFiles(user_dir);
     CHECK(files_after_boot == 0);
-    CHECK(StoreDelta(instrumented.SnapshotStats(), stats_boot_before) == 0);
+    CHECK(StoreDelta(setup.instrumented->SnapshotStats(), stats_boot_before) == 0);
 
     InstrumentedDomainStorageStats const stats_work_before =
-        instrumented.SnapshotStats();
+        setup.instrumented->SnapshotStats();
 
     catalog->AddWindow();
     catalog->AddWindow();
@@ -169,18 +188,18 @@ void RunBoundaryScenario() {
     child.SubmitFrameFromNative(200, 140, 501, 401, true);
 
     CHECK(CountRegularFiles(user_dir) == files_after_boot);
-    CHECK(StoreDelta(instrumented.SnapshotStats(), stats_work_before) == 0);
+    CHECK(StoreDelta(setup.instrumented->SnapshotStats(), stats_work_before) == 0);
 
     closed_holder_id = holder0->obj_id;
     closed_window_id = holder0->window.id();
     ae::ObjId const closed_presenter_id{
         CatalogWindowPresented(child).presenter.id()};
     InstrumentedDomainStorageStats const stats_close_before =
-        instrumented.SnapshotStats();
+        setup.instrumented->SnapshotStats();
     catalog->CloseHolderWindow(*holder0);
     files_after_close = CountRegularFiles(user_dir);
     CHECK(files_after_close > files_after_boot);
-    CHECK(StoreDelta(instrumented.SnapshotStats(), stats_close_before) > 0);
+    CHECK(StoreDelta(setup.instrumented->SnapshotStats(), stats_close_before) > 0);
     CHECK(!holder0->window.is_loaded());
     CHECK(holder0->window.is_valid());
 
@@ -192,25 +211,24 @@ void RunBoundaryScenario() {
     catalog->persisted.locale->SubmitLanguageIndexFromUi(1);
 
     InstrumentedDomainStorageStats const stats_reopen_work_before =
-        instrumented.SnapshotStats();
+        setup.instrumented->SnapshotStats();
     catalog->OpenHolderWindow(*holder0);
     holder0->window.Load();
     CatalogWindow& child_reopen = *holder0->window;
     child_reopen.SubmitFrameFromNative(210, 150, 502, 402, true);
     CHECK(CountRegularFiles(user_dir) == files_after_close);
-    CHECK(StoreDelta(instrumented.SnapshotStats(), stats_reopen_work_before) ==
+    CHECK(StoreDelta(setup.instrumented->SnapshotStats(), stats_reopen_work_before) ==
           0);
 
-    FlushShutdownCatalog(*catalog, session);
+    FlushShutdownCatalog(*catalog, setup.disk);
   }
 
   std::size_t const files_after_shutdown = CountRegularFiles(user_dir);
   CHECK(files_after_shutdown >= files_after_close);
 
   {
-    DirectoryDomainStorage cold_disk{user_dir};
-    ApplicationModelSessionStorage cold_session{cold_disk, CatalogGraph()};
-    ae::Domain cold_domain{cold_session.model_overlay()};
+    EmbeddedCatalogSession cold_reload{user_dir, false};
+    ae::Domain& cold_domain = *cold_reload.domain;
     auto catalog = LoadApplication<WindowCatalog>(cold_domain, CatalogId());
     PrepareWindowCatalogForRun(*catalog);
     catalog->persisted.list.Load();
@@ -230,16 +248,12 @@ void RunExistingUserNoWriteUntilBoundary() {
   std::filesystem::path const seed_dir = TestUserDir("seed");
   std::filesystem::path const user_dir = TestUserDir("reload");
   {
-    DirectoryDomainStorage disk{seed_dir};
-    ApplicationModelSessionStorage session{disk, CatalogGraph()};
-    ApplicationModelRuntime runtime;
-    ApplicationModelSessionStorage::ActivateScope const active{session, runtime};
-    ae::Domain domain{session.model_overlay()};
+    EmbeddedCatalogSession seed{seed_dir, false};
+    ae::Domain& domain = *seed.domain;
     auto catalog = LoadApplication<WindowCatalog>(domain, CatalogId());
-    catalog->BindEmbeddedUserSession(&session);
     PrepareWindowCatalogForRun(*catalog);
     catalog->AddWindow();
-    FlushShutdownCatalog(*catalog, session);
+    FlushShutdownCatalog(*catalog, seed.disk);
   }
   std::error_code ec;
   std::filesystem::copy(seed_dir, user_dir,
@@ -247,16 +261,12 @@ void RunExistingUserNoWriteUntilBoundary() {
   CHECK(!ec);
   std::size_t const seeded_files = CountRegularFiles(user_dir);
 
-  DirectoryDomainStorage disk{user_dir};
-  InstrumentedDomainStorage instrumented{disk, user_dir, &disk};
-  ApplicationModelSessionStorage session{disk, CatalogGraph(), &instrumented};
+  EmbeddedCatalogSession setup{user_dir, true};
   ApplicationModelRuntime runtime;
-  ApplicationModelSessionStorage::ActivateScope const active{session, runtime};
-  InstrumentedDomainStorageStats const stats0 = instrumented.SnapshotStats();
+  (void)runtime;
+  InstrumentedDomainStorageStats const stats0 = setup.instrumented->SnapshotStats();
 
-  ae::Domain domain{session.model_overlay()};
-  auto catalog = LoadApplication<WindowCatalog>(domain, CatalogId());
-  catalog->BindEmbeddedUserSession(&session);
+  auto catalog = LoadApplication<WindowCatalog>(*setup.domain, CatalogId());
   PrepareWindowCatalogForRun(*catalog);
   catalog->AddWindow();
   catalog->persisted.list.Load();
@@ -268,11 +278,11 @@ void RunExistingUserNoWriteUntilBoundary() {
   ae::ObjId const presenter_id{
       CatalogWindowPresented(*holder->window).presenter.id()};
   CHECK(CountRegularFiles(user_dir) == seeded_files);
-  CHECK(StoreDelta(instrumented.SnapshotStats(), stats0) == 0);
+  CHECK(StoreDelta(setup.instrumented->SnapshotStats(), stats0) == 0);
 
   catalog->CloseHolderWindow(*holder);
   CHECK(CountRegularFiles(user_dir) > seeded_files);
-  CHECK(StoreDelta(instrumented.SnapshotStats(), stats0) > 0);
+  CHECK(StoreDelta(setup.instrumented->SnapshotStats(), stats0) > 0);
   VerifyColdClosedChildOnDiskOnly(user_dir, holder_id, window_id, presenter_id,
                                   44, 55, 320, 240);
 }
@@ -281,23 +291,11 @@ void RunSessionIsolation() {
   std::filesystem::path const dir_a = TestUserDir("iso_a");
   std::filesystem::path const dir_b = TestUserDir("iso_b");
 
-  DirectoryDomainStorage disk_a{dir_a};
-  ApplicationModelSessionStorage session_a{disk_a, CatalogGraph()};
-  ApplicationModelRuntime runtime_a;
-  ApplicationModelSessionStorage::ActivateScope const scope_a{session_a,
-                                                            runtime_a};
-  DirectoryDomainStorage disk_b{dir_b};
-  ApplicationModelSessionStorage session_b{disk_b, CatalogGraph()};
-  ApplicationModelRuntime runtime_b;
-  ApplicationModelSessionStorage::ActivateScope const scope_b{session_b,
-                                                            runtime_b};
+  EmbeddedCatalogSession setup_a{dir_a, true};
+  EmbeddedCatalogSession setup_b{dir_b, true};
 
-  ae::Domain domain_a{session_a.model_overlay()};
-  ae::Domain domain_b{session_b.model_overlay()};
-  auto catalog_a = LoadApplication<WindowCatalog>(domain_a, CatalogId());
-  auto catalog_b = LoadApplication<WindowCatalog>(domain_b, CatalogId());
-  catalog_a->BindEmbeddedUserSession(&session_a);
-  catalog_b->BindEmbeddedUserSession(&session_b);
+  auto catalog_a = LoadApplication<WindowCatalog>(*setup_a.domain, CatalogId());
+  auto catalog_b = LoadApplication<WindowCatalog>(*setup_b.domain, CatalogId());
   PrepareWindowCatalogForRun(*catalog_a);
   PrepareWindowCatalogForRun(*catalog_b);
 

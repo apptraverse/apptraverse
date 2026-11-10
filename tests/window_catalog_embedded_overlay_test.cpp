@@ -10,7 +10,6 @@
 #include "apptraverse/distill.h"
 #include "apptraverse/application_model_runtime.h"
 #include "apptraverse/application_model_session.h"
-#include "apptraverse/application_model_session_storage.h"
 #include "apptraverse/embedded_application_model_session.h"
 #include "apptraverse/embedded_distilled_domain.h"
 #include "apptraverse/overlay_domain_storage.h"
@@ -74,11 +73,6 @@ void ShutdownSaveCatalog(WindowCatalog& catalog,
                          DirectoryDomainStorage& user_storage) {
   user_storage.BeginSaveSession();
   SaveWindowCatalogPersistentSnapshot(catalog);
-  if (ApplicationModelSessionStorage* const session =
-          catalog.EmbeddedUserSession()) {
-    session->StagePersistentGraphInSessionOverlay(catalog);
-    session->FlushEntireSessionOverlayToDisk();
-  }
   CHECK(!user_storage.SaveSessionHadFailure());
 }
 
@@ -292,7 +286,6 @@ void TestEmbeddedModelSessionRoundTrip() {
     ApplicationModelRuntime runtime;
     ApplicationModelSessionHooks<WindowCatalog> hooks;
     hooks.prepare = [&](WindowCatalog& catalog) {
-      catalog.BindEmbeddedUserSession(runtime.user_session_storage());
       ++prepare_calls;
       CHECK(std::filesystem::is_empty(user_dir));
       CHECK(catalog.persisted.window_prefab.is_valid());
@@ -340,7 +333,6 @@ void TestEmbeddedModelSessionRoundTrip() {
     ApplicationModelRuntime runtime;
     ApplicationModelSessionHooks<WindowCatalog> hooks;
     hooks.prepare = [&](WindowCatalog& catalog) {
-      catalog.BindEmbeddedUserSession(runtime.user_session_storage());
       ++prepare_calls_2;
       catalog.persisted.list.Load();
       CHECK(catalog.persisted.list->rows.size() == 1);

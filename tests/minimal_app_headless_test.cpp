@@ -13,7 +13,6 @@
 #include "aether-objects/obj/domain.h"
 
 #include "apptraverse/application_model_runtime.h"
-#include "apptraverse/application_model_session_storage.h"
 #include "apptraverse/application_model_session.h"
 #include "apptraverse/application_ui_session.h"
 #include "apptraverse/directory_domain_storage.h"
@@ -351,7 +350,6 @@ void TestMinimalAppEmbeddedBackingUserHeadlessE2e() {
 
     ApplicationModelSessionHooks<MinimalApplication> hooks;
     hooks.prepare = [&](MinimalApplication& application) {
-      application.BindEmbeddedUserSession(runtime.user_session_storage());
       PrepareMinimalApplicationForRun(application);
       ui::UiDesktopWindow& window = UiMainWindow(application);
       CHECK(window.x() == kInitialX);
@@ -419,7 +417,6 @@ void TestMinimalAppEmbeddedBackingUserHeadlessE2e() {
 
     ApplicationModelSessionHooks<MinimalApplication> hooks;
     hooks.prepare = [&](MinimalApplication& application) {
-      application.BindEmbeddedUserSession(runtime.user_session_storage());
       prepare_ran = true;
       PrepareMinimalApplicationForRun(application);
       ui::UiDesktopWindow& window = UiMainWindow(application);
@@ -1018,13 +1015,13 @@ void TestMinimalAppAuxiliaryCloseSessionUserFlushCold() {
 
   {
     DirectoryDomainStorage disk{user_dir};
-    ApplicationModelSessionStorage session{disk, owned.graph};
-    ApplicationModelRuntime runtime;
-    ApplicationModelSessionStorage::ActivateScope const scope{session, runtime};
-    ae::Domain domain{session.model_overlay()};
+    ae::RamDomainStorage backing;
+    InstallEmbeddedDistilledBacking(backing, owned.graph);
+    OverlayDomainStorage overlay{
+        disk, backing, EmbeddedSupplyConstantIdSet(owned.graph)};
+    ae::Domain domain{overlay};
     auto app = LoadApplication<MinimalApplication>(
         domain, MinimalApplicationRootId());
-    app->BindEmbeddedUserSession(&session);
     PrepareMinimalApplicationForRun(*app);
     app->OpenAuxiliaryWindowImpl();
     app->auxiliary.window.Load();
@@ -1041,8 +1038,11 @@ void TestMinimalAppAuxiliaryCloseSessionUserFlushCold() {
 
   {
     DirectoryDomainStorage cold_disk{user_dir};
-    ApplicationModelSessionStorage cold_session{cold_disk, owned.graph};
-    ae::Domain cold_domain{cold_session.model_overlay()};
+    ae::RamDomainStorage cold_backing;
+    InstallEmbeddedDistilledBacking(cold_backing, owned.graph);
+    OverlayDomainStorage cold_overlay{
+        cold_disk, cold_backing, EmbeddedSupplyConstantIdSet(owned.graph)};
+    ae::Domain cold_domain{cold_overlay};
     auto cold_app = LoadApplication<MinimalApplication>(
         cold_domain, MinimalApplicationRootId());
     CHECK(cold_app->auxiliary.window.id() == aux_window_id);

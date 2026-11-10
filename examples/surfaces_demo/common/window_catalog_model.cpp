@@ -11,7 +11,6 @@
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_localization_string.h"
 #include "apptraverse/ui/ui_string.h"
-#include "apptraverse/application_model_session_storage.h"
 
 #include <set>
 #include "apptraverse/ui/ui_presented_window_lifecycle.h"
@@ -164,14 +163,6 @@ void SaveWindowCatalogPersistentSnapshot(WindowCatalog& catalog) {
   SaveWindowCatalogPersistentSnapshotImpl(catalog);
 }
 
-void WindowCatalog::BindEmbeddedUserSession(
-    ApplicationModelSessionStorage* session) {
-  embedded_user_session_ = session;
-}
-
-ApplicationModelSessionStorage* WindowCatalog::EmbeddedUserSession() const {
-  return embedded_user_session_;
-}
 void RestoreLoadedCatalogWindows(WindowCatalog& catalog) {
   int const language = catalog.persisted.locale->language_index();
   for (auto const& row : catalog.persisted.list->rows) {
@@ -678,24 +669,8 @@ void WindowCatalog::CloseHolderWindow(WindowHolder& holder) {
   close_event->holder = WindowHolder::ptr::MakeFromThis(&holder);
   close_event->open = false;
   Commit(std::move(close_event));
-  ae::ObjId const closing_window_id =
-      holder.window.is_valid() ? holder.window.id() : ae::ObjId{};
-  if (holder.window.is_loaded()) {
-    ui::SavePresentedWindow(holder.window);
-    if (ApplicationModelSessionStorage* const session = embedded_user_session_) {
-      session->StagePersistentGraphInSessionOverlay(*holder.window);
-    }
-  }
   ui::UnloadPresentedWindow(holder.window);
   WindowHolder::ptr::MakeFromThis(&holder).Save();
-  if (ApplicationModelSessionStorage* const session = embedded_user_session_) {
-    session->disk_user().BeginSaveSession();
-    session->FlushReachableSubgraphToDisk(holder);
-    if (session->disk_user().SaveSessionHadFailure()) {
-      WriteFatalStderr("fatal: WindowCatalog close USER flush failed\n");
-      std::abort();
-    }
-  }
 }
 void WindowCatalog::AddWindow() {
   ae::Domain& domain = *persisted.list->domain;

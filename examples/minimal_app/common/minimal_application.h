@@ -10,7 +10,6 @@
 #include "apptraverse/ui/ui_push_button_presenter.h"
 
 namespace apptraverse {
-class ApplicationModelSessionStorage;
 }  // namespace apptraverse
 
 namespace apptraverse::example::minimal {
@@ -155,12 +154,6 @@ class MinimalApplication : public NodeFor<MinimalApplication> {
   void OpenAuxiliaryWindowImpl();
   void CloseAuxiliaryWindowImpl();
 
-  void BindEmbeddedUserSession(apptraverse::ApplicationModelSessionStorage* session);
-  [[nodiscard]] apptraverse::ApplicationModelSessionStorage* EmbeddedUserSession()
-      const;
-
- private:
-  apptraverse::ApplicationModelSessionStorage* embedded_user_session_{nullptr};
 };
 
 }  // namespace apptraverse::example::minimal

@@ -200,7 +200,6 @@ void UiLocalizationString::RestoreLiveReachableLayersAfterHistoricalCapture(
       strings[slot].Load();
     }
     strings[slot]->utf8 = *scratch.live_slot_utf8[slot];
-    strings[slot].Save();
     if (!was_loaded) {
       strings[slot].Reset();
     }

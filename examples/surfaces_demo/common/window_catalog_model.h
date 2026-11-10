@@ -40,8 +40,6 @@ class CatalogCloseButton;
 
 class CatalogListContainer;
 
-class ApplicationModelSessionStorage;
-
 class WindowCatalog;
 
 class WindowHolder;
@@ -347,9 +345,6 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
   void CloseHolderWindow(WindowHolder& holder);
 
-  void BindEmbeddedUserSession(ApplicationModelSessionStorage* session);
-  [[nodiscard]] ApplicationModelSessionStorage* EmbeddedUserSession() const;
-
   void MaterializeCatalogStrings(int language_index);
 
   void SubmitSelectionFromUi(std::size_t row_index);
@@ -366,7 +361,6 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
   CatalogWindow::ptr pending_mobile_active_window;
 
-  ApplicationModelSessionStorage* embedded_user_session_{nullptr};
 };
 
 void SaveWindowCatalogPersistentSnapshot(WindowCatalog& catalog);

@@ -12,7 +12,6 @@
 
 #include "apptraverse/application_model_runtime.h"
 #include "apptraverse/application_model_session.h"
-#include "apptraverse/application_model_session_storage.h"
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/embedded_application_model_session.h"
@@ -55,11 +54,6 @@ void ShutdownSaveCatalog(WindowCatalog& catalog,
                          DirectoryDomainStorage& storage) {
   storage.BeginSaveSession();
   SaveWindowCatalogPersistentSnapshot(catalog);
-  if (ApplicationModelSessionStorage* const session =
-          catalog.EmbeddedUserSession()) {
-    session->StagePersistentGraphInSessionOverlay(catalog);
-    session->FlushEntireSessionOverlayToDisk();
-  }
   CHECK(!storage.SaveSessionHadFailure());
 }
 
@@ -200,7 +194,6 @@ void TestShutdownResizePersistAndColdLoad() {
 
   ApplicationModelSessionHooks<WindowCatalog> hooks;
   hooks.prepare = [&](WindowCatalog& catalog) {
-    catalog.BindEmbeddedUserSession(runtime.user_session_storage());
     PrepareWindowCatalogForRun(catalog);
   };
   hooks.persist = [&](WindowCatalog& catalog) -> int {

@@ -14,7 +14,6 @@
 #include "window_catalog_model.h"
 
 #include "apptraverse/application_model_session.h"
-#include "apptraverse/application_model_session_storage.h"
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/embedded_application_model_session.h"
@@ -97,18 +96,12 @@ int WindowCatalogModelSession::Run(
 
 #if defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
   DirectoryDomainStorage user_storage{state_dir};
-  ApplicationModelSessionStorage session_storage{
-      user_storage, embedded_distilled::window_catalog::kEmbeddedGraph};
-  hooks.prepare = [&session_storage](WindowCatalog& catalog) {
-    catalog.BindEmbeddedUserSession(&session_storage);
+  hooks.prepare = [](WindowCatalog& catalog) {
     PrepareWindowCatalogForRun(catalog);
   };
-  hooks.persist = [&user_storage, &session_storage](WindowCatalog& catalog)
-                        -> int {
+  hooks.persist = [&user_storage](WindowCatalog& catalog) -> int {
     user_storage.BeginSaveSession();
     SaveWindowCatalogPersistentSnapshot(catalog);
-    session_storage.StagePersistentGraphInSessionOverlay(catalog);
-    session_storage.FlushEntireSessionOverlayToDisk();
     if (user_storage.SaveSessionHadFailure()) {
       WriteFatalStderr("fatal: WindowCatalog shutdown save failed\n");
       return 1;
@@ -116,7 +109,8 @@ int WindowCatalogModelSession::Run(
     return 0;
   };
   return RunEmbeddedApplicationModelSession(
-      session_storage, runtime, std::move(on_published), hooks);
+      user_storage, embedded_distilled::window_catalog::kEmbeddedGraph, runtime,
+      std::move(on_published), hooks);
 #else
 #if defined(APPTRAVERSE_ENABLE_DISTILLATION)
   std::error_code profile_error;

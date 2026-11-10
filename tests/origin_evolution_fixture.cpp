@@ -313,6 +313,7 @@ void OpCreateInstances(Args const& args) {
     options.stable_origin = kPrefabId;
     options.boundary_ids = {kPrefabId};
     options.new_root_id = id;
+    options.persist_layers_to_target_storage = true;
     stores.user->BeginSaveSession();
     CloneCanonicalResult const cloned =
         CloneCanonicalRoot(domain, *prefab_root, domain, options);
