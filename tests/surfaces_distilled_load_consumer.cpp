@@ -60,7 +60,14 @@ int main() {
   WriteUnsignedLine(
       "SURFACE_NUMBER",
       static_cast<unsigned>(application->surfaces->surfaces[0]->number));
+  WriteUnsignedLine("LABEL_ADD_EN_INITIAL_LOADED",
+                    application->label_add->strings[0].is_loaded() ? 1u : 0u);
+  WriteUnsignedLine("LABEL_ADD_RU_INITIAL_LOADED",
+                    application->label_add->strings[1].is_loaded() ? 1u : 0u);
+  application->label_add->MaterializeLanguage(0);
   WriteLine("LABEL_ADD_EN", application->label_add->Resolve(0).c_str());
+  WriteUnsignedLine("LABEL_ADD_RU_LOADED",
+                    application->label_add->strings[1].is_loaded() ? 1u : 0u);
   WriteUnsignedLine("SUPPLY_CONSTANT_COUNT",
                     static_cast<unsigned>(supply_ids.size()));
   return 0;

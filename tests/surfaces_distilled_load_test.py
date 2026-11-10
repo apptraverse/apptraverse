@@ -62,6 +62,13 @@ def main() -> int:
             raise SystemExit(f"SURFACE_COUNT expected 1, got {kv.get('SURFACE_COUNT')}")
         if kv.get("SURFACE_NUMBER") != "1":
             raise SystemExit(f"SURFACE_NUMBER expected 1, got {kv.get('SURFACE_NUMBER')}")
+        for key in (
+            "LABEL_ADD_EN_INITIAL_LOADED",
+            "LABEL_ADD_RU_INITIAL_LOADED",
+            "LABEL_ADD_RU_LOADED",
+        ):
+            if kv.get(key) != "0":
+                raise SystemExit(f"{key} expected 0, got {kv.get(key)}")
         if kv.get("LABEL_ADD_EN") != "Add":
             raise SystemExit(f"LABEL_ADD_EN expected Add, got {kv.get('LABEL_ADD_EN')}")
         supply_count = int(kv.get("SUPPLY_CONSTANT_COUNT", "0"))

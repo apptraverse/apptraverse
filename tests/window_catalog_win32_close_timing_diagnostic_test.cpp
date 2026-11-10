@@ -807,7 +807,7 @@ int main() {
   apptraverse::EnableNoninteractiveCrt();
   auto const demo =
       apptraverse::test::ResolveDemo("win32_window_catalog_demo.exe");
-  std::cout << "CLOSE_TIMING_DIAG GIT_BASE=088ea28e59610c3b95a66f65979293baed13354f\n";
+  std::cout << "CLOSE_TIMING_DIAG HARNESS_ORIGIN=088ea28e59610c3b95a66f65979293baed13354f\n";
   std::cout << "DEBUG_DEMO=" << demo.string() << '\n';
   apptraverse::test::PrintBuildLoggingFacts();
   bool const ok = apptraverse::test::RunAllScenarios(demo);

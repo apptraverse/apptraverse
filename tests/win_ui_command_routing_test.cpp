@@ -112,8 +112,12 @@ void MoveHwndClientFrame(HWND hwnd, std::int32_t x, std::int32_t y,
   int outer_w = 0;
   int outer_h = 0;
   ui::windows::ClientSizeToOuter(client_width, client_height, outer_w, outer_h);
+  // Restore geometry is committed when an interactive move ends. A bare
+  // programmatic SetWindowPos only reports the live client size.
+  SendMessageW(hwnd, WM_ENTERSIZEMOVE, 0, 0);
   CHECK(SetWindowPos(hwnd, nullptr, x, y, outer_w, outer_h,
                      SWP_NOZORDER | SWP_NOACTIVATE) != 0);
+  SendMessageW(hwnd, WM_EXITSIZEMOVE, 0, 0);
 }
 
 CommandRoutingButtonRoot& AsButtonRoot(ae::Obj& root) {

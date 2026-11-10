@@ -1595,17 +1595,12 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
     target_compile_options(apptraverse_minimal_app_embedded_export_test PRIVATE
       /utf-8)
   endif()
-  set(_minimal_embed_graph_sources
-    ${CMAKE_SOURCE_DIR}/examples/minimal_app/windows/minimal_app_graph.cpp
-    ${CMAKE_SOURCE_DIR}/examples/minimal_app/windows/minimal_app_export.cpp
-    ${CMAKE_SOURCE_DIR}/examples/minimal_app/common/minimal_application.cpp)
-  apptraverse_embed_distilled_supply(
-    apptraverse_minimal_app_embedded_export_test
-    apptraverse_export_minimal_distilled_graph
-    embedded_distilled_minimal_app_supply.h
-    ${_minimal_embed_graph_sources})
+  target_sources(apptraverse_minimal_app_embedded_export_test PRIVATE
+    "${APPTRAVERSE_MINIMAL_APP_EMBED_INCLUDE_DIR}/embedded_distilled_minimal_app_supply.h")
+  target_include_directories(apptraverse_minimal_app_embedded_export_test PRIVATE
+    "${APPTRAVERSE_MINIMAL_APP_EMBED_INCLUDE_DIR}")
   add_dependencies(apptraverse_minimal_app_embedded_export_test
-    apptraverse_export_minimal_distilled_graph)
+    apptraverse_minimal_app_embedded_supply)
   add_test(NAME apptraverse_minimal_app_embedded_export_test
     COMMAND apptraverse_minimal_app_embedded_export_test)
 
@@ -1715,6 +1710,8 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
     window_catalog_win32_close_timing_diagnostic_test.cpp surfaces_demo_window_catalog)
   target_link_libraries(apptraverse_window_catalog_win32_close_timing_diagnostic_test PRIVATE
     apptraverse_ui_windows_extended apptraverse)
+  add_dependencies(apptraverse_window_catalog_win32_close_timing_diagnostic_test
+    win32_window_catalog_demo)
   if(MSVC)
     target_compile_options(apptraverse_window_catalog_win32_close_timing_diagnostic_test PRIVATE
       /utf-8)
@@ -1749,14 +1746,12 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
     APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
   target_link_libraries(apptraverse_minimal_app_win32_acceptance_test PRIVATE
     apptraverse_ui_windows_extended)
-  apptraverse_embed_distilled_supply(
-    apptraverse_minimal_app_win32_acceptance_test
-    apptraverse_export_minimal_distilled_graph
-    embedded_distilled_minimal_app_supply.h
-    ${CMAKE_SOURCE_DIR}/examples/minimal_app/windows/minimal_app_graph.cpp
-    ${CMAKE_SOURCE_DIR}/examples/minimal_app/common/minimal_application.cpp)
+  target_sources(apptraverse_minimal_app_win32_acceptance_test PRIVATE
+    "${APPTRAVERSE_MINIMAL_APP_EMBED_INCLUDE_DIR}/embedded_distilled_minimal_app_supply.h")
+  target_include_directories(apptraverse_minimal_app_win32_acceptance_test PRIVATE
+    "${APPTRAVERSE_MINIMAL_APP_EMBED_INCLUDE_DIR}")
   add_dependencies(apptraverse_minimal_app_win32_acceptance_test
-    apptraverse_export_minimal_distilled_graph)
+    apptraverse_minimal_app_embedded_supply)
   if(MSVC)
     target_compile_options(apptraverse_minimal_app_win32_acceptance_test PRIVATE
       /utf-8)

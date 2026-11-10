@@ -276,13 +276,6 @@ struct ProfileDomain {
 #endif
 };
 
-example::minimal::MinimalApplication::ptr LoadPersistedMinimalApplication(
-    std::filesystem::path const& state_dir) {
-  ProfileDomain profile{state_dir};
-  return LoadApplication<example::minimal::MinimalApplication>(
-      profile.domain, example::minimal::MinimalApplicationRootId());
-}
-
 void WriteProfileMissingMainWindow(std::filesystem::path const& state_dir) {
   RegisterMinimalAppTypes();
   ProfileDomain profile{state_dir};
@@ -590,7 +583,9 @@ void ProbePersistedGraph(std::filesystem::path const& state_dir,
   ui::windows::EnsureWinUiPresenterRegistration();
   example::minimal::EnsureMinimalApplicationRegistration();
 
-  auto application = LoadPersistedMinimalApplication(state_dir);
+  ProfileDomain profile{state_dir};
+  auto application = LoadApplication<example::minimal::MinimalApplication>(
+      profile.domain, example::minimal::MinimalApplicationRootId());
 
   CHECK(application->obj_id == example::minimal::MinimalApplicationRootId());
   CHECK(application->main_window.is_valid());

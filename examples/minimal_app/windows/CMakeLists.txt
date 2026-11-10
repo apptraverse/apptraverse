@@ -1,5 +1,3 @@
-include(${CMAKE_SOURCE_DIR}/cmake/apptraverse_embed_distilled_supply.cmake)
-
 set(_minimal_embed_graph_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/minimal_app_graph.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/../common/minimal_application.cpp)
@@ -26,6 +24,23 @@ if(MSVC)
   target_compile_options(apptraverse_export_minimal_distilled_graph PRIVATE /utf-8)
 endif()
 
+# Every consumer of one USER profile must share the same generated object IDs.
+set(_minimal_embed_dir "${CMAKE_CURRENT_BINARY_DIR}/generated_distilled")
+set(_minimal_embed_header
+    "${_minimal_embed_dir}/embedded_distilled_minimal_app_supply.h")
+file(MAKE_DIRECTORY "${_minimal_embed_dir}")
+add_custom_command(
+  OUTPUT "${_minimal_embed_header}"
+  COMMAND apptraverse_export_minimal_distilled_graph "${_minimal_embed_header}"
+  DEPENDS apptraverse_export_minimal_distilled_graph
+          ${_minimal_embed_graph_sources}
+  VERBATIM
+  COMMENT "Generate MinimalApp embedded supply header")
+add_custom_target(apptraverse_minimal_app_embedded_supply
+  DEPENDS "${_minimal_embed_header}")
+set(APPTRAVERSE_MINIMAL_APP_EMBED_INCLUDE_DIR
+    "${_minimal_embed_dir}" CACHE INTERNAL "")
+
 add_executable(win32_minimal_app
   ${_minimal_app_win_sources}
   minimal_app_graph.cpp
@@ -41,12 +56,9 @@ target_compile_definitions(win32_minimal_app_load_only PRIVATE
 )
 
 foreach(_minimal_demo win32_minimal_app win32_minimal_app_load_only)
-  apptraverse_embed_distilled_supply(
-    ${_minimal_demo}
-    apptraverse_export_minimal_distilled_graph
-    embedded_distilled_minimal_app_supply.h
-    ${_minimal_embed_graph_sources})
-  add_dependencies(${_minimal_demo} apptraverse_export_minimal_distilled_graph)
+  target_sources(${_minimal_demo} PRIVATE "${_minimal_embed_header}")
+  target_include_directories(${_minimal_demo} PRIVATE "${_minimal_embed_dir}")
+  add_dependencies(${_minimal_demo} apptraverse_minimal_app_embedded_supply)
   target_link_libraries(${_minimal_demo} PRIVATE
     minimal_app_common
     apptraverse
