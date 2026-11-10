@@ -1,5 +1,19 @@
 # AppTraverse — прогресс версионирования поставок
 
+## Domain hierarchy cloning and persistence boundaries — 2026-11-10 — PASS
+
+Branch: `feature/domain-hierarchy-cloning`; completion work started from `580f36d7ddffd995d61eb026d1bca010d11582c7`. This entry supersedes the earlier session-overlay and partial hierarchy acceptance notes for this branch. Adaptive WIP was not modified.
+
+- Completed ancestor lookup, clone finalization and owning LocalPtr/ObjPtr rebinding without traversing external boundary graphs.
+- History capture/replay/compaction use operation-local scratch in the owning domain; no runtime USER injection or session USER RAM store. Ordinary explicit saves preserve compacted history across BACKING replacement. Partial known-prefix compaction preserves unknown version layers and retained events.
+- Unload saves presenter-only state before reset, then persists the lazy window. Cold holder/window/presenter/geometry, shutdown, seeded USER and session isolation checks pass. Bootstrap/Add/geometry/language work performs zero USER Store calls.
+- Corrected direct UI mirror serialization and Windows acceptance fixtures, including one shared MinimalApp generated supply.
+- Fresh pinned source plus all **22 repository patches: PASS**. Windows x64 MSVC/Ninja Debug, `AE_NO_DEBUG_LOG=ON`, assertions/runtime checks enabled: **83/83 CTest entries PASS**.
+- Debug Close, five repeats per scenario, HWND destruction medians: **679 / 830 / 842 / 225 ms** (cold / burst immediate / after settle / saved). Main exit **108–157 ms**; no timeouts. Real persistence is enabled. These measurements establish remaining Close cost, not a claimed speedup over the earlier session-overlay implementation.
+
+[English plan and completed progress](../domain-hierarchy-cloning-plan-progress.md) · [Full test and timing evidence](../validation/domain-hierarchy-cloning-2026-11-10.md).
+
+
 ## Source of truth
 
 1. Google Doc: [AppTraverse — версионирование состояния и жизненный цикл поставок](https://docs.google.com/document/d/196STRvU1QMbMu0ArGRLahPpgnTb6HQoldUV-7tOIcfo/edit) — **прямая сверка не выполнена** (403 при fetch).
