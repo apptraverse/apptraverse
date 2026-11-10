@@ -39,13 +39,13 @@ ae::Ptr<ae::Obj> CopyModelGraphToUiDomain(ae::Obj& model_root,
                                           ae::Domain& ui_domain,
                                           ae::IDomainStorage& ui_storage) {
   std::vector<Node*> model_nodes;
-  CollectReachableNodes(model_root, model_nodes);
+  CollectLiveReachableNodes(model_root, model_nodes);
   for (Node* node : model_nodes) {
     node->EnsureCurrentGeneration();
   }
 
   std::vector<ae::Obj*> objects;
-  CollectReachableObjects(model_root, objects);
+  CollectMaterializedReachableObjects(model_root, objects);
 
   std::vector<ae::Ptr<ae::Obj>> keepalive;
   keepalive.reserve(objects.size());
@@ -58,7 +58,9 @@ ae::Ptr<ae::Obj> CopyModelGraphToUiDomain(ae::Obj& model_root,
     assert(ui_object);
 
     ByteSink scratch;
-    SerializeObjectToBuffer(*object, scratch);
+    // UI copies contain the live materialized state, without model history.
+    SerializeObjectToBuffer(
+        *object, scratch, ae::GraphSerializationScope::MaterializedPublication);
 
     ByteSource payload;
     payload.data = scratch.bytes.data();

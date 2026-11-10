@@ -1,7 +1,6 @@
 #ifndef APPTRAVERSE_OBJECT_CLONE_HISTORICAL_INL_
 #define APPTRAVERSE_OBJECT_CLONE_HISTORICAL_INL_
 
-#include <deque>
 #include <unordered_map>
 
 #include "aether-objects/obj/registry.h"
@@ -19,8 +18,6 @@ using CloneRemap = ae::DomainGraph::CloneSaveRemapTable;
 ae::ObjId AllocateCloneObjIdForHistorical(
     ae::ObjId::Type source_root, std::set<ae::ObjId> const& copy_set,
     CloneRemap const& remap, ae::Domain& target);
-
-void EnqueueCloneReferenceForHistorical(void* context, ae::ObjId id);
 
 bool InjectLayeredObjects(ae::RamDomainStorage const& scratch,
                           ae::IDomainStorage& storage);
@@ -47,15 +44,14 @@ bool BuildRemappedHistoricalBaseScratch(
   }
 
   auto& registry = ae::Registry::GetRegistry();
-  auto const retains_live_identity_in_historical_base = [&](ae::Obj const& obj) {
-    if (registry.GenerationDistance(Node::kClassId, obj.GetClassId()) >= 0) {
+  auto const retains_live_identity_in_historical_base = [&](std::uint32_t cid) {
+    if (registry.GenerationDistance(Node::kClassId, cid) >= 0) {
       return true;
     }
-    if (registry.GenerationDistance(Event::kClassId, obj.GetClassId()) >= 0) {
+    if (registry.GenerationDistance(Event::kClassId, cid) >= 0) {
       return true;
     }
-    return registry.GenerationDistance(Presenter::kClassId, obj.GetClassId()) >=
-           0;
+    return registry.GenerationDistance(Presenter::kClassId, cid) >= 0;
   };
 
   std::set<ae::ObjId> owner_live_refs;
@@ -64,6 +60,16 @@ bool BuildRemappedHistoricalBaseScratch(
   } else {
     owner.CollectHistoricalCaptureLiveReferenceIds(owner_live_refs);
   }
+  // A back-reference to the live owner is not a new snapshot leaf. Origins
+  // are immutable external identities even when hydration has cached them.
+  owner_live_refs.insert(owner_id);
+  if (owner.origin_id().is_valid()) { owner_live_refs.insert(owner.origin_id()); }
+  for (auto const& [id, _] : captured_scratch.state) {
+    if (auto live = owner.domain->Find(id); live && live->origin_id().is_valid()) {
+      owner_live_refs.insert(live->origin_id());
+    }
+  }
+  if (live_reference_ids_out != nullptr) { *live_reference_ids_out = owner_live_refs; }
 
   std::set<ae::ObjId> leaf_ids;
   for (auto const& [object_id, class_map_opt] : captured_scratch.state) {
@@ -76,26 +82,20 @@ bool BuildRemappedHistoricalBaseScratch(
 
   detail::CloneRemap remap;
   remap[base_id.id()] = base_id.id();
-  ae::Domain live_domain{owner.domain->domain_storage()};
   for (ae::ObjId const old_id : leaf_ids) {
-    ae::Ptr<ae::Obj> obj = owner.domain->Find(old_id);
-    if (!obj) {
-      ae::DomainGraph load_graph{owner.domain};
-      ae::Ptr<ae::Obj> loaded;
-      if (!load_graph.LoadRoot(old_id, loaded).IsOk() || !loaded) {
-        continue;
-      }
-      obj = loaded;
+    bool retain_identity = owner_live_refs.count(old_id) != 0;
+    for (auto const& [class_id, _] : *captured_scratch.state.at(old_id)) {
+      retain_identity = retain_identity ||
+          retains_live_identity_in_historical_base(class_id);
     }
-    if (owner_live_refs.count(old_id) != 0 ||
-        retains_live_identity_in_historical_base(*obj)) {
+    if (retain_identity) {
       if (live_reference_ids_out != nullptr) {
         live_reference_ids_out->insert(old_id);
       }
       continue;
     }
     ae::ObjId const allocated = detail::AllocateCloneObjIdForHistorical(
-        owner_id.id(), leaf_ids, remap, live_domain);
+        owner_id.id(), leaf_ids, remap, *owner.domain);
     if (!allocated.is_valid()) {
       return false;
     }
@@ -120,24 +120,12 @@ bool BuildRemappedHistoricalBaseScratch(
     return true;
   }
 
-  owner.PrepareReachableMutableLeavesForHistoricalCapture();
-
   ae::RamDomainStorage scratch;
   ae::Domain scratch_domain{scratch};
   ae::DomainGraph save_graph{
       &scratch_domain, ae::GraphSerializationScope::HistoricalBaseSnapshot};
   save_graph.force_materialize = true;
   save_graph.SetCloneSaveRemap(&remap);
-
-  std::deque<ae::ObjId> queue;
-  std::set<ae::ObjId::Type> seen;
-  struct RefCtx {
-    std::deque<ae::ObjId>* queue;
-    std::set<ae::ObjId::Type>* seen;
-  };
-  RefCtx ref_ctx{&queue, &seen};
-  save_graph.SetCloneReferenceVisitor(
-      &ref_ctx, detail::EnqueueCloneReferenceForHistorical);
 
   if (!save_graph.cycle_detector.Add(ConcreteNode::kClassId, owner_id)) {
     return false;

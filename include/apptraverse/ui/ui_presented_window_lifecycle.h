@@ -16,6 +16,9 @@ void SavePresentedWindow(ae::ObjPtr<WindowT>& window) {
 template <typename WindowT>
 void UnloadPresentedWindow(ae::ObjPtr<WindowT>& window) {
   static_assert(std::is_base_of_v<UiPresentedWindow, WindowT>);
+  // Preserve presenter-only state before dropping the owning link, then save
+  // the window with that link unloaded so a cold load stays lazy.
+  window->presenter.Save();
   window->presenter.Reset();
   window.Save();
   window.Reset();

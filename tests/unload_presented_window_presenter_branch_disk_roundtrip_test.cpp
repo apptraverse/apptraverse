@@ -80,23 +80,13 @@ ui::UiLocalizationString::ptr BuildTitleOnPresenterOnly(
   en->utf8 = kBaselineTitleUtf8;
   auto ru = ui::UiString::ptr::Create(ae::CreateWith{domain}.with_id(kRuStringId));
   ru->utf8 = "PresenterBranchRU";
-  en.Save();
-  ru.Save();
+  en.SetFlags(ae::ObjFlags::kUnloadedByDefault);
+  ru.SetFlags(ae::ObjFlags::kUnloadedByDefault);
 
   auto title = ui::UiLocalizationString::ptr::Create(
       ae::CreateWith{domain}.with_id(kTitleId));
-  title->strings = {
-      ui::UiString::ptr::Declare(
-          ae::CreateWith{domain}
-              .with_id(kEnStringId)
-              .with_flags(ae::ObjFlags::kUnloadedByDefault)),
-      ui::UiString::ptr::Declare(
-          ae::CreateWith{domain}
-              .with_id(kRuStringId)
-              .with_flags(ae::ObjFlags::kUnloadedByDefault)),
-  };
+  title->strings = {en, ru};
   InitializeRuntimeNode(*title, presenter_owner);
-  ui::UiLocalizationString::ptr::MakeFromThis(&*title).Save();
   return title;
 }
 
@@ -124,6 +114,9 @@ void BootstrapUserProfile(std::filesystem::path const& user_dir) {
   ui::ComposePresentedWindow(root->presented_window, presenter, title, locale);
   InitializeRuntimeNode(*root->presented_window, *root);
 
+  // The first Close must persist the complete graph, including objects that
+  // have never been saved by cloning or historical-base capture.
+  CHECK(std::filesystem::is_empty(user_dir));
   root->presented_open = false;
   ui::UnloadPresentedWindow(root->presented_window);
 

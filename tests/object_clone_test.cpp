@@ -138,8 +138,38 @@ class CloneGraphTargetV1 : public ae::Obj {
   ae::ObjId child_id_snapshot{};
 };
 
+class CloneLocalRoot : public ae::Obj {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::CloneLocalRoot",
+                           CloneLocalRoot, ae::Obj, 0)
+
+ protected:
+  CloneLocalRoot() = default;
+
+ public:
+  explicit CloneLocalRoot(ae::ObjProp prop) : Obj{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(loaded_leaf), AE_MMBR(lazy_leaf), AE_MMBR(boundary),
+                    AE_MMBR(external_graph))
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, loaded_leaf, lazy_leaf, boundary, external_graph);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, loaded_leaf, lazy_leaf, boundary, external_graph);
+  }
+
+  apptraverse::LocalPtr<CloneFacetTargetV1> loaded_leaf;
+  apptraverse::LocalPtr<CloneFacetTargetV1> lazy_leaf;
+  apptraverse::LocalPtr<CloneFacetTargetV1> boundary;
+  ae::ObjPtr<CloneLocalRoot> external_graph;
+};
+
 APPTRAVERSE_REGISTER(CloneFacetTargetV1);
 APPTRAVERSE_REGISTER(CloneGraphTargetV1);
+APPTRAVERSE_REGISTER(CloneLocalRoot);
 
 constexpr ae::ObjId::Type kHistOriginPRaw = 92010u;
 constexpr ae::ObjId::Type kHistOriginQRaw = 92011u;
@@ -1846,12 +1876,225 @@ void TestCloneObjIdConflict() {
   }
 }
 
+void TestRuntimeCloneRetainsLazyReferencesWithoutStorage() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto source = CloneGraphTargetV1::ptr::Create(ae::CreateWith{domain});
+  auto child = CloneFacetTargetV1::ptr::Create(ae::CreateWith{domain});
+  auto external = CloneFacetTargetV1::ptr::Create(ae::CreateWith{domain});
+  source->value = 11;
+  child->value = 22;
+  external->value = 33;
+  source->child = CloneFacetTargetV1::ptr::Declare(
+      ae::CreateWith{domain}.with_id(child.id()).with_flags(
+          ae::ObjFlags::kUnloadedByDefault));
+  source->child.Load();
+  source->shared_const = external;
+  auto const before = storage.state;
+  ae::Ptr<CloneGraphTargetV1> retained;
+  {
+    apptraverse::CloneOptions options{};
+    options.stable_origin = source.id();
+    options.boundary_ids = {external.id()};
+    options.stable_prefab_ids = {child.id()};
+    auto result = apptraverse::CloneCanonicalRoot(domain, *source, domain, options);
+    if (!result) { Fail("runtime lazy clone"); }
+    retained = ae::Ptr<CloneGraphTargetV1>{ae::Ptr<ae::Obj>{result.root.Load()}};
+  }
+  if (storage.state != before || retained->child.domain() != &domain ||
+      retained->child.id() == child.id() || retained->child->value != 22 ||
+      retained->shared_const.id() != external.id() ||
+      retained->shared_const.Load().get() != external.Load().get()) {
+    Fail("runtime clone lazy domain, value, boundary, or storage");
+  }
+  child->value = 44;
+  if (retained->child->value != 22) { Fail("runtime clone child aliases source"); }
+  apptraverse::CloneOptions options{};
+  options.stable_origin = source.id();
+  options.boundary_ids = {external.id()};
+  auto second = apptraverse::CloneCanonicalRoot(domain, *retained, domain, options);
+  if (!second || storage.state != before) { Fail("second runtime clone"); }
+  auto second_root = ae::Ptr<CloneGraphTargetV1>{ae::Ptr<ae::Obj>{second.root.Load()}};
+  if (second_root->child.domain() != &domain || second_root->child->value != 22 ||
+      second_root->child.id() == retained->child.id()) {
+    Fail("second runtime clone lazy reference");
+  }
+}
+
+void TestRuntimeCloneRetainsLocalReferences() {
+  class CountingStorage : public ae::RamDomainStorage {
+   public:
+    std::unique_ptr<ae::IDomainStorageWriter> Store(
+        ae::DomainQuery const& query) override {
+      ++store_calls;
+      return ae::RamDomainStorage::Store(query);
+    }
+    int store_calls{};
+  };
+  CountingStorage target_storage;
+  ae::Domain target{target_storage};
+  auto boundary = CloneFacetTargetV1::ptr::Create(ae::CreateWith{target});
+  boundary->value = 91;
+  ae::Ptr<CloneLocalRoot> retained;
+  ae::ObjId source_loaded_id, source_lazy_id;
+  {
+    CountingStorage source_storage;
+    ae::Domain source{source_storage};
+    auto root = CloneLocalRoot::ptr::Create(ae::CreateWith{source});
+    auto loaded_leaf = CloneFacetTargetV1::ptr::Create(ae::CreateWith{source});
+    auto lazy_leaf = CloneFacetTargetV1::ptr::Create(ae::CreateWith{source});
+    loaded_leaf->value = 61;
+    lazy_leaf->value = 71;
+    source_loaded_id = loaded_leaf.id();
+    source_lazy_id = lazy_leaf.id();
+    root->loaded_leaf = loaded_leaf;
+    root->lazy_leaf = CloneFacetTargetV1::ptr::Declare(
+        ae::CreateWith{source}.with_id(source_lazy_id).with_flags(
+            ae::ObjFlags::kUnloadedByDefault));
+    root->boundary = CloneFacetTargetV1::ptr::Declare(
+        ae::CreateWith{source}.with_id(boundary.id()).with_flags(
+            ae::ObjFlags::kUnloadedByDefault));
+    apptraverse::CloneOptions options{};
+    options.stable_origin = root.id();
+    options.stable_prefab_ids = {source_loaded_id, source_lazy_id};
+    options.boundary_ids = {boundary.id()};
+    {
+      auto result = apptraverse::CloneCanonicalRoot(source, *root, target, options);
+      if (!result) { Fail("runtime clone with local-only leaves"); }
+      retained = ae::Ptr<CloneLocalRoot>{ae::Ptr<ae::Obj>{result.root.Load()}};
+    }
+    if (source_storage.store_calls != 0 || target_storage.store_calls != 0) {
+      Fail("runtime local clone must not write source or target storage");
+    }
+  }
+  // Source, staging/child domains, result wrapper, and clone keepalives are gone.
+  // Only the returned root may own these copied local-only leaves.
+  if (!retained->loaded_leaf.is_loaded() || !retained->lazy_leaf.is_loaded() ||
+      retained->loaded_leaf.domain() != &target ||
+      retained->lazy_leaf.domain() != &target ||
+      retained->loaded_leaf.id() == source_loaded_id ||
+      retained->lazy_leaf.id() == source_lazy_id ||
+      (retained->lazy_leaf.flags() & ae::ObjFlags::kUnloadedByDefault) == 0 ||
+      retained->boundary.domain() != &target ||
+      retained->boundary.Load().get() != boundary.Load().get()) {
+    Fail("runtime local clone must preserve ownership, flags, and target domain");
+  }
+  if (retained->loaded_leaf->value != 61 || retained->lazy_leaf->value != 71) {
+    Fail("runtime local clone retained leaf values");
+  }
+  auto const cloned_loaded_id = retained->loaded_leaf.id();
+  auto const cloned_lazy_id = retained->lazy_leaf.id();
+  retained.Reset();
+  if (target.FindLocal(cloned_loaded_id) || target.FindLocal(cloned_lazy_id) ||
+      target_storage.store_calls != 0) {
+    Fail("local clone leaves must release with their sole owning root");
+  }
+}
+
+void TestRuntimeCloneDoesNotTraverseBoundaryGraph() {
+  ae::RamDomainStorage source_storage, target_storage;
+  ae::Domain source{source_storage}, target{target_storage};
+  auto external_leaf = CloneFacetTargetV1::ptr::Create(ae::CreateWith{target});
+  external_leaf->value = 101;
+  auto boundary = CloneLocalRoot::ptr::Create(ae::CreateWith{target});
+  boundary->loaded_leaf = external_leaf;
+  auto root = CloneLocalRoot::ptr::Create(ae::CreateWith{source});
+  root->external_graph = CloneLocalRoot::ptr::Declare(
+      ae::CreateWith{source}.with_id(boundary.id()).with_flags(
+          ae::ObjFlags::kUnloadedByDefault));
+  apptraverse::CloneOptions options{};
+  options.stable_origin = root.id();
+  // The boundary owns another object outside the declared copy closure.
+  options.boundary_ids = {boundary.id()};
+  auto result = apptraverse::CloneCanonicalRoot(source, *root, target, options);
+  if (!result) { Fail("runtime clone must not traverse the external boundary graph"); }
+  ae::Ptr<CloneLocalRoot> cloned{ae::Ptr<ae::Obj>{result.root.Load()}};
+  if (cloned->external_graph.Load().get() != boundary.Load().get() ||
+      boundary->loaded_leaf.Load().get() != external_leaf.Load().get() ||
+      boundary->loaded_leaf->value != 101 ||
+      !source_storage.state.empty() || !target_storage.state.empty()) {
+    Fail("clone rebinding must preserve the external boundary graph unchanged");
+  }
+}
+
+void TestCloneUnloadedAncestorLeaf() {
+  ae::RamDomainStorage grandparent_storage, parent_storage;
+  ae::RamDomainStorage source_storage, target_storage;
+  ae::Domain grandparent{grandparent_storage}, parent{parent_storage};
+  ae::Domain source{source_storage}, target{target_storage};
+  parent.set_parent_domain(&grandparent);
+  source.set_parent_domain(&parent);
+
+  auto leaf = CloneFacetTargetV1::ptr::Create(ae::CreateWith{grandparent});
+  leaf->value = 73;
+  leaf->tag = 74;
+  auto const leaf_id = leaf.id();
+  auto saved = ae::DomainGraph{&grandparent}.SaveRoot(leaf.Load(), leaf_id);
+  if (saved.IsErr()) { Fail("save inherited clone leaf"); }
+  leaf.Reset();
+  if (source.Find(leaf_id)) { Fail("inherited clone leaf must be unloaded"); }
+
+  auto root = CloneGraphTargetV1::ptr::Create(ae::CreateWith{source});
+  root->value = 81;
+  root->child = CloneFacetTargetV1::ptr::Declare(
+      ae::CreateWith{source}.with_id(leaf_id).with_flags(
+          ae::ObjFlags::kUnloadedByDefault));
+  auto const ancestor_before = grandparent_storage.state;
+  auto const source_before = source_storage.state;
+  auto const target_before = target_storage.state;
+  apptraverse::CloneOptions options{};
+  options.stable_origin = root.id();
+  options.stable_prefab_ids = {leaf_id};
+  auto result = apptraverse::CloneCanonicalRoot(source, *root, target, options);
+  if (!result) { Fail("clone unloaded leaf stored in grandparent"); }
+  ae::Ptr<CloneGraphTargetV1> cloned{ae::Ptr<ae::Obj>{result.root.Load()}};
+  if (cloned->value != 81 || cloned->child.id() == leaf_id ||
+      cloned->child.domain() != &target || cloned->child->value != 73 ||
+      cloned->child->tag != 74 || root->child.is_loaded()) {
+    Fail("inherited clone leaf value, identity, or source lazy state");
+  }
+  if (grandparent_storage.state != ancestor_before ||
+      !parent_storage.state.empty() || source_storage.state != source_before ||
+      target_storage.state != target_before) {
+    Fail("runtime inherited clone must not write domain storage");
+  }
+}
+
+void TestCloneRejectsAncestorIdentityCollision() {
+  ae::RamDomainStorage parent_storage, child_storage;
+  ae::Domain parent{parent_storage}, target{child_storage};
+  target.set_parent_domain(&parent);
+  auto existing = CloneFacetTargetV1::ptr::Create(ae::CreateWith{parent});
+  auto source = CloneFacetTargetV1::ptr::Create(ae::CreateWith{target});
+  existing->value = 71;
+  source->value = 83;
+  auto const original_origin = existing->origin_id();
+  auto const existing_id = existing.id();
+  apptraverse::CloneOptions options{};
+  options.stable_origin = source.id();
+  options.new_root_id = existing_id;
+  auto result = apptraverse::CloneCanonicalRoot(target, *source, target, options);
+  if (result || result.error != apptraverse::CloneError::kObjIdConflict ||
+      existing->value != 71 || existing->origin_id() != original_origin ||
+      target.FindLocal(existing_id)) {
+    Fail("clone must not reuse or mutate a live ancestor identity");
+  }
+  existing.Save();
+  existing.Reset();
+  result = apptraverse::CloneCanonicalRoot(target, *source, target, options);
+  if (result || result.error != apptraverse::CloneError::kObjIdConflict ||
+      target.FindLocal(existing_id)) {
+    Fail("clone must reserve unloaded ancestor storage identities");
+  }
+}
+
 }  // namespace
 
 int main() {
   apptraverse::EnsureObjectRegistration();
   (void)&g_apptraverse_registrar_CloneFacetTargetV1;
   (void)&g_apptraverse_registrar_CloneGraphTargetV1;
+  (void)&g_apptraverse_registrar_CloneLocalRoot;
   (void)&g_apptraverse_registrar_CloneHistConst;
   (void)&g_apptraverse_registrar_CloneHistNode;
   (void)&g_apptraverse_registrar_CloneHistSetValueEvent;
@@ -1865,6 +2108,11 @@ int main() {
   TestCanonicalClonePresentedWindowPrefab();
   TestCloneMissingStableOrigin();
   TestCloneObjIdConflict();
+  TestRuntimeCloneRetainsLazyReferencesWithoutStorage();
+  TestRuntimeCloneRetainsLocalReferences();
+  TestRuntimeCloneDoesNotTraverseBoundaryGraph();
+  TestCloneRejectsAncestorIdentityCollision();
+  TestCloneUnloadedAncestorLeaf();
 
   std::cout << "object_clone_test OK\n";
   return 0;

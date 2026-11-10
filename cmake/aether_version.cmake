@@ -29,6 +29,9 @@ set(APPTRAVERSE_AETHER_OBJECTS_PATCH_NAMES
   origin-layer-lookup
   historical-base-snapshot-scope
   domain-hierarchy-v1
+  scoped-layer-hydration-v1
+  force-materialize-object-layer-v1
+  historical-materialized-version-scope-v1
 )
 set(APPTRAVERSE_AETHER_OBJECTS_PATCHES)
 foreach(patch_name IN LISTS APPTRAVERSE_AETHER_OBJECTS_PATCH_NAMES)

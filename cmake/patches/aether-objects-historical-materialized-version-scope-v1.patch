@@ -1,0 +1,16 @@
+--- a/src/aether-objects/obj/domain.h
++++ b/src/aether-objects/obj/domain.h
+@@ -321,8 +321,13 @@
+             return;
+           }
+           if constexpr (requires { obj.ShouldSaveVersion(version); }) {
++            // Historical scratch must include every materialized field,
++            // even when a normal persistent save leaves that version owned
++            // by the object's origin. Replay must not fall back to live data.
+             if (serialization_scope !=
+                     GraphSerializationScope::MaterializedPublication &&
++                serialization_scope !=
++                    GraphSerializationScope::HistoricalBaseSnapshot &&
+                 !obj.ShouldSaveVersion(version)) {
+               return;
+             }

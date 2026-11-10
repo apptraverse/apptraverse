@@ -1,0 +1,17 @@
+--- a/src/aether-objects/obj/domain.h
++++ b/src/aether-objects/obj/domain.h
+@@ -349,7 +349,13 @@
+ template <typename T, auto V>
+ seri::SeriResult DomainGraph::SaveVersion(Version<V> version, T const& obj,
+                                           ObjId obj_id) {
+-  auto storage_writer = GetWriter({obj_id, T::kClassId, V});
++  DomainQuery query{obj_id, T::kClassId, V};
++  if (serialization_scope == GraphSerializationScope::LocalPersistent) {
++    if constexpr (requires { obj.ShouldForceMaterializeLayer(T::kClassId, V); }) {
++      query.force_materialize = obj.ShouldForceMaterializeLayer(T::kClassId, V);
++    }
++  }
++  auto storage_writer = GetWriter(query);
+ 
+   auto bin_archive =
+       seri::BinaryArchive{DomainBuffer{.id = obj_id,

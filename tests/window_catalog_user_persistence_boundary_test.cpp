@@ -8,7 +8,9 @@
 #include "aether-objects/obj/domain.h"
 
 #include "apptraverse/application_model_runtime.h"
+#include "apptraverse/ui/ui_localization_string.h"
 #include "apptraverse/ui/ui_presenters.h"
+#include "apptraverse/ui/ui_string.h"
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/embedded_distilled_domain.h"
@@ -94,6 +96,26 @@ ui::UiDesktopWindowPresenter::ptr LoadCatalogWindowPresenter(
       static_cast<ui::UiDesktopWindowPresenter*>(presenter_obj.get()));
 }
 
+void SetPresenterOnlyTitle(CatalogWindow& window, char const* value) {
+  auto title = ui::UiLocalizationString::ptr::Create(
+      ae::CreateWith{*window.domain});
+  for (int language = 0; language < 2; ++language) {
+    auto text = ui::UiString::ptr::Create(ae::CreateWith{*window.domain});
+    text->utf8 = value;
+    title->strings.push_back(text);
+  }
+  LoadCatalogWindowPresenter(window)->title = title;
+}
+
+std::string ReadPresenterTitle(ui::UiDesktopWindowPresenter& presenter) {
+  presenter.title.Load();
+  CHECK(presenter.title.is_loaded());
+  CHECK(presenter.title->strings.size() == 2);
+  presenter.title->strings[0].Load();
+  CHECK(presenter.title->strings[0].is_loaded());
+  return presenter.title->strings[0]->utf8;
+}
+
 struct EmbeddedCatalogSession {
   DirectoryDomainStorage disk;
   ae::RamDomainStorage backing;
@@ -120,7 +142,8 @@ struct EmbeddedCatalogSession {
 void VerifyColdClosedChildOnDiskOnly(
     std::filesystem::path const& user_dir, ae::ObjId const& holder_id,
     ae::ObjId const& window_id, ae::ObjId const& expected_presenter_id,
-    int expected_x, int expected_y, int expected_w, int expected_h) {
+    int expected_x, int expected_y, int expected_w, int expected_h,
+    char const* expected_title) {
   auto const holder_dir = user_dir / std::to_string(holder_id.id());
   auto const window_dir = user_dir / std::to_string(window_id.id());
   CHECK(std::filesystem::is_directory(holder_dir));
@@ -151,6 +174,9 @@ void VerifyColdClosedChildOnDiskOnly(
   auto presenter = LoadCatalogWindowPresenter(child);
   CHECK(presenter.is_valid());
   CHECK(presenter.id() == expected_presenter_id);
+  CHECK(presenter->window.id() == window_id);
+  CHECK(&*presenter->window == &child);
+  CHECK(ReadPresenterTitle(*presenter) == expected_title);
 }
 
 void RunBoundaryScenario() {
@@ -186,6 +212,8 @@ void RunBoundaryScenario() {
     holder0->window.Load();
     CatalogWindow& child = *holder0->window;
     child.SubmitFrameFromNative(200, 140, 501, 401, true);
+    // This branch exists only in the live presenter graph before Close.
+    SetPresenterOnlyTitle(child, "Unsaved presenter title");
 
     CHECK(CountRegularFiles(user_dir) == files_after_boot);
     CHECK(StoreDelta(setup.instrumented->SnapshotStats(), stats_work_before) == 0);
@@ -204,14 +232,14 @@ void RunBoundaryScenario() {
     CHECK(holder0->window.is_valid());
 
     VerifyColdClosedChildOnDiskOnly(user_dir, closed_holder_id, closed_window_id,
-                                    closed_presenter_id, 200, 140, 501, 401);
-
-    catalog->persisted.locale.Load();
-    catalog->MaterializeCatalogStrings(1);
-    catalog->persisted.locale->SubmitLanguageIndexFromUi(1);
+                                    closed_presenter_id, 200, 140, 501, 401,
+                                    "Unsaved presenter title");
 
     InstrumentedDomainStorageStats const stats_reopen_work_before =
         setup.instrumented->SnapshotStats();
+    catalog->persisted.locale.Load();
+    catalog->MaterializeCatalogStrings(1);
+    catalog->persisted.locale->SubmitLanguageIndexFromUi(1);
     catalog->OpenHolderWindow(*holder0);
     holder0->window.Load();
     CatalogWindow& child_reopen = *holder0->window;
@@ -235,6 +263,13 @@ void RunBoundaryScenario() {
     WindowHolder* holder0 = AsHolder(catalog->persisted.list->rows[0]);
     CHECK(holder0->obj_id == closed_holder_id);
     CHECK(holder0->window.id() == closed_window_id);
+    holder0->window.Load();
+    CHECK(holder0->window->x() == 210);
+    CHECK(holder0->window->y() == 150);
+    CHECK(holder0->window->restore_client_width() == 502);
+    CHECK(holder0->window->restore_client_height() == 402);
+    auto presenter = LoadCatalogWindowPresenter(*holder0->window);
+    CHECK(ReadPresenterTitle(*presenter) == "Unsaved presenter title");
     catalog->persisted.locale.Load();
     CHECK(catalog->persisted.locale->language_index() == 1);
   }
@@ -273,6 +308,7 @@ void RunExistingUserNoWriteUntilBoundary() {
   WindowHolder* holder = AsHolder(catalog->persisted.list->rows.back());
   holder->window.Load();
   holder->window->SubmitFrameFromNative(44, 55, 320, 240, true);
+  SetPresenterOnlyTitle(*holder->window, "Existing USER presenter title");
   ae::ObjId const window_id = holder->window.id();
   ae::ObjId const holder_id = holder->obj_id;
   ae::ObjId const presenter_id{
@@ -284,7 +320,8 @@ void RunExistingUserNoWriteUntilBoundary() {
   CHECK(CountRegularFiles(user_dir) > seeded_files);
   CHECK(StoreDelta(setup.instrumented->SnapshotStats(), stats0) > 0);
   VerifyColdClosedChildOnDiskOnly(user_dir, holder_id, window_id, presenter_id,
-                                  44, 55, 320, 240);
+                                  44, 55, 320, 240,
+                                  "Existing USER presenter title");
 }
 
 void RunSessionIsolation() {
@@ -312,13 +349,18 @@ void RunSessionIsolation() {
   holder_a->window->SubmitFrameFromNative(10, 11, 120, 100, true);
   holder_b->window.Load();
   holder_b->window->SubmitFrameFromNative(1, 2, 100, 80, true);
+  CHECK(setup_a.instrumented->SnapshotStats().store_calls == 0);
+  CHECK(setup_b.instrumented->SnapshotStats().store_calls == 0);
 
   catalog_b->CloseHolderWindow(*holder_b);
   CHECK(CountRegularFiles(dir_b) > 0);
   CHECK(CountRegularFiles(dir_a) == 0);
+  CHECK(setup_a.instrumented->SnapshotStats().store_calls == 0);
+  CHECK(setup_b.instrumented->SnapshotStats().store_calls > 0);
 
   holder_a->window->SubmitFrameFromNative(20, 21, 130, 110, true);
   CHECK(CountRegularFiles(dir_a) == 0);
+  CHECK(setup_a.instrumented->SnapshotStats().store_calls == 0);
 }
 
 }  // namespace

@@ -1,8 +1,11 @@
 #include "apptraverse/object_clone.h"
 
 
+#include <algorithm>
+#include <cstdio>
 #include <deque>
 #include <set>
+#include <source_location>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -59,11 +62,20 @@ bool ObjectIdOccupiedInStorage(ae::IDomainStorage& storage, ae::ObjId id) {
 }
 
 bool ObjectIdOccupiedInDomain(ae::Domain& domain, ae::ObjId id) {
-  return static_cast<bool>(domain.FindLocal(id)) ||
-         ObjectIdOccupiedInStorage(domain.domain_storage(), id);
+  if (domain.Find(id)) { return true; }
+  for (ae::Domain* current = &domain; current != nullptr;
+       current = current->parent_domain()) {
+    if (ObjectIdOccupiedInStorage(current->domain_storage(), id)) { return true; }
+  }
+  return false;
 }
 
-CloneCanonicalResult Fail(CloneError error) {
+CloneCanonicalResult Fail(CloneError error,
+                          std::source_location location = std::source_location::current()) {
+  if (std::getenv("APPTRAVERSE_CLONE_FAIL_TRACE") != nullptr) {
+    std::fprintf(stderr, "CloneCanonicalRoot error=%d line=%u\n",
+                 static_cast<int>(error), location.line());
+  }
   return CloneCanonicalResult{{}, error};
 }
 
@@ -72,10 +84,11 @@ using CloneRemap = ae::DomainGraph::CloneSaveRemapTable;
 bool RemapSingleLiveObjectInPlace(
     ae::Domain& target, ae::Ptr<ae::Obj> const& canonical,
     ae::ObjId const object_id, std::map<ae::ObjId, ae::ObjId> const& id_remap,
-    std::map<ae::ObjId, ae::Ptr<ae::Obj>> const& live_registry) {
+    std::map<ae::ObjId, ae::Ptr<ae::Obj>> const& live_registry,
+    detail::OperationMode mode = detail::OperationMode::kRemap) {
   bool remap_ok = true;
   detail::OperationStorage remap_storage{
-      detail::OperationMode::kRemap,
+      mode,
       /*validation_storage=*/nullptr,
       /*most_derived_classes=*/nullptr,
       &target,
@@ -86,9 +99,13 @@ bool RemapSingleLiveObjectInPlace(
   ae::Domain remap_domain{remap_storage};
   ae::DomainGraph remap_graph{&remap_domain};
   CloneRemap traverse_remap;
-  for (auto const& [old_id, new_id] : id_remap) {
-    traverse_remap[old_id.id()] = new_id.id();
+  if (mode != detail::OperationMode::kCloneRebind) {
+    for (auto const& [old_id, new_id] : id_remap) {
+      traverse_remap[old_id.id()] = new_id.id();
+    }
   }
+  // Clone finalization visits every copied object explicitly. Boundary IDs
+  // belong in pointer mappings, but their external graphs must not be visited.
   traverse_remap[object_id.id()] = object_id.id();
   remap_graph.SetCloneSaveRemap(&traverse_remap);
   if (!remap_graph.SaveRoot(canonical, object_id).IsOk()) {
@@ -107,13 +124,31 @@ bool RebindCloneGraphOnTarget(
     live_registry[obj->obj_id] = obj;
   }
   for (ae::ObjId const boundary_id : boundary_ids) {
+    // Even an unloaded boundary must be rebound to the persistent target domain.
+    identity_remap[boundary_id] = boundary_id;
     if (ae::Ptr<ae::Obj> const bound = target.Find(boundary_id)) {
       live_registry[boundary_id] = bound;
     }
   }
   for (ae::Ptr<ae::Obj> const& obj : cloned_locals) {
-    if (!RemapSingleLiveObjectInPlace(target, obj, obj->obj_id, identity_remap,
-                                      live_registry)) {
+    // Serialization remaps ObjectLink, but plain lazy ObjPtr fields otherwise
+    // retain the child-domain address. Bind every persistent edge while all
+    // copied objects are still held, preserving its on-disk lazy flags.
+    bool edges_ok = true;
+    ForEachGraphEdgeObjPtrOnObject(*obj, [&](ae::ObjectPtrBase& edge) {
+      if (!edge.is_valid()) { return; }
+      ae::ObjId const id = edge.id();
+      ae::Ptr<ae::Obj> resolved = target.Find(id);
+      if (!resolved && edge.is_loaded()) {
+        edges_ok = false;
+        return;
+      }
+      edge = ae::ObjectPtrBase{&target, id, edge.flags(), std::move(resolved)};
+    });
+    if (!edges_ok) { return false; }
+    if (!RemapSingleLiveObjectInPlace(
+            target, obj, obj->obj_id, identity_remap, live_registry,
+            detail::OperationMode::kCloneRebind)) {
       return false;
     }
   }
@@ -283,6 +318,9 @@ bool BuildCanonicalSnapshot(ae::Domain& source, ae::ObjId source_id,
   seen.insert(source_id.id());
 
   ae::Domain storage_reader{source.domain_storage()};
+  // Keep source-local loading isolated while preserving inherited storage for
+  // unloaded copy-closure objects. Live source objects are resolved above.
+  storage_reader.set_parent_domain(source.parent_domain());
   std::vector<ae::Ptr<ae::Obj>> storage_keepalive;
 
   CloneReferenceQueueContext ref_ctx{&queue, &seen, &options.boundary_ids,
@@ -398,27 +436,85 @@ bool InjectAllLayeredObjects(ae::RamDomainStorage const& scratch,
   return true;
 }
 
-bool SeedLiveReferenceLayersInOverlay(
-    ae::Domain& target, ae::RamDomainStorage& overlay_layers,
+bool HydrateLiveObjectFromLayerScratch(
+    ae::Domain& target, ae::Obj& object, ae::ObjId storage_id,
     ae::RamDomainStorage const& layered_scratch,
     std::set<ae::ObjId> const& live_reference_ids) {
-  if (live_reference_ids.empty()) {
-    return true;
+  auto fail = [](char const* stage, ae::ObjId id,
+                 std::uint32_t class_id = 0, int error = 0) {
+    std::fprintf(stderr,
+                 "Historical hydration failed at %s (object=%lu class=%lu error=%d)\n",
+                 stage, static_cast<unsigned long>(id.id()),
+                 static_cast<unsigned long>(class_id), error);
+    return false;
+  };
+  ae::Ptr<ae::Obj> const root = target.Find(object.obj_id);
+  if (!root || root.get() != &object || !storage_id.is_valid()) {
+    return fail("root identity", object.obj_id);
   }
-  ae::Domain overlay_domain{overlay_layers};
-  ae::DomainGraph save_graph{
-      &overlay_domain, ae::GraphSerializationScope::HistoricalBaseSnapshot};
-  save_graph.force_materialize = true;
-  for (ae::ObjId const id : live_reference_ids) {
-    if (layered_scratch.state.find(id) != layered_scratch.state.end()) {
+
+  // Scratch bytes are an operation input, never a persistent USER overlay.
+  ae::RamDomainStorage scratch = layered_scratch;
+  OverlayDomainStorage read_storage{scratch, target.domain_storage()};
+  ae::DomainGraph graph{&target};
+  graph.SetLoadStorage(&read_storage);
+  graph.retain_loaded_references = true;
+  auto& registry = ae::Registry::GetRegistry();
+  std::map<ae::ObjId, std::vector<std::uint32_t>> layers;
+  std::map<ae::ObjId, ae::Ptr<ae::Obj>> objects;
+  objects[storage_id] = root;
+
+  // Construct every private leaf before loading any fields. Even a lazy edge
+  // can then hold its canonical owning Ptr without referring to scratch storage
+  // or to a temporary domain after this operation ends.
+  for (auto const& [id, class_map] : scratch.state) {
+    if (!class_map || class_map->empty() ||
+        (id != storage_id && live_reference_ids.count(id) != 0)) {
       continue;
     }
-    ae::Ptr<ae::Obj> const live = target.Find(id);
-    if (!live) {
-      return false;
+    auto& classes = layers[id];
+    for (auto const& [class_id, _] : *class_map) {
+      auto* factory = registry.FindFactory(class_id);
+      if (factory == nullptr || factory->create == nullptr ||
+          factory->load == nullptr) {
+        return fail("class factory", id, class_id);
+      }
+      classes.push_back(class_id);
     }
-    if (!save_graph.SaveRoot(live, id).IsOk()) {
-      return false;
+    std::sort(classes.begin(), classes.end(), [&](auto left, auto right) {
+      return registry.GenerationDistance(left, right) > 0;
+    });
+    for (auto const class_id : classes) {
+      if (registry.GenerationDistance(class_id, classes.back()) < 0) {
+        return fail("class inheritance", id, class_id);
+      }
+    }
+    if (id == storage_id) {
+      continue;
+    }
+    // A private scratch ID must not overwrite an existing live or historical
+    // object. The capture/replay remap allocates fresh IDs for these leaves.
+    if (target.Find(id)) {
+      return fail("private ID conflict", id);
+    }
+    auto created = registry.FindFactory(classes.back())->create();
+    if (!created) {
+      return fail("object construction", id, classes.back());
+    }
+    target.AddObject(id, created);
+    objects[id] = std::move(created);
+  }
+  if (layers.find(storage_id) == layers.end()) {
+    return fail("missing root layers", storage_id);
+  }
+  for (auto const& [id, classes] : layers) {
+    auto& instance = objects.at(id);
+    for (auto const class_id : classes) {
+      auto const result = registry.FindFactory(class_id)->load(&graph, instance,
+                                                              id);
+      if (result.has_value() && !result->IsOk()) {
+        return fail("layer load", id, class_id, result->error().error_code);
+      }
     }
   }
   return true;
@@ -510,20 +606,6 @@ bool InjectLayeredObjects(ae::RamDomainStorage const& scratch,
   return true;
 }
 
-void EnqueueCloneReferenceForHistorical(void* context, ae::ObjId id) {
-  struct RefCtx {
-    std::deque<ae::ObjId>* queue;
-    std::set<ae::ObjId::Type>* seen;
-  };
-  auto* ctx = static_cast<RefCtx*>(context);
-  if (!id.is_valid() || ctx == nullptr) {
-    return;
-  }
-  if (ctx->seen->insert(id.id()).second) {
-    ctx->queue->push_back(id);
-  }
-}
-
 ae::ObjId AllocateCloneObjIdForHistorical(
     ae::ObjId::Type source_root, std::set<ae::ObjId> const& copy_set,
     CloneRemap const& remap, ae::Domain& target) {
@@ -547,8 +629,7 @@ ae::ObjId AllocateCloneObjIdForHistorical(
       }
     }
     if (!reserved) {
-      if (!target.Find(candidate) &&
-          target.domain_storage().Enumerate(candidate).empty()) {
+      if (!ObjectIdOccupiedInDomain(target, candidate)) {
         return candidate;
       }
     }
@@ -613,17 +694,49 @@ CloneCanonicalResult CloneCanonicalRoot(ae::Domain& source, ae::Obj& source_root
       staging_overlay_storage, source.domain_storage(),
       staging_supply_constants};
   ae::Domain staging_domain{staging_storage};
+  staging_domain.set_parent_domain(&source);
   std::vector<ae::Ptr<ae::Obj>> staging_keepalive;
   staging_keepalive.reserve(copy_set.size());
   ae::DomainGraph staging_load_graph{&staging_domain};
+  staging_load_graph.retain_loaded_references = true;
   std::unordered_map<ae::ObjId::Type, ae::ObjId> origins;
+  // Declare the entire copy set locally before loading fields. Otherwise an
+  // ancestor lookup can resolve an internal edge to the source object, or an
+  // external live-only object requires an unnecessary storage round-trip.
   for (ae::ObjId const id : copy_set) {
-    ae::Ptr<ae::Obj> loaded;
-    if (!staging_load_graph.LoadRoot(id, loaded).IsOk() || !loaded) {
+    ae::Ptr<ae::Obj> source_object = source.Find(id);
+    if (!source_object) {
+      ae::DomainGraph source_load{&source};
+      if (!source_load.LoadRoot(id, source_object).IsOk() || !source_object) {
+        return Fail(CloneError::kLoadFailed);
+      }
+    }
+    auto* factory = ae::Registry::GetRegistry().FindFactory(source_object->GetClassId());
+    if (factory == nullptr || factory->create == nullptr) {
       return Fail(CloneError::kLoadFailed);
     }
-    staging_keepalive.push_back(loaded);
-    origins[id.id()] = loaded->origin_id();
+    auto created = factory->create();
+    if (!created) { return Fail(CloneError::kLoadFailed); }
+    staging_domain.AddObject(id, created);
+    staging_keepalive.push_back(std::move(created));
+  }
+  for (auto& loaded : staging_keepalive) {
+    auto& registry = ae::Registry::GetRegistry();
+    auto classes = staging_storage.Enumerate(loaded->obj_id);
+    std::sort(classes.begin(), classes.end(), [&](auto left, auto right) {
+      return registry.GenerationDistance(left, right) > 0;
+    });
+    for (auto class_id : classes) {
+      auto* factory = registry.FindFactory(class_id);
+      if (factory == nullptr || factory->load == nullptr) {
+        return Fail(CloneError::kLoadFailed);
+      }
+      auto const result = factory->load(&staging_load_graph, loaded, loaded->obj_id);
+      if (result.has_value() && !result->IsOk()) {
+        return Fail(CloneError::kLoadFailed);
+      }
+    }
+    origins[loaded->obj_id.id()] = loaded->origin_id();
   }
 
   std::unordered_map<ae::ObjId::Type, ae::ObjId> resolved_origins;

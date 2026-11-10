@@ -17,6 +17,26 @@ void ReplaySlotUtf8FromJournal(UiLocalizationString& localized,
   if (!slot.is_loaded()) {
     slot.Load();
   }
+  // Compaction moves edits into the immutable base without writing USER.
+  // An unloaded live slot can therefore be older on disk than the current
+  // base. Restore its value from that base before replaying the retained tail,
+  // keeping the original live slot ID and its presentation loading policy.
+  if (localized.base.is_valid()) {
+    ae::Ptr<ae::Obj> const historical_object = localized.base.Load();
+    if (!historical_object) {
+      std::abort();
+    }
+    auto const& historical =
+        static_cast<UiLocalizationString const&>(*historical_object);
+    if (slot_index < historical.strings.size() &&
+        historical.strings[slot_index].is_valid()) {
+      auto historical_slot = historical.strings[slot_index].Load();
+      if (!historical_slot) {
+        std::abort();
+      }
+      slot->utf8 = historical_slot->utf8;
+    }
+  }
   for (auto const& record : localized.journal) {
     if (stop_before != nullptr && record.event.is_valid() &&
         record.event.is_loaded() &&
@@ -152,9 +172,8 @@ void UiLocalizationString::PrepareReachableMutableLeavesForHistoricalCapture() {
       continue;
     }
     if (!strings[slot].is_loaded()) {
-      strings[slot].Load();
+      ReplaySlotUtf8FromJournal(*this, slot, nullptr);
     }
-    ReplaySlotUtf8FromJournal(*this, slot, nullptr);
   }
 }
 

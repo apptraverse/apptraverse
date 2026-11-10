@@ -1,0 +1,76 @@
+--- a/src/aether-objects/obj/domain.h
++++ b/src/aether-objects/obj/domain.h
+@@ -137,6 +137,12 @@
+   template <typename T, auto V>
+   seri::SeriResult SaveVersion(Version<V> version, T const& obj, ObjId obj_id);
+ 
++  // Redirect serialized layer reads for this walk only. Identity lookup and
++  // object construction still use domain; the caller preconstructs any object
++  // absent from its storage. The supplied storage must outlive this graph.
++  // nullptr restores the ordinary domain/parent storage lookup.
++  void SetLoadStorage(IDomainStorage* storage) { load_storage_ = storage; }
++
+   using CloneSaveRemapTable = std::unordered_map<ObjId::Type, ObjId::Type>;
+ 
+   // Per-Save clone context: remaps storage keys and serialized ObjPtr ids.
+@@ -166,6 +172,9 @@
+   GraphSerializationScope serialization_scope{
+       GraphSerializationScope::LocalPersistent};
+   bool force_materialize{false};
++  // Keep preconstructed references during scoped hydration, including lazy
++  // references. Missing lazy objects remain unloaded; their flags are unchanged.
++  bool retain_loaded_references{false};
+ 
+  private:
+   void LoadStoredLayers(Ptr<Obj>& obj, ObjId storage_id);
+@@ -173,6 +182,7 @@
+   DomainLoad GetReader(DomainQuery const& query);
+   std::unique_ptr<IDomainStorageWriter> GetWriter(DomainQuery const& query);
+ 
++  IDomainStorage* load_storage_{nullptr};
+   CloneSaveRemapTable const* clone_save_remap_{nullptr};
+   void* clone_reference_visitor_context_{nullptr};
+   CloneReferenceVisitorFn clone_reference_visitor_{nullptr};
+--- a/src/aether-objects/obj/domain.cpp
++++ b/src/aether-objects/obj/domain.cpp
+@@ -133,14 +133,18 @@
+ }
+ 
+ DomainLoad DomainGraph::GetReader(DomainQuery const& query) {
+-  auto load = domain->storage_->Load(query);
+-  if (load.result != DomainLoadResult::kEmpty) {
+-    return load;
+-  }
+-  if (domain->parent_domain() != nullptr) {
+-    return domain->parent_domain()->domain_storage().Load(query);
+-  }
+-  return load;
++  if (load_storage_ != nullptr) {
++    // An explicit snapshot owns the entire read view, including absent layers.
++    return load_storage_->Load(query);
++  }
++  for (auto* current = domain; current != nullptr;
++       current = current->parent_domain()) {
++    auto load = current->domain_storage().Load(query);
++    if (load.result != DomainLoadResult::kEmpty) {
++      return load;
++    }
++  }
++  return DomainLoad{DomainLoadResult::kEmpty, {}};
+ }
+ 
+ std::unique_ptr<IDomainStorageWriter> DomainGraph::GetWriter(
+--- a/src/aether-objects/obj/obj_ptr_base.cpp
++++ b/src/aether-objects/obj/obj_ptr_base.cpp
+@@ -183,6 +183,11 @@
+     // a re-read reference keeps identity instead of rebuilding the object.
+     TRY_RESULT(archive.buffer().domain_graph->LoadRoot(meta.value.id_,
+                                                        meta.value.cached_));
++  } else if (meta.value.is_valid() &&
++             archive.buffer().domain_graph->retain_loaded_references) {
++    // Preserve already constructed snapshot children without loading absent
++    // lazy references or changing their serialized flags.
++    meta.value.cached_ = meta.value.domain_->Find(meta.value.id_);
+   } else {
+     meta.value.cached_.Reset();
+   }

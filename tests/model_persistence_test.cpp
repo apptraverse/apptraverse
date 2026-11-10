@@ -810,6 +810,14 @@ void RunDistilledLazyOverlayTest() {
     CHECK(first->base.id() == first_base_id);
     CHECK(static_cast<DocNode&>(*first->base).label == "first-compacted");
     CHECK(!root->second.is_loaded());
+    // Runtime compaction changes the live graph only. Persist explicitly at
+    // the application boundary before checking USER layer overrides.
+    CHECK(CountClassLayersForObject(compact_user_root, first_id.id()) == 0);
+    CHECK(CountClassLayersForObject(compact_user_root, first_base_id.id()) == 0);
+    user_storage.BeginSaveSession();
+    ae::DomainGraph compact_save{&domain};
+    CHECK(compact_save.SaveRoot(root, root_id).IsOk());
+    CHECK(!user_storage.SaveSessionHadFailure());
     CHECK(DirectoryDomainStorageLayerFileExists(
         compact_user_root, ae::DomainQuery{first_id, Node::kClassId, 0}));
     CHECK(DirectoryDomainStorageLayerFileExists(

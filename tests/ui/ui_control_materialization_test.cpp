@@ -656,6 +656,14 @@ void TestLocalizationDirectoryLifecycleWithoutSessionWrites() {
     CommitSlotUtf8(*localized, domain, 0, "Disk EN edited");
     localized->MaterializeLanguage(1);
 
+    localized->SetJournalRetentionPolicy(JournalRetentionPolicy{.max_events = 0});
+    localized->CompactJournal(SystemUtcMicros());
+    CHECK(localized->journal.empty());
+    localized->MaterializeLanguage(0);
+    CHECK(localized->Resolve(0) == "Disk EN edited");
+    localized->MaterializeLanguage(1);
+    CHECK(localized->Resolve(1) == "Disk RU edited");
+
     InstrumentedDomainStorageStats const storage_after_edits =
         session_storage.SnapshotStats();
     CHECK(storage_after_edits.store_calls == storage_quiet.store_calls);

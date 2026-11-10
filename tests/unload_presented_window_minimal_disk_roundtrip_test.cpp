@@ -99,7 +99,8 @@ void RunRoundTrip() {
 
   {
     DirectoryDomainStorage storage{user_dir};
-    ae::Domain domain{storage};
+    InstrumentedDomainStorage instrumented{storage, user_dir, &storage};
+    ae::Domain domain{instrumented};
     auto app = LoadApplication<example::minimal::MinimalApplication>(
         domain, example::minimal::MinimalApplicationRootId());
     example::minimal::PrepareMinimalApplicationForRun(*app);
@@ -120,9 +121,11 @@ void RunRoundTrip() {
     pres.title->strings[0]->utf8 = kProbeTitleUtf8;
     CHECK(ResolveAuxTitleViaPresenter(*app) == kProbeTitleUtf8);
     CHECK(ResolveAuxTitleViaCloser(*app) == kProbeTitleUtf8);
+    CHECK(instrumented.SnapshotStats().store_calls == 0);
 
-    app->auxiliary_presented_open = false;
-    ui::UnloadPresentedWindow(app->auxiliary.window);
+    app->CloseAuxiliaryWindowImpl();
+    CHECK(instrumented.SnapshotStats().store_calls > 0);
+    CHECK(!app->auxiliary_presented_open);
     CHECK(app->auxiliary.window.is_valid());
     CHECK(!app->auxiliary.window.is_loaded());
   }

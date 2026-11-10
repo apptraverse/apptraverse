@@ -434,6 +434,64 @@ void TestHistoricalStringLeafCompactionBeforeSecondSave() {
   }
 }
 
+void TestHistoricalStringRuntimeUsesOwnedIndependentLeaves() {
+  auto const dir = HistoricalStringTestDir("historical_string_runtime_only");
+  DirectoryDomainStorage directory{dir};
+  InstrumentedDomainStorage storage{directory, dir, &directory};
+  ae::Domain domain{storage};
+  auto owner = HistorizedStringOwner::ptr::Create(ae::CreateWith{domain});
+  auto leaf = HistorizedStringLeaf::ptr::Create(ae::CreateWith{domain});
+  auto origin = HistorizedStringLeaf::ptr::Create(ae::CreateWith{domain});
+  origin->utf8 = "immutable origin";
+  origin.Save();
+  leaf->SetOriginId(origin.id());
+  leaf->utf8 = "A";
+  leaf.Save();
+  ae::ObjId const original_leaf_id = leaf.id();
+  owner->text = HistorizedStringLeaf::ptr::Declare(
+      ae::CreateWith{domain}.with_id(original_leaf_id).with_flags(
+          ae::ObjFlags::kUnloadedByDefault));
+  auto const before = storage.SnapshotStats();
+
+  InitializeRuntimeNode(*owner);
+  ae::Ptr<HistorizedStringOwner> historical{owner->base.Load()};
+  CHECK(historical->text.id() != original_leaf_id);
+  CHECK(historical->text.is_loaded());
+  CHECK(historical->text.domain() == &domain);
+  CHECK((historical->text.flags() & ae::ObjFlags::kUnloadedByDefault) != 0);
+  CHECK(OwnerResolvedUtf8(*historical) == "A");
+  CHECK(historical->text->origin_id() == origin.id());
+
+  // Capture again after the operation-local storage and all its temporary
+  // keepalives are gone. The base's leaf must remain owned by its graph edge.
+  owner->text->utf8 = "B";
+  owner->CaptureBaseState();
+  CHECK(OwnerResolvedUtf8(*historical) == "B");
+  CHECK(historical->text.id() != owner->text.id());
+  CommitUtf8(*owner, domain, "C");
+  CHECK(OwnerResolvedUtf8(*historical) == "B");
+  for (int repeat = 0; repeat < 2; ++repeat) {
+    CHECK(owner->TryReplayFromBase());
+    CHECK(owner->text.domain() == &domain);
+    CHECK(owner->text.is_loaded());
+    CHECK(owner->text.id() != historical->text.id());
+    CHECK(OwnerResolvedUtf8(*owner) == "C");
+    CHECK(OwnerResolvedUtf8(*historical) == "B");
+    CHECK(historical->text->origin_id() == origin.id());
+    CHECK(owner->text->origin_id() == origin.id());
+    CHECK(origin->utf8 == "immutable origin");
+  }
+  owner->SetJournalRetentionPolicy(JournalRetentionPolicy{.max_events = 0});
+  owner->CompactJournal(SystemUtcMicros());
+  CHECK(owner->journal.empty());
+  CHECK(OwnerResolvedUtf8(*historical) == "C");
+  CHECK(historical->text.id() != owner->text.id());
+  auto const after = storage.SnapshotStats();
+  CHECK(after.store_calls == before.store_calls);
+  CHECK(after.store_disk_bytes_written == before.store_disk_bytes_written);
+  CHECK(Utf8OnDisk(directory, original_leaf_id) == "A");
+}
+
 void TestQueryLevelForceMaterialize() {
   ae::RamDomainStorage backing;
   ae::RamDomainStorage user;
@@ -557,6 +615,36 @@ ae::ObjId BuildHistorizedBacking(ae::RamDomainStorage& backing,
   CHECK(graph.SaveRoot(main, node_id).IsOk());
   CHECK(graph.SaveRoot(sibling, sibling_id).IsOk());
   return main->base.id();
+}
+
+void TestUntouchedColdNodeRemainsDifferential() {
+  ae::RamDomainStorage backing;
+  ae::RamDomainStorage user;
+  ae::ObjId const node_id{0x09C10031u};
+  {
+    ae::Domain domain{backing};
+    auto node = HistorizedValueNode::ptr::Create(
+        ae::CreateWith{domain}.with_id(node_id));
+    node->value = 17;
+    InitializeRuntimeNode(*node);
+    ae::DomainGraph save{&domain};
+    CHECK(save.SaveRoot(node.Load(), node_id).IsOk());
+  }
+  auto const original_backing = backing.state;
+  OverlayDomainStorage overlay{user, backing};
+  ae::Domain domain{overlay};
+  ae::DomainGraph load{&domain};
+  ae::Ptr<ae::Obj> raw;
+  CHECK(load.LoadRoot(node_id, raw).IsOk());
+  ae::Ptr<HistorizedValueNode> node{raw};
+  CHECK(node->base.is_valid() && node->base.is_loaded());
+  CHECK(node->journal.empty());
+  CHECK(!node->ShouldForceMaterializeLayer(Node::kClassId, 0));
+  ae::DomainGraph save{&domain};
+  CHECK(save.SaveRoot(raw, node_id).IsOk());
+  CHECK(!save.force_materialize);
+  CHECK(user.state.empty());
+  CHECK(backing.state == original_backing);
 }
 
 void TestHistoricalBaseUserMaterialization() {
@@ -737,6 +825,7 @@ int main() {
   apptraverse::EnsureObjectRegistration();
   apptraverse::test::TestQueryLevelForceMaterialize();
   apptraverse::test::TestDomainGraphForcePropagation();
+  apptraverse::test::TestUntouchedColdNodeRemainsDifferential();
   apptraverse::test::TestHistoricalBaseUserMaterialization();
   apptraverse::test::TestHistoricalBaseSurvivesBackingSwap();
   apptraverse::test::TestCaptureParentOmitsChildNodeHistory();
@@ -744,6 +833,7 @@ int main() {
   apptraverse::test::TestSupplyConstantWithHistoricalBaseSave();
   apptraverse::test::TestHistoricalStringLeafBootstrapAfterOwnerSave();
   apptraverse::test::TestHistoricalStringLeafCompactionBeforeSecondSave();
+  apptraverse::test::TestHistoricalStringRuntimeUsesOwnedIndependentLeaves();
   std::cout << "historical_base_materialization_test OK\n";
   return 0;
 }

@@ -23,6 +23,8 @@ namespace apptraverse::detail {
 enum class OperationMode : std::uint8_t {
   kValidate,
   kRemap,
+  // Clone finalization preserves local-persistent edges as owning references.
+  kCloneRebind,
 };
 
 class OperationStorageWriter;
@@ -201,9 +203,10 @@ ae::seri::SeriResult HandlePointerSeri(
       }
       return ae::Ok{ae::seri::good};
     }
-  } else if (op->mode == OperationMode::kRemap) {
+  } else if (op->mode == OperationMode::kRemap ||
+             op->mode == OperationMode::kCloneRebind) {
     auto& mut_ptr = const_cast<PtrType&>(ptr_ref);
-    if constexpr (IsLocal) {
+    if (IsLocal && op->mode == OperationMode::kRemap) {
       mut_ptr.Reset();
       ae::ObjId const empty_id{};
       ae::ObjFlags const empty_flags{};
