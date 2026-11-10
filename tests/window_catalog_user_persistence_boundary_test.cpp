@@ -211,7 +211,16 @@ void RunBoundaryScenario() {
     WindowHolder* holder0 = AsHolder(catalog->persisted.list->rows[0]);
     holder0->window.Load();
     CatalogWindow& child = *holder0->window;
+    child.SetImmediateEventCompaction(true);
+    for (int i = 0; i != 40; ++i) {
+      child.SubmitFrameFromNative(100 + i, 90 + i, 400 + i, 300 + i, true);
+      CHECK(child.journal.empty());
+      auto const& base = static_cast<CatalogWindow const&>(*child.base);
+      CHECK(base.x() == child.x());
+      CHECK(base.restore_client_width() == child.restore_client_width());
+    }
     child.SubmitFrameFromNative(200, 140, 501, 401, true);
+    CHECK(child.journal.empty());
     // This branch exists only in the live presenter graph before Close.
     SetPresenterOnlyTitle(child, "Unsaved presenter title");
 

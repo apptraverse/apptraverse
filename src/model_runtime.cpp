@@ -30,6 +30,7 @@ void TrackMaterializedChangeNotifierCopy(Node& target) {
 }
 
 void ModelRuntime::TrackNotifierSubscriber(Node& node) {
+  node.SetImmediateEventCompaction(true);
   notifier_subscribers_.insert(node.obj_id.id());
 }
 
@@ -116,6 +117,12 @@ void ModelRuntime::DetachNode(Node& node, ae::Obj& presentation_root) {
 }
 
 void ModelRuntime::BuildExecutionLists() {
+  std::vector<ae::Ptr<ae::Obj>> nodes;
+  CollectReachableNodeRefs(application_root_, nodes);
+  for (auto const& held : nodes) {
+    static_cast<Node*>(held.get())->SetImmediateEventCompaction(true);
+  }
+  model_nodes_.clear();
   CollectReachableNodes(application_root_, model_nodes_);
 }
 

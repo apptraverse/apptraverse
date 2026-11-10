@@ -497,7 +497,13 @@ void TestMinimalAppHeadlessSessionE2e() {
       CHECK(window.client_height() == kReportedH);
       native_frame_events_at_incremental = CountJournalEventsWithClass(
           window, ui::ReportUiDesktopWindowFrameFromNativeEvent::kClassId);
-      CHECK(native_frame_events_at_incremental == 1);
+      CHECK(native_frame_events_at_incremental == 0);
+      CHECK(window.journal.empty());
+      auto const& base = static_cast<ui::UiDesktopWindow const&>(*window.base);
+      CHECK(base.x() == kReportedX);
+      CHECK(base.y() == kReportedY);
+      CHECK(base.client_width() == kReportedW);
+      CHECK(base.client_height() == kReportedH);
     };
     hooks.persist = [&](MinimalApplication& application) -> int {
       session_storage.BeginSaveSession();
@@ -559,7 +565,7 @@ void TestMinimalAppHeadlessSessionE2e() {
 
     CHECK(session_result == 0);
     CHECK(!persist_save_failed);
-    CHECK(native_frame_events_at_incremental == 1);
+    CHECK(native_frame_events_at_incremental == 0);
   }
 
   // --- Second model session: cold LoadApplication only, new runtime/UI ---
@@ -568,7 +574,6 @@ void TestMinimalAppHeadlessSessionE2e() {
   PublicationWaiter cold_waiter;
   std::unique_ptr<ApplicationUiSession> cold_ui_session;
   int cold_session_result = 1;
-  std::size_t cold_frame_events_before_submit = 0;
 
   ModelObjectProxy cold_proxy{
       [&cold_runtime](ModelObjectProxy::ModelWork work) {
@@ -585,8 +590,7 @@ void TestMinimalAppHeadlessSessionE2e() {
     CHECK(window.client_height() == kReportedH);
     CHECK(window.obj_id == MinimalMainWindowId());
     CHECK(window.presenter.id() == MinimalPresenterId());
-    cold_frame_events_before_submit = CountJournalEventsWithClass(
-        window, ui::ReportUiDesktopWindowFrameFromNativeEvent::kClassId);
+    CHECK(window.journal.empty());
   };
   cold_hooks.before_incremental = [&](MinimalApplication& application) {
     ui::UiDesktopWindow& window = UiMainWindow(application);
@@ -594,9 +598,12 @@ void TestMinimalAppHeadlessSessionE2e() {
     CHECK(window.y() == kSecondSessionY);
     CHECK(window.client_width() == kSecondSessionW);
     CHECK(window.client_height() == kSecondSessionH);
-    CHECK(CountJournalEventsWithClass(
-              window, ui::ReportUiDesktopWindowFrameFromNativeEvent::kClassId) ==
-          cold_frame_events_before_submit + 1);
+    CHECK(window.journal.empty());
+    auto const& base = static_cast<ui::UiDesktopWindow const&>(*window.base);
+    CHECK(base.x() == kSecondSessionX);
+    CHECK(base.y() == kSecondSessionY);
+    CHECK(base.client_width() == kSecondSessionW);
+    CHECK(base.client_height() == kSecondSessionH);
   };
   cold_hooks.persist = [&cold_storage](MinimalApplication& application) -> int {
     cold_storage.BeginSaveSession();

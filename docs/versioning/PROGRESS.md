@@ -1,5 +1,9 @@
 # AppTraverse — прогресс версионирования поставок
 
+## Immediate application event compaction — 2026-11-10
+
+Application runtimes now fold committed events into the base immediately; new nodes inherit this runtime policy. Geometry tests verify empty journals, current bases, zero USER writes before Close, and cold restoration. Library history/version guards remain intact. All 83 non-timing Debug entries passed across the full run plus corrected MinimalApp rerun; Debug timing PASS; 3/3 targeted MinSizeRel tests and 20 normal-executable Close observations PASS. Observed Debug Close slowdown is explicitly unresolved, not an optimization claim. See [validation and timings](../validation/immediate-event-compaction-2026-11-10.md).
+
 ## Automatic clone boundaries, Debug preparation and Close — 2026-11-10 — PASS
 
 Branch: `feature/domain-hierarchy-cloning`, follow-up to `166631a`. The final implementation and tests are recorded in [English validation](../validation/window-catalog-automatic-cloning-2026-11-10.md).

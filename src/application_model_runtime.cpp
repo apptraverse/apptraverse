@@ -58,9 +58,13 @@ void ApplicationModelRuntime::Run(
     BeforeIncrementalPublicationCallback before_incremental) {
   PendingDirtyNodes pending_dirty;
   {
-    std::vector<Node*> nodes;
-    CollectReachableNodes(application_root, nodes);
-    for (Node* node : nodes) {
+    // Compaction can release objects retained only by old journal records.
+    // Keep the initial collection alive until the binding pass finishes.
+    std::vector<ae::Ptr<ae::Obj>> nodes;
+    CollectReachableNodeRefs(application_root, nodes);
+    for (auto const& held : nodes) {
+      auto* node = static_cast<Node*>(held.get());
+      node->SetImmediateEventCompaction(true);
       pending_dirty.Subscribe(*node);
     }
   }

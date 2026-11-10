@@ -164,6 +164,19 @@ class Node : public ae::Obj {
     return journal_retention_policy_;
   }
 
+  // Runtime policy: retain current state, not a replay journal. Historical
+  // tools can leave this disabled; ordinary application runtimes enable it.
+  void SetImmediateEventCompaction(bool enabled) {
+    immediate_event_compaction_ = enabled;
+    if (enabled && base.is_valid() && base.is_loaded()) {
+      CompactCommittedEvents();
+    }
+  }
+
+  bool HasImmediateEventCompaction() const {
+    return immediate_event_compaction_;
+  }
+
   // Retention safety hold independent of count/age policy (e.g. tests).
   void SetJournalCompactionBlocked(bool blocked) {
     journal_compaction_blocked_ = blocked;
@@ -631,9 +644,19 @@ class Node : public ae::Obj {
         .retained_since_us = SystemUtcMicros(),
     };
     InsertEvent(target, std::move(record));
+    if (immediate_event_compaction_) {
+      CompactCommittedEvents();
+    }
   }
 
  private:
+  void CompactCommittedEvents() {
+    auto const saved = journal_retention_policy_;
+    journal_retention_policy_ = JournalRetentionPolicy{.max_events = 0};
+    CompactJournal(SystemUtcMicros());
+    journal_retention_policy_ = saved;
+  }
+
   virtual void CaptureBaseStateImpl() {
     assert(false && "Concrete Node must inherit through NodeFor");
   }
@@ -662,6 +685,7 @@ class Node : public ae::Obj {
   std::uint64_t generation_;
   std::size_t applied_journal_size_;
   JournalRetentionPolicy journal_retention_policy_;
+  bool immediate_event_compaction_{false};
   bool journal_compaction_blocked_;
   bool suppress_materialized_change_;
   // Runtime-only persistence policy, never part of reflected or stored state.
@@ -738,6 +762,7 @@ inline void PendingDirtyNodesNotify(void* ctx, Node& node) {
 }
 
 inline void Node::CopyMaterializedChangeNotifierFrom(Node const& source) {
+  SetImmediateEventCompaction(source.HasImmediateEventCompaction());
   materialized_change_ctx_ = source.materialized_change_ctx_;
   materialized_change_fn_ = source.materialized_change_fn_;
   TrackMaterializedChangeNotifierCopy(*this);

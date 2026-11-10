@@ -313,12 +313,20 @@ void BumpChildMarker(RuntimeTestChild& child, ae::Domain& domain,
   auto ev = RuntimeChildBumpEvent::ptr::Create(ae::CreateWith{domain});
   ev->delta = delta;
   child.Commit(std::move(ev));
+  if (child.HasImmediateEventCompaction()) {
+    CHECK(child.journal.empty());
+    CHECK(static_cast<RuntimeTestChild const&>(*child.base).marker == child.marker);
+  }
 }
 
 void CommitBump(RuntimeTestRoot& root, ae::Domain& domain, std::int32_t delta) {
   auto ev = RuntimeBumpEvent::ptr::Create(ae::CreateWith{domain});
   ev->delta = delta;
   root.Commit(std::move(ev));
+  if (root.HasImmediateEventCompaction()) {
+    CHECK(root.journal.empty());
+    CHECK(static_cast<RuntimeTestRoot const&>(*root.base).value == root.value);
+  }
 }
 
 std::int32_t ReadUiValue(RuntimeTestRoot& ui_root) { return ui_root.value; }
@@ -758,10 +766,15 @@ void TestModelSessionLoadRunPersist() {
   hooks.before_incremental = [&](RuntimeTestRoot& root) {
     ++before_incremental_calls;
     CHECK(root.value == 12);
+    CHECK(root.HasImmediateEventCompaction());
+    CHECK(root.journal.empty());
+    CHECK(static_cast<RuntimeTestRoot const&>(*root.base).value == 12);
   };
   hooks.persist = [&](RuntimeTestRoot& root) -> int {
     ++persist_calls;
     CHECK(root.value == 13);
+    CHECK(root.HasImmediateEventCompaction());
+    CHECK(root.journal.empty());
     RuntimeTestRoot::ptr root_ref = RuntimeTestRoot::ptr::MakeFromThis(&root);
     ae::DomainGraph graph{root.domain};
     CHECK(graph.SaveRoot(root_ref.Load(), kRootId).IsOk());
@@ -820,6 +833,8 @@ void TestModelSessionLoadRunPersist() {
   ae::Domain cold_domain{model_storage};
   auto cold_root = LoadApplication<RuntimeTestRoot>(cold_domain, kRootId);
   CHECK(cold_root->value == 13);
+  CHECK(cold_root->journal.empty());
+  CHECK(static_cast<RuntimeTestRoot const&>(*cold_root->base).value == 13);
   CHECK(cold_root->base.is_valid());
   CHECK(cold_root->base.id() == base_id_at_prepare);
   CHECK(cold_root->journal.size() >= journal_size_at_prepare);
@@ -1221,6 +1236,24 @@ void TestListRowRemoveCommandPublishesIncremental() {
   CHECK(enqueued == 1);
 }
 
+void TestNewChildInheritsImmediateCompaction() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto root = RuntimeTestRoot::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*root);
+  root->SetImmediateEventCompaction(true);
+  auto child = RuntimeTestChild::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*child, *root);
+  CHECK(child->HasImmediateEventCompaction());
+  for (int i = 0; i != 20; ++i) {
+    BumpChildMarker(*child, domain, 1);
+    CHECK(child->journal.empty());
+    CHECK(child->marker == i + 1);
+    CHECK(static_cast<RuntimeTestChild const&>(*child->base).marker == i + 1);
+  }
+  CHECK(storage.state.empty());
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -1228,6 +1261,7 @@ int main() {
   apptraverse::EnableNoninteractiveCrt();
   apptraverse::EnsureObjectRegistration();
   apptraverse::ui::EnsureUiPresenterRegistration();
+  apptraverse::test::TestNewChildInheritsImmediateCompaction();
   apptraverse::test::TestUiMirrorBatchPublication();
   apptraverse::test::TestDirectIncrementalPublicationApply();
   apptraverse::test::TestInitialAndIncrementalPublication();
