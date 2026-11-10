@@ -61,4 +61,6 @@ bool InjectRemappedHistoricalBaseSnapshot(
 
 }  // namespace apptraverse
 
+#include "apptraverse/object_clone_hydrate.inl"
+
 #endif  // APPTRAVERSE_OBJECT_CLONE_H_

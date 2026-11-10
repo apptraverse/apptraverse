@@ -108,6 +108,10 @@ struct InitialPublicationLoadDiagnostics {
 void FormatInitialPublicationLoadDiagnostics(InitialPublicationLoadDiagnostics const& diagnostics,
                                              char* buffer, std::size_t buffer_size);
 
+bool LoadExistingObject(ae::Obj& object, ae::Domain& domain,
+                        ae::IDomainStorage* storage_for_diag = nullptr,
+                        InitialPublicationLoadDiagnostics* diagnostics = nullptr);
+
 // Returns null when the buffer cannot build a UI mirror root (no assert).
 ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
                                           ae::IDomainStorage& ui_storage,

@@ -8,6 +8,7 @@
 
 #include "apptraverse/event.h"
 #include "apptraverse/node.h"
+#include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/presenter.h"
 
 namespace apptraverse {
@@ -27,10 +28,19 @@ bool InjectLayeredObjects(ae::RamDomainStorage const& scratch,
 }  // namespace detail
 
 template <typename ConcreteNode>
-bool InjectRemappedHistoricalBaseSnapshot(
+bool BuildRemappedHistoricalBaseScratch(
     ConcreteNode& owner, ae::ObjId base_id,
     ae::RamDomainStorage const& captured_scratch,
-    ae::IDomainStorage& persistent_storage) {
+    ae::RamDomainStorage& remapped_out,
+    std::set<ae::ObjId>* live_reference_ids_out,
+    ae::DomainGraph::CloneSaveRemapTable* capture_leaf_remap_out,
+    std::set<ae::ObjId> const* owner_live_reference_ids) {
+  if (live_reference_ids_out != nullptr) {
+    live_reference_ids_out->clear();
+  }
+  if (capture_leaf_remap_out != nullptr) {
+    capture_leaf_remap_out->clear();
+  }
   ae::ObjId const owner_id = owner.obj_id;
   if (!owner_id.is_valid() || !base_id.is_valid() || owner.domain == nullptr) {
     return false;
@@ -44,11 +54,16 @@ bool InjectRemappedHistoricalBaseSnapshot(
     if (registry.GenerationDistance(Event::kClassId, obj.GetClassId()) >= 0) {
       return true;
     }
-    // Presenter is not journaled model state; historical base keeps distilled
-    // live presenter identity and binding graph (see contract headless replay).
     return registry.GenerationDistance(Presenter::kClassId, obj.GetClassId()) >=
            0;
   };
+
+  std::set<ae::ObjId> owner_live_refs;
+  if (owner_live_reference_ids != nullptr) {
+    owner_live_refs = *owner_live_reference_ids;
+  } else {
+    owner.CollectHistoricalCaptureLiveReferenceIds(owner_live_refs);
+  }
 
   std::set<ae::ObjId> leaf_ids;
   for (auto const& [object_id, class_map_opt] : captured_scratch.state) {
@@ -72,7 +87,11 @@ bool InjectRemappedHistoricalBaseSnapshot(
       }
       obj = loaded;
     }
-    if (retains_live_identity_in_historical_base(*obj)) {
+    if (owner_live_refs.count(old_id) != 0 ||
+        retains_live_identity_in_historical_base(*obj)) {
+      if (live_reference_ids_out != nullptr) {
+        live_reference_ids_out->insert(old_id);
+      }
       continue;
     }
     ae::ObjId const allocated = detail::AllocateCloneObjIdForHistorical(
@@ -91,27 +110,17 @@ bool InjectRemappedHistoricalBaseSnapshot(
     }
   }
 
+  remapped_out = {};
+
   if (!any_leaf_remap) {
-    auto const base_entry = captured_scratch.state.find(base_id);
-    if (base_entry == captured_scratch.state.end() ||
-        !base_entry->second.has_value()) {
-      return false;
-    }
-    for (auto const& [class_id, versions] : *base_entry->second) {
-      for (auto const& [version, data] : versions) {
-        auto writer =
-            persistent_storage.Store(ae::DomainQuery{base_id, class_id, version});
-        if (writer == nullptr) {
-          return false;
-        }
-        if (!data.empty() &&
-            !writer->Write(ae::seri::DataWriteTag{data.data(), data.size()})) {
-          return false;
-        }
-      }
+    remapped_out = captured_scratch;
+    if (capture_leaf_remap_out != nullptr) {
+      *capture_leaf_remap_out = remap;
     }
     return true;
   }
+
+  owner.PrepareReachableMutableLeavesForHistoricalCapture();
 
   ae::RamDomainStorage scratch;
   ae::Domain scratch_domain{scratch};
@@ -138,7 +147,25 @@ bool InjectRemappedHistoricalBaseSnapshot(
     return false;
   }
 
-  return detail::InjectLayeredObjects(scratch, persistent_storage);
+  remapped_out = std::move(scratch);
+  if (capture_leaf_remap_out != nullptr) {
+    *capture_leaf_remap_out = remap;
+  }
+  return true;
+}
+
+template <typename ConcreteNode>
+bool InjectRemappedHistoricalBaseSnapshot(
+    ConcreteNode& owner, ae::ObjId base_id,
+    ae::RamDomainStorage const& captured_scratch,
+    ae::IDomainStorage& persistent_storage) {
+  ae::RamDomainStorage remapped;
+  if (!BuildRemappedHistoricalBaseScratch(owner, base_id, captured_scratch,
+                                          remapped, nullptr, nullptr,
+                                          nullptr)) {
+    return false;
+  }
+  return detail::InjectLayeredObjects(remapped, persistent_storage);
 }
 
 }  // namespace apptraverse

@@ -169,6 +169,22 @@ class HistorizedConstHostNode : public HistorizedValueNode {
   explicit HistorizedConstHostNode(ae::ObjProp prop)
       : HistorizedValueNode{prop} {}
 
+  void PrepareReachableMutableLeavesForHistoricalCapture() override {
+    if (constant_child.is_valid() && !constant_child.is_loaded()) {
+      constant_child.Load();
+    }
+  }
+
+  void CollectHistoricalCaptureLiveReferenceIds(
+      std::set<ae::ObjId>& out) const override {
+    if (constant_child.is_valid()) {
+      ae::ObjId const id = constant_child.id();
+      if (id.is_valid()) {
+        out.insert(id);
+      }
+    }
+  }
+
   AE_OBJECT_REFLECT(AE_MMBR(constant_child))
 
   template <typename Dnv>

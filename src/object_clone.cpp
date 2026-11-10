@@ -1,5 +1,6 @@
 #include "apptraverse/object_clone.h"
 
+
 #include <deque>
 #include <set>
 #include <unordered_map>
@@ -21,6 +22,14 @@
 #include "apptraverse/runtime_node.h"
 
 namespace apptraverse {
+
+bool RemapLiveObjectGraph(
+    ae::Domain& target, ae::Ptr<ae::Obj> const& root,
+    std::set<ae::ObjId> const& boundary_ids,
+    std::set<ae::ObjId> const& canonical_shared_ids,
+    std::map<ae::ObjId, ae::Ptr<ae::Obj>> const& extra_live,
+    std::map<ae::ObjId, ae::ObjId> const* id_remap);
+
 namespace {
 
 bool InjectLayerBytes(ae::IDomainStorage& storage, ae::DomainQuery const& query,
@@ -40,19 +49,6 @@ bool InjectClassData(ae::RamDomainStorage::ClassData const& class_data,
       if (!InjectLayerBytes(storage, {dest_id, class_id, version}, data)) {
         return false;
       }
-    }
-  }
-  return true;
-}
-
-bool InjectAllLayeredObjects(ae::RamDomainStorage const& scratch,
-                             ae::IDomainStorage& storage) {
-  for (auto const& [object_id, class_map_opt] : scratch.state) {
-    if (!class_map_opt || class_map_opt->empty()) {
-      continue;
-    }
-    if (!InjectClassData(*class_map_opt, object_id, storage)) {
-      return false;
     }
   }
   return true;
@@ -379,6 +375,116 @@ CloneRemap BuildIdentityRemap(
 
 }  // namespace
 
+bool InjectAllLayeredObjects(ae::RamDomainStorage const& scratch,
+                             ae::IDomainStorage& storage) {
+  for (auto const& [object_id, class_map_opt] : scratch.state) {
+    if (!class_map_opt || class_map_opt->empty()) {
+      continue;
+    }
+    for (auto const& [class_id, versions] : *class_map_opt) {
+      for (auto const& [version, data] : versions) {
+        auto writer = storage.Store({object_id, class_id, version});
+        if (!writer) {
+          return false;
+        }
+        if (!data.empty() &&
+            !writer->Write(
+                ae::seri::DataWriteTag{data.data(), data.size()})) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
+bool SeedLiveReferenceLayersInOverlay(
+    ae::Domain& target, ae::RamDomainStorage& overlay_layers,
+    ae::RamDomainStorage const& layered_scratch,
+    std::set<ae::ObjId> const& live_reference_ids) {
+  if (live_reference_ids.empty()) {
+    return true;
+  }
+  ae::Domain overlay_domain{overlay_layers};
+  ae::DomainGraph save_graph{
+      &overlay_domain, ae::GraphSerializationScope::HistoricalBaseSnapshot};
+  save_graph.force_materialize = true;
+  for (ae::ObjId const id : live_reference_ids) {
+    if (layered_scratch.state.find(id) != layered_scratch.state.end()) {
+      continue;
+    }
+    ae::Ptr<ae::Obj> const live = target.Find(id);
+    if (!live) {
+      return false;
+    }
+    if (!save_graph.SaveRoot(live, id).IsOk()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+std::map<ae::ObjId, ae::Ptr<ae::Obj>> BuildLiveRegistryForRemap(
+    ae::Domain& target, std::set<ae::ObjId> const& boundary_ids,
+    std::set<ae::ObjId> const& canonical_shared_ids,
+    std::map<ae::ObjId, ae::Ptr<ae::Obj>> const& extra_live) {
+  std::map<ae::ObjId, ae::Ptr<ae::Obj>> live = extra_live;
+  for (ae::ObjId const boundary_id : boundary_ids) {
+    if (ae::Ptr<ae::Obj> const bound = target.Find(boundary_id)) {
+      live[boundary_id] = bound;
+    }
+  }
+  for (ae::ObjId const shared_id : canonical_shared_ids) {
+    if (!shared_id.is_valid()) {
+      continue;
+    }
+    if (ae::Ptr<ae::Obj> const bound = target.Find(shared_id)) {
+      live[shared_id] = bound;
+    }
+  }
+  return live;
+}
+
+bool RemapLiveObjectGraph(
+    ae::Domain& target, ae::Ptr<ae::Obj> const& root,
+    std::set<ae::ObjId> const& boundary_ids,
+    std::set<ae::ObjId> const& canonical_shared_ids,
+    std::map<ae::ObjId, ae::Ptr<ae::Obj>> const& extra_live,
+    std::map<ae::ObjId, ae::ObjId> const* id_remap) {
+  std::map<ae::ObjId, ae::ObjId> remap_table;
+  if (id_remap != nullptr) {
+    remap_table = *id_remap;
+  }
+  std::map<ae::ObjId, ae::Ptr<ae::Obj>> live =
+      BuildLiveRegistryForRemap(target, boundary_ids, canonical_shared_ids,
+                                extra_live);
+  live[root->obj_id] = root;
+  if (id_remap != nullptr) {
+    for (auto const& [scratch_id, live_id] : *id_remap) {
+      if (scratch_id == live_id) {
+        continue;
+      }
+      auto const live_it = live.find(live_id);
+      if (live_it != live.end() && live_it->second) {
+        live[scratch_id] = live_it->second;
+      } else if (ae::Ptr<ae::Obj> const bound = target.Find(live_id)) {
+        live[live_id] = bound;
+        live[scratch_id] = bound;
+      }
+    }
+  }
+  for (auto const& [obj_id, _] : live) {
+    if (remap_table.find(obj_id) == remap_table.end()) {
+      remap_table[obj_id] = obj_id;
+    }
+  }
+  if (!RemapSingleLiveObjectInPlace(target, root, root->obj_id, remap_table,
+                                    live)) {
+    return false;
+  }
+  return true;
+}
+
 namespace detail {
 
 bool InjectLayeredObjects(ae::RamDomainStorage const& scratch,
@@ -605,16 +711,18 @@ CloneCanonicalResult CloneCanonicalRoot(ae::Domain& source, ae::Obj& source_root
     return Fail(CloneError::kLoadFailed);
   }
 
-  CloneRemap const identity_remap = BuildIdentityRemap(remap, fresh_base_ids);
-  ae::DomainGraph persist_graph{&target};
-  persist_graph.SetCloneSaveRemap(&identity_remap);
-  for (auto const& [old_id, new_id_raw] : remap) {
-    ae::Ptr<ae::Obj> persist_obj = target.Find(ae::ObjId{new_id_raw});
-    if (!persist_obj) {
-      return Fail(CloneError::kLoadFailed);
-    }
-    if (!persist_graph.SaveRoot(persist_obj, ae::ObjId{new_id_raw}).IsOk()) {
-      return Fail(CloneError::kPersistFailed);
+  if (options.persist_layers_to_target_storage) {
+    CloneRemap const identity_remap = BuildIdentityRemap(remap, fresh_base_ids);
+    ae::DomainGraph persist_graph{&target};
+    persist_graph.SetCloneSaveRemap(&identity_remap);
+    for (auto const& [old_id, new_id_raw] : remap) {
+      ae::Ptr<ae::Obj> persist_obj = target.Find(ae::ObjId{new_id_raw});
+      if (!persist_obj) {
+        return Fail(CloneError::kLoadFailed);
+      }
+      if (!persist_graph.SaveRoot(persist_obj, ae::ObjId{new_id_raw}).IsOk()) {
+        return Fail(CloneError::kPersistFailed);
+      }
     }
   }
 

@@ -206,54 +206,6 @@ void RecordStorageLayers(ae::IDomainStorage& storage, ae::ObjId id,
   }
 }
 
-bool LoadExistingObject(ae::Obj& object, ae::Domain& domain,
-                        ae::IDomainStorage* storage_for_diag,
-                        InitialPublicationLoadDiagnostics* diagnostics) {
-  ae::DomainGraph graph{&domain};
-  auto ptr = domain.Find(object.obj_id);
-  if (!ptr) {
-    if (diagnostics) {
-      diagnostics->object_class_id = object.GetClassId();
-    }
-    return false;
-  }
-  auto* factory = ae::Registry::GetRegistry().FindFactory(object.GetClassId());
-  if (factory == nullptr || factory->load == nullptr) {
-    if (diagnostics) {
-      diagnostics->object_class_id = object.GetClassId();
-      diagnostics->factory_class_id = 0;
-      if (storage_for_diag) {
-        RecordStorageLayers(*storage_for_diag, object.obj_id, diagnostics);
-      }
-    }
-    return false;
-  }
-  auto const load_result = factory->load(&graph, ptr, object.obj_id);
-  if (load_result && load_result->IsErr()) {
-    if (diagnostics) {
-      diagnostics->object_class_id = object.GetClassId();
-#ifndef NDEBUG
-      diagnostics->factory_class_id = factory->cls_id;
-#else
-      diagnostics->factory_class_id = object.GetClassId();
-#endif
-      diagnostics->load_error_code = load_result->error().error_code;
-      if (storage_for_diag) {
-        RecordStorageLayers(*storage_for_diag, object.obj_id, diagnostics);
-      }
-    }
-    return false;
-  }
-  return true;
-}
-
-void LoadExistingObjectOrAbort(ae::Obj& object, ae::Domain& domain) {
-  if (!LoadExistingObject(object, domain, nullptr, nullptr)) {
-    WriteFatalStderr("fatal: single-object load failed\n");
-    std::abort();
-  }
-}
-
 std::unordered_set<std::uint32_t> CollectDistilledBaseObjectIds(
     ae::Obj const& root, ae::RamDomainStorage::ObjClassData const& scratch_state) {
   std::unordered_set<std::uint32_t> distilled_base_ids;
@@ -397,6 +349,54 @@ bool ApplyGraphPublicationPayloadToUiDomain(
 }
 
 }  // namespace
+
+bool LoadExistingObject(ae::Obj& object, ae::Domain& domain,
+                        ae::IDomainStorage* storage_for_diag,
+                        InitialPublicationLoadDiagnostics* diagnostics) {
+  ae::DomainGraph graph{&domain};
+  auto ptr = domain.Find(object.obj_id);
+  if (!ptr) {
+    if (diagnostics) {
+      diagnostics->object_class_id = object.GetClassId();
+    }
+    return false;
+  }
+  auto* factory = ae::Registry::GetRegistry().FindFactory(object.GetClassId());
+  if (factory == nullptr || factory->load == nullptr) {
+    if (diagnostics) {
+      diagnostics->object_class_id = object.GetClassId();
+      diagnostics->factory_class_id = 0;
+      if (storage_for_diag) {
+        RecordStorageLayers(*storage_for_diag, object.obj_id, diagnostics);
+      }
+    }
+    return false;
+  }
+  auto const load_result = factory->load(&graph, ptr, object.obj_id);
+  if (load_result && load_result->IsErr()) {
+    if (diagnostics) {
+      diagnostics->object_class_id = object.GetClassId();
+#ifndef NDEBUG
+      diagnostics->factory_class_id = factory->cls_id;
+#else
+      diagnostics->factory_class_id = object.GetClassId();
+#endif
+      diagnostics->load_error_code = load_result->error().error_code;
+      if (storage_for_diag) {
+        RecordStorageLayers(*storage_for_diag, object.obj_id, diagnostics);
+      }
+    }
+    return false;
+  }
+  return true;
+}
+
+void LoadExistingObjectOrAbort(ae::Obj& object, ae::Domain& domain) {
+  if (!LoadExistingObject(object, domain, nullptr, nullptr)) {
+    WriteFatalStderr("fatal: single-object load failed\n");
+    std::abort();
+  }
+}
 
 void SerializeObjectToBuffer(ae::Obj const& object, ByteSink& out,
                              ae::GraphSerializationScope scope) {

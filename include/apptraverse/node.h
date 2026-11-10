@@ -24,7 +24,18 @@
 #include "apptraverse/object_macros.h"
 #include "apptraverse/publication_serialization_scope.h"
 
+#include "apptraverse/object_clone_hydrate.inl"
+
 namespace apptraverse {
+
+template <typename ConcreteNode>
+bool BuildRemappedHistoricalBaseScratch(
+    ConcreteNode& owner, ae::ObjId base_id,
+    ae::RamDomainStorage const& captured_scratch,
+    ae::RamDomainStorage& remapped_out,
+    std::set<ae::ObjId>* live_reference_ids_out = nullptr,
+    ae::DomainGraph::CloneSaveRemapTable* capture_leaf_remap_out = nullptr,
+    std::set<ae::ObjId> const* owner_live_reference_ids = nullptr);
 
 template <typename ConcreteNode>
 bool InjectRemappedHistoricalBaseSnapshot(
@@ -231,6 +242,13 @@ class Node : public ae::Obj {
   // Ensure lazy mutable referents exist in the HistoricalBaseSnapshot closure.
   virtual void PrepareReachableMutableLeavesForHistoricalCapture() {}
 
+  // ObjIds that must keep live domain identity inside a historical base snapshot
+  // (for example overlay supply constants referenced from the owner).
+  virtual void CollectHistoricalCaptureLiveReferenceIds(
+      std::set<ae::ObjId>& out) const {
+    (void)out;
+  }
+
  protected:
   void ApplyEvent(Event const& event) { event.ApplyTo(*this); }
 
@@ -298,10 +316,33 @@ class Node : public ae::Obj {
     auto saved_journal = journal;
     typename ConcreteNode::RebuildOperationScratch rebuild_scratch{};
     target.StashLocalPersistentAcrossRebuild(&rebuild_scratch);
-    ae::DomainGraph graph{domain};
-    std::optional<ae::seri::SeriResult> const load_result =
-        graph.Load(target, saved_base.id());
-    if (!load_result.has_value() || !load_result->IsOk()) {
+    ae::Ptr<ae::Obj> const base_obj = saved_base.Load();
+    if (!base_obj) {
+      obj_id = owner_id;
+      base = saved_base;
+      journal = std::move(saved_journal);
+      target.RestoreLocalPersistentAcrossRebuild(&rebuild_scratch);
+      return false;
+    }
+    ae::RamDomainStorage base_layers;
+    {
+      ae::Domain layer_domain{base_layers};
+      ae::DomainGraph save_graph{
+          &layer_domain, ae::GraphSerializationScope::LocalPersistent};
+      save_graph.force_materialize = true;
+      auto& base_node = static_cast<ConcreteNode&>(*base_obj);
+      auto const save_result = save_graph.Save(base_node, saved_base.id());
+      if (!save_result.has_value() || !save_result->IsOk()) {
+        obj_id = owner_id;
+        base = saved_base;
+        journal = std::move(saved_journal);
+        target.RestoreLocalPersistentAcrossRebuild(&rebuild_scratch);
+        return false;
+      }
+    }
+    if (!HydrateLiveObjectFromLayerScratch(
+            *domain, target, saved_base.id(), base_layers, {}, {}, false,
+            nullptr)) {
       obj_id = owner_id;
       base = saved_base;
       journal = std::move(saved_journal);
@@ -339,6 +380,8 @@ class Node : public ae::Obj {
     journal.clear();
 
     target.PrepareReachableMutableLeavesForHistoricalCapture();
+    std::set<ae::ObjId> owner_live_refs;
+    target.CollectHistoricalCaptureLiveReferenceIds(owner_live_refs);
 
     ae::RamDomainStorage scratch;
     ae::Domain scratch_domain{scratch};
@@ -353,22 +396,89 @@ class Node : public ae::Obj {
     auto const capture_save = save_graph.Save(target, saved_base.id());
     assert(capture_save.has_value() && capture_save->IsOk());
 
-    ae::IDomainStorage& persistent_storage = domain->domain_storage();
-    if (!InjectRemappedHistoricalBaseSnapshot(target, saved_base.id(), scratch,
-                                              persistent_storage)) {
+    ae::RamDomainStorage historical_layers;
+    std::set<ae::ObjId> live_references;
+    ae::DomainGraph::CloneSaveRemapTable capture_leaf_remap;
+    if (!BuildRemappedHistoricalBaseScratch(target, saved_base.id(), scratch,
+                                            historical_layers, &live_references,
+                                            &capture_leaf_remap,
+                                            &owner_live_refs)) {
       obj_id = owner_id;
       base = saved_base;
       journal = std::move(saved_journal);
-      assert(false && "InjectRemappedHistoricalBaseSnapshot failed");
+      assert(false && "BuildRemappedHistoricalBaseScratch failed");
+    }
+    for (auto const& [layer_id, layer_map] : historical_layers.state) {
+      if (!layer_id.is_valid() || !layer_map.has_value()) {
+        continue;
+      }
+      if (domain->Find(layer_id)) {
+        live_references.insert(layer_id);
+      }
+    }
+    ae::Ptr<ae::Obj> const base_live = domain->Find(saved_base.id());
+    assert(base_live);
+    std::map<ae::ObjId, ae::ObjId> loaded_to_live_id_remap;
+    for (auto const& [old_key, new_key] : capture_leaf_remap) {
+      if (old_key == new_key || old_key == saved_base.id().id()) {
+        continue;
+      }
+      ae::ObjId const live_id{old_key};
+      ae::ObjId const scratch_id{new_key};
+      if (!live_id.is_valid() || !scratch_id.is_valid() ||
+          live_id == scratch_id) {
+        continue;
+      }
+      if (!owner_live_refs.count(live_id) && !live_references.count(live_id)) {
+        continue;
+      }
+      if (domain->Find(live_id)) {
+        loaded_to_live_id_remap[scratch_id] = live_id;
+      }
+    }
+    bool const rebind_historical_refs = !loaded_to_live_id_remap.empty();
+    if (!InjectAllLayeredObjects(historical_layers, domain->domain_storage())) {
+      obj_id = owner_id;
+      base = saved_base;
+      journal = std::move(saved_journal);
+      assert(false && "InjectAllLayeredObjects for historical base failed");
+    }
+    {
+      ae::DomainGraph load_graph{domain};
+      auto const load_result = load_graph.Load(
+          static_cast<ConcreteNode&>(*base_live), saved_base.id());
+      if (!load_result.has_value() || !load_result->IsOk()) {
+        obj_id = owner_id;
+        base = saved_base;
+        journal = std::move(saved_journal);
+        assert(false && "DomainGraph::Load for historical base failed");
+      }
+    }
+    if (rebind_historical_refs) {
+      ae::Ptr<ae::Obj> const root = base_live;
+      std::map<ae::ObjId, ae::Ptr<ae::Obj>> extra_live;
+      for (ae::ObjId const id : live_references) {
+        if (ae::Ptr<ae::Obj> const obj = domain->Find(id)) {
+          extra_live[id] = obj;
+        }
+      }
+      for (auto const& [_, live_id] : loaded_to_live_id_remap) {
+        if (ae::Ptr<ae::Obj> const obj = domain->Find(live_id)) {
+          extra_live[live_id] = obj;
+        }
+      }
+      if (!RemapLiveObjectGraph(*domain, root, {}, {}, extra_live,
+                                &loaded_to_live_id_remap)) {
+        obj_id = owner_id;
+        base = saved_base;
+        journal = std::move(saved_journal);
+        assert(false && "RemapLiveObjectGraph for historical base failed");
+      }
     }
 
     obj_id = owner_id;
     base = saved_base;
     journal = std::move(saved_journal);
-
-    auto& concrete_base = static_cast<ConcreteNode&>(*base);
-    ae::DomainGraph load_graph{domain};
-    load_graph.Load(concrete_base, base.id());
   }
 
   // Longest collapsible prefix: records that neither count nor age retention
