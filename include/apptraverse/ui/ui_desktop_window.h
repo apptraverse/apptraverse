@@ -12,43 +12,43 @@ namespace apptraverse::ui {
 class SetUiDesktopWindowFrameEvent;
 class ReportUiDesktopWindowFrameFromNativeEvent;
 class RequestUiDesktopWindowFrameEvent;
+class ReportUiDesktopScreenEvent;
 
 class UiDesktopWindow : public NodeFor<UiDesktopWindow, UiPresentedWindow> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::UiDesktopWindow",
                            UiDesktopWindow, UiPresentedWindow, 0)
 
  protected:
-  UiDesktopWindow()
-      : restore_client_width_{800},
-        restore_client_height_{600},
-        frame_request_pending_publication_{false} {}
+  UiDesktopWindow() : frame_request_pending_publication_{false} {}
 
  public:
   explicit UiDesktopWindow(ae::ObjProp prop)
-      : NodeFor{prop},
-        x_{100},
-        y_{100},
-        restore_client_width_{800},
-        restore_client_height_{600},
-        frame_request_pending_publication_{false} {}
+      : NodeFor{prop}, frame_request_pending_publication_{false} {}
+
+  enum class InitialPlacement : std::uint8_t { OperatingSystem, Explicit, Centered };
+  void BootstrapFrame(std::int32_t x, std::int32_t y, std::int32_t width,
+                      std::int32_t height,
+                      InitialPlacement placement = InitialPlacement::OperatingSystem) {
+    BootstrapClientSize(width, height);
+    x_ = x;
+    y_ = y;
+    restore_client_width_ = width;
+    restore_client_height_ = height;
+    placement_ = placement;
+  }
+  bool HasExplicitPosition() const { return placement_ == InitialPlacement::Explicit; }
 
   AE_OBJECT_REFLECT(AE_MMBR(x_), AE_MMBR(y_), AE_MMBR(restore_client_width_),
-                    AE_MMBR(restore_client_height_))
+                    AE_MMBR(restore_client_height_), AE_MMBR(placement_))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, x_, y_, restore_client_width_, restore_client_height_);
-    if (restore_client_width_ <= 0 || restore_client_height_ <= 0) {
-      restore_client_width_ =
-          client_width() > 0 ? client_width() : restore_client_width_;
-      restore_client_height_ =
-          client_height() > 0 ? client_height() : restore_client_height_;
-    }
+    dnv(base_, x_, y_, restore_client_width_, restore_client_height_, placement_);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, x_, y_, restore_client_width_, restore_client_height_);
+    dnv(base_, x_, y_, restore_client_width_, restore_client_height_, placement_);
   }
 
   std::int32_t x() const { return x_; }
@@ -59,6 +59,10 @@ class UiDesktopWindow : public NodeFor<UiDesktopWindow, UiPresentedWindow> {
   void Apply(SetUiDesktopWindowFrameEvent const& event);
   void Apply(ReportUiDesktopWindowFrameFromNativeEvent const& event);
   void Apply(RequestUiDesktopWindowFrameEvent const& event);
+  void Apply(ReportUiDesktopScreenEvent const& event);
+  void SubmitScreenFromNative(std::int32_t x, std::int32_t y,
+                              std::int32_t width, std::int32_t height);
+
 
   void SubmitFrameFromNative(std::int32_t x, std::int32_t y,
                              std::int32_t client_width,
@@ -82,6 +86,7 @@ class UiDesktopWindow : public NodeFor<UiDesktopWindow, UiPresentedWindow> {
   std::int32_t y_;
   std::int32_t restore_client_width_;
   std::int32_t restore_client_height_;
+  InitialPlacement placement_;
   bool frame_request_pending_publication_;
 };
 
@@ -153,6 +158,18 @@ class RequestUiDesktopWindowFrameEvent
   std::int32_t y;
   std::int32_t client_width;
   std::int32_t client_height;
+};
+
+class ReportUiDesktopScreenEvent
+    : public EventFor<UiDesktopWindow, ReportUiDesktopScreenEvent> {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::ReportUiDesktopScreenEvent",
+                           ReportUiDesktopScreenEvent, Event, 0)
+ protected:
+  ReportUiDesktopScreenEvent() = default;
+ public:
+  explicit ReportUiDesktopScreenEvent(ae::ObjProp prop) : EventFor{prop} {}
+  AE_OBJECT_REFLECT(AE_MMBR(x), AE_MMBR(y), AE_MMBR(width), AE_MMBR(height))
+  std::int32_t x, y, width, height;
 };
 
 }  // namespace apptraverse::ui

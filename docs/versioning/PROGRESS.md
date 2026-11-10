@@ -2902,3 +2902,12 @@ Happy path и семантические инварианты — сейчас; 
 **Итог (doc):** идентичность по `ObjId`, Load/Save, ссылки/lazy, `force_materialize` — [PLAN §04](./PLAN.md#решение-итерации-04--контракт-const-vs-dynamic).
 
 **Итог (код):** [`OverlayDomainStorage`](../../include/apptraverse/overlay_domain_storage.h) — `supply_constant_ids`; const Load/Enumerate с BACKING; Store discard (USER не для тел const); тесты в [`overlay_domain_storage_test.cpp`](../../tests/overlay_domain_storage_test.cpp). **Runtime const-mutation checks:** не делаются (архитектурное решение); **Cursor** проверяет Events при изменении кода. **Не сделано:** Surfaces GUI startup из embedded (**06**). **T01–T18:** не PASS. **T16/T17:** не решены.
+
+
+## Windows/headless principles implementation — 2026-11-10
+
+Completed the Windows/headless implementation of the agreed principles on `feature/domain-hierarchy-cloning`, based on `2dadc6b`. Persistent model defaults moved into builders; required presenter-link fallbacks and the desktop Load repair were removed after completing the fixtures. Localization retains inactive languages lazily through compaction and direct history capture. Public manual clone boundaries and application-side prefab eviction were removed. USER uses plain `RamDomainStorage` with explicit single-file load/save functions. Catalog uses OS initial positioning; native geometry/work-area events drive model placement and saved-position restoration.
+
+Final incremental Debug acceptance: **84/84 non-timing tests + 1/1 Close diagnostic PASS**. Child Close medians **204/208/216/118 ms**; main exit after child Close **45–78 ms**. RAM model Close control **4/6 ms**, zero disk bytes. Fresh-window HWND latency is higher than the earlier single-file run; this is recorded without claiming a controlled performance improvement. No MinSizeRel or platform-device build/run was performed.
+
+See [implementation, limitations, all test results and 20 Close samples](../validation/windows-principles-2026-11-10.md). History/replay remain intact; future distributed/platform work stays deferred.

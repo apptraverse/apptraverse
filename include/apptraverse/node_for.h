@@ -20,7 +20,12 @@ class NodeFor : public BaseNode {
 
  private:
   void CaptureBaseStateImpl() override {
-    Node::CaptureBaseStateInto(static_cast<ConcreteNode&>(*this));
+    auto& target = static_cast<ConcreteNode&>(*this);
+    typename ConcreteNode::CompactionOperationScratch scratch{};
+    target.StashLiveReachableLayersBeforeHistoricalCapture(&scratch);
+    Node::CaptureBaseStateInto(target);
+    target.ReleaseFoldCaptureMaterialization(&scratch);
+    target.RestoreLiveReachableLayersAfterHistoricalCapture(&scratch);
   }
 
   void CommitImpl(Event::ptr event) override {

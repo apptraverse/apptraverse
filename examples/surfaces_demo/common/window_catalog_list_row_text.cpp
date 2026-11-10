@@ -19,14 +19,7 @@ void ReplaceAll(std::string& text, std::string_view needle,
 
 std::string ResolveCatalogLocalized(ui::UiLocalizationString& localized,
                                     int language_index) {
-  if (language_index < 0 ||
-      static_cast<std::size_t>(language_index) >= localized.strings.size()) {
-    return {};
-  }
   auto& slot = localized.strings[static_cast<std::size_t>(language_index)];
-  if (!slot.is_valid()) {
-    return {};
-  }
   if (!slot.is_loaded()) {
     slot.Load();
   }
@@ -49,14 +42,11 @@ std::string FormatWindowCatalogListRowText(WindowCatalogTexts const& texts,
                                            std::uint32_t window_number,
                                            bool window_open) {
   auto& mutable_texts = const_cast<WindowCatalogTexts&>(texts);
-  if (!mutable_texts.list_row_title_format.is_valid()) {
-    return {};
-  }
   mutable_texts.list_row_title_format.Load();
   std::string format = ResolveCatalogLocalized(
       *mutable_texts.list_row_title_format, language_index);
   std::string suffix;
-  if (!window_open && mutable_texts.list_row_title_closed_suffix.is_valid()) {
+  if (!window_open) {
     mutable_texts.list_row_title_closed_suffix.Load();
     suffix = ResolveCatalogLocalized(
         *mutable_texts.list_row_title_closed_suffix, language_index);
@@ -97,10 +87,6 @@ std::vector<std::string> ResolveWindowCatalogListRowPrimaryTexts(
 std::string ResolveWindowCatalogChildWindowTitle(WindowCatalog const& catalog,
                                                  ae::ObjId window_obj_id,
                                                  int language_index) {
-  if (!window_obj_id.is_valid() ||
-      !catalog.persisted.texts.window_title_prefix.is_valid()) {
-    return {};
-  }
   catalog.persisted.list.Load();
   for (auto const& row : catalog.persisted.list->rows) {
     row.Load();

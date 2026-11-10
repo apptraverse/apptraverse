@@ -1,3 +1,4 @@
+#include "window_title_fixture.h"
 #if !defined(_WIN32)
 int main() { return 0; }
 #else
@@ -110,6 +111,7 @@ struct Harness {
     InitializeRuntimeNode(*model_root);
     model_root->window = ui::UiDesktopWindow::ptr::Create(
         ae::CreateWith{model_domain}.with_id(kWindowId));
+    model_root->window->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
     InitializeRuntimeNode(*model_root->window, *model_root);
 
     auto ui_obj = CopyModelGraphToUiDomain(*model_root, ui_domain, ui_storage);
@@ -118,6 +120,7 @@ struct Harness {
         ui::windows::WinDesktopWindowPresenter::ptr::Create(
             ae::CreateWith{ui_domain}.with_id(kPresenterId));
     ui_root->window_presenter->window = ui_root->window;
+  apptraverse::test::BuildEmptyWindowTitle(*ui_root->window_presenter);
 
     InitializePresenters(*ui_root, nullptr, &model_proxy);
     presenter = &*ui_root->window_presenter;

@@ -56,8 +56,13 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   auto catalog = WindowCatalog::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::Catalog)));
 
+  catalog->persisted.next_window_number = 1;
+  catalog->persisted.mobile_pager = options.mobile_pager;
+  catalog->persisted.main_client_viewport = {kMainClientWidth, kMainClientHeight, 160};
+
   auto list = CatalogListContainer::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::CatalogList)));
+  list->selection_index = -1;
   list->catalog = catalog;
   catalog->persisted.list = list;
   InitializeRuntimeNode(*list, *catalog);
@@ -66,13 +71,12 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   auto main_title = CreateMainWindowTitle(*catalog, domain);
   auto main_window = CatalogWindow::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::MainWindow)));
+  main_window->BootstrapFrame(0, 0, kMainClientWidth, kMainClientHeight);
   ui::UiDesktopWindowPresenter::ptr main_presenter = factory.create_window(
       domain, ae::ObjId{ToObjId(ObjId::MainWindowPresenter)}, catalog);
   ui::ComposePresentedWindow(main_window, main_presenter, main_title,
                              catalog->persisted.locale);
   InitializeRuntimeNode(*main_window, *catalog);
-  main_window->SubmitFrameFromNative(80, 80, kMainClientWidth,
-                                     kMainClientHeight, true);
   catalog->persisted.main_window = main_window;
 
   // Initial chrome geometry for the default main client size; the model
@@ -94,21 +98,25 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
 
   auto add_button = CatalogAddButton::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::AddButton)));
+  add_button->BootstrapSetEnabled(true);
   add_button->catalog = catalog;
   add_button->label = catalog->persisted.texts.label_add;
 
   auto open_button = CatalogOpenButton::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::OpenButton)));
+  open_button->BootstrapSetEnabled(true);
   open_button->catalog = catalog;
   open_button->label = catalog->persisted.texts.label_open;
 
   auto delete_button = CatalogDeleteButton::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::DeleteButton)));
+  delete_button->BootstrapSetEnabled(true);
   delete_button->catalog = catalog;
   delete_button->label = catalog->persisted.texts.label_delete;
 
   auto language_button = CatalogLanguageButton::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::LanguageButton)));
+  language_button->BootstrapSetEnabled(true);
   language_button->catalog = catalog;
   language_button->label = catalog->persisted.texts.label_language;
 
@@ -131,8 +139,6 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
 
   catalog->RefreshChromeButtonEnabledState();
 
-  constexpr std::int32_t kPrefabFrameX = 160;
-  constexpr std::int32_t kPrefabFrameY = 120;
   constexpr std::int32_t kPrefabClientWidth = kWindowCatalogPrefabClientWidth;
   constexpr std::int32_t kPrefabClientHeight = kWindowCatalogPrefabClientHeight;
   ae::ObjId const window_prefab_id{ToObjId(ObjId::WindowPrefab)};
@@ -147,13 +153,7 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   auto window_prefab = CatalogWindow::ptr::Create(
       ae::CreateWith{prefab_domain}.with_id(window_prefab_id));
   ae::Ptr<CatalogWindow> window_prefab_body = window_prefab.Load();
-  auto prefab_frame = ui::SetUiDesktopWindowFrameEvent::ptr::Create(
-      ae::CreateWith{prefab_domain});
-  prefab_frame->x = kPrefabFrameX;
-  prefab_frame->y = kPrefabFrameY;
-  prefab_frame->client_width = kPrefabClientWidth;
-  prefab_frame->client_height = kPrefabClientHeight;
-  window_prefab_body->Apply(*prefab_frame);
+  window_prefab_body->BootstrapFrame(0, 0, kPrefabClientWidth, kPrefabClientHeight);
   ui::UiDesktopWindowPresenter::ptr window_prefab_presenter =
       factory.create_window(prefab_domain, ae::ObjId{window_prefab_presenter_id},
                             catalog);
@@ -181,24 +181,6 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
       ae::CreateWith{domain}
           .with_id(window_prefab_id)
           .with_flags(lazy_prefab_flags));
-  // Close button graph (mobile prefab) was saved transitively with the prefab.
-  ae::Ptr<ae::Obj> close_button_body;
-  ae::Ptr<ae::Obj> close_presenter_body;
-  if (window_prefab_body->close_button.is_valid()) {
-    close_button_body = window_prefab_body->close_button.Load();
-  }
-  if (window_prefab_body->close_button_presenter.is_valid()) {
-    close_presenter_body = window_prefab_body->close_button_presenter.Load();
-  }
-  prefab_domain.RemoveObject(window_prefab_body.get());
-  prefab_domain.RemoveObject(window_prefab_presenter_body.get());
-  if (close_button_body) {
-    prefab_domain.RemoveObject(close_button_body.get());
-  }
-  if (close_presenter_body) {
-    prefab_domain.RemoveObject(close_presenter_body.get());
-  }
-
   InitializeRuntimeNode(*add_button, *catalog);
   InitializeRuntimeNode(*open_button, *catalog);
   InitializeRuntimeNode(*delete_button, *catalog);

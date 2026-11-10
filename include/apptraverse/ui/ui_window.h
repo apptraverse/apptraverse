@@ -18,7 +18,7 @@ class UiWindow : public NodeFor<UiWindow> {
   void SetClientSizeInternal(std::int32_t width, std::int32_t height);
 
  public:
-  explicit UiWindow(ae::ObjProp prop) : NodeFor{prop}, client_width_{800}, client_height_{600} {}
+  explicit UiWindow(ae::ObjProp prop) : NodeFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(client_width_), AE_MMBR(client_height_))
 
@@ -30,6 +30,12 @@ class UiWindow : public NodeFor<UiWindow> {
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, client_width_, client_height_);
+  }
+
+  // Distillation/test builders initialize persistent state before history capture.
+  void BootstrapClientSize(std::int32_t width, std::int32_t height) {
+    client_width_ = width;
+    client_height_ = height;
   }
 
   std::int32_t client_width() const { return client_width_; }

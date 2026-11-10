@@ -84,12 +84,48 @@ void PendingNotify(void* ctx, Node&) {
   ++(*count);
 }
 
+void TestImmediateCompactionKeepsInactiveLanguageLazy() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto localized = ui::UiLocalizationString::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*localized);
+  for (auto text : {"English", "Russian"}) {
+    auto leaf = ui::UiString::ptr::Create(ae::CreateWith{domain});
+    leaf->utf8 = text;
+    leaf.Save();
+    localized->strings.push_back(leaf);
+  }
+  localized->CaptureBaseState();
+  localized->MaterializeLanguage(0);
+  localized->CaptureBaseState();
+  CHECK(localized->strings[0].is_loaded());
+  CHECK(!localized->strings[1].is_loaded());
+  localized->SetImmediateEventCompaction(true);
+  auto before = storage.state;
+  auto edit = SetUiLocalizationSlotUtf8Event::ptr::Create(ae::CreateWith{domain});
+  edit->slot_index = 0;
+  edit->utf8 = "Changed English";
+  localized->Commit(edit);
+  CHECK(localized->journal.empty());
+  CHECK(localized->strings[0].is_loaded());
+  CHECK(!localized->strings[1].is_loaded());
+  CHECK(localized->Resolve(0) == "Changed English");
+  CHECK(storage.state == before);
+  localized->MaterializeLanguage(1);
+  CHECK(localized->Resolve(1) == "Russian");
+  CHECK(!localized->strings[0].is_loaded());
+  localized->MaterializeLanguage(0);
+  CHECK(localized->Resolve(0) == "Changed English");
+}
+
 void TestEditBoxMaterializationNotifiesOnChange() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto doc = UiWindow::ptr::Create(ae::CreateWith{domain});
+  doc->BootstrapClientSize(800, 600);
   InitializeRuntimeNode(*doc);
   auto edit = UiEditBox::ptr::Create(ae::CreateWith{domain});
+  edit->BootstrapText("", 0, false);
   InitializeRuntimeNode(*edit, *doc);
 
   int notify_count = 0;
@@ -112,6 +148,7 @@ void TestEditBoxMaterializationNotifiesOnChange() {
   auto enable = SetUiPushButtonEnabledEvent::ptr::Create(
       ae::CreateWith{domain});
   auto button = TestClickButton::ptr::Create(ae::CreateWith{domain});
+  button->BootstrapSetEnabled(true);
   InitializeRuntimeNode(*button, *doc);
   int button_notify = 0;
   button->BindMaterializedChangeNotifier(&button_notify, &PendingNotify);
@@ -1380,8 +1417,10 @@ void TestListSelectionViaPresenterProxy() {
   ae::Domain ui_domain{ui_storage};
 
   auto doc = UiWindow::ptr::Create(ae::CreateWith{model_domain});
+  doc->BootstrapClientSize(800, 600);
   InitializeRuntimeNode(*doc);
   auto list = UiListContainer::ptr::Create(ae::CreateWith{model_domain});
+  list->selection_index = -1;
   list->selection_index = -1;
   InitializeRuntimeNode(*list, *doc);
   auto row0 = UiListRow::ptr::Create(ae::CreateWith{model_domain});
@@ -1477,6 +1516,7 @@ void TestListRemoveRowByReferenceIdentity() {
 
   auto list = UiListContainer::ptr::Create(ae::CreateWith{model_domain});
   list->selection_index = -1;
+  list->selection_index = -1;
   InitializeRuntimeNode(*list);
   std::vector<UiListRow::ptr> held;
   for (int i = 0; i < 4; ++i) {
@@ -1559,6 +1599,7 @@ void TestPresentedListRowPrimaryTextsMatchRowIndices() {
   ae::Domain model_domain{model_storage};
   auto list = UiListContainer::ptr::Create(ae::CreateWith{model_domain});
   list->selection_index = -1;
+  list->selection_index = -1;
   auto row0 = UiListRow::ptr::Create(ae::CreateWith{model_domain});
   auto row1 = UiListRow::ptr::Create(ae::CreateWith{model_domain});
   row0->primary_text = MakeRowLabel(model_domain, "Row A");
@@ -1603,8 +1644,10 @@ void TestPushButtonClickViaPresenter() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto doc = UiWindow::ptr::Create(ae::CreateWith{domain});
+  doc->BootstrapClientSize(800, 600);
   InitializeRuntimeNode(*doc);
   auto button = TestClickButton::ptr::Create(ae::CreateWith{domain});
+  button->BootstrapSetEnabled(true);
   InitializeRuntimeNode(*button, *doc);
 
   bool posted = false;
@@ -1638,6 +1681,7 @@ int main(int argc, char** argv) {
   apptraverse::ui::EnsureExtendedUiPresenterRegistration();
   EnsureTestRegistration();
 
+  TestImmediateCompactionKeepsInactiveLanguageLazy();
   TestEditBoxMaterializationNotifiesOnChange();
   TestLocalizationLazyLoadRoundtrip();
   TestLocalizationLazyInitialPublication();

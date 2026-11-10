@@ -20,7 +20,7 @@ class UiEditBox : public NodeFor<UiEditBox> {
   UiEditBox() = default;
 
  public:
-  explicit UiEditBox(ae::ObjProp prop) : NodeFor{prop}, caret_utf8_offset_{0}, read_only_{false} {}
+  explicit UiEditBox(ae::ObjProp prop) : NodeFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(text_), AE_MMBR(caret_utf8_offset_),
                     AE_MMBR(read_only_))
@@ -33,6 +33,12 @@ class UiEditBox : public NodeFor<UiEditBox> {
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, text_, caret_utf8_offset_, read_only_);
+  }
+
+  void BootstrapText(std::string text, std::size_t caret, bool read_only) {
+    text_ = std::move(text);
+    caret_utf8_offset_ = caret;
+    read_only_ = read_only;
   }
 
   std::string const& text() const { return text_; }

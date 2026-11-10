@@ -244,6 +244,7 @@ struct ModelFixture {
 
     auto locale = ui::UiLocaleSettings::ptr::Create(
         ae::CreateWith{model_domain}.with_id(kLocaleId));
+    locale->BootstrapLanguageIndex(0);
     InitializeRuntimeNode(*locale, *model_root);
 
     auto en = ui::UiString::ptr::Create(ae::CreateWith{model_domain});
@@ -255,6 +256,7 @@ struct ModelFixture {
 
     model_root->presented_window = SessionWindow::ptr::Create(
         ae::CreateWith{model_domain}.with_id(kWindowId));
+    model_root->presented_window->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
     auto presenter = SessionHeadlessPresenter::ptr::Create(
         ae::CreateWith{model_domain}.with_id(kPresenterId));
     ui::ComposePresentedWindow(model_root->presented_window, presenter,

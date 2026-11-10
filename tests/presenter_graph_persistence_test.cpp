@@ -108,10 +108,12 @@ BuiltGraph BuildGraph(ae::Domain& domain) {
 
   g.root->window = ui::UiDesktopWindow::ptr::Create(
       ae::CreateWith{domain}.with_id(kWindowId));
+  g.root->window->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
   InitializeRuntimeNode(*g.root->window, *g.root);
 
   g.locale = ui::UiLocaleSettings::ptr::Create(
       ae::CreateWith{domain}.with_id(kLocaleId));
+  g.locale->BootstrapLanguageIndex(0);
   InitializeRuntimeNode(*g.locale, *g.root->window);
   g.title = ui::UiLocalizationString::ptr::Create(
       ae::CreateWith{domain}.with_id(kTitleId));
@@ -130,9 +132,11 @@ BuiltGraph BuildGraph(ae::Domain& domain) {
 
   g.edit_a = ui::UiEditBox::ptr::Create(
       ae::CreateWith{domain}.with_id(kEditAId));
+  g.edit_a->BootstrapText("", 0, false);
   InitializeRuntimeNode(*g.edit_a, *g.root->window);
   g.edit_b = ui::UiEditBox::ptr::Create(
       ae::CreateWith{domain}.with_id(kEditBId));
+  g.edit_b->BootstrapText("", 0, false);
   InitializeRuntimeNode(*g.edit_b, *g.root->window);
 
   g.root->edit_presenter_a = ui::UiEditBoxPresenter::ptr::Create(
@@ -147,6 +151,8 @@ BuiltGraph BuildGraph(ae::Domain& domain) {
 
   auto bitmap = ui::UiBitmapImage::ptr::Create(
       ae::CreateWith{domain}.with_id(kBitmapId));
+  bitmap->width = 0;
+  bitmap->height = 0;
   InitializeRuntimeNode(*bitmap, *g.root->window);
   bitmap->width = 2;
   bitmap->height = 1;
@@ -159,6 +165,7 @@ BuiltGraph BuildGraph(ae::Domain& domain) {
 
   auto list = ui::UiListContainer::ptr::Create(
       ae::CreateWith{domain}.with_id(kListId));
+  list->selection_index = -1;
   InitializeRuntimeNode(*list, *g.root->window);
   g.root->list_presenter = ui::UiListContainerPresenter::ptr::Create(
       ae::CreateWith{domain}.with_id(kListPresenterId));

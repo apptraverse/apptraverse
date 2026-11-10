@@ -66,9 +66,9 @@ std::size_t CountRegularFiles(std::filesystem::path const& root) {
 }
 
 void FlushShutdownCatalog(WindowCatalog& catalog,
-                          SingleFileUserStorage& disk) {
+                          ae::RamDomainStorage& disk, std::filesystem::path const& disk_profile) {
   SaveWindowCatalogPersistentSnapshot(catalog);
-  CHECK(disk.SaveFile());
+  CHECK(apptraverse::SaveUserStorageFile(disk, disk_profile));
 }
 
 WindowHolder* AsHolder(ui::UiListRow::ptr const& row) {
@@ -119,7 +119,8 @@ std::string ReadPresenterTitle(ui::UiDesktopWindowPresenter& presenter) {
 }
 
 struct EmbeddedCatalogSession {
-  SingleFileUserStorage disk;
+  std::filesystem::path disk_profile;
+  ae::RamDomainStorage disk;
   ae::RamDomainStorage backing;
   std::unique_ptr<OverlayDomainStorage> overlay;
   std::unique_ptr<InstrumentedDomainStorage> instrumented;
@@ -127,8 +128,8 @@ struct EmbeddedCatalogSession {
 
   explicit EmbeddedCatalogSession(std::filesystem::path const& user_dir,
                                   bool instrument_user_writes)
-      : disk{user_dir} {
-    CHECK(disk.LoadFile());
+      : disk_profile{user_dir} {
+    CHECK(apptraverse::LoadUserStorageFile(disk, disk_profile));
     InstallEmbeddedDistilledBacking(backing, CatalogGraph());
     overlay = std::make_unique<OverlayDomainStorage>(
         disk, backing, EmbeddedSupplyConstantIdSet(CatalogGraph()));
@@ -257,7 +258,7 @@ void RunBoundaryScenario() {
     CHECK(StoreDelta(setup.instrumented->SnapshotStats(), stats_reopen_work_before) ==
           0);
 
-    FlushShutdownCatalog(*catalog, setup.disk);
+    FlushShutdownCatalog(*catalog, setup.disk, user_dir);
   }
 
   std::size_t const files_after_shutdown = CountRegularFiles(user_dir);
@@ -297,7 +298,7 @@ void RunExistingUserNoWriteUntilBoundary() {
     auto catalog = LoadApplication<WindowCatalog>(domain, CatalogId());
     PrepareWindowCatalogForRun(*catalog);
     catalog->AddWindow();
-    FlushShutdownCatalog(*catalog, seed.disk);
+    FlushShutdownCatalog(*catalog, seed.disk, seed_dir);
   }
   std::error_code ec;
   std::filesystem::copy(seed_dir, user_dir,
@@ -340,7 +341,7 @@ void RunExistingUserNoWriteUntilBoundary() {
   VerifyClosedChildFromRam(setup.disk, holder_id, window_id, presenter_id,
                                   44, 55, 320, 240,
                                   "Existing USER presenter title");
-  FlushShutdownCatalog(*catalog, setup.disk);
+  FlushShutdownCatalog(*catalog, setup.disk, user_dir);
   CHECK(CountRegularFiles(user_dir) == 1);
   EmbeddedCatalogSession cold{user_dir, false};
   VerifyClosedChildFromRam(cold.disk, holder_id, window_id, presenter_id,

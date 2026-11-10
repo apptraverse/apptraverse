@@ -1,3 +1,4 @@
+#include "window_title_fixture.h"
 #include <cstdlib>
 #include <deque>
 #include <iostream>
@@ -135,9 +136,11 @@ void TestEditRouting() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto window = UiDesktopWindow::ptr::Create(ae::CreateWith{domain});
+  window->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
   InitializeRuntimeNode(*window);
   auto desktop = WinDesktopWindowPresenter::ptr::Create(ae::CreateWith{domain});
   desktop->window = window;
+  apptraverse::test::BuildEmptyWindowTitle(*desktop);
   std::size_t commands = 0;
   ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork work) {
     ++commands;
@@ -147,6 +150,7 @@ void TestEditRouting() {
   desktop->OnLoad();
   desktop->presentation_loaded = true;
   auto edit = UiEditBox::ptr::Create(ae::CreateWith{domain});
+  edit->BootstrapText("", 0, false);
   InitializeRuntimeNode(*edit);
   auto presenter = WinEditBoxPresenter::ptr::Create(ae::CreateWith{domain});
   presenter->edit_box = edit;

@@ -159,11 +159,13 @@ void ProbeA_WinPushButtonStaysWin() {
   ae::Domain domain{storage};
 
   auto locale = ui::UiLocaleSettings::ptr::Create(ae::CreateWith{domain});
+  locale->BootstrapLanguageIndex(0);
   auto host =
       example::surfaces::SurfacesDemoSurfaceWindowHostPresenter::ptr::Create(
           ae::CreateWith{domain});
   host->locale = locale;
   auto button = ui::UiPushButton::ptr::Create(ae::CreateWith{domain});
+  button->BootstrapSetEnabled(true);
   auto win = ui::windows::WinPushButtonPresenter::ptr::Create(
       ae::CreateWith{domain});
   win->button = button;

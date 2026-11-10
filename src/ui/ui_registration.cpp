@@ -24,6 +24,7 @@ APPTRAVERSE_REGISTER(UiPresentedWindow);
 APPTRAVERSE_REGISTER(UiDesktopWindow);
 APPTRAVERSE_REGISTER(SetUiDesktopWindowFrameEvent);
 APPTRAVERSE_REGISTER(ReportUiDesktopWindowFrameFromNativeEvent);
+APPTRAVERSE_REGISTER(ReportUiDesktopScreenEvent);
 APPTRAVERSE_REGISTER(RequestUiDesktopWindowFrameEvent);
 APPTRAVERSE_REGISTER(UiPushButton);
 APPTRAVERSE_REGISTER(UiPushButtonClickedEvent);

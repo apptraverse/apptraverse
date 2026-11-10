@@ -96,6 +96,7 @@ CommandRoutingButtonRoot::ptr BuildCommandRoutingButtonGraph(
 
   auto locale = ui::UiLocaleSettings::ptr::Create(
       ae::CreateWith{domain}.with_id(kButtonLocaleId));
+  locale->BootstrapLanguageIndex(0);
   InitializeRuntimeNode(*locale, *root);
 
   auto title_str = ui::UiString::ptr::Create(ae::CreateWith{domain});
@@ -107,6 +108,7 @@ CommandRoutingButtonRoot::ptr BuildCommandRoutingButtonGraph(
 
   root->presented_window = ui::UiDesktopWindow::ptr::Create(
       ae::CreateWith{domain}.with_id(kButtonWindowId));
+  root->presented_window->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
   root->window_presenter =
       ui::windows::WinDesktopWindowPresenter::ptr::Create(
           ae::CreateWith{domain}.with_id(kButtonDesktopPresenterId));
@@ -116,6 +118,7 @@ CommandRoutingButtonRoot::ptr BuildCommandRoutingButtonGraph(
 
   root->button = TestDisableOnClickButton::ptr::Create(
       ae::CreateWith{domain}.with_id(kButtonControlId));
+  root->button->BootstrapSetEnabled(true);
   auto label = MakeSingleLabel(domain, "Click");
   InitializeRuntimeNode(*label, *root->button);
   root->button->label = label;
@@ -149,6 +152,7 @@ CommandRoutingListRoot::ptr BuildCommandRoutingListGraph(ae::Domain& domain) {
 
   auto locale = ui::UiLocaleSettings::ptr::Create(
       ae::CreateWith{domain}.with_id(kListLocaleId));
+  locale->BootstrapLanguageIndex(0);
   InitializeRuntimeNode(*locale, *root);
 
   auto title_str = ui::UiString::ptr::Create(ae::CreateWith{domain});
@@ -160,6 +164,7 @@ CommandRoutingListRoot::ptr BuildCommandRoutingListGraph(ae::Domain& domain) {
 
   root->presented_window = ui::UiDesktopWindow::ptr::Create(
       ae::CreateWith{domain}.with_id(kListWindowId));
+  root->presented_window->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
   root->window_presenter =
       ui::windows::WinDesktopWindowPresenter::ptr::Create(
           ae::CreateWith{domain}.with_id(kListDesktopPresenterId));
@@ -169,6 +174,7 @@ CommandRoutingListRoot::ptr BuildCommandRoutingListGraph(ae::Domain& domain) {
 
   root->list = TestActivationList::ptr::Create(
       ae::CreateWith{domain}.with_id(kListControlId));
+  root->list->selection_index = -1;
   root->list->selection_index = -1;
   InitializeRuntimeNode(*root->list, *root->presented_window);
   auto row0 = ui::UiListRow::ptr::Create(ae::CreateWith{domain});
@@ -235,6 +241,7 @@ void TestActivationListStructuralMirrorHeadless() {
 
   auto list = TestActivationList::ptr::Create(ae::CreateWith{model_domain});
   list->selection_index = -1;
+  list->selection_index = -1;
   InitializeRuntimeNode(*list);
   auto row0 = ui::UiListRow::ptr::Create(ae::CreateWith{model_domain});
   auto row1 = ui::UiListRow::ptr::Create(ae::CreateWith{model_domain});
@@ -284,6 +291,7 @@ void TestDisableButtonStructuralMirrorHeadless() {
 
   auto button = TestDisableOnClickButton::ptr::Create(
       ae::CreateWith{model_domain});
+  button->BootstrapSetEnabled(true);
   auto label = MakeSingleLabel(model_domain, "Click");
   InitializeRuntimeNode(*label, *button);
   button->label = label;

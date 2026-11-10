@@ -1131,6 +1131,7 @@ void TestListRowRemoveCommandPublishesIncremental() {
 
   auto list = ui::UiListContainer::ptr::Create(ae::CreateWith{model_domain});
   list->selection_index = -1;
+  list->selection_index = -1;
   InitializeRuntimeNode(*list);
   auto make_label = [&](char const* text) {
     auto label =

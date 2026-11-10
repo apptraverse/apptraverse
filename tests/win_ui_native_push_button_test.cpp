@@ -1,3 +1,4 @@
+#include "window_title_fixture.h"
 #if !defined(_WIN32)
 int main() { return 0; }
 #else
@@ -163,6 +164,7 @@ void TestWinPushButtonPresenterNativeRouting() {
   InitializeRuntimeNode(*root);
 
   auto locale = ui::UiLocaleSettings::ptr::Create(ae::CreateWith{domain});
+  locale->BootstrapLanguageIndex(0);
   InitializeRuntimeNode(*locale);
   auto label = ui::UiLocalizationString::ptr::Create(ae::CreateWith{domain});
   InitializeRuntimeNode(*label, *locale);
@@ -173,6 +175,7 @@ void TestWinPushButtonPresenterNativeRouting() {
   label->strings = {en, ru};
 
   root->window = ui::UiDesktopWindow::ptr::Create(ae::CreateWith{domain});
+  root->window->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
   InitializeRuntimeNode(*root->window, *root);
   root->window->SubmitFrameFromNative(0, 0, 640, 480);
 
@@ -180,9 +183,11 @@ void TestWinPushButtonPresenterNativeRouting() {
       ui::windows::WinDesktopWindowPresenter::ptr::Create(
           ae::CreateWith{domain});
   root->window_presenter->window = root->window;
+  apptraverse::test::BuildEmptyWindowTitle(*root->window_presenter);
   root->window_presenter->locale = locale;
 
   auto button = ui::UiPushButton::ptr::Create(ae::CreateWith{domain});
+  button->BootstrapSetEnabled(true);
   button->label = label;
   InitializeRuntimeNode(*button, *root->window);
 
@@ -399,6 +404,7 @@ void TestWinPushButtonWithBorderlessHostPresenter() {
   HWND const host = CreateBorderlessHostAtOrigin();
 
   auto locale = ui::UiLocaleSettings::ptr::Create(ae::CreateWith{domain});
+  locale->BootstrapLanguageIndex(0);
   InitializeRuntimeNode(*locale);
   auto label = ui::UiLocalizationString::ptr::Create(ae::CreateWith{domain});
   InitializeRuntimeNode(*label, *locale);
@@ -412,6 +418,7 @@ void TestWinPushButtonWithBorderlessHostPresenter() {
   root->window_presenter->locale = locale;
 
   auto button = ui::UiPushButton::ptr::Create(ae::CreateWith{domain});
+  button->BootstrapSetEnabled(true);
   button->label = label;
   InitializeRuntimeNode(*button, *root);
 
@@ -541,6 +548,7 @@ void TestWinPushButtonResolveChildLayoutFromHost() {
   HWND const host = CreateBorderlessHostAtOrigin();
 
   auto locale = ui::UiLocaleSettings::ptr::Create(ae::CreateWith{domain});
+  locale->BootstrapLanguageIndex(0);
   InitializeRuntimeNode(*locale);
   auto label = ui::UiLocalizationString::ptr::Create(ae::CreateWith{domain});
   InitializeRuntimeNode(*label, *locale);
@@ -554,6 +562,7 @@ void TestWinPushButtonResolveChildLayoutFromHost() {
   root->window_presenter->locale = locale;
 
   auto button = ui::UiPushButton::ptr::Create(ae::CreateWith{domain});
+  button->BootstrapSetEnabled(true);
   button->label = label;
   InitializeRuntimeNode(*button, *root);
 

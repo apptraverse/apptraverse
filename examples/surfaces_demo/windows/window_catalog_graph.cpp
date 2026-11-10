@@ -65,9 +65,6 @@ class CatalogDesktopWindowPresenter
           x, y, client_width, client_height, updates_restore_geometry);
       return;
     }
-    if (!catalog.is_valid() || !this->window.is_valid()) {
-      return;
-    }
     ui::UiDesktopWindowPresenter::ReportNativeFrameToModel(
         x, y, client_width, client_height, updates_restore_geometry);
   }

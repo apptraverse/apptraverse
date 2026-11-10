@@ -29,6 +29,7 @@ void InstallSurfacesDemoLocalization(Application& application,
   Surfaces& surfaces = *application.surfaces;
   application.locale = ui::UiLocaleSettings::ptr::Create(
       ae::CreateWith{domain});
+  application.locale->BootstrapLanguageIndex(0);
   InitializeRuntimeNode(*application.locale, surfaces);
 
   application.label_add =

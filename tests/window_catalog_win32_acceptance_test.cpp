@@ -457,15 +457,16 @@ EmbeddedDistilledGraph const& WindowCatalogEmbeddedGraph() {
 struct ProfileGraphStorage {
   explicit ProfileGraphStorage(std::filesystem::path const& state_dir)
       : backing{},
-        user{state_dir},
+        user_profile{state_dir},
         overlay{user, backing,
                 EmbeddedSupplyConstantIdSet(WindowCatalogEmbeddedGraph())} {
-    CHECK(user.LoadFile());
+    CHECK(apptraverse::LoadUserStorageFile(user, user_profile));
     InstallEmbeddedDistilledBacking(backing, WindowCatalogEmbeddedGraph());
   }
 
   ae::RamDomainStorage backing;
-  SingleFileUserStorage user;
+  std::filesystem::path user_profile;
+  ae::RamDomainStorage user;
   OverlayDomainStorage overlay;
 };
 
@@ -687,8 +688,8 @@ void RegisterCatalogTypes() {
 
 void ExpectUserOnlyMissingRootLayer(std::filesystem::path const& user_dir) {
   RegisterCatalogTypes();
-  apptraverse::SingleFileUserStorage user{user_dir};
-  CHECK(user.LoadFile());
+  ae::RamDomainStorage user; auto const user_profile = user_dir;
+  CHECK(apptraverse::LoadUserStorageFile(user, user_profile));
   ae::DomainQuery const query{
       CatalogRootObjId(), WindowCatalog::kClassId,
       static_cast<std::uint8_t>(WindowCatalog::kCurrentVersion.value)};
@@ -700,16 +701,16 @@ void ExpectEmbeddedOverlayUserTombstone(
     std::filesystem::path const& user_dir, ae::ObjId object_id,
     std::uint32_t class_id, char const* probe_name) {
   RegisterCatalogTypes();
-  apptraverse::SingleFileUserStorage user_only{user_dir};
-  CHECK(user_only.LoadFile());
+  ae::RamDomainStorage user_only; auto const user_only_profile = user_dir;
+  CHECK(apptraverse::LoadUserStorageFile(user_only, user_only_profile));
   ae::DomainQuery const query{object_id, class_id, 0};
   ae::DomainLoad const user_load = user_only.Load(query);
   CHECK(user_load.result == ae::DomainLoadResult::kRemoved);
 
   ae::RamDomainStorage backing;
   InstallEmbeddedDistilledBacking(backing, WindowCatalogEmbeddedGraph());
-  apptraverse::SingleFileUserStorage user{user_dir};
-  CHECK(user.LoadFile());
+  ae::RamDomainStorage user; auto const user_profile = user_dir;
+  CHECK(apptraverse::LoadUserStorageFile(user, user_profile));
   OverlayDomainStorage overlay{
       user, backing, EmbeddedSupplyConstantIdSet(WindowCatalogEmbeddedGraph())};
   ae::DomainLoad const overlay_load = overlay.Load(query);
@@ -726,24 +727,24 @@ void ExpectEmbeddedOverlayUserTombstone(
 
 void WriteProfileMissingPresenterObject(std::filesystem::path const& state_dir) {
   RegisterCatalogTypes();
-  apptraverse::SingleFileUserStorage storage{state_dir};
-  CHECK(storage.LoadFile());
+  ae::RamDomainStorage storage; auto const storage_profile = state_dir;
+  CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   storage.Remove(CatalogMainWindowPresenterObjId());
-  CHECK(storage.SaveFile());
+  CHECK(apptraverse::SaveUserStorageFile(storage, storage_profile));
 }
 
 void WriteProfileMissingListObject(std::filesystem::path const& state_dir) {
   RegisterCatalogTypes();
-  apptraverse::SingleFileUserStorage storage{state_dir};
-  CHECK(storage.LoadFile());
+  ae::RamDomainStorage storage; auto const storage_profile = state_dir;
+  CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   storage.Remove(CatalogListObjId());
-  CHECK(storage.SaveFile());
+  CHECK(apptraverse::SaveUserStorageFile(storage, storage_profile));
 }
 
 void AssertListObjectAbsent(std::filesystem::path const& state_dir) {
   RegisterCatalogTypes();
-  apptraverse::SingleFileUserStorage storage{state_dir};
-  CHECK(storage.LoadFile());
+  ae::RamDomainStorage storage; auto const storage_profile = state_dir;
+  CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   CHECK(storage.Enumerate(CatalogListObjId()).empty());
 }
 
@@ -762,18 +763,18 @@ ae::ObjId LoadCatalogLocaleObjId(std::filesystem::path const& state_dir) {
 ae::ObjId WriteProfileMissingLocaleObject(
     std::filesystem::path const& state_dir) {
   ae::ObjId const locale_id = LoadCatalogLocaleObjId(state_dir);
-  apptraverse::SingleFileUserStorage storage{state_dir};
-  CHECK(storage.LoadFile());
+  ae::RamDomainStorage storage; auto const storage_profile = state_dir;
+  CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   storage.Remove(locale_id);
-  CHECK(storage.SaveFile());
+  CHECK(apptraverse::SaveUserStorageFile(storage, storage_profile));
   return locale_id;
 }
 
 void AssertLocaleObjectAbsent(std::filesystem::path const& state_dir,
                               ae::ObjId locale_id) {
   RegisterCatalogTypes();
-  apptraverse::SingleFileUserStorage storage{state_dir};
-  CHECK(storage.LoadFile());
+  ae::RamDomainStorage storage; auto const storage_profile = state_dir;
+  CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   CHECK(storage.Enumerate(locale_id).empty());
 }
 
@@ -792,18 +793,18 @@ ae::ObjId LoadAddButtonPresenterObjId(std::filesystem::path const& state_dir) {
 ae::ObjId WriteProfileMissingAddButtonPresenterObject(
     std::filesystem::path const& state_dir) {
   ae::ObjId const presenter_id = LoadAddButtonPresenterObjId(state_dir);
-  apptraverse::SingleFileUserStorage storage{state_dir};
-  CHECK(storage.LoadFile());
+  ae::RamDomainStorage storage; auto const storage_profile = state_dir;
+  CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   storage.Remove(presenter_id);
-  CHECK(storage.SaveFile());
+  CHECK(apptraverse::SaveUserStorageFile(storage, storage_profile));
   return presenter_id;
 }
 
 void AssertPresenterObjectAbsent(std::filesystem::path const& state_dir,
                                  ae::ObjId presenter_id) {
   RegisterCatalogTypes();
-  apptraverse::SingleFileUserStorage storage{state_dir};
-  CHECK(storage.LoadFile());
+  ae::RamDomainStorage storage; auto const storage_profile = state_dir;
+  CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   CHECK(storage.Enumerate(presenter_id).empty());
 }
 
@@ -822,10 +823,10 @@ ae::ObjId LoadAddButtonObjId(std::filesystem::path const& state_dir) {
 ae::ObjId WriteProfileMissingAddButtonObject(
     std::filesystem::path const& state_dir) {
   ae::ObjId const button_id = LoadAddButtonObjId(state_dir);
-  apptraverse::SingleFileUserStorage storage{state_dir};
-  CHECK(storage.LoadFile());
+  ae::RamDomainStorage storage; auto const storage_profile = state_dir;
+  CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   storage.Remove(button_id);
-  CHECK(storage.SaveFile());
+  CHECK(apptraverse::SaveUserStorageFile(storage, storage_profile));
   return button_id;
 }
 
@@ -1251,13 +1252,13 @@ void RelocateStoredLayerVersion0To1(std::filesystem::path const& state_dir,
                                     std::uint32_t class_id) {
   ae::DomainQuery const query_v0{obj_id, class_id, 0};
   ae::DomainQuery const query_v1{obj_id, class_id, 1};
-  SingleFileUserStorage storage{state_dir};
-  CHECK(storage.LoadFile());
+  ae::RamDomainStorage storage; auto const storage_profile = state_dir;
+  CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   auto& versions = storage.state.at(obj_id)->at(class_id);
   CHECK(versions.count(0) == 1);
   versions[1] = std::move(versions.at(0));
   versions.erase(0);
-  CHECK(storage.SaveFile());
+  CHECK(apptraverse::SaveUserStorageFile(storage, storage_profile));
   CHECK(storage.Load(query_v0).result == ae::DomainLoadResult::kEmpty);
   CHECK(storage.Load(query_v1).result == ae::DomainLoadResult::kLoaded);
 }
@@ -1272,8 +1273,8 @@ void DiagnoseUnsupportedSchemaOverlayFallback(
     std::filesystem::path const& user_dir) {
   RegisterCatalogTypes();
   ae::DomainQuery const v0{CatalogRootObjId(), WindowCatalog::kClassId, 0};
-  apptraverse::SingleFileUserStorage user{user_dir};
-  CHECK(user.LoadFile());
+  ae::RamDomainStorage user; auto const user_profile = user_dir;
+  CHECK(apptraverse::LoadUserStorageFile(user, user_profile));
   CHECK(user.Load(v0).result == ae::DomainLoadResult::kEmpty);
   ae::DomainQuery const v1{CatalogRootObjId(), WindowCatalog::kClassId, 1};
   CHECK(user.Load(v1).result == ae::DomainLoadResult::kLoaded);
@@ -1373,7 +1374,7 @@ std::uint32_t UnknownStoredClassIdForTests() {
   return kUnknown;
 }
 
-bool EnumerateContainsClass(SingleFileUserStorage& storage, ae::ObjId obj_id,
+bool EnumerateContainsClass(ae::RamDomainStorage& storage, ae::ObjId obj_id,
                             std::uint32_t class_id) {
   for (auto const stored : storage.Enumerate(obj_id)) {
     if (stored == class_id) {
@@ -1385,11 +1386,11 @@ bool EnumerateContainsClass(SingleFileUserStorage& storage, ae::ObjId obj_id,
 
 void CopyStoredLayer(std::filesystem::path const& state_dir,
                      ae::DomainQuery const& from, ae::DomainQuery const& to) {
-  SingleFileUserStorage storage{state_dir};
-  CHECK(storage.LoadFile());
+  ae::RamDomainStorage storage; auto const storage_profile = state_dir;
+  CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   auto bytes = storage.state.at(from.id)->at(from.class_id).at(from.version);
   storage.SaveData(to, std::move(bytes));
-  CHECK(storage.SaveFile());
+  CHECK(apptraverse::SaveUserStorageFile(storage, storage_profile));
 }
 
 void AddUnknownStoredClassLayerAlongsideRoot(
@@ -1399,8 +1400,8 @@ void AddUnknownStoredClassLayerAlongsideRoot(
   ae::DomainQuery const src{root, WindowCatalog::kClassId, 0};
   ae::DomainQuery const dst{root, unknown, 0};
   CopyStoredLayer(state_dir, src, dst);
-  apptraverse::SingleFileUserStorage storage{state_dir};
-  CHECK(storage.LoadFile());
+  ae::RamDomainStorage storage; auto const storage_profile = state_dir;
+  CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   CHECK(EnumerateContainsClass(storage, root, WindowCatalog::kClassId));
   CHECK(EnumerateContainsClass(storage, root, unknown));
 }
@@ -1409,13 +1410,13 @@ void RelocateStoredClassDirectory(std::filesystem::path const& state_dir,
                                   ae::ObjId obj_id,
                                   std::uint32_t from_class_id,
                                   std::uint32_t to_class_id) {
-  SingleFileUserStorage storage{state_dir};
-  CHECK(storage.LoadFile());
+  ae::RamDomainStorage storage; auto const storage_profile = state_dir;
+  CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   auto& classes = *storage.state.at(obj_id);
   CHECK(classes.count(from_class_id) == 1);
   classes[to_class_id] = std::move(classes.at(from_class_id));
   classes.erase(from_class_id);
-  CHECK(storage.SaveFile());
+  CHECK(apptraverse::SaveUserStorageFile(storage, storage_profile));
   CHECK(!EnumerateContainsClass(storage, obj_id, from_class_id));
   CHECK(EnumerateContainsClass(storage, obj_id, to_class_id));
   ae::DomainQuery const moved_layer{obj_id, to_class_id, 0};
@@ -1593,8 +1594,8 @@ void RunAcceptanceAndRequiredMainWindowNegatives() {
 int main(int argc, char** argv) {
   if (argc >= 4 && std::strcmp(argv[1], "--user-only-load-probe") == 0) {
     apptraverse::test::RegisterCatalogTypes();
-    apptraverse::SingleFileUserStorage user{argv[3]};
-    if (!user.LoadFile()) return 2;
+    ae::RamDomainStorage user; auto const user_profile = argv[3];
+    if (!apptraverse::LoadUserStorageFile(user, user_profile)) return 2;
     ae::RamDomainStorage supply;
     apptraverse::test::InstallEmbeddedSupplyConstantLayers(supply);
     apptraverse::OverlayDomainStorage storage{

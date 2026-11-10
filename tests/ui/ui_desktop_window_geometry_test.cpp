@@ -79,6 +79,35 @@ void TestColdLoadPreservesRestoreGeometry(UiDesktopWindow& desktop) {
   CHECK(desktop.client_height() == 900);
 }
 
+void TestInitialPlacement(ae::Domain& domain) {
+  auto window = UiDesktopWindow::ptr::Create(ae::CreateWith{domain});
+  window->BootstrapFrame(0, 0, 640, 480);
+  InitializeRuntimeNode(*window);
+  CHECK(!window->HasExplicitPosition());
+  window->SubmitFrameFromNative(45, 67, 640, 480, true);
+  CHECK(window->HasExplicitPosition());
+  CHECK(window->x() == 45 && window->y() == 67);
+  CHECK(!window->TakeFrameRequestPendingPublication());
+  window.Save();
+  ae::Domain cold{domain.domain_storage()};
+  auto restored = UiDesktopWindow::ptr::Declare(ae::CreateWith{cold}.with_id(window.id()));
+  auto loaded = restored.Load();
+  CHECK(loaded && loaded->HasExplicitPosition());
+  CHECK(loaded->x() == 45 && loaded->y() == 67);
+
+  auto centered = UiDesktopWindow::ptr::Create(ae::CreateWith{domain});
+  centered->BootstrapFrame(0, 0, 640, 480, UiDesktopWindow::InitialPlacement::Centered);
+  InitializeRuntimeNode(*centered);
+  centered->SubmitFrameFromNative(12, 34, 640, 480, true);
+  centered->SubmitScreenFromNative(-1200, 0, 1200, 900);
+  CHECK(centered->x() == -920 && centered->y() == 210);
+  CHECK(centered->TakeFrameRequestPendingPublication());
+  centered->SubmitScreenFromNative(0, 0, 1920, 1080);
+  CHECK(centered->x() == -920 && centered->y() == 210);
+  CHECK(!centered->TakeFrameRequestPendingPublication());
+
+}
+
 }  // namespace
 
 int main() {
@@ -88,10 +117,13 @@ int main() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto doc = UiWindow::ptr::Create(ae::CreateWith{domain});
+  doc->BootstrapClientSize(800, 600);
   InitializeRuntimeNode(*doc);
   auto desktop = UiDesktopWindow::ptr::Create(ae::CreateWith{domain});
+  desktop->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
   InitializeRuntimeNode(*desktop, *doc);
 
+  TestInitialPlacement(domain);
   TestRestoreVsLiveClientReports(*desktop);
   TestUserResizeUpdatesRestore(*desktop);
   TestExplicitRequestUpdatesRestoreAndLive(*desktop);

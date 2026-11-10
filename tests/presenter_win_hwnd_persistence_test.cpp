@@ -1,3 +1,4 @@
+#include "window_title_fixture.h"
 #if !defined(_WIN32)
 int main() { return 0; }
 #else
@@ -75,11 +76,13 @@ void RunWinHwndPersistenceTest() {
     InitializeRuntimeNode(*root);
     root->window = ui::UiDesktopWindow::ptr::Create(
         ae::CreateWith{domain}.with_id(kWindowId));
+    root->window->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
     InitializeRuntimeNode(*root->window, *root);
     root->window_presenter =
         ui::windows::WinDesktopWindowPresenter::ptr::Create(
             ae::CreateWith{domain}.with_id(kPresenterId));
     root->window_presenter->window = root->window;
+  apptraverse::test::BuildEmptyWindowTitle(*root->window_presenter);
 
     ae::DomainGraph save_graph{&domain};
     ae::Ptr<ae::Obj> save_root = domain.Find(kRootId);

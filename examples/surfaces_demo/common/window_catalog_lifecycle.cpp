@@ -119,16 +119,16 @@ int WindowCatalogModelSession::Run(
     WriteFatalStderr("fatal: cannot load catalog initial backing\n");
     return 1;
   }
-  SingleFileUserStorage user_storage{state_dir};
-  if (!user_storage.LoadFile()) {
+  ae::RamDomainStorage user_storage;
+  if (!LoadUserStorageFile(user_storage, state_dir)) {
     WriteFatalStderr("fatal: cannot load catalog USER file\n");
     return 1;
   }
   OverlayDomainStorage overlay{user_storage, backing, initial.constant_ids};
   hooks.prepare = PrepareWindowCatalogForRun;
-  hooks.persist = [&user_storage](WindowCatalog& catalog) -> int {
+  hooks.persist = [&user_storage, state_dir = state_dir](WindowCatalog& catalog) -> int {
     SaveWindowCatalogPersistentSnapshot(catalog);
-    if (!user_storage.SaveFile()) {
+    if (!SaveUserStorageFile(user_storage, state_dir)) {
       WriteFatalStderr("fatal: WindowCatalog shutdown save failed\n");
       return 1;
     }
@@ -137,17 +137,17 @@ int WindowCatalogModelSession::Run(
   return RunApplicationModelSession(overlay, CatalogRootId(), runtime,
                                     std::move(on_published), hooks);
 #elif defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
-  SingleFileUserStorage user_storage{state_dir};
-  if (!user_storage.LoadFile()) {
+  ae::RamDomainStorage user_storage;
+  if (!LoadUserStorageFile(user_storage, state_dir)) {
     WriteFatalStderr("fatal: cannot load catalog USER file\n");
     return 1;
   }
   hooks.prepare = [](WindowCatalog& catalog) {
     PrepareWindowCatalogForRun(catalog);
   };
-  hooks.persist = [&user_storage](WindowCatalog& catalog) -> int {
+  hooks.persist = [&user_storage, state_dir = state_dir](WindowCatalog& catalog) -> int {
     SaveWindowCatalogPersistentSnapshot(catalog);
-    if (!user_storage.SaveFile()) {
+    if (!SaveUserStorageFile(user_storage, state_dir)) {
       WriteFatalStderr("fatal: WindowCatalog shutdown save failed\n");
       return 1;
     }
@@ -157,8 +157,8 @@ int WindowCatalogModelSession::Run(
       user_storage, embedded_distilled::window_catalog::kEmbeddedGraph, runtime,
       std::move(on_published), hooks);
 #else
-  SingleFileUserStorage user_storage{state_dir};
-  if (!user_storage.LoadFile()) return 1;
+  ae::RamDomainStorage user_storage;
+  if (!LoadUserStorageFile(user_storage, state_dir)) return 1;
 #if defined(APPTRAVERSE_ENABLE_DISTILLATION)
   if (user_storage.state.empty()) {
     ae::Domain bootstrap_domain{user_storage};
@@ -168,9 +168,9 @@ int WindowCatalogModelSession::Run(
   }
 #endif
   hooks.prepare = PrepareWindowCatalogForRun;
-  hooks.persist = [&user_storage](WindowCatalog& catalog) -> int {
+  hooks.persist = [&user_storage, state_dir = state_dir](WindowCatalog& catalog) -> int {
     SaveWindowCatalogPersistentSnapshot(catalog);
-    return user_storage.SaveFile() ? 0 : 1;
+    return SaveUserStorageFile(user_storage, state_dir) ? 0 : 1;
   };
   return RunApplicationModelSession(user_storage, CatalogRootId(), runtime,
                                     std::move(on_published), hooks);

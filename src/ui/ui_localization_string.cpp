@@ -193,6 +193,11 @@ void UiLocalizationString::StashLiveReachableLayersBeforeHistoricalCapture(
       continue;
     }
     bool const loaded_here = !strings[slot].is_loaded();
+    // Capture will materialize every mutable language. Remember all originally
+    // lazy slots, not just the slots affected by the compacted event prefix.
+    if (loaded_here) {
+      scratch.folded_slots.push_back(slot);
+    }
     if (loaded_here) {
       strings[slot].Load();
     }

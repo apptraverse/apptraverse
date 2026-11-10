@@ -20,7 +20,7 @@ class UiPushButton : public NodeFor<UiPushButton> {
   UiPushButton() = default;
 
  public:
-  explicit UiPushButton(ae::ObjProp prop) : NodeFor{prop}, enabled_{true} {}
+  explicit UiPushButton(ae::ObjProp prop) : NodeFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(label), AE_MMBR(enabled_))
 

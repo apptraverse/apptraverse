@@ -17,7 +17,7 @@ class UiLocaleSettings : public NodeFor<UiLocaleSettings> {
   UiLocaleSettings() = default;
 
  public:
-  explicit UiLocaleSettings(ae::ObjProp prop) : NodeFor{prop}, language_index_{0} {}
+  explicit UiLocaleSettings(ae::ObjProp prop) : NodeFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(language_index_))
 
@@ -30,6 +30,8 @@ class UiLocaleSettings : public NodeFor<UiLocaleSettings> {
   void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, language_index_);
   }
+
+  void BootstrapLanguageIndex(int index) { language_index_ = index; }
 
   int language_index() const { return language_index_; }
 

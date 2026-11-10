@@ -1,3 +1,4 @@
+#include "window_title_fixture.h"
 #if !defined(_WIN32)
 int main() { return 0; }
 #else
@@ -85,10 +86,12 @@ WinTitleRoot::ptr BuildRoot(ae::Domain& domain, ae::ObjId root_id,
   InitializeRuntimeNode(*root);
   root->window =
       ui::UiDesktopWindow::ptr::Create(ae::CreateWith{domain}.with_id(window_id));
+  root->window->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
   InitializeRuntimeNode(*root->window, *root);
   root->window_presenter = ui::windows::WinDesktopWindowPresenter::ptr::Create(
       ae::CreateWith{domain}.with_id(presenter_id));
   root->window_presenter->window = root->window;
+  apptraverse::test::BuildEmptyWindowTitle(*root->window_presenter);
   return root;
 }
 
@@ -124,6 +127,7 @@ void TestUnloadedTitleAndLocaleResolveThroughStorage() {
     title->strings = {en, ru};
     auto locale = ui::UiLocaleSettings::ptr::Create(
         ae::CreateWith{domain}.with_id(kLocaleId));
+    locale->BootstrapLanguageIndex(0);
     auto language = ui::SetUiLanguageIndexEvent::ptr::Create(ae::CreateWith{domain});
     language->language_index = 1;
     locale->Apply(*language);
@@ -150,13 +154,13 @@ void TestUnloadedTitleAndLocaleResolveThroughStorage() {
   CHECK(presenter.hwnd() == nullptr);
 }
 
-void TestAbsentTitleAndLocaleStayEmpty() {
+void TestExplicitEmptyTitle() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto root = BuildRoot(domain, kBareRootId, kBareWindowId, kBarePresenterId);
   auto& presenter = *root->window_presenter;
-  CHECK(!presenter.title.is_valid());
-  CHECK(!presenter.locale.is_valid());
+  CHECK(presenter.title.is_valid());
+  CHECK(presenter.locale.is_valid());
 
   InitializePresenters(*root, nullptr, nullptr);
   CHECK(presenter.hwnd() != nullptr);
@@ -175,7 +179,7 @@ int main() {
   apptraverse::EnsureObjectRegistration();
   apptraverse::ui::windows::EnsureWinUiPresenterRegistration();
   (void)&apptraverse::test::g_apptraverse_registrar_WinTitleRoot;
-  apptraverse::test::TestAbsentTitleAndLocaleStayEmpty();
+  apptraverse::test::TestExplicitEmptyTitle();
   apptraverse::test::TestUnloadedTitleAndLocaleResolveThroughStorage();
   std::cout << "presenter_win_desktop_title_test OK\n";
   return 0;

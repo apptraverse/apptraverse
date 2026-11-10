@@ -44,6 +44,7 @@ void TestLocalCommitScalesWithJournalSize() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto edit = UiEditBox::ptr::Create(ae::CreateWith{domain});
+  edit->BootstrapText("", 0, false);
   InitializeRuntimeNode(*edit);
 
   SeedJournal(*edit, 100);

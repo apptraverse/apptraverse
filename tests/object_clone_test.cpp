@@ -640,7 +640,7 @@ void TestCanonicalCloneSingleObjectMemoryRoundtrip() {
 
   apptraverse::CloneOptions options{};
   options.stable_origin = kPrefabId;
-  options.boundary_ids = {kPrefabId};
+
   options.new_root_id = kCloneId;
   options.persist_layers_to_target_storage = true;
 
@@ -798,7 +798,7 @@ void TestCanonicalCloneTwoObjectGraphWithConstBoundary() {
 
     apptraverse::CloneOptions options{};
     options.stable_origin = kOriginP;
-    options.boundary_ids = {kOriginP, kOriginQ, kOriginC};
+
     options.new_root_id = kCloneR;
     options.persist_layers_to_target_storage = true;
 
@@ -1040,7 +1040,7 @@ void TestCanonicalCloneNodeGraphWithFreshHistory() {
 
     apptraverse::CloneOptions options{};
     options.stable_origin = kHistOriginP;
-    options.boundary_ids = {kHistOriginP, kHistOriginQ, kHistOriginC};
+
     options.new_root_id = kHistCloneR;
     options.persist_layers_to_target_storage = true;
 
@@ -1260,8 +1260,7 @@ void TestCanonicalCloneObjContainerWithNestedNodeHistory() {
 
     apptraverse::CloneOptions options{};
     options.stable_origin = kHistOriginContainer;
-    options.boundary_ids = {kHistOriginP, kHistOriginQ, kHistOriginC,
-                            kHistOriginContainer};
+
     options.new_root_id = kHistCloneContainer;
     options.persist_layers_to_target_storage = true;
 
@@ -1465,8 +1464,7 @@ void TestCanonicalCloneUnloadedNodeChild() {
 
     apptraverse::CloneOptions options{};
     options.stable_origin = kHistOriginContainer;
-    options.boundary_ids = {kHistOriginP, kHistOriginQ, kHistOriginC,
-                            kHistOriginContainer};
+
     options.new_root_id = kHistCloneLazyRoot;
     options.persist_layers_to_target_storage = true;
 
@@ -1585,7 +1583,7 @@ apptraverse::CloneOptions UiWindowPrefabCloneOptions(ae::ObjId new_root_id) {
   apptraverse::CloneOptions options{};
   options.stable_origin = kUiPrefabWindow;
   options.stable_prefab_ids = {kUiPrefabWindow, kUiPrefabPresenter};
-  options.boundary_ids = UiWindowPrefabOverlayConstants();
+
   options.new_root_id = new_root_id;
   options.persist_layers_to_target_storage = true;
   return options;
@@ -1599,6 +1597,7 @@ void SeedPresentedWindowPrefabOnBacking(std::filesystem::path const& backing_roo
   apptraverse::ui::UiDesktopWindow::ptr window =
       apptraverse::ui::UiDesktopWindow::ptr::Create(
           ae::CreateWith{domain}.with_id(kUiPrefabWindow));
+  window->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
   ae::Ptr<apptraverse::ui::UiDesktopWindow> window_body = window.Load();
   auto initial_frame =
       apptraverse::ui::SetUiDesktopWindowFrameEvent::ptr::Create(
@@ -1613,6 +1612,7 @@ void SeedPresentedWindowPrefabOnBacking(std::filesystem::path const& backing_roo
   apptraverse::ui::UiLocaleSettings::ptr locale =
       apptraverse::ui::UiLocaleSettings::ptr::Create(
           ae::CreateWith{domain}.with_id(kUiPrefabLocale));
+  locale->BootstrapLanguageIndex(0);
   apptraverse::InitializeRuntimeNode(*locale.Load(), *window_body);
 
   apptraverse::ui::UiLocalizationString::ptr title =
@@ -1928,6 +1928,7 @@ void TestRuntimeCloneRetainsLazyReferencesWithoutStorage() {
   source->value = 11;
   child->value = 22;
   external->value = 33;
+  external->SetObjectScope({external.id(), {}, true});
   source->child = CloneFacetTargetV1::ptr::Declare(
       ae::CreateWith{domain}.with_id(child.id()).with_flags(
           ae::ObjFlags::kUnloadedByDefault));
@@ -1938,7 +1939,7 @@ void TestRuntimeCloneRetainsLazyReferencesWithoutStorage() {
   {
     apptraverse::CloneOptions options{};
     options.stable_origin = source.id();
-    options.boundary_ids = {external.id()};
+
     options.stable_prefab_ids = {child.id()};
     auto result = apptraverse::CloneCanonicalRoot(domain, *source, domain, options);
     if (!result) { Fail("runtime lazy clone"); }
@@ -1954,7 +1955,7 @@ void TestRuntimeCloneRetainsLazyReferencesWithoutStorage() {
   if (retained->child->value != 22) { Fail("runtime clone child aliases source"); }
   apptraverse::CloneOptions options{};
   options.stable_origin = source.id();
-  options.boundary_ids = {external.id()};
+
   auto second = apptraverse::CloneCanonicalRoot(domain, *retained, domain, options);
   if (!second || storage.state != before) { Fail("second runtime clone"); }
   auto second_root = ae::Ptr<CloneGraphTargetV1>{ae::Ptr<ae::Obj>{second.root.Load()}};
@@ -1983,6 +1984,7 @@ void TestRuntimeCloneRetainsLocalReferences() {
   {
     CountingStorage source_storage;
     ae::Domain source{source_storage};
+    source.set_parent_domain(&target);
     auto root = CloneLocalRoot::ptr::Create(ae::CreateWith{source});
     auto loaded_leaf = CloneFacetTargetV1::ptr::Create(ae::CreateWith{source});
     auto lazy_leaf = CloneFacetTargetV1::ptr::Create(ae::CreateWith{source});
@@ -2000,7 +2002,7 @@ void TestRuntimeCloneRetainsLocalReferences() {
     apptraverse::CloneOptions options{};
     options.stable_origin = root.id();
     options.stable_prefab_ids = {source_loaded_id, source_lazy_id};
-    options.boundary_ids = {boundary.id()};
+
     {
       auto result = apptraverse::CloneCanonicalRoot(source, *root, target, options);
       if (!result) { Fail("runtime clone with local-only leaves"); }
@@ -2037,6 +2039,7 @@ void TestRuntimeCloneRetainsLocalReferences() {
 void TestRuntimeCloneDoesNotTraverseBoundaryGraph() {
   ae::RamDomainStorage source_storage, target_storage;
   ae::Domain source{source_storage}, target{target_storage};
+  source.set_parent_domain(&target);
   auto external_leaf = CloneFacetTargetV1::ptr::Create(ae::CreateWith{target});
   external_leaf->value = 101;
   auto boundary = CloneLocalRoot::ptr::Create(ae::CreateWith{target});
@@ -2048,7 +2051,7 @@ void TestRuntimeCloneDoesNotTraverseBoundaryGraph() {
   apptraverse::CloneOptions options{};
   options.stable_origin = root.id();
   // The boundary owns another object outside the declared copy closure.
-  options.boundary_ids = {boundary.id()};
+
   auto result = apptraverse::CloneCanonicalRoot(source, *root, target, options);
   if (!result) { Fail("runtime clone must not traverse the external boundary graph"); }
   ae::Ptr<CloneLocalRoot> cloned{ae::Ptr<ae::Obj>{result.root.Load()}};

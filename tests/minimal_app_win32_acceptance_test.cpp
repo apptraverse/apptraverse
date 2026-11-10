@@ -254,33 +254,35 @@ void RegisterMinimalAppTypes() {
 struct ProfileDomain {
 #if defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
   ae::RamDomainStorage backing;
-  SingleFileUserStorage user_storage;
+  std::filesystem::path user_storage_profile;
+  ae::RamDomainStorage user_storage;
   OverlayDomainStorage overlay;
   ae::Domain domain;
 
   explicit ProfileDomain(std::filesystem::path const& state_dir)
-      : user_storage{state_dir},
+      : user_storage_profile{state_dir},
         overlay{user_storage,
                 backing,
                 EmbeddedSupplyConstantIdSet(
                     embedded_distilled::minimal::kEmbeddedGraph)},
         domain{overlay} {
-    CHECK(user_storage.LoadFile());
+    CHECK(apptraverse::LoadUserStorageFile(user_storage, user_storage_profile));
     InstallEmbeddedDistilledBacking(
         backing, embedded_distilled::minimal::kEmbeddedGraph);
   }
 #else
-  SingleFileUserStorage storage;
+  std::filesystem::path storage_profile;
+  ae::RamDomainStorage storage;
   ae::Domain domain;
 
   explicit ProfileDomain(std::filesystem::path const& state_dir)
-      : storage{state_dir}, domain{storage} { CHECK(storage.LoadFile()); }
+      : storage_profile{state_dir}, domain{storage} { CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile)); }
 #endif
   bool SaveFile() {
 #if defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
-    return user_storage.SaveFile();
+    return apptraverse::SaveUserStorageFile(user_storage, user_storage_profile);
 #else
-    return storage.SaveFile();
+    return apptraverse::SaveUserStorageFile(storage, storage_profile);
 #endif
   }
 
@@ -341,10 +343,10 @@ void WriteProfileMissingPresenter(std::filesystem::path const& state_dir) {
 
 void WriteProfileMissingPresenterObject(std::filesystem::path const& state_dir) {
   RegisterMinimalAppTypes();
-  SingleFileUserStorage user_storage{state_dir};
-  CHECK(user_storage.LoadFile());
+  ae::RamDomainStorage user_storage; auto const user_storage_profile = state_dir;
+  CHECK(apptraverse::LoadUserStorageFile(user_storage, user_storage_profile));
   user_storage.Remove(example::minimal::MinimalPresenterId());
-  CHECK(user_storage.SaveFile());
+  CHECK(apptraverse::SaveUserStorageFile(user_storage, user_storage_profile));
 }
 
 PROCESS_INFORMATION StartDemo(std::filesystem::path const& exe,

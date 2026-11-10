@@ -151,6 +151,7 @@ void RunCycleGraphLocaleRehydrationTest() {
     InitializeRuntimeNode(*window, *app);
     auto locale = ui::UiLocaleSettings::ptr::Create(
         ae::CreateWith{domain}.with_id(kLocaleId));
+    locale->BootstrapLanguageIndex(0);
     InitializeRuntimeNode(*locale, *window);
     auto presenter = RehydrationCyclePresenter::ptr::Create(
         ae::CreateWith{domain}.with_id(kPresenterId));

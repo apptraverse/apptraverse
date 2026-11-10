@@ -54,6 +54,7 @@ void InstallWindowCatalogLocalization(WindowCatalog& catalog,
                                       ae::Domain& domain) {
   catalog.persisted.locale =
       ui::UiLocaleSettings::ptr::Create(ae::CreateWith{domain});
+  catalog.persisted.locale->BootstrapLanguageIndex(0);
   InitializeRuntimeNode(*catalog.persisted.locale, catalog);
 
   catalog.persisted.texts.label_add =

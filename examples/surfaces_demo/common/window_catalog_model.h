@@ -97,7 +97,7 @@ class WindowHolder : public ui::UiListRow {
 
  public:
 
-  explicit WindowHolder(ae::ObjProp prop) : UiListRow{prop}, window_number{0} {}
+  explicit WindowHolder(ae::ObjProp prop) : UiListRow{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(window_number), AE_MMBR(window))
 
@@ -198,10 +198,10 @@ struct WindowCatalogPresenters {
 };
 
 struct WindowCatalogMainClientViewport {
-  std::int32_t width{0};
-  std::int32_t height{0};
+  std::int32_t width;
+  std::int32_t height;
   // DisplayMetrics.densityDpi on Android (160 = mdpi); 160 on Web/Desktop.
-  std::int32_t density_dpi{160};
+  std::int32_t density_dpi;
 
   AE_REFLECT_MEMBERS(width, height, density_dpi)
 };
@@ -210,7 +210,7 @@ struct WindowCatalogMainClientViewport {
 // on WindowCatalog so MSVC does not flatten a very wide AE_OBJECT_REFLECT list
 // into an initializer nest that hits compiler limits (C1054).
 struct WindowCatalogPersisted {
-  std::uint32_t next_window_number{1};
+  std::uint32_t next_window_number;
 
   WindowHolder::ptr selected;
 
@@ -230,7 +230,7 @@ struct WindowCatalogPersisted {
 
   std::vector<CatalogWindow::ptr> desktop_z_order;
 
-  bool mobile_pager{false};
+  bool mobile_pager;
 
   CatalogWindow::ptr mobile_active_window;
 

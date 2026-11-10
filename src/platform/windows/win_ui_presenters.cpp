@@ -182,9 +182,6 @@ LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
 }
 
 std::wstring WinDesktopWindowPresenter::ResolveTitleText() const {
-  if (!locale.is_valid()) {
-    return {};
-  }
   return Utf8ToWide(ResolvePresentedWindowTitle(locale->language_index()));
 }
 
@@ -205,8 +202,9 @@ void WinDesktopWindowPresenter::OnLoad() {
                     desktop->restore_client_height(), outer_w, outer_h);
   auto const title = ResolveTitleText();
   hwnd_ = CreateWindowExW(0, kDesktopWindowClass, title.c_str(),
-                          WindowStyleForClientFrame(), desktop->x(),
-                          desktop->y(), outer_w, outer_h, nullptr, nullptr,
+                          WindowStyleForClientFrame(),
+                          desktop->HasExplicitPosition() ? desktop->x() : CW_USEDEFAULT,
+                          desktop->HasExplicitPosition() ? desktop->y() : CW_USEDEFAULT, outer_w, outer_h, nullptr, nullptr,
                           instance, nullptr);
   if (CreateFailed(hwnd_)) {
     return;
@@ -218,7 +216,13 @@ void WinDesktopWindowPresenter::OnLoad() {
   last_native_client_width_ = initial.client_width;
   last_native_client_height_ = initial.client_height;
   ReportNativeFrameToModel(initial.x, initial.y, initial.client_width,
-                           initial.client_height, false);
+                           initial.client_height, true);
+  MONITORINFO monitor{sizeof(MONITORINFO)};
+  if (GetMonitorInfoW(MonitorFromWindow(hwnd_, MONITOR_DEFAULTTONEAREST), &monitor)) {
+    auto const& work = monitor.rcWork;
+    SubmitScreenFromNative(work.left, work.top, work.right - work.left,
+                           work.bottom - work.top);
+  }
 }
 
 WinDesktopWindowPresenter::ClientFrame

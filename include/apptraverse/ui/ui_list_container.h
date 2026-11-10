@@ -54,7 +54,7 @@ class UiListContainer : public NodeFor<UiListContainer> {
   UiListContainer() = default;
 
  public:
-  explicit UiListContainer(ae::ObjProp prop) : NodeFor{prop}, selection_index{-1} {}
+  explicit UiListContainer(ae::ObjProp prop) : NodeFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(rows), AE_MMBR(selection_index))
 

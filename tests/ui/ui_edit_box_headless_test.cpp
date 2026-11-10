@@ -19,6 +19,7 @@ namespace {
 
 UiEditBox::ptr MakeEditBox(ae::Domain& domain) {
   auto box = UiEditBox::ptr::Create(ae::CreateWith{domain});
+  box->BootstrapText("", 0, false);
   return box;
 }
 
@@ -33,6 +34,7 @@ int main() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto doc = UiDesktopWindow::ptr::Create(ae::CreateWith{domain});
+  doc->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
   InitializeRuntimeNode(*doc);
   auto edit_box = MakeEditBox(domain);
   InitializeRuntimeNode(*edit_box, *doc);

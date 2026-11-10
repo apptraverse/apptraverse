@@ -27,9 +27,6 @@ struct CloneOptions {
   // Caller-confirmed prefab ObjIds: when a copied object has no origin on the
   // source, its clone receives this source ObjId as origin (not the clone root).
   std::set<ae::ObjId> stable_prefab_ids;
-  // Legacy compatibility overrides. Parent-domain, enclosing-scope and
-  // immutable shared references are discovered without a caller ID list.
-  std::set<ae::ObjId> boundary_ids{};
   std::optional<ae::ObjId> new_root_id{};
   // Disk persistence tests; false for runtime Add (child-domain live finalize).
   bool persist_layers_to_target_storage{false};

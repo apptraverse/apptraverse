@@ -328,10 +328,14 @@ void TestCatalogAddWindowViaPresentedWindowPrefab() {
     CHECK(presenter2->locale.id() == catalog->persisted.locale.id());
     CHECK(!presenter1->presentation_loaded);
     CHECK(!presenter2->presentation_loaded);
-    CHECK(holder1->window->x() == 160);
-    CHECK(holder1->window->y() == 120);
-    CHECK(holder2->window->x() == 188);
-    CHECK(holder2->window->y() == 148);
+    CHECK(!holder1->window->HasExplicitPosition());
+    CHECK(!holder2->window->HasExplicitPosition());
+    // Native placement is an event, not a fabricated cascade in the prefab.
+    holder1->window->SubmitFrameFromNative(160, 120, 480, 320, true);
+    holder2->window->SubmitFrameFromNative(188, 148, 480, 320, true);
+    CHECK(holder1->window->HasExplicitPosition());
+    CHECK(holder1->window->x() == 160 && holder1->window->y() == 120);
+    CHECK(holder2->window->x() == 188 && holder2->window->y() == 148);
 
     CHECK(SnapshotEntireStorageTree(dir / std::to_string(kWindowPrefabId.id())) ==
           prefab_window_layers_before);

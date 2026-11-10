@@ -144,6 +144,7 @@ void BuildModelGraph(ae::Domain& domain, HostTestRoot::ptr& root) {
   InitializeRuntimeNode(*root);
 
   auto locale = ui::UiLocaleSettings::ptr::Create(ae::CreateWith{domain});
+  locale->BootstrapLanguageIndex(0);
   InitializeRuntimeNode(*locale, *root);
   auto en = ui::UiString::ptr::Create(ae::CreateWith{domain});
   en->utf8 = "EN";
@@ -154,6 +155,7 @@ void BuildModelGraph(ae::Domain& domain, HostTestRoot::ptr& root) {
 
   root->presented_window = HostWindow::ptr::Create(
       ae::CreateWith{domain}.with_id(kWindowId));
+  root->presented_window->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
   auto presenter = HostHeadlessPresenter::ptr::Create(
       ae::CreateWith{domain}.with_id(kPresenterId));
   ui::ComposePresentedWindow(root->presented_window, presenter, localized,

@@ -23,6 +23,14 @@ void UiDesktopWindowPresenter::SubmitFrameFromNative(
                       updates_restore_geometry);
 }
 
+void UiDesktopWindowPresenter::SubmitScreenFromNative(
+    std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height) {
+  if (model_proxy == nullptr) { return; }
+  model_proxy->Invoke(desktop_window()->obj_id,
+                      &UiDesktopWindow::SubmitScreenFromNative,
+                      x, y, width, height);
+}
+
 bool UiListContainerPresenter::ReadyForPresentation() const {
   return window_presenter->presentation_loaded;
 }
@@ -59,9 +67,6 @@ std::string UiListContainerPresenter::ResolveListRowPrimaryText(
 
 std::vector<std::string> UiListContainerPresenter::ResolveListRowPrimaryTexts(
     int language_index) const {
-  if (!container.is_valid()) {
-    return {};
-  }
   container.Load();
   return ResolvePresentedListRowPrimaryTexts(*container, language_index);
 }

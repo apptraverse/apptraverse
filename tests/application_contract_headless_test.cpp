@@ -350,11 +350,13 @@ struct ContractHarness {
     InitializeRuntimeNode(*model_root);
     model_root->locale = ui::UiLocaleSettings::ptr::Create(
         ae::CreateWith{model_domain}.with_id(kLocaleId));
+    model_root->locale->BootstrapLanguageIndex(0);
     InitializeRuntimeNode(*model_root->locale, *model_root);
     model_root->localized_title = BuildLazyTitle(
         model_domain, kTitleId, en_string_id, ru_string_id, *model_root);
     model_root->presented_window = ContractWindow::ptr::Create(
         ae::CreateWith{model_domain}.with_id(kWindowId));
+    model_root->presented_window->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
     auto headless_presenter = HeadlessDesktopWindowPresenter::ptr::Create(
         ae::CreateWith{model_domain}.with_id(kPresenterId));
     ui::ComposePresentedWindow(model_root->presented_window, headless_presenter,
@@ -465,12 +467,14 @@ void TestPresentedWindowDistilledBaseReplay() {
   InitializeRuntimeNode(*root);
   root->locale = ui::UiLocaleSettings::ptr::Create(
       ae::CreateWith{domain}.with_id(kLocaleId));
+  root->locale->BootstrapLanguageIndex(0);
   InitializeRuntimeNode(*root->locale, *root);
   root->localized_title =
       BuildLazyTitle(domain, kTitleId, en_string_id, ru_string_id, *root);
 
   auto window = ContractWindow::ptr::Create(
       ae::CreateWith{domain}.with_id(kWindowId));
+  window->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
   auto presenter = HeadlessDesktopWindowPresenter::ptr::Create(
       ae::CreateWith{domain}.with_id(kPresenterId));
   ui::ComposePresentedWindow(window, presenter, root->localized_title,

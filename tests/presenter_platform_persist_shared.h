@@ -97,6 +97,7 @@ inline int RunSaveBackend(std::filesystem::path const& state_dir) {
   InitializeRuntimeNode(*root);
   root->window = ui::UiDesktopWindow::ptr::Create(
       ae::CreateWith{domain}.with_id(kWindowId));
+  root->window->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
   InitializeRuntimeNode(*root->window, *root);
   auto presenter = SaveBackendDesktopWindowPresenter::ptr::Create(
       ae::CreateWith{domain}.with_id(kPresenterId));

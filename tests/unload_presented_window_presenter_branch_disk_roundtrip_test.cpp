@@ -105,12 +105,14 @@ void BootstrapUserProfile(std::filesystem::path const& user_dir) {
       ae::CreateWith{domain}.with_id(kPresenterId));
   auto locale = ui::UiLocaleSettings::ptr::Create(
       ae::CreateWith{domain}.with_id(kLocaleId));
+  locale->BootstrapLanguageIndex(0);
   InitializeRuntimeNode(*locale, *root);
 
   auto title = BuildTitleOnPresenterOnly(domain, *root);
 
   root->presented_window = ui::UiDesktopWindow::ptr::Create(
       ae::CreateWith{domain}.with_id(kWindowId));
+  root->presented_window->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
   ui::ComposePresentedWindow(root->presented_window, presenter, title, locale);
   InitializeRuntimeNode(*root->presented_window, *root);
 
@@ -246,8 +248,10 @@ void TestAncestorPresenterKeepsStorageOwner() {
     title->strings = {text};
     auto locale = ui::UiLocaleSettings::ptr::Create(
         ae::CreateWith{parent}.with_id(kLocaleId));
+    locale->BootstrapLanguageIndex(0);
     auto window = ui::UiDesktopWindow::ptr::Create(
         ae::CreateWith{child}.with_id(kWindowId));
+    window->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
     ui::ComposePresentedWindow(window, presenter, title, locale);
     ui::UnloadPresentedWindow(window);
     CHECK(!window.is_loaded());

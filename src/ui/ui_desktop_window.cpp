@@ -36,6 +36,10 @@ void UiDesktopWindow::ApplyLiveClientSize(std::int32_t width,
 }
 
 void UiDesktopWindow::Apply(SetUiDesktopWindowFrameEvent const& event) {
+  if (!HasExplicitPosition()) {
+    placement_ = InitialPlacement::Explicit;
+    NoteMaterializedChange();
+  }
   ApplyRestoreFrameGeometry(event.x, event.y, event.client_width,
                             event.client_height);
   ApplyLiveClientSize(event.client_width, event.client_height);
@@ -44,6 +48,10 @@ void UiDesktopWindow::Apply(SetUiDesktopWindowFrameEvent const& event) {
 void UiDesktopWindow::Apply(
     ReportUiDesktopWindowFrameFromNativeEvent const& event) {
   if (event.updates_restore_geometry) {
+    if (placement_ == InitialPlacement::OperatingSystem) {
+      placement_ = InitialPlacement::Explicit;
+      NoteMaterializedChange();
+    }
     ApplyRestoreFrameGeometry(event.x, event.y, event.client_width,
                               event.client_height);
   }
@@ -51,6 +59,8 @@ void UiDesktopWindow::Apply(
 }
 
 void UiDesktopWindow::Apply(RequestUiDesktopWindowFrameEvent const& event) {
+  placement_ = InitialPlacement::Explicit;
+  NoteMaterializedChange();
   ApplyRestoreFrameGeometry(event.x, event.y, event.client_width,
                             event.client_height);
   ApplyLiveClientSize(event.client_width, event.client_height);
@@ -67,7 +77,7 @@ void UiDesktopWindow::SubmitFrameFromNative(std::int32_t x, std::int32_t y,
       !updates_restore_geometry ||
       (x_ == x && y_ == y && restore_client_width_ == client_width &&
        restore_client_height_ == client_height);
-  if (live_unchanged && restore_unchanged) {
+  if (live_unchanged && restore_unchanged && HasExplicitPosition()) {
     return;
   }
   auto event = ReportUiDesktopWindowFrameFromNativeEvent::ptr::Create(
@@ -83,7 +93,7 @@ void UiDesktopWindow::SubmitFrameFromNative(std::int32_t x, std::int32_t y,
 void UiDesktopWindow::RequestFrame(std::int32_t x, std::int32_t y,
                                    std::int32_t client_width,
                                    std::int32_t client_height) {
-  if (x_ == x && y_ == y && restore_client_width_ == client_width &&
+  if (HasExplicitPosition() && x_ == x && y_ == y && restore_client_width_ == client_width &&
       restore_client_height_ == client_height &&
       this->client_width() == client_width &&
       this->client_height() == client_height) {
@@ -97,6 +107,28 @@ void UiDesktopWindow::RequestFrame(std::int32_t x, std::int32_t y,
   event->client_height = client_height;
   Commit(std::move(event));
   frame_request_pending_publication_ = true;
+}
+
+void UiDesktopWindow::Apply(ReportUiDesktopScreenEvent const& event) {
+  // The backend reports measurements; placement policy belongs to the model.
+  if (placement_ == InitialPlacement::Centered) {
+    ApplyRestoreFrameGeometry(event.x + (event.width - restore_client_width_) / 2,
+                              event.y + (event.height - restore_client_height_) / 2,
+                              restore_client_width_, restore_client_height_);
+    placement_ = InitialPlacement::Explicit;
+    NoteMaterializedChange();
+    frame_request_pending_publication_ = true;
+  }
+}
+
+void UiDesktopWindow::SubmitScreenFromNative(std::int32_t x, std::int32_t y,
+                                             std::int32_t width, std::int32_t height) {
+  auto event = ReportUiDesktopScreenEvent::ptr::Create(ae::CreateWith{*domain});
+  event->x = x;
+  event->y = y;
+  event->width = width;
+  event->height = height;
+  Commit(std::move(event));
 }
 
 }  // namespace apptraverse::ui

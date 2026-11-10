@@ -46,12 +46,14 @@ MinimalWindowPanelGraph ComposeMinimalWindowPanel(
   MinimalWindowPanelGraph panel;
   panel.window = ui::UiDesktopWindow::ptr::Create(
       ae::CreateWith{domain}.with_id(ids.window_id));
+  panel.window->BootstrapFrame(100, 100, 800, 600);
   panel.window_presenter = factories.create_window(domain, ids.window_presenter_id);
   ui::ComposePresentedWindow(panel.window, panel.window_presenter, title, locale);
   InitializeRuntimeNode(*panel.window, parent);
 
   panel.apply_button = MinimalApplyButton::ptr::Create(
       ae::CreateWith{domain}.with_id(ids.apply_button_id));
+  panel.apply_button->BootstrapSetEnabled(true);
   auto apply_label = MakeMinimalLabel(domain, "Apply");
   InitializeRuntimeNode(*apply_label, *panel.apply_button);
   panel.apply_button->label = apply_label;
@@ -59,6 +61,7 @@ MinimalWindowPanelGraph ComposeMinimalWindowPanel(
 
   panel.row_list = MinimalAppList::ptr::Create(
       ae::CreateWith{domain}.with_id(ids.row_list_id));
+  panel.row_list->selection_index = -1;
   panel.row_list->selection_index = -1;
   InitializeRuntimeNode(*panel.row_list, *panel.window);
   {
@@ -124,6 +127,7 @@ MinimalApplication::ptr BuildMinimalApplicationGraph(
 
   auto locale = ui::UiLocaleSettings::ptr::Create(
       ae::CreateWith{domain}.with_id(MinimalLocaleId()));
+  locale->BootstrapLanguageIndex(0);
   InitializeRuntimeNode(*locale, *application);
 
   auto title_str = ui::UiString::ptr::Create(ae::CreateWith{domain});
@@ -154,6 +158,7 @@ MinimalApplication::ptr BuildMinimalApplicationGraph(
 
   application->auxiliary_opener = MinimalAuxiliaryOpenerButton::ptr::Create(
       ae::CreateWith{domain}.with_id(MinimalAuxiliaryOpenerId()));
+  application->auxiliary_opener->BootstrapSetEnabled(true);
   auto opener_label = MakeMinimalLabel(domain, "Open Detail");
   InitializeRuntimeNode(*opener_label, *application->auxiliary_opener);
   application->auxiliary_opener->label = opener_label;
@@ -202,6 +207,7 @@ MinimalApplication::ptr BuildMinimalApplicationGraph(
 
   application->auxiliary.closer = MinimalAuxiliaryCloserButton::ptr::Create(
       ae::CreateWith{domain}.with_id(MinimalAuxiliaryCloserId()));
+  application->auxiliary.closer->BootstrapSetEnabled(true);
   auto closer_label = MakeMinimalLabel(domain, "Close Detail");
   InitializeRuntimeNode(*closer_label, *application->auxiliary.closer);
   application->auxiliary.closer->label = closer_label;

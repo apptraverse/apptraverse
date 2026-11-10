@@ -738,7 +738,7 @@ CloneCanonicalResult CloneCanonicalRoot(ae::Domain& source, ae::Obj& source_root
 
   ae::RamDomainStorage snapshot;
   std::set<ae::ObjId> copy_set;
-  std::set<ae::ObjId> boundary_ids = options.boundary_ids;
+  std::set<ae::ObjId> boundary_ids;
   if (!BuildCanonicalSnapshot(source, source_root, options, snapshot,
                               copy_set, boundary_ids)) {
     return Fail(CloneError::kUnsupportedGraph);

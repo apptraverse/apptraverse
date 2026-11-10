@@ -90,12 +90,14 @@ void ProbeA_FactorySelection() {
   ae::Domain domain{storage};
 
   auto locale = ui::UiLocaleSettings::ptr::Create(ae::CreateWith{domain});
+  locale->BootstrapLanguageIndex(0);
   auto host =
       example::surfaces::SurfacesDemoSurfaceWindowHostPresenter::ptr::Create(
           ae::CreateWith{domain});
   host->locale = locale;
 
   auto win_button = ui::UiPushButton::ptr::Create(ae::CreateWith{domain});
+  win_button->BootstrapSetEnabled(true);
   auto layout_button =
       example::surfaces::SurfacesDemoLanguageButton::ptr::Create(
           ae::CreateWith{domain});

@@ -1,3 +1,4 @@
+#include "window_title_fixture.h"
 #if !defined(_WIN32)
 int main() { return 0; }
 #else
@@ -110,9 +111,11 @@ struct E2EHarness {
     InitializeRuntimeNode(*model_root);
     model_root->window = ui::UiDesktopWindow::ptr::Create(
         ae::CreateWith{model_domain}.with_id(kWindowId));
+    model_root->window->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
     InitializeRuntimeNode(*model_root->window, *model_root);
     model_root->locale = ui::UiLocaleSettings::ptr::Create(
         ae::CreateWith{model_domain}.with_id(kLocaleId));
+    model_root->locale->BootstrapLanguageIndex(0);
     InitializeRuntimeNode(*model_root->locale, *model_root);
 
     auto ui_obj = CopyModelGraphToUiDomain(*model_root, ui_domain, ui_storage);
@@ -122,6 +125,7 @@ struct E2EHarness {
         ui::windows::WinDesktopWindowPresenter::ptr::Create(
             ae::CreateWith{ui_domain}.with_id(kPresenterId));
     ui_root->window_presenter->window = ui_root->window;
+  apptraverse::test::BuildEmptyWindowTitle(*ui_root->window_presenter);
     ui_root->window_presenter->locale = ui_root->locale;
 
     InitializePresenters(*ui_root, nullptr, &model_proxy);

@@ -69,6 +69,8 @@ void RunUiBitmapPublicationTest() {
   InitializeRuntimeNode(*root);
   root->bitmap = ui::UiBitmapImage::ptr::Create(
       ae::CreateWith{model_domain}.with_id(kBitmapId));
+  root->bitmap->width = 0;
+  root->bitmap->height = 0;
   InitializeRuntimeNode(*root->bitmap, *root);
   root->bitmap->width = 2;
   root->bitmap->height = 2;

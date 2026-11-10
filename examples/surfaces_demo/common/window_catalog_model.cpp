@@ -44,54 +44,12 @@ ae::ObjId const kWindowPrefabCloseButtonId{window_catalog_demo::ToObjId(
 ae::ObjId const kWindowPrefabCloseButtonPresenterId{
     window_catalog_demo::ToObjId(
         window_catalog_demo::ObjId::WindowPrefabCloseButtonPresenter)};
-void RestoreUnloadedWindowPrefabLink(WindowCatalog& catalog) {
-  ae::ObjId const prefab_id = catalog.persisted.window_prefab.id();
-  catalog.persisted.window_prefab.Reset();
-  if (!prefab_id.is_valid()) {
-    return;
-  }
-  catalog.persisted.window_prefab = CatalogWindow::ptr::Declare(
-      ae::CreateWith{*catalog.domain}
-          .with_id(prefab_id)
-          .with_flags(kLazyPrefabLinkFlags));
-}
 ui::UiPresentedWindow& Presented(CatalogWindow& window) {
   return static_cast<ui::UiPresentedWindow&>(window);
 }
 ui::UiPresentedWindow const& Presented(CatalogWindow const& window) {
   return static_cast<ui::UiPresentedWindow const&>(window);
 }
-void EvictTransientPrefabObjects(ae::Domain& domain,
-                                 CatalogWindow& prefab_window) {
-  ui::UiPresentedWindow& presented = Presented(prefab_window);
-  ae::Obj* presenter_obj = nullptr;
-  if (presented.presenter.is_valid()) {
-    ae::Ptr<ae::Obj> const presenter_loaded = presented.presenter.Load();
-    if (presenter_loaded) {
-      presenter_obj = presenter_loaded.get();
-    }
-  }
-  // Mobile prefab graph also owns the Close button and its presenter.
-  ae::Ptr<ae::Obj> close_button_keepalive;
-  if (prefab_window.close_button.is_valid()) {
-    close_button_keepalive = prefab_window.close_button.Load();
-  }
-  ae::Ptr<ae::Obj> close_presenter_keepalive;
-  if (prefab_window.close_button_presenter.is_valid()) {
-    close_presenter_keepalive = prefab_window.close_button_presenter.Load();
-  }
-  domain.RemoveObject(&prefab_window);
-  if (presenter_obj != nullptr) {
-    domain.RemoveObject(presenter_obj);
-  }
-  if (close_button_keepalive) {
-    domain.RemoveObject(close_button_keepalive.get());
-  }
-  if (close_presenter_keepalive) {
-    domain.RemoveObject(close_presenter_keepalive.get());
-  }
-}
-
 // Points the window-owned Close button graph at this window: close_button ->
 // {catalog, window}, close_button_presenter -> window presenter.
 void WireWindowCloseButton(WindowCatalog& catalog, CatalogWindow& window) {
@@ -174,18 +132,6 @@ void RestoreLoadedCatalogWindows(WindowCatalog& catalog) {
     LoadWindowCloseButton(catalog, *holder.window);
     BindLiveWindowNotifiers(catalog, *holder.window);
   }
-}
-void AssignInitialCatalogWindowBounds(CatalogWindow& window,
-                                      std::uint32_t number) {
-  constexpr std::int32_t kWidth = 480;
-  constexpr std::int32_t kHeight = 320;
-  constexpr std::int32_t kBaseX = 160;
-  constexpr std::int32_t kBaseY = 120;
-  constexpr std::int32_t kCascade = 28;
-  std::int32_t const offset =
-      static_cast<std::int32_t>((number > 0 ? number - 1 : 0) * kCascade);
-  window.SubmitFrameFromNative(kBaseX + offset, kBaseY + offset, kWidth,
-                               kHeight, true);
 }
 bool WindowCatalog::CanApply(AddWindowCatalogEntryEvent const& event) const {
   if (!event.holder.is_valid() || !persisted.list) {
@@ -676,21 +622,21 @@ void WindowCatalog::AddWindow() {
   ae::Domain& domain = *persisted.list->domain;
   std::uint32_t const number = persisted.next_window_number;
   auto holder = WindowHolder::ptr::Create(ae::CreateWith{domain});
-  InitializeRuntimeNode(*holder, *this);
   holder->window_number = number;
+  InitializeRuntimeNode(*holder, *this);
   holder->primary_text = persisted.texts.list_row_title_format;
   holder->delete_button = {};
-  ae::DomainGraph load_graph{&domain};
+  // Materialize the prefab in a short-lived child domain. Its ordinary graph
+  // ownership releases the whole source subgraph after cloning.
+  ae::Domain prefab_domain{domain.domain_storage()};
+  prefab_domain.set_parent_domain(&domain);
+  ae::DomainGraph load_graph{&prefab_domain};
   ae::Ptr<ae::Obj> prefab_root;
-  if (persisted.window_prefab.is_loaded()) {
-    prefab_root = domain.Find(persisted.window_prefab.id());
-  } else {
-    ae::seri::SeriResult const load_result =
-        load_graph.LoadRoot(persisted.window_prefab.id(), prefab_root);
-    if (load_result.IsErr() || !prefab_root) {
-      WriteFatalStderr("fatal: LoadRoot window prefab failed\n");
-      std::abort();
-    }
+  auto const load_result =
+      load_graph.LoadRoot(persisted.window_prefab.id(), prefab_root);
+  if (load_result.IsErr() || !prefab_root) {
+    WriteFatalStderr("fatal: LoadRoot window prefab failed\n");
+    std::abort();
   }
   apptraverse::CloneOptions clone_options{};
   clone_options.stable_origin = kWindowPrefabId;
@@ -707,18 +653,15 @@ void WindowCatalog::AddWindow() {
 
   }
   apptraverse::CloneCanonicalResult const cloned =
-      apptraverse::CloneCanonicalRoot(domain, *prefab_root, domain,
+      apptraverse::CloneCanonicalRoot(prefab_domain, *prefab_root, domain,
                                       clone_options);
   if (!cloned) {
     WriteFatalStderr("fatal: CloneCanonicalRoot catalog window failed\n");
     std::abort();
   }
-  EvictTransientPrefabObjects(domain, prefab_window);
-  RestoreUnloadedWindowPrefabLink(*this);
   ae::Ptr<CatalogWindow> window_body{ae::Ptr<ae::Obj>{cloned.root.Load()}};
   CatalogWindow::ptr window =
       CatalogWindow::ptr::MakeFromThis(window_body.get());
-  AssignInitialCatalogWindowBounds(*window_body, number);
   holder->window = window;
   holder->window.SetFlags(SetUnloadedDefault(holder->window.flags()));
   Presented(*window_body).presenter.SetFlags(

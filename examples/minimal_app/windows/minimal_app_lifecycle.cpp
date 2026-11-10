@@ -42,7 +42,7 @@ bool UserProfilePresent(std::filesystem::path const& state_dir) {
 }
 
 ApplicationModelSessionHooks<MinimalApplication> MakeSessionHooks(
-    SingleFileUserStorage& durable_storage, bool normalize_loaded_user) {
+    ae::RamDomainStorage& durable_storage, std::filesystem::path state_dir, bool normalize_loaded_user) {
   ApplicationModelSessionHooks<MinimalApplication> hooks;
   hooks.prepare = [normalize_loaded_user](MinimalApplication& application) {
     PrepareMinimalApplicationForRun(application);
@@ -50,9 +50,9 @@ ApplicationModelSessionHooks<MinimalApplication> MakeSessionHooks(
       NormalizeMinimalApplicationAfterEmbeddedUserLoad(application);
     }
   };
-  hooks.persist = [&durable_storage](MinimalApplication& application) -> int {
+  hooks.persist = [&durable_storage, state_dir](MinimalApplication& application) -> int {
     int const result = SaveMinimalApplicationEmbeddedUserState(application);
-    return result != 0 || !durable_storage.SaveFile() ? 1 : 0;
+    return result != 0 || !SaveUserStorageFile(durable_storage, state_dir) ? 1 : 0;
   };
   return hooks;
 }
@@ -69,8 +69,8 @@ int RunMinimalApplicationModel(
   ui::windows::EnsureWinUiPresenterRegistration();
   EnsureMinimalApplicationRegistration();
 
-  SingleFileUserStorage durable_storage{state_dir};
-  if (!durable_storage.LoadFile()) {
+  ae::RamDomainStorage durable_storage;
+  if (!LoadUserStorageFile(durable_storage, state_dir)) {
     WriteFatalStderr("fatal: cannot load MinimalApp USER file\n");
     return 1;
   }
@@ -78,14 +78,14 @@ int RunMinimalApplicationModel(
 
 #if defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
   ApplicationModelSessionHooks<MinimalApplication> hooks =
-      MakeSessionHooks(durable_storage, user_profile_present);
+      MakeSessionHooks(durable_storage, state_dir, user_profile_present);
   (void)allow_distilled_bootstrap;
   return RunEmbeddedApplicationModelSession(
       durable_storage, embedded_distilled::minimal::kEmbeddedGraph, runtime,
       std::move(on_published), hooks);
 #else
   ApplicationModelSessionHooks<MinimalApplication> hooks =
-      MakeSessionHooks(durable_storage, false);
+      MakeSessionHooks(durable_storage, state_dir, false);
 #if defined(APPTRAVERSE_ENABLE_DISTILLATION) && \
     !defined(APPTRAVERSE_MINIMAL_APP_LOAD_ONLY)
   if (allow_distilled_bootstrap) {
