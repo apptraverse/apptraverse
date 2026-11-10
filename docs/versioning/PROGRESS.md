@@ -1,5 +1,18 @@
 # AppTraverse — прогресс версионирования поставок
 
+## Automatic clone boundaries, Debug preparation and Close — 2026-11-10 — PASS
+
+Branch: `feature/domain-hierarchy-cloning`, follow-up to `166631a`. The final implementation and tests are recorded in [English validation](../validation/window-catalog-automatic-cloning-2026-11-10.md).
+
+- WindowCatalog no longer supplies `boundary_ids`. Explicit roots copy; parent-domain and semantic constant references remain shared. Common persistent scope metadata retains this partition after cold load, including nested scopes.
+- Corrected temporary-domain storage shadowing and relocation of serialized raw ObjPtr fields absent from reflection. Regression tests cover live/cold lazy external references, private internal ownership, exact flags, no eager parent Load and zero runtime USER Store.
+- Normal Debug regenerates the initial graph and uses a fresh USER each launch. Windows standalone catalog exporter removed; MinSizeRel embeds Debug-prepared supply and retains ordinary USER restore behavior. Separate object/layer files remain the disk format.
+- Close uses shared save traversal and cheaper directory preparation. Private presenter state, lazy window links and ancestor storage ownership remain verified.
+- Fresh **26/26 patch chain PASS**; **84/84 Debug CTest entries PASS** including Close timing; **4/4 targeted MinSizeRel tests PASS**. Assertions remain enabled in Debug, `AE_NO_DEBUG_LOG=ON`.
+- Final Close HWND destruction medians, 5 repetitions each: **400 / 505 / 550 / 171 ms** (cold / burst / stable geometry / saved). Main exit 125–190 ms. Final model-only disk/RAM controls: 316/4 ms cold, 523/7 ms burst. Individual file commits remain the primary cost; no claim of instantaneous Close.
+
+Full logs, fixed-supply A/B, final supply hash, exact test list and deferred scope are linked in the validation record. No source changes followed final acceptance. Adaptive WIP was not modified.
+
 ## Domain hierarchy cloning and persistence boundaries — 2026-11-10 — PASS
 
 Branch: `feature/domain-hierarchy-cloning`; completion work started from `580f36d7ddffd995d61eb026d1bca010d11582c7`. This entry supersedes the earlier session-overlay and partial hierarchy acceptance notes for this branch. Adaptive WIP was not modified.

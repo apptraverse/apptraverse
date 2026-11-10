@@ -23,11 +23,20 @@ struct EmbeddedDistilledSupply {
   std::size_t count{};
 };
 
+struct EmbeddedObjectScopeRecord {
+  ae::ObjId::Type object_id{};
+  ae::ObjId::Type scope_root_id{};
+  ae::ObjId::Type parent_scope_root_id{};
+  bool is_constant{false};
+};
+
 struct EmbeddedDistilledGraph {
   ae::ObjId::Type root_object_id{};
   EmbeddedDistilledSupply supply_constant_ids{};
   EmbeddedDistilledLayerRecord const* layers{};
   std::size_t layer_count{};
+  EmbeddedObjectScopeRecord const* object_scopes{};
+  std::size_t object_scope_count{};
 };
 
 void InstallEmbeddedDistilledBacking(ae::RamDomainStorage& backing,

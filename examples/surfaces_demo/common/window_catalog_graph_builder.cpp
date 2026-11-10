@@ -141,18 +141,21 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   ae::ObjFlags const lazy_prefab_flags =
       ae::ObjFlags::kUnloadedByDefault | ae::ObjFlags::kUnloaded;
 
+  ae::Domain prefab_domain{domain.domain_storage()};
+  prefab_domain.set_parent_domain(&domain);
+  prefab_domain.SetObjectScope(window_prefab_id);
   auto window_prefab = CatalogWindow::ptr::Create(
-      ae::CreateWith{domain}.with_id(window_prefab_id));
+      ae::CreateWith{prefab_domain}.with_id(window_prefab_id));
   ae::Ptr<CatalogWindow> window_prefab_body = window_prefab.Load();
   auto prefab_frame = ui::SetUiDesktopWindowFrameEvent::ptr::Create(
-      ae::CreateWith{domain});
+      ae::CreateWith{prefab_domain});
   prefab_frame->x = kPrefabFrameX;
   prefab_frame->y = kPrefabFrameY;
   prefab_frame->client_width = kPrefabClientWidth;
   prefab_frame->client_height = kPrefabClientHeight;
   window_prefab_body->Apply(*prefab_frame);
   ui::UiDesktopWindowPresenter::ptr window_prefab_presenter =
-      factory.create_window(domain, ae::ObjId{window_prefab_presenter_id},
+      factory.create_window(prefab_domain, ae::ObjId{window_prefab_presenter_id},
                             catalog);
   ui::ComposePresentedWindow(window_prefab, window_prefab_presenter,
                              catalog->persisted.texts.window_title_prefix,
@@ -160,12 +163,12 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   InitializeRuntimeNode(*window_prefab_body, *catalog);
 
   if (options.mobile_close_in_prefab) {
-    AppendMobileCloseButtonToWindowPrefab(domain, *catalog, window_prefab,
+    AppendMobileCloseButtonToWindowPrefab(prefab_domain, *catalog, window_prefab,
                                           window_prefab_presenter, factory,
                                           kPrefabClientHeight);
   }
 
-  ae::DomainGraph distill_save{&domain};
+  ae::DomainGraph distill_save{&prefab_domain};
   ae::Ptr<ui::UiDesktopWindowPresenter> window_prefab_presenter_body =
       window_prefab_presenter.Load();
   if (!distill_save.SaveRoot(window_prefab_body, window_prefab_id).IsOk() ||
@@ -187,13 +190,13 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   if (window_prefab_body->close_button_presenter.is_valid()) {
     close_presenter_body = window_prefab_body->close_button_presenter.Load();
   }
-  domain.RemoveObject(window_prefab_body.get());
-  domain.RemoveObject(window_prefab_presenter_body.get());
+  prefab_domain.RemoveObject(window_prefab_body.get());
+  prefab_domain.RemoveObject(window_prefab_presenter_body.get());
   if (close_button_body) {
-    domain.RemoveObject(close_button_body.get());
+    prefab_domain.RemoveObject(close_button_body.get());
   }
   if (close_presenter_body) {
-    domain.RemoveObject(close_presenter_body.get());
+    prefab_domain.RemoveObject(close_presenter_body.get());
   }
 
   InitializeRuntimeNode(*add_button, *catalog);

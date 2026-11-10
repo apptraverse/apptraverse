@@ -1,0 +1,22 @@
+--- a/src/aether-objects/obj/domain.cpp
++++ b/src/aether-objects/obj/domain.cpp
+@@ -43,9 +43,17 @@
+   if (!obj_id.is_valid()) {
+     return Error{seri::read_error};
+   }
+-  // if already loaded
+-  if (ptr = domain->Find(obj_id); ptr) {
++  if (ptr = domain->FindLocal(obj_id); ptr) {
+     return Ok{seri::good};
++  }
++  // A cold local object shadows an already-loaded ancestor with the same ID.
++  // Use the explicit snapshot namespace when hydration redirects layer reads.
++  auto& lookup_storage = load_storage_ != nullptr
++                             ? *load_storage_ : domain->domain_storage();
++  if (lookup_storage.Enumerate(obj_id).empty()) {
++    if (ptr = domain->Find(obj_id); ptr) {
++      return Ok{seri::good};
++    }
+   }
+ 
+   auto* factory = domain->GetMostRelatedFactory(obj_id);

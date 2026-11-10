@@ -97,13 +97,23 @@ bool UserDirectoryHasObjectBody(std::filesystem::path const& user_root,
   return false;
 }
 
-void ExpectSupplyConstantsForPrefab(OverlayDomainStorage const& overlay) {
+void ExpectCopyablePrefabScope(OverlayDomainStorage const& overlay) {
   std::set<ae::ObjId> const supply_ids = EmbeddedSupplyConstantIdSet(
       embedded_distilled::window_catalog::kEmbeddedGraph);
-  CHECK(supply_ids.count(kWindowPrefabId) == 1);
-  CHECK(supply_ids.count(kWindowPrefabPresenterId) == 1);
-  CHECK(overlay.IsSupplyConstant(kWindowPrefabId));
-  CHECK(overlay.IsSupplyConstant(kWindowPrefabPresenterId));
+  // Templates are stored in read-only BACKING, but are copyable objects.
+  // Shared localization resources have independent immutable semantics.
+  CHECK(supply_ids.count(kWindowPrefabId) == 0);
+  CHECK(supply_ids.count(kWindowPrefabPresenterId) == 0);
+  CHECK(!overlay.IsSupplyConstant(kWindowPrefabId));
+  CHECK(!overlay.IsSupplyConstant(kWindowPrefabPresenterId));
+  CHECK(!overlay.IsConstantObject(kWindowPrefabId));
+  CHECK(!overlay.IsConstantObject(kWindowPrefabPresenterId));
+  auto window_scope = overlay.ReadObjectScope(kWindowPrefabId);
+  auto presenter_scope = overlay.ReadObjectScope(kWindowPrefabPresenterId);
+  CHECK(window_scope.has_value());
+  CHECK(presenter_scope == window_scope);
+  CHECK(window_scope->root_id == kWindowPrefabId);
+  CHECK(!window_scope->parent_root_id.is_valid());
 }
 
 void ExpectPrefabLayersInBacking(ae::RamDomainStorage const& backing) {
@@ -147,7 +157,7 @@ void TestColdLoadEmptyUserFromEmbeddedBacking() {
       user_storage, backing,
       EmbeddedSupplyConstantIdSet(
           embedded_distilled::window_catalog::kEmbeddedGraph)};
-  ExpectSupplyConstantsForPrefab(overlay);
+  ExpectCopyablePrefabScope(overlay);
 
   ae::Domain domain{overlay};
 
@@ -179,7 +189,7 @@ void TestUserOverlayPersistsAddWindow() {
       user_storage, backing,
       EmbeddedSupplyConstantIdSet(
           embedded_distilled::window_catalog::kEmbeddedGraph)};
-  ExpectSupplyConstantsForPrefab(overlay);
+  ExpectCopyablePrefabScope(overlay);
 
   ae::ObjId holder_id;
   ae::ObjId first_window_id;
@@ -198,6 +208,10 @@ void TestUserOverlayPersistsAddWindow() {
     auto presenter = LoadCatalogWindowPresenter(*holder->window);
     CHECK(presenter.id() != kWindowPrefabPresenterId);
     CHECK(presenter->origin_id() == kWindowPrefabPresenterId);
+    CHECK(holder->window->object_scope().root_id == first_window_id);
+    CHECK(presenter->object_scope().root_id == first_window_id);
+    CHECK(!presenter->object_scope().is_constant);
+    CHECK(presenter->locale.id() == catalog->persisted.locale.id());
     CHECK(!catalog->persisted.window_prefab.is_loaded());
     catalog->CloseHolderWindow(*holder);
     catalog->persisted.locale.Load();

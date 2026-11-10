@@ -81,11 +81,36 @@ CloneCanonicalResult Fail(CloneError error,
 
 using CloneRemap = ae::DomainGraph::CloneSaveRemapTable;
 
+struct CloneReferenceRebindContext {
+  ae::Domain* target;
+  std::set<ae::ObjId> const* copied_ids;
+  bool* ok;
+};
+
+void RebindSerializedCloneReference(void* context, ae::ObjectPtrBase& reference) {
+  auto& state = *static_cast<CloneReferenceRebindContext*>(context);
+  if (!reference.is_valid()) { return; }
+  ae::ObjId const id = reference.id();
+  ae::Ptr<ae::Obj> retained;
+  // Copied lazy children need owning edges because no USER layers exist yet.
+  // External lazy references keep their lazy state and never trigger loading.
+  if (state.copied_ids->count(id) != 0 || reference.is_loaded()) {
+    retained = state.target->Find(id);
+    if (!retained) {
+      *state.ok = false;
+      return;
+    }
+  }
+  reference = ae::ObjectPtrBase{state.target, id, reference.flags(),
+                                std::move(retained)};
+}
+
 bool RemapSingleLiveObjectInPlace(
     ae::Domain& target, ae::Ptr<ae::Obj> const& canonical,
     ae::ObjId const object_id, std::map<ae::ObjId, ae::ObjId> const& id_remap,
     std::map<ae::ObjId, ae::Ptr<ae::Obj>> const& live_registry,
-    detail::OperationMode mode = detail::OperationMode::kRemap) {
+    detail::OperationMode mode = detail::OperationMode::kRemap,
+    std::set<ae::ObjId> const* copied_ids = nullptr) {
   bool remap_ok = true;
   detail::OperationStorage remap_storage{
       mode,
@@ -98,6 +123,11 @@ bool RemapSingleLiveObjectInPlace(
       &remap_ok};
   ae::Domain remap_domain{remap_storage};
   ae::DomainGraph remap_graph{&remap_domain};
+  CloneReferenceRebindContext references{&target, copied_ids, &remap_ok};
+  if (mode == detail::OperationMode::kCloneRebind) {
+    if (copied_ids == nullptr) { return false; }
+    remap_graph.SetObjectReferenceVisitor(&references, RebindSerializedCloneReference);
+  }
   CloneRemap traverse_remap;
   if (mode != detail::OperationMode::kCloneRebind) {
     for (auto const& [old_id, new_id] : id_remap) {
@@ -119,9 +149,11 @@ bool RebindCloneGraphOnTarget(
     std::set<ae::ObjId> const& boundary_ids) {
   std::map<ae::ObjId, ae::ObjId> identity_remap;
   std::map<ae::ObjId, ae::Ptr<ae::Obj>> live_registry;
+  std::set<ae::ObjId> copied_ids;
   for (ae::Ptr<ae::Obj> const& obj : cloned_locals) {
     identity_remap[obj->obj_id] = obj->obj_id;
     live_registry[obj->obj_id] = obj;
+    copied_ids.insert(obj->obj_id);
   }
   for (ae::ObjId const boundary_id : boundary_ids) {
     // Even an unloaded boundary must be rebound to the persistent target domain.
@@ -131,24 +163,11 @@ bool RebindCloneGraphOnTarget(
     }
   }
   for (ae::Ptr<ae::Obj> const& obj : cloned_locals) {
-    // Serialization remaps ObjectLink, but plain lazy ObjPtr fields otherwise
-    // retain the child-domain address. Bind every persistent edge while all
-    // copied objects are still held, preserving its on-disk lazy flags.
-    bool edges_ok = true;
-    ForEachGraphEdgeObjPtrOnObject(*obj, [&](ae::ObjectPtrBase& edge) {
-      if (!edge.is_valid()) { return; }
-      ae::ObjId const id = edge.id();
-      ae::Ptr<ae::Obj> resolved = target.Find(id);
-      if (!resolved && edge.is_loaded()) {
-        edges_ok = false;
-        return;
-      }
-      edge = ae::ObjectPtrBase{&target, id, edge.flags(), std::move(resolved)};
-    });
-    if (!edges_ok) { return false; }
+    // Walk serialization once: raw ObjPtr fields need relocation even when
+    // the class deliberately omits them from its reflection declaration.
     if (!RemapSingleLiveObjectInPlace(
             target, obj, obj->obj_id, identity_remap, live_registry,
-            detail::OperationMode::kCloneRebind)) {
+            detail::OperationMode::kCloneRebind, &copied_ids)) {
       return false;
     }
   }
@@ -245,17 +264,71 @@ ae::ObjId AllocateCloneObjId(ae::ObjId::Type source_root,
 struct CloneReferenceQueueContext {
   std::deque<ae::ObjId>* queue;
   std::set<ae::ObjId::Type>* seen;
-  std::set<ae::ObjId> const* boundary_ids;
+  std::set<ae::ObjId>* boundary_ids;
+  ae::Domain* source;
+  ae::ObjId root_id;
+  ae::ObjectScope source_scope;
   ae::ObjId stable_origin;
   ae::ObjId const* current_origin;
 };
+
+struct CloneReferenceOwner {
+  ae::Domain* domain{};
+  ae::ObjectScope scope{};
+};
+
+CloneReferenceOwner FindCloneReferenceOwner(ae::Domain& source, ae::ObjId id) {
+  // Check storage ownership as well as the weak live registry. Loading a
+  // referent must not change whether it belongs to the copied subgraph.
+  for (ae::Domain* current = &source; current != nullptr;
+       current = current->parent_domain()) {
+    if (auto live = current->FindLocal(id)) {
+      return {current, live->object_scope()};
+    }
+    if (!current->domain_storage().Enumerate(id).empty()) {
+      return {current, current->domain_storage().ReadObjectScope(id)
+                           .value_or(ae::ObjectScope{})};
+    }
+  }
+  return {};
+}
+
+bool IsAutomaticCloneBoundary(CloneReferenceQueueContext const& context,
+                              ae::ObjId id) {
+  auto const owner = FindCloneReferenceOwner(*context.source, id);
+  // Missing identity is not a boundary: let snapshot loading report failure.
+  if (owner.domain == nullptr) { return false; }
+  if (owner.domain != nullptr &&
+      (owner.domain != context.source || owner.scope.is_constant ||
+       owner.domain->domain_storage().IsConstantObject(id))) {
+    return true;
+  }
+  if (!context.source_scope.root_id.is_valid()) { return false; }
+  // Persisted scopes reconstruct the same local/ancestor partition after a
+  // cold load, even though application lookup uses one flattened ID index.
+  auto scope = owner.scope;
+  std::set<ae::ObjId> seen_scopes;
+  while (scope.root_id.is_valid()) {
+    if (scope.root_id == context.source_scope.root_id) { return false; }
+    if (!seen_scopes.insert(scope.root_id).second ||
+        !scope.parent_root_id.is_valid()) { return true; }
+    if (scope.parent_root_id == context.source_scope.root_id) { return false; }
+    scope = FindCloneReferenceOwner(*context.source, scope.parent_root_id).scope;
+  }
+  return true;
+}
 
 void EnqueueCloneReference(void* context, ae::ObjId id) {
   auto* ctx = static_cast<CloneReferenceQueueContext*>(context);
   if (!id.is_valid()) {
     return;
   }
-  if (ctx->boundary_ids->count(id) != 0) {
+  // The explicitly requested root is copied even when it is a constant;
+  // references back to it belong to the copied cycle, never to the boundary.
+  if (id == ctx->root_id) { return; }
+  if (ctx->boundary_ids->count(id) != 0 ||
+      IsAutomaticCloneBoundary(*ctx, id)) {
+    ctx->boundary_ids->insert(id);
     return;
   }
   if (id == ctx->stable_origin) {
@@ -272,7 +345,7 @@ void EnqueueCloneReference(void* context, ae::ObjId id) {
 ae::Ptr<ae::Obj> ResolveSnapshotObject(
     ae::Domain& source, ae::ObjId id, ae::Domain& storage_reader,
     std::vector<ae::Ptr<ae::Obj>>& storage_keepalive) {
-  if (ae::Ptr<ae::Obj> live = source.Find(id)) {
+  if (ae::Ptr<ae::Obj> live = source.FindLocal(id)) {
     return live;
   }
   ae::DomainGraph load_graph{&storage_reader};
@@ -308,10 +381,12 @@ bool SaveCanonicalSnapshotObject(ae::Ptr<ae::Obj> const& object,
   return save_result.has_value() && save_result->IsOk();
 }
 
-bool BuildCanonicalSnapshot(ae::Domain& source, ae::ObjId source_id,
+bool BuildCanonicalSnapshot(ae::Domain& source, ae::Obj& source_root,
                             CloneOptions const& options,
                             ae::RamDomainStorage& snapshot,
-                            std::set<ae::ObjId>& copy_set) {
+                            std::set<ae::ObjId>& copy_set,
+                            std::set<ae::ObjId>& boundary_ids) {
+  ae::ObjId const source_id = source_root.obj_id;
   std::deque<ae::ObjId> queue;
   std::set<ae::ObjId::Type> seen;
   queue.push_back(source_id);
@@ -323,13 +398,13 @@ bool BuildCanonicalSnapshot(ae::Domain& source, ae::ObjId source_id,
   storage_reader.set_parent_domain(source.parent_domain());
   std::vector<ae::Ptr<ae::Obj>> storage_keepalive;
 
-  CloneReferenceQueueContext ref_ctx{&queue, &seen, &options.boundary_ids,
-                                   options.stable_origin, nullptr};
+  CloneReferenceQueueContext ref_ctx{&queue, &seen, &boundary_ids, &source,
+      source_id, source_root.object_scope(), options.stable_origin, nullptr};
 
   while (!queue.empty()) {
     ae::ObjId const id = queue.front();
     queue.pop_front();
-    if (id != source_id && options.boundary_ids.count(id) != 0) {
+    if (id != source_id && boundary_ids.count(id) != 0) {
       continue;
     }
     ae::Ptr<ae::Obj> object = ResolveSnapshotObject(source, id, storage_reader,
@@ -421,7 +496,9 @@ bool InjectAllLayeredObjects(ae::RamDomainStorage const& scratch,
     }
     for (auto const& [class_id, versions] : *class_map_opt) {
       for (auto const& [version, data] : versions) {
-        auto writer = storage.Store({object_id, class_id, version});
+        ae::DomainQuery query{object_id, class_id, version};
+        query.object_scope = scratch.ReadObjectScope(object_id);
+        auto writer = storage.Store(query);
         if (!writer) {
           return false;
         }
@@ -509,6 +586,9 @@ bool HydrateLiveObjectFromLayerScratch(
   }
   for (auto const& [id, classes] : layers) {
     auto& instance = objects.at(id);
+    if (auto const scope = scratch.ReadObjectScope(id)) {
+      instance->SetObjectScope(*scope);
+    }
     for (auto const class_id : classes) {
       auto const result = registry.FindFactory(class_id)->load(&graph, instance,
                                                               id);
@@ -591,8 +671,9 @@ bool InjectLayeredObjects(ae::RamDomainStorage const& scratch,
     }
     for (auto const& [class_id, versions] : *class_map_opt) {
       for (auto const& [version, data] : versions) {
-        auto writer = storage.Store(
-            ae::DomainQuery{object_id, class_id, version});
+        ae::DomainQuery query{object_id, class_id, version};
+        query.object_scope = scratch.ReadObjectScope(object_id);
+        auto writer = storage.Store(query);
         if (writer == nullptr) {
           return false;
         }
@@ -648,14 +729,18 @@ CloneCanonicalResult CloneCanonicalRoot(ae::Domain& source, ae::Obj& source_root
   }
 
   ae::ObjId const source_id = source_root.obj_id;
-  if (!source_id.is_valid()) {
+  if (!source_id.is_valid() || source_root.domain != &source ||
+      source.FindLocal(source_id).get() != &source_root) {
+    // The source namespace must identify the explicitly selected object, not
+    // an ancestor or a different local object shadowing the same stored ID.
     return Fail(CloneError::kUnsupportedGraph);
   }
 
   ae::RamDomainStorage snapshot;
   std::set<ae::ObjId> copy_set;
-  if (!BuildCanonicalSnapshot(source, source_id, options, snapshot,
-                              copy_set)) {
+  std::set<ae::ObjId> boundary_ids = options.boundary_ids;
+  if (!BuildCanonicalSnapshot(source, source_root, options, snapshot,
+                              copy_set, boundary_ids)) {
     return Fail(CloneError::kUnsupportedGraph);
   }
 
@@ -666,7 +751,7 @@ CloneCanonicalResult CloneCanonicalRoot(ae::Domain& source, ae::Obj& source_root
     return Fail(CloneError::kObjIdConflict);
   }
   if (RemapIdReserved(new_root_id.id(), source_id.id(), copy_set,
-                      options.boundary_ids, remap, target)) {
+                      boundary_ids, remap, target)) {
     return Fail(CloneError::kObjIdConflict);
   }
   remap[source_id.id()] = new_root_id.id();
@@ -676,23 +761,17 @@ CloneCanonicalResult CloneCanonicalRoot(ae::Domain& source, ae::Obj& source_root
       continue;
     }
     ae::ObjId const allocated = AllocateCloneObjId(
-        source_id.id(), copy_set, options.boundary_ids, remap, target);
+        source_id.id(), copy_set, boundary_ids, remap, target);
     if (!allocated.is_valid()) {
       return Fail(CloneError::kObjIdConflict);
     }
     remap[old_id.id()] = allocated.id();
   }
 
-  ae::RamDomainStorage staging_overlay_storage = snapshot;
-  std::set<ae::ObjId> staging_supply_constants;
-  for (ae::ObjId const id : options.boundary_ids) {
-    if (copy_set.count(id) == 0) {
-      staging_supply_constants.insert(id);
-    }
-  }
-  apptraverse::OverlayDomainStorage staging_storage{
-      staging_overlay_storage, source.domain_storage(),
-      staging_supply_constants};
+  // Parent objects are resolved through the parent domain, not advertised as
+  // local layers by an overlay. Otherwise local-storage precedence can create
+  // stale duplicate external objects even when their canonical parent is live.
+  ae::RamDomainStorage staging_storage = snapshot;
   ae::Domain staging_domain{staging_storage};
   staging_domain.set_parent_domain(&source);
   std::vector<ae::Ptr<ae::Obj>> staging_keepalive;
@@ -704,20 +783,33 @@ CloneCanonicalResult CloneCanonicalRoot(ae::Domain& source, ae::Obj& source_root
   // ancestor lookup can resolve an internal edge to the source object, or an
   // external live-only object requires an unnecessary storage round-trip.
   for (ae::ObjId const id : copy_set) {
-    ae::Ptr<ae::Obj> source_object = source.Find(id);
-    if (!source_object) {
-      ae::DomainGraph source_load{&source};
-      if (!source_load.LoadRoot(id, source_object).IsOk() || !source_object) {
+    // The snapshot already resolved live-vs-stored source identity. Reading
+    // the ancestor registry again here could select a different shadowed ID.
+    auto const classes = snapshot.Enumerate(id);
+    if (classes.empty()) { return Fail(CloneError::kLoadFailed); }
+    auto& registry = ae::Registry::GetRegistry();
+    auto most_derived = classes.front();
+    for (auto class_id : classes) {
+      if (registry.FindFactory(class_id) == nullptr) {
+        return Fail(CloneError::kLoadFailed);
+      }
+      if (registry.GenerationDistance(most_derived, class_id) > 0) {
+        most_derived = class_id;
+      }
+    }
+    for (auto class_id : classes) {
+      if (registry.GenerationDistance(class_id, most_derived) < 0) {
         return Fail(CloneError::kLoadFailed);
       }
     }
-    auto* factory = ae::Registry::GetRegistry().FindFactory(source_object->GetClassId());
+    auto* factory = registry.FindFactory(most_derived);
     if (factory == nullptr || factory->create == nullptr) {
       return Fail(CloneError::kLoadFailed);
     }
     auto created = factory->create();
     if (!created) { return Fail(CloneError::kLoadFailed); }
     staging_domain.AddObject(id, created);
+    created->SetObjectScope(snapshot.ReadObjectScope(id).value_or(ae::ObjectScope{}));
     staging_keepalive.push_back(std::move(created));
   }
   for (auto& loaded : staging_keepalive) {
@@ -784,18 +876,12 @@ CloneCanonicalResult CloneCanonicalRoot(ae::Domain& source, ae::Obj& source_root
     }
     cloned_copies = std::move(target_keepalive);
   } else {
-    std::set<ae::ObjId> child_constants = options.boundary_ids;
-    child_constants.insert(options.stable_prefab_ids.begin(),
-                           options.stable_prefab_ids.end());
-    if (options.stable_origin.is_valid()) {
-      child_constants.insert(options.stable_origin);
-    }
-    OverlayDomainStorage child_storage{remapped_scratch,
-                                       target.domain_storage(), child_constants};
-    ae::Domain child_domain{child_storage};
+    // Only copied IDs belong to this temporary namespace. External objects
+    // remain in target, including fields serialized without reflection.
+    ae::Domain child_domain{remapped_scratch};
     child_domain.set_parent_domain(&target);
     if (!FinalizeCloneFromChildDomain(child_domain, target, remap, new_root_id,
-                                      options.boundary_ids, cloned_copies)) {
+                                      boundary_ids, cloned_copies)) {
       return Fail(CloneError::kLoadFailed);
     }
   }
@@ -817,6 +903,31 @@ CloneCanonicalResult CloneCanonicalRoot(ae::Domain& source, ae::Obj& source_root
       return Fail(CloneError::kMissingStableOrigin);
     }
     cloned_copy->SetOriginId(origin_it->second);
+  }
+
+  // The new graph owns its own scope. Nested source scopes are mapped with
+  // their copied roots; references outside the copy set retain shared identity.
+  ae::ObjId const source_scope_root = source_root.object_scope().root_id;
+  for (auto const& [old_raw, new_raw] : remap) {
+    ae::ObjectScope scope = snapshot.ReadObjectScope(ae::ObjId{old_raw})
+                               .value_or(ae::ObjectScope{});
+    ae::ObjectScope cloned_scope{new_root_id, target.object_scope().root_id, false};
+    if (scope.root_id.is_valid() && scope.root_id != source_scope_root) {
+      auto scope_root = remap.find(scope.root_id.id());
+      if (scope_root == remap.end()) { return Fail(CloneError::kUnsupportedGraph); }
+      cloned_scope.root_id = ae::ObjId{scope_root->second};
+      if (scope.parent_root_id == source_scope_root ||
+          !scope.parent_root_id.is_valid()) {
+        cloned_scope.parent_root_id = new_root_id;
+      } else {
+        auto parent = remap.find(scope.parent_root_id.id());
+        if (parent == remap.end()) { return Fail(CloneError::kUnsupportedGraph); }
+        cloned_scope.parent_root_id = ae::ObjId{parent->second};
+      }
+    }
+    auto copied = target.Find(ae::ObjId{new_raw});
+    if (!copied) { return Fail(CloneError::kLoadFailed); }
+    copied->SetObjectScope(cloned_scope);
   }
 
   std::vector<ae::ObjId::Type> fresh_base_ids;

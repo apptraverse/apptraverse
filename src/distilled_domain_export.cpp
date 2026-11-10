@@ -110,12 +110,16 @@ bool LoadDirectoryDomainStorageIntoRam(std::filesystem::path const& root,
   if (!std::filesystem::is_directory(root, ec) || ec) {
     return false;
   }
+  DirectoryDomainStorage metadata_source{root};
   for (auto const& obj_entry : std::filesystem::directory_iterator(root, ec)) {
     if (ec || !obj_entry.is_directory()) {
       continue;
     }
     ae::ObjId::Type const object_id = static_cast<ae::ObjId::Type>(
         std::stoul(obj_entry.path().filename().string()));
+    if (auto scope = metadata_source.ReadObjectScope(ae::ObjId{object_id})) {
+      out.object_scopes[ae::ObjId{object_id}] = *scope;
+    }
     for (auto const& class_entry :
          std::filesystem::directory_iterator(obj_entry.path(), ec)) {
       if (ec || !class_entry.is_directory()) {
@@ -221,10 +225,23 @@ bool WriteEmbeddedDistilledSupplyHeader(
   }
   out << "};\n\n";
 
+  std::vector<std::pair<ae::ObjId, ae::ObjectScope>> scopes;
+  for (auto const& [id, scope] : storage.object_scopes) {
+    if (object_filter.count(id)) scopes.emplace_back(id, scope);
+  }
+  if (!scopes.empty()) {
+    out << "inline constexpr apptraverse::EmbeddedObjectScopeRecord kObjectScopes[] = {\n";
+    for (auto const& [id, scope] : scopes) {
+      out << "    {" << id.id() << "u, " << scope.root_id.id() << "u, "
+          << scope.parent_root_id.id() << "u, " << (scope.is_constant ? "true" : "false") << "},\n";
+    }
+    out << "};\n\n";
+  }
   out << "inline constexpr apptraverse::EmbeddedDistilledGraph "
          "kEmbeddedGraph = {"
       << root_id.id() << "u, kSupplyConstants, kLayers, "
-      << layers.size() << "};\n\n";
+      << layers.size() << ", " << (scopes.empty() ? "nullptr" : "kObjectScopes")
+      << ", " << scopes.size() << "};\n\n";
   out << "}  // namespace " << graph_namespace << "\n";
   out << "}  // namespace embedded_distilled\n";
   out << "}  // namespace apptraverse\n\n";
@@ -241,6 +258,18 @@ bool WriteEmbeddedDistilledSupplyHeader(
 
 bool WriteEmbeddedDistilledGraphToDirectory(
     std::filesystem::path const& root, EmbeddedDistilledGraph const& graph) {
+  DirectoryDomainStorage metadata_destination{root};
+  for (std::size_t i = 0; i < graph.object_scope_count; ++i) {
+    auto const& item = graph.object_scopes[i];
+    if (!metadata_destination.CommitObjectScope(ae::ObjId{item.object_id},
+          ae::ObjectScope{ae::ObjId{item.scope_root_id}, ae::ObjId{item.parent_scope_root_id}, item.is_constant}, true)) return false;
+  }
+  for (std::size_t i = 0; i < graph.supply_constant_ids.count; ++i) {
+    auto const id = ae::ObjId{graph.supply_constant_ids.ids[i]};
+    auto scope = metadata_destination.ReadObjectScope(id).value_or(ae::ObjectScope{});
+    scope.is_constant = true;
+    if (!metadata_destination.CommitObjectScope(id, scope)) return false;
+  }
   for (std::size_t i = 0; i < graph.layer_count; ++i) {
     EmbeddedDistilledLayerRecord const& layer = graph.layers[i];
     std::filesystem::path const path =

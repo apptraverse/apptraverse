@@ -66,15 +66,6 @@ int main(int argc, char** argv) {
       apptraverse::CollectStoredObjectIds(export_storage);
   std::filesystem::remove_all(export_dir, remove_ec);
 
-  for (auto const prefab_id :
-       {apptraverse::window_catalog_demo::ObjId::WindowPrefab,
-        apptraverse::window_catalog_demo::ObjId::WindowPrefabPresenter,
-        apptraverse::window_catalog_demo::ObjId::WindowPrefabCloseButton,
-        apptraverse::window_catalog_demo::ObjId::
-            WindowPrefabCloseButtonPresenter}) {
-    supply_constant_ids.push_back(
-        ae::ObjId{apptraverse::window_catalog_demo::ToObjId(prefab_id)});
-  }
 
   if (!apptraverse::WriteEmbeddedDistilledSupplyHeader(
           argv[1], kGraphNamespace, kHeaderGuard, CatalogRootId(),

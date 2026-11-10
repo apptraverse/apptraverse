@@ -28,6 +28,9 @@ inline void InitializeRuntimeNode(Node& node) {
   raw->domain = node.domain;
   raw->obj_id = id;
   node.domain->AddObject(id, raw);
+  // A historical base belongs to its live owner even when the owner was
+  // imported into a parent domain from a cloned child scope.
+  raw->SetObjectScope(node.object_scope());
   // Domain::Find returns the canonical owning Ptr for the most-derived
   // storage. Do not MakePtrFromThis(static_cast<Node*>(raw.get())) — that
   // reconstructs PtrStorage from a base subobject address (UB).

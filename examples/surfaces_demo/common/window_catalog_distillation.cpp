@@ -55,8 +55,6 @@ WindowCatalogInitialSupply DistillWindowCatalog(
   auto constants = CollectWindowCatalogSupplyConstantIds(*catalog);
   using window_catalog_demo::ObjId;
   using window_catalog_demo::ToObjId;
-  constants.push_back(ae::ObjId{ToObjId(ObjId::WindowPrefab)});
-  constants.push_back(ae::ObjId{ToObjId(ObjId::WindowPrefabPresenter)});
   supply.constant_ids.insert(constants.begin(), constants.end());
   if (!WriteEmbeddedDistilledSupplyHeader(
           output_directory / "embedded_distilled_window_catalog_supply.h",

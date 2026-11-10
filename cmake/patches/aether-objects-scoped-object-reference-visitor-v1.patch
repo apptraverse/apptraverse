@@ -1,0 +1,54 @@
+--- a/src/aether-objects/obj/domain.h
++++ b/src/aether-objects/obj/domain.h
+@@ -49,6 +49,7 @@
+ class Obj;
+ class Domain;
+ class DomainGraph;
++class ObjectPtrBase;
+ 
+ struct DomainRegisteredObjects {
+   std::map<ObjId::Type, PtrView<Obj>> by_id;
+@@ -143,6 +144,21 @@
+   // nullptr restores the ordinary domain/parent storage lookup.
+   void SetLoadStorage(IDomainStorage* storage) { load_storage_ = storage; }
+ 
++  // Optional operation-local reference walk. Clone finalization uses this to
++  // relocate serialized pointer fields, including fields absent from reflection.
++  // The context must outlive this DomainGraph; normal Save has no visitor.
++  using ObjectReferenceVisitorFn = void (*)(void*, ObjectPtrBase&);
++  void SetObjectReferenceVisitor(void* context, ObjectReferenceVisitorFn fn) {
++    object_reference_context_ = context;
++    object_reference_visitor_ = fn;
++  }
++  void NotifyObjectReference(ObjectPtrBase& reference) {
++    if (object_reference_visitor_ != nullptr) {
++      object_reference_visitor_(object_reference_context_, reference);
++    }
++  }
++
++
+   using CloneSaveRemapTable = std::unordered_map<ObjId::Type, ObjId::Type>;
+ 
+   // Per-Save clone context: remaps storage keys and serialized ObjPtr ids.
+@@ -183,6 +199,8 @@
+   std::unique_ptr<IDomainStorageWriter> GetWriter(DomainQuery const& query);
+ 
+   IDomainStorage* load_storage_{nullptr};
++  void* object_reference_context_{nullptr};
++  ObjectReferenceVisitorFn object_reference_visitor_{nullptr};
+   CloneSaveRemapTable const* clone_save_remap_{nullptr};
+   void* clone_reference_visitor_context_{nullptr};
+   CloneReferenceVisitorFn clone_reference_visitor_{nullptr};
+--- a/src/aether-objects/obj/obj_ptr_base.cpp
++++ b/src/aether-objects/obj/obj_ptr_base.cpp
+@@ -144,6 +144,10 @@
+ 
+ SeriResult ObjPtrBaseSerializer::Seri(Archive& archive,
+                                       Meta<ObjectPtrBase const> meta) {
++  // Mutation is opt-in to a scoped operation on an owned mutable graph. The
++  // ordinary persistence/publication walk leaves this callback unset.
++  archive.buffer().domain_graph->NotifyObjectReference(
++      const_cast<ObjectPtrBase&>(meta.value));
+   if (meta.value.id_.is_valid()) {
+     archive.buffer().domain_graph->NotifyCloneReference(meta.value.id_);
+   }

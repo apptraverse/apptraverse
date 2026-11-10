@@ -27,6 +27,8 @@ struct CloneOptions {
   // Caller-confirmed prefab ObjIds: when a copied object has no origin on the
   // source, its clone receives this source ObjId as origin (not the clone root).
   std::set<ae::ObjId> stable_prefab_ids;
+  // Legacy compatibility overrides. Parent-domain, enclosing-scope and
+  // immutable shared references are discovered without a caller ID list.
   std::set<ae::ObjId> boundary_ids{};
   std::optional<ae::ObjId> new_root_id{};
   // Disk persistence tests; false for runtime Add (child-domain live finalize).
@@ -42,9 +44,13 @@ struct CloneCanonicalResult {
   explicit operator bool() const { return error == CloneError::kNone; }
 };
 
+// source_root must be the canonical local object registered in source.
 // Copies canonical in-memory state of source_root and copy-closure (including
 // unloaded ObjPtr referents discovered via DomainGraph clone reference visitor)
-// into target storage under new ObjIds; boundary_ids stay shared.
+// into target under new ObjIds. The explicit root is always copied. Ancestor
+// and immutable shared references are retained; source-local mutable references
+// are copied, including unloaded referents and cycles. Persisted object scopes
+// retain the same partition on cold reload. Disk writes require persist=true.
 // Caller must BeginSaveSession on DirectoryDomainStorage USER before call when
 // persisting to disk USER.
 CloneCanonicalResult CloneCanonicalRoot(ae::Domain& source, ae::Obj& source_root,

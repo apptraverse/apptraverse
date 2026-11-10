@@ -44,6 +44,8 @@ class OverlayDomainStorage final : public ae::IDomainStorage {
   ae::IDomainStorage const& backing() const { return backing_; }
 
   bool IsSupplyConstant(ae::ObjId id) const;
+  std::optional<ae::ObjectScope> ReadObjectScope(ae::ObjId const& id) const override;
+  bool IsConstantObject(ae::ObjId const& id) const override;
 
  private:
   ae::RamDomainStorage overlay_;

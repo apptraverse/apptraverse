@@ -1,5 +1,7 @@
 #include "apptraverse/overlay_domain_storage.h"
 
+#include "aether-objects/obj/obj.h"
+
 #include <cstdlib>
 #include <set>
 #include <utility>
@@ -114,10 +116,22 @@ bool OverlayDomainStorage::IsSupplyConstant(ae::ObjId id) const {
   return supply_constant_ids_.find(id) != supply_constant_ids_.end();
 }
 
+bool OverlayDomainStorage::IsConstantObject(ae::ObjId const& id) const {
+  return IsSupplyConstant(id) || ReadObjectScope(id).value_or(ae::ObjectScope{}).is_constant;
+}
+
 std::unique_ptr<ae::IDomainStorageWriter> OverlayDomainStorage::Store(
     ae::DomainQuery const& query) {
   if (IsSupplyConstant(query.id)) {
     return std::make_unique<SupplyConstantDiscardWriter>();
+  }
+  if (query.class_id == ae::Obj::kClassId && query.object_scope) {
+    auto const backing_scope = backing_.ReadObjectScope(query.id);
+    if (*query.object_scope != backing_scope.value_or(ae::ObjectScope{})) {
+      auto scope_override = query;
+      scope_override.force_scope_metadata = true;
+      return writable_overlay_.Store(scope_override);
+    }
   }
   if (query.force_materialize) {
     return writable_overlay_.Store(query);
@@ -173,5 +187,14 @@ void OverlayDomainStorage::Remove(ae::ObjId const& obj_id) {
 }
 
 void OverlayDomainStorage::CleanUp() { writable_overlay_.CleanUp(); }
+
+std::optional<ae::ObjectScope> OverlayDomainStorage::ReadObjectScope(
+    ae::ObjId const& id) const {
+  if (IsSupplyConstant(id)) return backing_.ReadObjectScope(id);
+  if (auto local = writable_overlay_.ReadObjectScope(id)) return local;
+  // USER layers override individual classes. Missing metadata inherits BACKING;
+  // an intentional membership reset is represented by an explicit default record.
+  return backing_.ReadObjectScope(id);
+}
 
 }  // namespace apptraverse

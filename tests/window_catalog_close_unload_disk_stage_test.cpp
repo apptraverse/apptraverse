@@ -100,6 +100,10 @@ void LogModelCloseLine(char const* label, int64_t close_ms,
             << " disk_layers_written=" << disk.layers_written
             << " disk_layers_skipped=" << disk.layers_skipped_unchanged
             << " disk_bytes_written=" << disk.layers_written_bytes
+            << " disk_scope_files_written=" << disk.scope_metadata_written
+            << " disk_scope_bytes_written=" << disk.scope_metadata_bytes
+            << " disk_total_bytes_written="
+            << (disk.layers_written_bytes + disk.scope_metadata_bytes)
             << " store_accepted_bytes=" << d.store_bytes_accepted
             << " publication_bytes=" << pub_bytes << '\n';
 }

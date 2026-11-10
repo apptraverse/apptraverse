@@ -71,10 +71,6 @@ int main(int argc, char** argv) {
 
   std::vector<ae::ObjId> supply_constant_ids =
       apptraverse::CollectWindowCatalogSupplyConstantIds(*root);
-  supply_constant_ids.push_back(ae::ObjId{apptraverse::window_catalog_demo::ToObjId(
-      apptraverse::window_catalog_demo::ObjId::WindowPrefab)});
-  supply_constant_ids.push_back(ae::ObjId{apptraverse::window_catalog_demo::ToObjId(
-      apptraverse::window_catalog_demo::ObjId::WindowPrefabPresenter)});
 
   if (!apptraverse::WriteEmbeddedDistilledSupplyHeader(
           argv[1], kGraphNamespace, kHeaderGuard, CatalogRootId(),

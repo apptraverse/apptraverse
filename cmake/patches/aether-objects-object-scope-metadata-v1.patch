@@ -1,0 +1,201 @@
+diff --git a/src/aether-objects/obj/idomain_storage.h b/src/aether-objects/obj/idomain_storage.h
+--- a/src/aether-objects/obj/idomain_storage.h
++++ b/src/aether-objects/obj/idomain_storage.h
+@@ -19,6 +19,7 @@
+ 
+ #include <cstdint>
+ #include <memory>
++#include <optional>
+ #include <vector>
+ 
+ #include "aether-miscpp/serialization/binary_archive.h"
+@@ -36,11 +37,21 @@
+ using ObjectData = std::vector<std::uint8_t>;
+ using ClassList = std::vector<std::uint32_t>;
+ 
++// Domain membership is object-storage metadata, independent of class S versions.
++struct ObjectScope {
++  ObjId root_id{};
++  ObjId parent_root_id{};
++  bool is_constant{false};
++  bool operator==(ObjectScope const&) const = default;
++};
++
+ struct DomainQuery {
+   ObjId id;
+   std::uint32_t class_id;
+   std::uint8_t version;
+   bool force_materialize{false};
++  std::optional<ObjectScope> object_scope{};
++  bool force_scope_metadata{false};
+ };
+ 
+ // BinaryBuffer implementation for storage writer
+@@ -94,6 +105,10 @@
+    * \brief Clean up the whole storage.
+    */
+   virtual void CleanUp() = 0;
++  // Missing differs from an explicitly stored top-level mutable membership.
++  virtual std::optional<ObjectScope> ReadObjectScope(ObjId const&) const {
++    return std::nullopt;
++  }
+ };
+ }  // namespace ae
+ 
+diff --git a/src/aether-objects/obj/obj.h b/src/aether-objects/obj/obj.h
+--- a/src/aether-objects/obj/obj.h
++++ b/src/aether-objects/obj/obj.h
+@@ -69,6 +69,10 @@
+   void SetOriginId(ObjId origin_id);
+   ObjId origin_id() const;
+ 
++  ObjectScope object_scope() const { return object_scope_.value_or(ObjectScope{}); }
++  bool has_object_scope() const { return object_scope_.has_value(); }
++  void SetObjectScope(ObjectScope scope) { object_scope_ = scope; }
++
+   // Obj/S0: the lazy origin reference is part of the base object schema.
+   AE_REFLECT(AE_MMBR(origin_));
+ 
+@@ -78,6 +82,7 @@
+ 
+  private:
+   ObjPtr<Obj> origin_{};
++  std::optional<ObjectScope> object_scope_{};
+ };
+ 
+ #include "aether-objects/obj/domain.h"
+diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
+--- a/src/aether-objects/obj/domain.h
++++ b/src/aether-objects/obj/domain.h
+@@ -211,6 +211,12 @@
+   void set_parent_domain(Domain* parent) { parent_domain_ = parent; }
+   Domain* parent_domain() const { return parent_domain_; }
+ 
++  void SetObjectScope(ObjId root_id) {
++    object_scope_ = ObjectScope{root_id,
++        parent_domain_ ? parent_domain_->object_scope().root_id : ObjId{}, false};
++  }
++  ObjectScope object_scope() const { return object_scope_; }
++
+   void AddObject(ObjId id, Ptr<Obj> const& obj);
+   void RemoveObject(Obj* obj);
+ 
+@@ -231,6 +237,7 @@
+   Registry* registry_;
+   Env* env_{};
+   Domain* parent_domain_{nullptr};
++  ObjectScope object_scope_{};
+ 
+   std::shared_ptr<DomainRegisteredObjects> registered_objects_;
+ };
+@@ -242,6 +249,18 @@
+ 
+ template <typename T>
+ std::optional<seri::SeriResult> DomainGraph::Load(T& obj, ObjId obj_id) {
++  if constexpr (std::is_same_v<T, Obj>) {
++    if (load_storage_ != nullptr) {
++      if (auto scope = load_storage_->ReadObjectScope(obj_id)) obj.SetObjectScope(*scope);
++    } else {
++      for (auto* current = domain; current != nullptr; current = current->parent_domain()) {
++        auto scope = current->domain_storage().ReadObjectScope(obj_id);
++        if (scope) { obj.SetObjectScope(*scope); break; }
++        // A local object without metadata is not a hole in the parent namespace.
++        if (!current->domain_storage().Enumerate(obj_id).empty()) break;
++      }
++    }
++  }
+   if (!cycle_detector.Add(T::kClassId, obj_id)) {
+     return std::nullopt;
+   }
+@@ -365,6 +384,9 @@
+ seri::SeriResult DomainGraph::SaveVersion(Version<V> version, T const& obj,
+                                           ObjId obj_id) {
+   DomainQuery query{obj_id, T::kClassId, V};
++  if constexpr (requires { obj.object_scope(); }) {
++    query.object_scope = obj.object_scope();
++  }
+   if (serialization_scope == GraphSerializationScope::LocalPersistent) {
+     if constexpr (requires { obj.ShouldForceMaterializeLayer(T::kClassId, V); }) {
+       query.force_materialize = obj.ShouldForceMaterializeLayer(T::kClassId, V);
+diff --git a/src/aether-objects/obj/domain.cpp b/src/aether-objects/obj/domain.cpp
+--- a/src/aether-objects/obj/domain.cpp
++++ b/src/aether-objects/obj/domain.cpp
+@@ -154,6 +154,10 @@
+       store_query.force_materialize || force_materialize;
+   if (clone_save_remap_ != nullptr) {
+     store_query.id = CloneSaveRemapId(store_query.id);
++    if (store_query.object_scope) {
++      store_query.object_scope->root_id = CloneSaveRemapId(store_query.object_scope->root_id);
++      store_query.object_scope->parent_root_id = CloneSaveRemapId(store_query.object_scope->parent_root_id);
++    }
+   }
+   auto writer = domain->storage_->Store(store_query);
+   assert(writer && "Writer must be created!");
+@@ -213,6 +217,7 @@
+ 
+ void Domain::AddObject(ObjId id, Ptr<Obj> const& obj) {
+   if (obj) {
++    if (!obj->has_object_scope()) obj->SetObjectScope(object_scope_);
+     obj->registered_objects_ = registered_objects_;
+     obj->domain = this;
+     obj->obj_id = id;
+diff --git a/src/aether-objects/obj/obj.cpp b/src/aether-objects/obj/obj.cpp
+--- a/src/aether-objects/obj/obj.cpp
++++ b/src/aether-objects/obj/obj.cpp
+@@ -53,7 +53,9 @@
+ 
+ Obj::Obj() = default;
+ 
+-Obj::Obj(ObjProp prop) : domain{prop.domain}, obj_id{prop.id} {}
++Obj::Obj(ObjProp prop) : domain{prop.domain}, obj_id{prop.id} {
++  SetObjectScope(prop.domain->object_scope());
++}
+ 
+ Obj::~Obj() {
+   if (registered_objects_) {
+diff --git a/src/aether-objects/domain_storage/ram_domain_storage.h b/src/aether-objects/domain_storage/ram_domain_storage.h
+--- a/src/aether-objects/domain_storage/ram_domain_storage.h
++++ b/src/aether-objects/domain_storage/ram_domain_storage.h
+@@ -41,10 +41,19 @@
+   DomainLoad Load(DomainQuery const& query) override;
+   void Remove(ObjId const& obj_id) override;
+   void CleanUp() override;
++  std::optional<ObjectScope> ReadObjectScope(ObjId const& id) const override {
++    auto it = object_scopes.find(id);
++    return it == object_scopes.end() ? std::nullopt : std::optional<ObjectScope>{it->second};
++  }
++  bool IsConstantObject(ObjId const& id) const override {
++    auto scope = ReadObjectScope(id);
++    return scope && scope->is_constant;
++  }
+ 
+   void SaveData(DomainQuery const& query, ObjectData&& data);
+ 
+   ObjClassData state;
++  std::map<ObjId, ObjectScope> object_scopes;
+   bool write_lock = false;
+ };
+ }  // namespace ae
+diff --git a/src/aether-objects/domain_storage/ram_domain_storage.cpp b/src/aether-objects/domain_storage/ram_domain_storage.cpp
+--- a/src/aether-objects/domain_storage/ram_domain_storage.cpp
++++ b/src/aether-objects/domain_storage/ram_domain_storage.cpp
+@@ -140,6 +140,7 @@
+ }
+ 
+ void RamDomainStorage::Remove(ObjId const& obj_id) {
++  object_scopes.erase(obj_id);
+   auto obj_map_it = state.find(obj_id);
+   if (obj_map_it == std::end(state)) {
+     state.emplace(obj_id, std::nullopt);
+@@ -150,9 +151,10 @@
+   AE_LOG_MACRO("Removed object {}", obj_id);
+ }
+ 
+-void RamDomainStorage::CleanUp() { state.clear(); }
++void RamDomainStorage::CleanUp() { state.clear(); object_scopes.clear(); }
+ 
+ void RamDomainStorage::SaveData(DomainQuery const& query, ObjectData&& data) {
++  if (query.object_scope) object_scopes[query.id] = *query.object_scope;
+   auto& objcect_classes = state[query.id];
+   if (!objcect_classes) {
+     objcect_classes.emplace();

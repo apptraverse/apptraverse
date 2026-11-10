@@ -3,6 +3,8 @@
 
 
 #include <algorithm>
+#include <cstdlib>
+#include "aether-objects/obj/obj.h"
 
 #include <fstream>
 
@@ -250,6 +252,13 @@ class CompareOnCloseDirectoryStorageWriter final : public ae::IDomainStorageWrit
     }
 
     committed_ = true;
+    if (query_.class_id == ae::Obj::kClassId && query_.object_scope &&
+        !owner_->CommitObjectScope(query_.id, *query_.object_scope,
+                                   query_.force_scope_metadata)) {
+      failed_ = true;
+      owner_->RecordLayerCommit(DirectoryDomainStorage::LayerCommitOutcome::kFailed, 0);
+      return;
+    }
 
     LayerFileRead const existing_read = ReadExistingLayerFile(path_);
 
@@ -547,6 +556,54 @@ DirectoryDomainStorage::DirectoryDomainStorage(std::filesystem::path root)
 
 DirectoryDomainStorage::~DirectoryDomainStorage() = default;
 
+std::optional<ae::ObjectScope> DirectoryDomainStorage::ReadObjectScope(
+    ae::ObjId const& id) const {
+  auto read = ReadExistingLayerFile(root_ / std::to_string(id.id()) / ".scope");
+  if (read.status == LayerFileReadStatus::kNotFound) return std::nullopt;
+  auto const& bytes = read.bytes;
+  if (read.status != LayerFileReadStatus::kOk || bytes.size() != 13 ||
+      bytes[0] != 'S' || bytes[1] != 'C' || bytes[2] != 'P' ||
+      bytes[3] != 1 || bytes[12] > 1) {
+    std::cerr << "fatal: invalid object scope metadata for " << id.id() << '\n';
+    std::abort();
+  }
+  auto integer = [&](std::size_t at) {
+    std::uint32_t value = 0;
+    for (std::size_t n = 0; n != 4; ++n) value |= std::uint32_t(bytes[at+n]) << (8*n);
+    return value;
+  };
+  return ae::ObjectScope{ae::ObjId{integer(4)}, ae::ObjId{integer(8)}, bytes[12] != 0};
+}
+
+bool DirectoryDomainStorage::IsConstantObject(ae::ObjId const& id) const {
+  auto scope = ReadObjectScope(id);
+  return scope && scope->is_constant;
+}
+
+bool DirectoryDomainStorage::CommitObjectScope(ae::ObjId id, ae::ObjectScope scope,
+                                               bool force_explicit) {
+  auto const path = root_ / std::to_string(id.id()) / ".scope";
+  auto const old = ReadExistingLayerFile(path);
+  if (old.status == LayerFileReadStatus::kReadError) return false;
+  // Default membership is represented by ordinary local object layers. Keep an
+  // explicit record when replacing previous non-default metadata.
+  if (!force_explicit && old.status == LayerFileReadStatus::kNotFound &&
+      scope == ae::ObjectScope{}) return true;
+  std::vector<std::uint8_t> bytes{'S','C','P',1};
+  for (auto id_value : {scope.root_id.id(), scope.parent_root_id.id()}) {
+    for (std::size_t n = 0; n != 4; ++n) bytes.push_back(static_cast<std::uint8_t>(id_value >> (8*n)));
+  }
+  bytes.push_back(scope.is_constant ? 1 : 0);
+  if (old.status == LayerFileReadStatus::kOk && old.bytes == bytes) return true;
+  if (!ReplaceLayerFile(path, bytes)) return false;
+  if (save_session_active_) {
+    ++save_session_stats_.scope_metadata_written;
+    save_session_stats_.scope_metadata_bytes += bytes.size();
+  }
+  return true;
+}
+
+
 
 
 std::unique_ptr<ae::IDomainStorageWriter> DirectoryDomainStorage::Store(
@@ -575,6 +632,7 @@ ae::ClassList DirectoryDomainStorage::Enumerate(ae::ObjId const& obj_id) {
 
        std::filesystem::directory_iterator(obj_dir, ec)) {
 
+    if (!class_dir.is_directory()) continue;
     auto file_name = class_dir.path().filename().string();
 
     classes.insert(static_cast<std::uint32_t>(std::stoul(file_name)));

@@ -32,6 +32,10 @@ set(APPTRAVERSE_AETHER_OBJECTS_PATCH_NAMES
   scoped-layer-hydration-v1
   force-materialize-object-layer-v1
   historical-materialized-version-scope-v1
+  storage-constant-query-v1
+  object-scope-metadata-v1
+  domain-local-storage-precedence-v1
+  scoped-object-reference-visitor-v1
 )
 set(APPTRAVERSE_AETHER_OBJECTS_PATCHES)
 foreach(patch_name IN LISTS APPTRAVERSE_AETHER_OBJECTS_PATCH_NAMES)

@@ -20,6 +20,12 @@ class PartitionedModelDomainStorage final : public ae::IDomainStorage {
   ae::DomainLoad Load(ae::DomainQuery const& query) override;
   void Remove(ae::ObjId const& obj_id) override;
   void CleanUp() override;
+  std::optional<ae::ObjectScope> ReadObjectScope(ae::ObjId const& id) const override {
+    return durable_backing_.ReadObjectScope(id);
+  }
+  bool IsConstantObject(ae::ObjId const& id) const override {
+    return durable_backing_.IsConstantObject(id);
+  }
 
   ae::IDomainStorage& durable_backing() { return durable_backing_; }
   ae::IDomainStorage const& durable_backing() const { return durable_backing_; }

@@ -695,8 +695,8 @@ void WindowCatalog::AddWindow() {
   apptraverse::CloneOptions clone_options{};
   clone_options.stable_origin = kWindowPrefabId;
   clone_options.stable_prefab_ids = {kWindowPrefabId, kWindowPrefabPresenterId};
-  clone_options.boundary_ids = {obj_id, persisted.texts.window_title_prefix.id(),
-                                persisted.locale.id()};
+  // Shared constants and ancestor-owned objects are discovered by the clone
+  // mechanism from the prefab's persisted object-domain membership.
   CatalogWindow& prefab_window = static_cast<CatalogWindow&>(*prefab_root);
   if (prefab_window.close_button.is_valid()) {
     // Close button graph lives in the prefab: clone it with the window, but
@@ -704,7 +704,7 @@ void WindowCatalog::AddWindow() {
     // catalog ref; WireWindowCloseButton assigns it after the clone.
     clone_options.stable_prefab_ids.insert(kWindowPrefabCloseButtonId);
     clone_options.stable_prefab_ids.insert(kWindowPrefabCloseButtonPresenterId);
-    clone_options.boundary_ids.insert(persisted.texts.label_close.id());
+
   }
   apptraverse::CloneCanonicalResult const cloned =
       apptraverse::CloneCanonicalRoot(domain, *prefab_root, domain,

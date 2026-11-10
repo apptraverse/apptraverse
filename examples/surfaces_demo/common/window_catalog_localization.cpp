@@ -27,6 +27,15 @@ ui::UiLocalizationString::ptr MakeCatalogLocalizedString(ae::Domain& domain,
       ae::CreateWith{domain}.with_flags(ae::ObjFlags::kUnloadedByDefault));
   auto ru_string = ui::UiString::ptr::Create(
       ae::CreateWith{domain}.with_flags(ae::ObjFlags::kUnloadedByDefault));
+  // These bootstrap resources are shared immutable catalog texts. Mark them
+  // before the first Save, including the language slot that will remain lazy.
+  for (ae::Obj* object : {static_cast<ae::Obj*>(localized.operator->()),
+                         static_cast<ae::Obj*>(en_string.operator->()),
+                         static_cast<ae::Obj*>(ru_string.operator->())}) {
+    auto scope = object->object_scope();
+    scope.is_constant = true;
+    object->SetObjectScope(scope);
+  }
   localized->strings = {en_string, ru_string};
   en_string.Load();
   en_string->utf8 = en;

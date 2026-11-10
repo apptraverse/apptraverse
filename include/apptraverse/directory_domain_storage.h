@@ -18,6 +18,8 @@ struct DirectoryDomainStorageStoreStats {
   std::size_t layers_skipped_unchanged{0};
   std::size_t layers_written_bytes{0};
   std::size_t layers_failed_commits{0};
+  std::size_t scope_metadata_written{0};
+  std::size_t scope_metadata_bytes{0};
 };
 
 class DirectoryDomainStorage final : public ae::IDomainStorage {
@@ -37,6 +39,11 @@ class DirectoryDomainStorage final : public ae::IDomainStorage {
   void BeginSaveSession();
   DirectoryDomainStorageStoreStats SnapshotSaveSessionStats() const;
   bool SaveSessionHadFailure() const;
+  std::optional<ae::ObjectScope> ReadObjectScope(ae::ObjId const& id) const override;
+  bool IsConstantObject(ae::ObjId const& id) const override;
+  // Called only by explicit persistence/export, never by graph lookup.
+  bool CommitObjectScope(ae::ObjId id, ae::ObjectScope scope,
+                         bool force_explicit = false);
 
   enum class LayerCommitOutcome : std::uint8_t {
     kNone,
@@ -87,7 +94,14 @@ class InstrumentedDomainStorage final : public ae::IDomainStorage {
   void Remove(ae::ObjId const& obj_id) override;
   void CleanUp() override;
 
+  bool IsConstantObject(ae::ObjId const& id) const override {
+    return inner_.IsConstantObject(id);
+  }
+
   InstrumentedDomainStorageStats SnapshotStats() const;
+  std::optional<ae::ObjectScope> ReadObjectScope(ae::ObjId const& id) const override {
+    return inner_.ReadObjectScope(id);
+  }
 
  private:
   ae::IDomainStorage& inner_;

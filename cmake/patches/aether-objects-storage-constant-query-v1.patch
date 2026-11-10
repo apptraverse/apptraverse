@@ -1,0 +1,14 @@
+--- a/src/aether-objects/obj/idomain_storage.h
++++ b/src/aether-objects/obj/idomain_storage.h
+@@ -85,6 +85,11 @@
+ class IDomainStorage {
+  public:
+   virtual ~IDomainStorage() = default;
++  // Immutable shared identity, independent of whether an object is loaded.
++  // Storage decorators forward this query to preserve clone boundaries.
++  virtual bool IsConstantObject(ObjId const& /*obj_id*/) const {
++    return false;
++  }
+   /**
+    * \brief Store an ObjectData by query.
+    */

@@ -204,6 +204,27 @@ void TestAncestorLayerLookup() {
   }
 }
 
+
+void TestColdLocalStorageShadowsLiveParent() {
+  ae::RamDomainStorage parent_storage, child_storage;
+  ae::Domain parent{parent_storage}, child{child_storage};
+  child.set_parent_domain(&parent);
+  ae::ObjId const id{701u};
+  auto ancestor = HydrationOwner::ptr::Create(ae::CreateWith{parent}.with_id(id));
+  ancestor->value = 17;
+  auto local = HydrationOwner::ptr::Create(ae::CreateWith{child}.with_id(id));
+  local->value = 29;
+  auto save = ae::DomainGraph{&child}.SaveRoot(local.Load(), id);
+  if (save.IsErr()) { Fail("save cold local shadow"); }
+  local.Reset();
+  if (child.FindLocal(id)) { Fail("cold local shadow must be unloaded"); }
+  auto reloaded = local.Load();
+  if (!reloaded || reloaded->value != 29 || reloaded->domain != &child ||
+      reloaded.get() == ancestor.Load().get() || ancestor->value != 17) {
+    Fail("local storage must shadow live ancestor during LoadRoot");
+  }
+}
+
 int RunHierarchyTests() {
   using apptraverse::test::HierarchyLeaf;
 
@@ -292,6 +313,7 @@ int RunHierarchyTests() {
 
   TestScopedLayerHydration();
   TestAncestorLayerLookup();
+  TestColdLocalStorageShadowsLiveParent();
   std::cout << "aether_domain_hierarchy_test OK\n";
   return 0;
 }
