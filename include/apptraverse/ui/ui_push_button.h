@@ -57,7 +57,7 @@ class SetUiPushButtonEnabledEvent
   SetUiPushButtonEnabledEvent() = default;
 
  public:
-  explicit SetUiPushButtonEnabledEvent(ae::ObjProp prop) : EventFor{prop}, enabled{true} {}
+  explicit SetUiPushButtonEnabledEvent(ae::ObjProp prop) : EventFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(enabled))
 

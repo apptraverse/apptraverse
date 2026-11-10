@@ -99,7 +99,7 @@ class SetUiDesktopWindowFrameEvent
   SetUiDesktopWindowFrameEvent() = default;
 
  public:
-  explicit SetUiDesktopWindowFrameEvent(ae::ObjProp prop) : EventFor{prop}, x{0}, y{0}, client_width{0}, client_height{0} {}
+  explicit SetUiDesktopWindowFrameEvent(ae::ObjProp prop) : EventFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(x), AE_MMBR(y), AE_MMBR(client_width),
                     AE_MMBR(client_height))
@@ -122,12 +122,7 @@ class ReportUiDesktopWindowFrameFromNativeEvent
 
  public:
   explicit ReportUiDesktopWindowFrameFromNativeEvent(ae::ObjProp prop)
-      : EventFor{prop},
-        x{0},
-        y{0},
-        client_width{0},
-        client_height{0},
-        updates_restore_geometry{false} {}
+      : EventFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(x), AE_MMBR(y), AE_MMBR(client_width),
                     AE_MMBR(client_height), AE_MMBR(updates_restore_geometry))
@@ -149,7 +144,7 @@ class RequestUiDesktopWindowFrameEvent
 
  public:
   explicit RequestUiDesktopWindowFrameEvent(ae::ObjProp prop)
-      : EventFor{prop}, x{0}, y{0}, client_width{0}, client_height{0} {}
+      : EventFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(x), AE_MMBR(y), AE_MMBR(client_width),
                     AE_MMBR(client_height))

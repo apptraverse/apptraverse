@@ -2920,3 +2920,16 @@ Removed null/empty/unavailable-slot fallbacks from `ResolveLocalization` and `Ui
 Completed the headless application-contract fixture: every presented window now has its active title materialized before initial publication. Removed the same optional-link fallback from its test presenter. Added a positive regression for a real empty UiString and literal `Window {0}` text.
 
 Incremental Windows Debug, AE_NO_DEBUG_LOG=ON: full 85-test run passed 84 and exposed the incomplete application-contract fixture. After the fixture-only fix, that test passed separately (1/1). All 85 tests are therefore covered successfully, including the Close diagnostic; no production changes followed the full run. Logs: `.artifacts/localization-contract-final-build.log`, `localization-contract-final-tests.log`, `localization-fixture-build.log`, `localization-fixture-tests.log`. No MinSizeRel or other platform build was run.
+
+
+## Remaining Windows/headless graph principles — 2026-11-10
+
+Completed points 1–4 after `46e0c2a`:
+
+- Removed default payload initializers from UI frame/size/language/localization/caret/button events and Catalog open/viewport events (including density). Existing creation sites explicitly assign all affected fields; runtime fields remain initialized.
+- Localization Apply trusts the presenter/caller's valid index and the distilled slot reference. Removed silent skips for missing slots in current-graph capture/replay preparation. Lazy loading, unchanged-value handling, journal traversal and historical-base slot availability are preserved.
+- Catalog no longer treats a missing holder window as closed or substitutes a generic title when no holder matches a presented child. The latter is an invalid graph and terminates instead of rendering a fallback.
+- Catalog text formatting reads model-prepared localization via Resolve; removed its separate language-slot loader and const_cast. Localized templates remain supported.
+- Native window coordinates are signed and may be negative regardless of monitor count. The headless initial-position/cold-load test now verifies (-45, -67). Catalog still uses OS placement; no monitor-number field, fullscreen behavior or automatic centering was added to the example.
+
+Validation: incremental Windows Debug, AE_NO_DEBUG_LOG=ON. Full suite **85/85 PASS** (`.artifacts/principles-four-tests.log`). Signed-position test **1/1 PASS** (`signed-position-tests.log`). After removing the last inline viewport-density default, affected Catalog suite **10/10 PASS**, including Windows acceptance and Close timing (`principles-four-final-tests.log`). Build logs use the matching names ending in `-build.log`. No production changes followed the final run. No MinSizeRel/device builds; the Android-named test is host-side headless coverage.

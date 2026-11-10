@@ -51,7 +51,7 @@ class SetUiLanguageIndexEvent
   SetUiLanguageIndexEvent() = default;
 
  public:
-  explicit SetUiLanguageIndexEvent(ae::ObjProp prop) : EventFor{prop}, language_index{0} {}
+  explicit SetUiLanguageIndexEvent(ae::ObjProp prop) : EventFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(language_index))
 

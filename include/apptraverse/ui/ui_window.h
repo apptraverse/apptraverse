@@ -57,7 +57,7 @@ class SetUiWindowClientSizeEvent
   SetUiWindowClientSizeEvent() = default;
 
  public:
-  explicit SetUiWindowClientSizeEvent(ae::ObjProp prop) : EventFor{prop}, width{0}, height{0} {}
+  explicit SetUiWindowClientSizeEvent(ae::ObjProp prop) : EventFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(width), AE_MMBR(height))
 

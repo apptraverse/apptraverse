@@ -84,7 +84,7 @@ class SetUiEditBoxCaretEvent
   SetUiEditBoxCaretEvent() = default;
 
  public:
-  explicit SetUiEditBoxCaretEvent(ae::ObjProp prop) : EventFor{prop}, caret_utf8_offset{0} {}
+  explicit SetUiEditBoxCaretEvent(ae::ObjProp prop) : EventFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(caret_utf8_offset))
 

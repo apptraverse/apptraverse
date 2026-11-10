@@ -10,9 +10,6 @@ namespace {
 void ReplaySlotUtf8FromJournal(UiLocalizationString& localized,
                                std::size_t slot_index,
                                SetUiLocalizationSlotUtf8Event const* stop_before) {
-  if (slot_index >= localized.strings.size()) {
-    return;
-  }
   auto& slot = localized.strings[slot_index];
   if (!slot.is_loaded()) {
     slot.Load();
@@ -168,9 +165,6 @@ void UiLocalizationString::RestoreLocalPersistentAcrossRebuild(
 
 void UiLocalizationString::PrepareReachableMutableLeavesForHistoricalCapture() {
   for (std::size_t slot = 0; slot < strings.size(); ++slot) {
-    if (!strings[slot].is_valid()) {
-      continue;
-    }
     if (!strings[slot].is_loaded()) {
       ReplaySlotUtf8FromJournal(*this, slot, nullptr);
     }
@@ -185,9 +179,6 @@ void UiLocalizationString::StashLiveReachableLayersBeforeHistoricalCapture(
   auto& scratch = AsCompactionScratch(compaction_scratch);
   scratch.live_slot_utf8.assign(strings.size(), std::nullopt);
   for (std::size_t slot = 0; slot < strings.size(); ++slot) {
-    if (!strings[slot].is_valid()) {
-      continue;
-    }
     if (strings[slot].is_loaded()) {
       scratch.live_slot_utf8[slot] = strings[slot]->utf8;
       continue;
@@ -216,7 +207,7 @@ void UiLocalizationString::RestoreLiveReachableLayersAfterHistoricalCapture(
   }
   auto& scratch = AsCompactionScratch(compaction_scratch);
   for (std::size_t slot = 0; slot < scratch.live_slot_utf8.size(); ++slot) {
-    if (!scratch.live_slot_utf8[slot].has_value() || !strings[slot].is_valid()) {
+    if (!scratch.live_slot_utf8[slot].has_value()) {
       continue;
     }
     bool const was_loaded = strings[slot].is_loaded();
@@ -264,13 +255,7 @@ std::string UiLocalizationString::Resolve(int language_index) const {
 }
 
 void UiLocalizationString::Apply(SetUiLocalizationSlotUtf8Event const& event) {
-  if (event.slot_index < 0) {
-    return;
-  }
   auto const index = static_cast<std::size_t>(event.slot_index);
-  if (index >= strings.size() || !strings[index].is_valid()) {
-    return;
-  }
   bool const was_loaded = strings[index].is_loaded();
   if (was_loaded) {
     if (strings[index]->utf8 == event.utf8) {

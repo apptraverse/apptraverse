@@ -84,16 +84,17 @@ void TestInitialPlacement(ae::Domain& domain) {
   window->BootstrapFrame(0, 0, 640, 480);
   InitializeRuntimeNode(*window);
   CHECK(!window->HasExplicitPosition());
-  window->SubmitFrameFromNative(45, 67, 640, 480, true);
+  // Signed native coordinates are valid independently of monitor count.
+  window->SubmitFrameFromNative(-45, -67, 640, 480, true);
   CHECK(window->HasExplicitPosition());
-  CHECK(window->x() == 45 && window->y() == 67);
+  CHECK(window->x() == -45 && window->y() == -67);
   CHECK(!window->TakeFrameRequestPendingPublication());
   window.Save();
   ae::Domain cold{domain.domain_storage()};
   auto restored = UiDesktopWindow::ptr::Declare(ae::CreateWith{cold}.with_id(window.id()));
   auto loaded = restored.Load();
   CHECK(loaded && loaded->HasExplicitPosition());
-  CHECK(loaded->x() == 45 && loaded->y() == 67);
+  CHECK(loaded->x() == -45 && loaded->y() == -67);
 
   auto centered = UiDesktopWindow::ptr::Create(ae::CreateWith{domain});
   centered->BootstrapFrame(0, 0, 640, 480, UiDesktopWindow::InitialPlacement::Centered);

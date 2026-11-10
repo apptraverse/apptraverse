@@ -469,7 +469,7 @@ class SetWindowCatalogOpenEvent
 
  public:
 
-  explicit SetWindowCatalogOpenEvent(ae::ObjProp prop) : EventFor{prop}, open{false} {}
+  explicit SetWindowCatalogOpenEvent(ae::ObjProp prop) : EventFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(holder), AE_MMBR(open))
 
@@ -536,13 +536,13 @@ class SetWindowCatalogMainClientViewportEvent
 
  public:
   explicit SetWindowCatalogMainClientViewportEvent(ae::ObjProp prop)
-      : EventFor{prop}, width{0}, height{0} {}
+      : EventFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(width), AE_MMBR(height), AE_MMBR(density_dpi))
 
   std::int32_t width;
   std::int32_t height;
-  std::int32_t density_dpi{160};
+  std::int32_t density_dpi;
 };
 
 class SetWindowCatalogSelectionEvent

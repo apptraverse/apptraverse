@@ -92,7 +92,7 @@ class SetUiLocalizationSlotUtf8Event
   SetUiLocalizationSlotUtf8Event() = default;
 
  public:
-  explicit SetUiLocalizationSlotUtf8Event(ae::ObjProp prop) : EventFor{prop}, slot_index{0} {}
+  explicit SetUiLocalizationSlotUtf8Event(ae::ObjProp prop) : EventFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(slot_index), AE_MMBR(utf8))
 
