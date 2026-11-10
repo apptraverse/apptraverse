@@ -1,6 +1,7 @@
 #include "apptraverse/single_file_user_storage.h"
 
 #include <array>
+#include <cerrno>
 #include <fstream>
 #include <iterator>
 #include <map>
@@ -14,15 +15,13 @@ using Scopes = std::map<ae::ObjId, std::array<std::uint32_t, 3>>;
 
 bool LoadUserStorageFile(ae::RamDomainStorage& storage, std::filesystem::path const& profile) {
   auto const file_ = profile / "user.bin";
-  std::error_code ec;
-  bool const present = std::filesystem::exists(file_, ec);
-  if (ec) return false;
-  if (!present) {
+  errno = 0;
+  std::ifstream input{file_, std::ios::binary};
+  if (!input && errno == ENOENT) {
     storage.state.clear();
     storage.object_scopes.clear();
     return true;
   }
-  std::ifstream input{file_, std::ios::binary};
   if (!input) return false;
   std::vector<std::uint8_t> bytes{std::istreambuf_iterator<char>{input}, {}};
   if (input.bad()) return false;

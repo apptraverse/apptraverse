@@ -94,6 +94,9 @@ int main() {
   RunChildExpectingFatal(
       child, L" surface_button_onload",
       "fatal: Win32SurfaceButtonPresenter OnLoad parent hwnd");
+  RunChildExpectingFatal(child, L" list_create", "fatal: CreateWindowExW Ui list");
+  RunChildExpectingFatal(child, L" desktop_create", "fatal: CreateWindowExW Ui desktop window");
+  RunChildExpectingFatal(child, L" required_publication", "fatal: initial UI publication load failed");
   std::cout << "win_ui_native_push_button_fatal_test OK\n";
   return 0;
 }

@@ -20,16 +20,7 @@ void CatalogAddButton::HandlePushButtonClicked() {
 }
 
 void CatalogOpenButton::HandlePushButtonClicked() {
-  WindowCatalog& cat = LoadedCatalog(catalog);
-  cat.persisted.list.Load();
-  if (cat.persisted.list->selection_index >= 0 &&
-      static_cast<std::size_t>(cat.persisted.list->selection_index) <
-          cat.persisted.list->rows.size()) {
-    cat.OpenListRowFromUi(
-        static_cast<std::size_t>(cat.persisted.list->selection_index));
-    return;
-  }
-  cat.OpenSelected();
+  LoadedCatalog(catalog).OpenSelected();
 }
 
 void CatalogDeleteButton::HandlePushButtonClicked() {

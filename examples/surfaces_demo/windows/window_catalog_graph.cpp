@@ -52,9 +52,6 @@ class CatalogDesktopWindowPresenter
                                 std::int32_t client_width,
                                 std::int32_t client_height,
                                 bool updates_restore_geometry) override {
-    if (this->model_proxy == nullptr) {
-      return;
-    }
     ::apptraverse::WindowCatalogMainNativeFrameQueue* const queue =
         SessionMainNativeFrameQueue();
     if (this->window.id() == session_catalog_main_window_id_) {

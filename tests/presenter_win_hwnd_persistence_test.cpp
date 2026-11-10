@@ -9,6 +9,7 @@ int main() { return 0; }
 #include "aether-objects/obj/domain.h"
 
 #include "apptraverse/node_for.h"
+#include "apptraverse/model_object_proxy.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/object_serialization.h"
@@ -104,7 +105,12 @@ void RunWinHwndPersistenceTest() {
   CHECK(load_root->window_presenter->hwnd() == nullptr);
   CHECK(!load_root->window_presenter->presentation_loaded);
 
-  InitializePresenters(*load_root, nullptr, nullptr);
+  std::vector<ModelObjectProxy::ModelWork> pending_reports;
+  ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork work) {
+    pending_reports.push_back(std::move(work));
+  }};
+  InitializePresenters(*load_root, nullptr, &proxy);
+  CHECK(!pending_reports.empty());
   HWND const hwnd = load_root->window_presenter->hwnd();
   CHECK(hwnd != nullptr);
   CHECK(load_root->window_presenter->presentation_loaded);
@@ -116,7 +122,7 @@ void RunWinHwndPersistenceTest() {
             .IsOk());
   CHECK(storage.state == layers_before_native);
 
-  InitializePresenters(*load_root, reinterpret_cast<void*>(hwnd), nullptr);
+  InitializePresenters(*load_root, nullptr, &proxy);
   CHECK(load_root->window_presenter->hwnd() == hwnd);
 
   UnloadPresenters(*load_root);

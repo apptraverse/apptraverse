@@ -7,6 +7,7 @@
 #endif
 
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <string_view>
 #include <unordered_map>
@@ -35,7 +36,8 @@ std::filesystem::path DefaultStateDir() {
   wchar_t module_path[MAX_PATH]{};
   DWORD const len = GetModuleFileNameW(nullptr, module_path, MAX_PATH);
   if (len == 0 || len >= MAX_PATH) {
-    return std::filesystem::path{"surfaces_catalog_s0_proto_state"};
+    apptraverse::WriteFatalStderr("fatal: cannot resolve application directory\n");
+    std::abort();
   }
   return std::filesystem::path{module_path}.parent_path() /
          "surfaces_catalog_s0_proto_state";
@@ -54,7 +56,7 @@ apptraverse::ui::windows::WinDesktopWindowPresenter* CatalogWindowPresenter(
 
 void TryMapCatalogWindowHwnd(apptraverse::CatalogWindow::ptr const& window_ref,
                              std::unordered_map<HWND, ae::ObjId::Type>& out) {
-  if (!window_ref.is_valid() || !window_ref.is_loaded()) {
+  if (!window_ref.is_loaded()) {
     return;
   }
   apptraverse::ui::windows::WinDesktopWindowPresenter* presenter =
@@ -112,9 +114,6 @@ std::vector<std::uint32_t> CaptureCatalogDesktopZOrderTopToBottom(
 
 void ApplyDesktopWindowsZOrderTopToBottom(std::vector<HWND> const& top_to_bottom) {
   for (auto it = top_to_bottom.rbegin(); it != top_to_bottom.rend(); ++it) {
-    if (*it == nullptr) {
-      continue;
-    }
     if (SetWindowPos(*it, HWND_TOP, 0, 0, 0, 0,
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) == 0) {
       apptraverse::WriteFatalStderr(
@@ -133,9 +132,6 @@ std::vector<HWND> HwndsForCatalogDesktopZOrder(
   std::vector<HWND> ordered;
   std::unordered_set<HWND> placed;
   for (auto const& window_ref : catalog.persisted.desktop_z_order) {
-    if (!window_ref.is_valid()) {
-      continue;
-    }
     auto const it = id_to_hwnd.find(window_ref.id().id());
     if (it == id_to_hwnd.end()) {
       continue;

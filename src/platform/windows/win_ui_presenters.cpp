@@ -30,48 +30,15 @@ WinDesktopWindowPresenter* DesktopFromHwnd(HWND hwnd) {
   return reinterpret_cast<WinDesktopWindowPresenter*>(
       GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 }
-
-bool CreateFailed(HWND hwnd) { return hwnd == nullptr; }
-
-bool ReadChildClientFrame(HWND hwnd, int& x, int& y, int& width, int& height) {
-  RECT rect{};
-  if (GetWindowRect(hwnd, &rect) == 0) {
-    return false;
-  }
-  width = rect.right - rect.left;
-  height = rect.bottom - rect.top;
-  HWND const parent = GetParent(hwnd);
-  if (parent == nullptr) {
-    return false;
-  }
-  POINT origin{rect.left, rect.top};
-  SetLastError(0);
-  if (MapWindowPoints(HWND_DESKTOP, parent, &origin, 1) == 0) {
-    DWORD const err = GetLastError();
-    if (err != ERROR_SUCCESS) {
-      return false;
-    }
-  }
-  x = origin.x;
-  y = origin.y;
-  return true;
-}
-
 void ApplyListLayoutFromMirror(HWND hwnd, std::int32_t layout_x,
                                std::int32_t layout_y,
                                std::int32_t layout_width,
                                std::int32_t layout_height) {
-  if (hwnd == nullptr) {
-    return;
-  }
   int x = 0;
   int y = 0;
   int width = 0;
   int height = 0;
-  if (!ReadChildClientFrame(hwnd, x, y, width, height)) {
-    DWORD const err = GetLastError();
-    FatalWin32("GetWindowRect Ui list layout", err);
-  }
+  ReadChildClientFrame(hwnd, x, y, width, height);
   if (x == layout_x && y == layout_y && width == layout_width &&
       height == layout_height) {
     return;
@@ -168,14 +135,8 @@ LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
     }
     auto* host =
         static_cast<WinPresentationHost*>(presenter->presentation_host);
-    if (host != nullptr) {
-      if (host->on_desktop_window_user_close != nullptr) {
-        host->on_desktop_window_user_close(host->opaque,
-                                           presenter->window.operator->());
-      } else if (host->notify_hwnd != nullptr) {
-        PostMessageW(host->notify_hwnd, WM_CLOSE, 0, 0);
-      }
-    }
+    host->on_desktop_window_user_close(host->opaque,
+                                       presenter->window.operator->());
     return 0;
   }
   return DefWindowProcW(hwnd, msg, wparam, lparam);
@@ -194,7 +155,10 @@ void WinDesktopWindowPresenter::OnLoad() {
   wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
   wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
   wc.lpszClassName = kDesktopWindowClass;
-  RegisterClassW(&wc);
+  static ATOM const window_class = RegisterClassW(&wc);
+  if (window_class == 0) {
+    FatalWin32("RegisterClassW Ui desktop window", GetLastError());
+  }
 
   int outer_w = 0;
   int outer_h = 0;
@@ -206,8 +170,8 @@ void WinDesktopWindowPresenter::OnLoad() {
                           desktop->HasExplicitPosition() ? desktop->x() : CW_USEDEFAULT,
                           desktop->HasExplicitPosition() ? desktop->y() : CW_USEDEFAULT, outer_w, outer_h, nullptr, nullptr,
                           instance, nullptr);
-  if (CreateFailed(hwnd_)) {
-    return;
+  if (hwnd_ == nullptr) {
+    FatalWin32("CreateWindowExW Ui desktop window", GetLastError());
   }
   SetUserData(hwnd_, this);
   ShowWindow(hwnd_, SW_SHOW);
@@ -248,9 +212,6 @@ void WinDesktopWindowPresenter::TrackInteractiveNativeFrame() {
 WinDesktopWindowPresenter::ClientFrame
 WinDesktopWindowPresenter::ReadNativeClientFrame() const {
   ClientFrame frame{};
-  if (hwnd_ == nullptr) {
-    return frame;
-  }
   ReadModelFrameFromHwnd(hwnd_, frame.x, frame.y, frame.client_width,
                          frame.client_height);
   return frame;
@@ -321,16 +282,10 @@ bool WinDesktopWindowPresenter::RouteChildCommand(std::uint32_t command_id,
 }
 
 void WinDesktopWindowPresenter::OnModelChanged() {
-  if (hwnd_ == nullptr) {
-    return;
-  }
   SetWindowTextW(hwnd_, ResolveTitleText().c_str());
 }
 
 void WinDesktopWindowPresenter::OnUnload() {
-  if (hwnd_ == nullptr) {
-    return;
-  }
   SetLastError(0);
   LONG_PTR const previous = SetWindowLongPtrW(
       hwnd_, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(nullptr));
@@ -349,17 +304,14 @@ WinDesktopWindowPresenter* WinListContainerPresenter::Desktop() const {
 
 void WinListContainerPresenter::OnLoad() {
   auto* desktop = Desktop();
-  if (desktop->hwnd() == nullptr) {
-    return;
-  }
   hwnd_ = CreateWindowExW(
       WS_EX_CLIENTEDGE, L"LISTBOX", L"",
       WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOTIFY,
       layout_x, layout_y, layout_width, layout_height, desktop->hwnd(),
       reinterpret_cast<HMENU>(static_cast<INT_PTR>(control_id)),
       GetModuleHandleW(nullptr), nullptr);
-  if (CreateFailed(hwnd_)) {
-    return;
+  if (hwnd_ == nullptr) {
+    FatalWin32("CreateWindowExW Ui list", GetLastError());
   }
   EnableWindow(hwnd_, TRUE);
   SetUserData(hwnd_, this);
@@ -398,19 +350,18 @@ namespace {
 
 std::vector<std::wstring> ReadListBoxStrings(HWND hwnd) {
   LRESULT const count = SendMessageW(hwnd, LB_GETCOUNT, 0, 0);
-  if (count == LB_ERR || count <= 0) {
-    return {};
+  if (count == LB_ERR) {
+    FatalWin32("LB_GETCOUNT Ui list", ERROR_INVALID_DATA);
   }
   std::vector<std::wstring> out;
   out.reserve(static_cast<std::size_t>(count));
   for (LRESULT i = 0; i < count; ++i) {
     LRESULT const len = SendMessageW(hwnd, LB_GETTEXTLEN, static_cast<WPARAM>(i),
                                      0);
-    if (len == LB_ERR || len <= 0) {
-      out.emplace_back();
-      continue;
+    if (len == LB_ERR) {
+      FatalWin32("LB_GETTEXTLEN Ui list", ERROR_INVALID_DATA);
     }
-    std::wstring text(static_cast<std::size_t>(len), L'\0');
+    std::wstring text(static_cast<std::size_t>(len) + 1, L'\0');
     SendMessageW(hwnd, LB_GETTEXT, static_cast<WPARAM>(i),
                  reinterpret_cast<LPARAM>(text.data()));
     text.resize(static_cast<std::size_t>(len));
@@ -422,7 +373,7 @@ std::vector<std::wstring> ReadListBoxStrings(HWND hwnd) {
 void ApplyPublishedListSelection(HWND hwnd, bool notify_list_selection_change,
                                  ui::UiListContainer const* container,
                                  std::size_t row_count) {
-  if (hwnd == nullptr || !notify_list_selection_change) {
+  if (!notify_list_selection_change) {
     return;
   }
   std::int32_t const desired = container->selection_index;
@@ -441,9 +392,6 @@ void ApplyPublishedListSelection(HWND hwnd, bool notify_list_selection_change,
 }  // namespace
 
 void WinListContainerPresenter::SyncFromMirror() {
-  if (hwnd_ == nullptr) {
-    return;
-  }
   auto const apply_layout = [this] {
     ApplyListLayoutFromMirror(hwnd_, layout_x, layout_y, layout_width,
                               layout_height);
@@ -512,10 +460,11 @@ void WinListContainerPresenter::SyncFromMirror() {
 void WinListContainerPresenter::OnModelChanged() { SyncFromMirror(); }
 
 void WinListContainerPresenter::OnUnload() {
-  if (hwnd_ != nullptr) {
-    DestroyWindow(hwnd_);
-    hwnd_ = nullptr;
+  SetUserData(hwnd_, nullptr);
+  if (DestroyWindow(hwnd_) == 0) {
+    FatalWin32("DestroyWindow Ui list", GetLastError());
   }
+  hwnd_ = nullptr;
 }
 
 }  // namespace apptraverse::ui::windows

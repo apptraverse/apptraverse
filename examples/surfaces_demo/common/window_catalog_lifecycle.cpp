@@ -41,26 +41,6 @@ ae::ObjId CatalogRootId() {
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
 }
 
-#if defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
-bool UserProfilePresent(std::filesystem::path const& state_dir) {
-  std::error_code profile_error;
-  bool const present = std::filesystem::exists(state_dir / "user.bin", profile_error);
-  if (profile_error) {
-    WriteFatalStderr("fatal: cannot inspect catalog USER file\n");
-    std::abort();
-  }
-  return present;
-}
-
-void LogEmbeddedLoadMarker(std::filesystem::path const& state_dir) {
-  if (UserProfilePresent(state_dir)) {
-    std::cerr << "WINDOW_CATALOG_LOADED_FROM_PROFILE\n";
-  } else {
-    std::cerr << "WINDOW_CATALOG_LOADED_FROM_EMBEDDED_BACKING\n";
-  }
-}
-#endif
-
 }  // namespace
 
 int WindowCatalogModelSession::Run(
@@ -71,9 +51,6 @@ int WindowCatalogModelSession::Run(
       });
   EnsureObjectRegistration();
   EnsureWindowCatalogGraphRegistration();
-#if defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
-  LogEmbeddedLoadMarker(state_dir);
-#endif
 
   ApplicationModelSessionHooks<WindowCatalog> hooks;
   hooks.before_incremental = [this](WindowCatalog& catalog) {
@@ -120,10 +97,6 @@ int WindowCatalogModelSession::Run(
     return 1;
   }
   ae::RamDomainStorage user_storage;
-  if (!LoadUserStorageFile(user_storage, state_dir)) {
-    WriteFatalStderr("fatal: cannot load catalog USER file\n");
-    return 1;
-  }
   OverlayDomainStorage overlay{user_storage, backing, initial.constant_ids};
   hooks.prepare = PrepareWindowCatalogForRun;
   hooks.persist = [&user_storage, state_dir = state_dir](WindowCatalog& catalog) -> int {

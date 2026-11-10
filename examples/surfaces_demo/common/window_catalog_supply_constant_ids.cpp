@@ -7,28 +7,18 @@
 namespace apptraverse {
 namespace {
 
-void AppendLocalizationStrings(ui::UiLocalizationString const* localization,
+void AppendLocalizationStrings(ui::UiLocalizationString const& localization,
                                std::vector<ae::ObjId>& out) {
-  if (localization == nullptr) {
-    return;
-  }
-  out.push_back(localization->obj_id);
-  for (auto const& entry : localization->strings) {
-    if (entry.is_valid()) {
-      out.push_back(entry.id());
-    }
+  out.push_back(localization.obj_id);
+  for (auto const& entry : localization.strings) {
+    out.push_back(entry.id());
   }
 }
 
 void AppendLocalizationRef(ui::UiLocalizationString::ptr const& localized,
                            std::vector<ae::ObjId>& out) {
-  if (!localized.is_valid()) {
-    return;
-  }
-  if (!localized.is_loaded()) {
-    localized.Load();
-  }
-  AppendLocalizationStrings(localized.operator->(), out);
+  localized.Load();
+  AppendLocalizationStrings(*localized, out);
 }
 
 }  // namespace

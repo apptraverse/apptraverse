@@ -1113,7 +1113,12 @@ ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain
 
 ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
                                       ae::IDomainStorage& ui_storage) {
-  return TryLoadInitialPublication(in, ui_domain, ui_storage);
+  auto root = TryLoadInitialPublication(in, ui_domain, ui_storage);
+  if (!root) {
+    WriteFatalStderr("fatal: initial UI publication load failed\n");
+    std::abort();
+  }
+  return root;
 }
 
 namespace {

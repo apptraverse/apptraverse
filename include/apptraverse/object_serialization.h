@@ -117,6 +117,7 @@ ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain
                                           ae::IDomainStorage& ui_storage,
                                           InitialPublicationLoadDiagnostics* diagnostics_out =
                                               nullptr);
+// Required application boundary: either a complete mirror root or termination.
 ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
                                         ae::IDomainStorage& ui_storage);
 

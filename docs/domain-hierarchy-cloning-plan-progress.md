@@ -196,3 +196,48 @@ Base: `c8c815a`. Scope: WindowCatalog Windows/headless presenters and the common
 - Added queued-command coverage through a separate UI mirror and ModelObjectProxy: an earlier row is deleted before selection/activation executes; the selected row itself is deleted while still strongly retained; invalid native indices never enter the queue. Generic list selection and Catalog selection/activation are covered.
 - Incremental build PASS. Full Debug CTest: **82/82 PASS**, including both Windows acceptance suites, new headless/list identity cases, clone/history/localization, USER persistence boundaries, and Close diagnostic. Test run: 196.86 seconds. Logs: `.artifacts/list-identity-build.log`, `.artifacts/list-identity-tests.log`.
 - This closes the Windows/headless row-index/identity item. Repeated native/load checks and the separately recorded platform-specific work remain separate audit items; no repository-wide completion is claimed.
+
+## Remaining Windows/headless principles: consolidated completion — 2026-11-10
+
+Base: `3b5fe5c`. Scope: WindowCatalog and MinimalApp on Windows, their common model/library paths, and host-side headless tests. This completes the remaining identified items in this scope together, rather than leaving a queue of individual Windows fixes. Adaptive WIP and other platform implementations were not modified.
+
+### Changes in this iteration
+
+- Required model-proxy connections now receive desktop geometry/screen events directly. Removed silent skips in the Windows Catalog presenter and common desktop presenter. Two native presenter fixtures now explicitly queue these reports and verify that reports were produced; HWND persistence still leaves model storage bytes unchanged.
+- Native desktop/list creation failure is fatal at the creation boundary. A presenter can no longer return from OnLoad with a null HWND and be marked active. Removed repeated HWND checks in active-presenter synchronization and teardown; parent readiness, pre-activation native messages and interactive movement remain genuine lifecycle states. Shared child-frame reading replaces the duplicated Windows button/list helper. Empty native list strings are preserved, with space reserved for their terminating character.
+- Windows Close dispatch always uses the application's model callback. Removed the host-notification fallback that could bypass the application Close policy. Default-state-directory resolution no longer silently switches to the working directory.
+- Catalog Open uses the selected model object directly. Required holder/window and supplied localization references no longer use invalid-link skips. MaterializeLanguage trusts the supported-language input contract, like Resolve and Apply; historical replay conditions remain intact.
+- In-content Close is an intentional optional prefab component, absent from desktop prefabs. If it exists, its button/presenter/context links are required. Clone creation wires them once; restore/reopen loads the saved graph without repairing links. Removed duplicate loading and an unused string persistence helper. Added cold-domain coverage proving that the restored Close graph has the correct window, catalog, presenter and domain, closes only the cold copy, and does not require rewiring.
+- Normal Catalog Debug no longer calls the USER loader. Removed the extra embedded-profile filesystem probe/log marker. Single-file USER loading opens the file directly; ordinary first-run absence is handled from the open result. Actual I/O/archive failures still propagate; no recovery, file migration or validation subsystem was added.
+- Added subprocess regressions for desktop creation failure, list creation failure and failure of the required initial UI publication load. The normal publication entry point terminates on failure; the explicit Try/probe API remains available for its separate diagnostic callers.
+
+### Full agreed-principles checklist in the current scope
+
+| Principle | Current implementation / evidence |
+| --- | --- |
+| Explicit persistent initialization | Model fields are initialized by distillation/builders and complete fixtures. Runtime/presenter state retains normal initialization. Geometry, locale, clone and headless suites pass. |
+| Trust the distilled graph | Required links are accessed directly; graph repair and empty/missing localization fallbacks are absent from the active Windows paths. Optional in-content Close and closed/lazy windows are explicit variants/lifecycle states. |
+| All-or-nothing application/UI loading | LoadApplication, required initial publication load and native creation fail at their boundaries. New subprocess tests pass; no partially activated native UI is accepted. This is not a claim of transactional disk writes. |
+| Thin presenters; model owns behavior | Native input goes through ModelObjectProxy/events. Open follows model selection; Close follows the application callback. Windows command-routing and application acceptance pass. |
+| Queued selection uses identity | The preceding identity change remains covered: shifted rows keep their target, deleted rows produce no action. Windows/headless presenters do not queue stale UI indices. |
+| Common application template | Both Windows applications use ApplicationModelRuntime / ApplicationUiSession / WinApplicationHost. Both native acceptance suites and the independent application-contract headless test pass. |
+| One RAM storage class and a single USER file | USER/BACKING/scratch use ordinary RamDomainStorage instances. Child Close does not write files; shutdown writes user.bin. Single-file and both application persistence-boundary cases pass. No destructor/background flush. |
+| Debug always starts fresh and prepares supply | Each regular Debug launch builds a new graph and does not load old USER. The same Debug executable supports distillation; Windows has no separate exporter. Both fresh-launch acceptance cases pass. Explicit restore consumers remain available for cold tests. |
+| Automatic prefab cloning and external references | Public/application boundary_ids remain absent. Parent-domain ownership and constant scope determine shared references. Clone, hierarchy, scope-storage and cold round-trip suites pass. |
+| Constant semantics and storage policy | ObjectScope::is_constant is semantic metadata; the existing supply-ID registry additionally selects BACKING-only storage and feeds the same constant classification. Its replacement remains a separate deferred library change, not an application-maintained clone boundary. |
+| Active-language residency and formatted/empty text | Only active language leaves stay materialized after runtime capture/compaction. Localization/history tests pass; format placeholders and explicitly empty UiString values remain valid. |
+| Immediate event collapse with history retained | Runtime retention remains zero events; base/journal/replay mechanisms and their versioning tests remain. No history subsystem was removed. |
+| Initial window placement through model events | OS placement, native position/work-area reports, explicit placement and model centering remain covered. Signed negative coordinates remain valid; no monitor-selection field was added. |
+| Current prototype schema | Application S0 stays unchanged. No update migration, recovery or extra file-format checks were introduced. Archive/I/O result handling remains at actual load/save boundaries. |
+| Used components only | Bitmap, EditBox and Label remain removed with their dedicated tests. Button/list/window, localization and mixed library tests remain enabled. |
+| Build and platform scope | Incremental Windows Debug only, AE_NO_DEBUG_LOG=ON and assertions enabled. No clean rebuild, new dependency population, MinSizeRel build or device/platform acceptance. |
+
+### Acceptance and limitations
+
+Final incremental build: **PASS**. Full CTest: **82/82 PASS**, no skipped or disabled tests, **187.87 seconds**. This includes Windows Catalog and MinimalApp acceptance, the expanded native-failure test, headless model/Close tests, single-file USER boundaries, clone/history/localization, and the Close timing diagnostic. No performance improvement is claimed from this correctness pass.
+
+Logs: `.artifacts/principles-all-accepted-build.log`, `.artifacts/principles-all-accepted-tests.log`. Focused cold Close graph validation: `.artifacts/principles-all-close-graph-build.log`, `.artifacts/principles-all-close-graph-test.log`.
+
+The preliminary run exposed an over-strict assumption that every desktop prefab has an in-content Close button. That regression was corrected by preserving the intentional optional component while requiring its internal links. The old-binary diagnostic was interrupted after this known failure; only the complete subsequent run above is final acceptance. No production source changes followed that final run.
+
+No identified Windows/headless item from this audit remains open. The previously recorded other-platform normalization/probe callers, Android SyncPost lifetime and mobile/web window hierarchy are still outside the user's current platform scope. Distributed/resource-delivery/cache architecture and future supply-registry replacement remain deferred; this Windows acceptance does not certify them.

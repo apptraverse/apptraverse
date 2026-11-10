@@ -16,11 +16,7 @@ WindowCatalog& LoadedCatalog(WindowCatalog::ptr& catalog) {
 
 void CatalogCloseButton::HandlePushButtonClicked() {
   WindowCatalog& cat = LoadedCatalog(catalog);
-  if (!window.is_valid()) {
-    return;
-  }
-  window.Load();
-  cat.UserCloseWindow(window->obj_id);
+  cat.UserCloseWindow(window.id());
 }
 
 APPTRAVERSE_REGISTER(CatalogCloseButton);

@@ -10,6 +10,7 @@ int main() { return 0; }
 #include "aether-objects/obj/domain.h"
 
 #include "apptraverse/node_for.h"
+#include "apptraverse/model_object_proxy.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/object_serialization.h"
@@ -140,7 +141,12 @@ void TestUnloadedTitleAndLocaleResolveThroughStorage() {
   auto& presenter = *root->window_presenter;
 
   ResetTitleAndLocale(presenter);
-  InitializePresenters(*root, nullptr, nullptr);
+  std::vector<ModelObjectProxy::ModelWork> pending_reports;
+  ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork work) {
+    pending_reports.push_back(std::move(work));
+  }};
+  InitializePresenters(*root, nullptr, &proxy);
+  CHECK(!pending_reports.empty());
   CHECK(presenter.presentation_loaded);
   CHECK(presenter.hwnd() != nullptr);
   CHECK(WindowText(presenter.hwnd()) == kTitleRu);
@@ -162,7 +168,12 @@ void TestExplicitEmptyTitle() {
   CHECK(presenter.title.is_valid());
   CHECK(presenter.locale.is_valid());
 
-  InitializePresenters(*root, nullptr, nullptr);
+  std::vector<ModelObjectProxy::ModelWork> pending_reports;
+  ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork work) {
+    pending_reports.push_back(std::move(work));
+  }};
+  InitializePresenters(*root, nullptr, &proxy);
+  CHECK(!pending_reports.empty());
   CHECK(presenter.hwnd() != nullptr);
   CHECK(WindowText(presenter.hwnd()).empty());
   presenter.OnModelChanged();

@@ -50,30 +50,23 @@ ui::UiPresentedWindow& Presented(CatalogWindow& window) {
 ui::UiPresentedWindow const& Presented(CatalogWindow const& window) {
   return static_cast<ui::UiPresentedWindow const&>(window);
 }
-// Points the window-owned Close button graph at this window: close_button ->
-// {catalog, window}, close_button_presenter -> window presenter.
-void WireWindowCloseButton(WindowCatalog& catalog, CatalogWindow& window) {
-  if (!window.close_button.is_valid()) {
-    return;
-  }
+bool LoadWindowCloseButton(CatalogWindow& window) {
+  // Desktop prefabs use the native Close control. The optional in-content
+  // Close graph, when supplied, always includes both button and presenter.
+  if (!window.close_button.is_valid()) { return false; }
   window.close_button.Load();
-  window.close_button->catalog = WindowCatalog::ptr::MakeFromThis(&catalog);
-  window.close_button->window = CatalogWindow::ptr::MakeFromThis(&window);
-  if (window.close_button_presenter.is_valid()) {
-    window.close_button_presenter.Load();
-    window.close_button_presenter->window_presenter =
-        Presented(window).presenter;
-  }
+  window.close_button_presenter.Load();
+  return true;
 }
 
-void LoadWindowCloseButton(WindowCatalog& catalog, CatalogWindow& window) {
-  if (window.close_button.is_valid()) {
-    window.close_button.Load();
-  }
-  if (window.close_button_presenter.is_valid()) {
-    window.close_button_presenter.Load();
-  }
-  WireWindowCloseButton(catalog, window);
+// Points the window-owned Close button graph at this window: close_button ->
+// {catalog, window}, close_button_presenter -> window presenter.
+bool WireWindowCloseButton(WindowCatalog& catalog, CatalogWindow& window) {
+  if (!LoadWindowCloseButton(window)) { return false; }
+  window.close_button->catalog = WindowCatalog::ptr::MakeFromThis(&catalog);
+  window.close_button->window = CatalogWindow::ptr::MakeFromThis(&window);
+  window.close_button_presenter->window_presenter = Presented(window).presenter;
+  return true;
 }
 
 void MarkWindowCloseButtonUnloadedByDefault(CatalogWindow& window) {
@@ -83,16 +76,6 @@ void MarkWindowCloseButtonUnloadedByDefault(CatalogWindow& window) {
 }
 ui::UiPresentedWindow& MainPresented(WindowCatalog const& catalog) {
   return static_cast<ui::UiPresentedWindow&>(*catalog.persisted.main_window);
-}
-void PersistUiStringUtf8(ui::UiString::ptr& string) {
-  if (!string.is_valid()) {
-    return;
-  }
-  if (!string.is_loaded()) {
-    string.Load();
-  }
-  string.Save();
-  string.Reset();
 }
 void BindLiveWindowNotifiers(WindowCatalog& catalog, CatalogWindow& window) {
   std::vector<Node*> live;
@@ -122,24 +105,20 @@ void SaveWindowCatalogPersistentSnapshot(WindowCatalog& catalog) {
 }
 
 void RestoreLoadedCatalogWindows(WindowCatalog& catalog) {
-  int const language = catalog.persisted.locale->language_index();
   for (auto const& row : catalog.persisted.list->rows) {
     WindowHolder& holder = *static_cast<WindowHolder*>(&*row);
     if (!holder.window.is_loaded()) {
       continue;
     }
     ui::LoadPresentedWindow(holder.window);
-    LoadWindowCloseButton(catalog, *holder.window);
+    LoadWindowCloseButton(*holder.window);
     BindLiveWindowNotifiers(catalog, *holder.window);
   }
 }
 bool WindowCatalog::CanApply(AddWindowCatalogEntryEvent const& event) const {
-  if (!event.holder.is_valid() || !persisted.list) {
-    return false;
-  }
   ae::ObjId const incoming_id = event.holder.id();
   for (auto const& row : persisted.list->rows) {
-    if (row.is_valid() && row.id() == incoming_id) {
+    if (row.id() == incoming_id) {
       return false;
     }
   }
@@ -157,7 +136,7 @@ void WindowCatalog::Apply(RemoveWindowCatalogEntryEvent const& event) {
   auto& rows = persisted.list->rows;
   auto const it = std::find_if(rows.begin(), rows.end(),
                                [&](WindowHolder::ptr const& row) {
-                                 return row.is_valid() && row.id() == target_id;
+                                 return row.id() == target_id;
                                });
   assert(it != rows.end());
   rows.erase(it);
@@ -477,11 +456,8 @@ void WindowCatalog::SetDesktopZOrderFromObjIds(
   Commit(std::move(event));
 }
 void WindowCatalog::Apply(SetWindowCatalogOpenEvent const& event) {
-  if (!event.holder.is_valid()) {
-    return;
-  }
   WindowHolder* holder = FindListHolderByIdentity(*this, *event.holder);
-  if (holder == nullptr || !holder->window.is_valid()) {
+  if (holder == nullptr) {
     return;
   }
   if (event.open) {
@@ -496,7 +472,7 @@ WindowHolder* WindowCatalog::FindHolderForWindow(ae::ObjId window_id) {
   for (auto& row : persisted.list->rows) {
     row.Load();
     WindowHolder* holder = AsHolder(*row);
-    if (holder->window.is_valid() && holder->window.id() == window_id) {
+    if (holder->window.id() == window_id) {
       return holder;
     }
   }
@@ -592,15 +568,12 @@ void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
   }
   ae::Domain& domain = *persisted.list->domain;
   ui::LoadPresentedWindow(holder.window);
-  LoadWindowCloseButton(*this, *holder.window);
   // An open window persists with its presenter (and Close graph) eager.
   Presented(*holder.window).presenter.SetFlags(
       OpenObjFlags(Presented(*holder.window).presenter.flags()));
-  if (holder.window->close_button.is_valid()) {
+  if (LoadWindowCloseButton(*holder.window)) {
     holder.window->close_button.SetFlags(
         OpenObjFlags(holder.window->close_button.flags()));
-  }
-  if (holder.window->close_button_presenter.is_valid()) {
     holder.window->close_button_presenter.SetFlags(
         OpenObjFlags(holder.window->close_button_presenter.flags()));
   }
@@ -619,16 +592,14 @@ void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
 }
 void WindowCatalog::CloseHolderWindow(WindowHolder& holder) {
   // One-shot runtime requests must not keep a closing window alive.
-  if (holder.window.is_valid()) {
-    ae::ObjId const closing_id = holder.window.id();
-    if (pending_focus_window.is_valid() &&
-        pending_focus_window.id() == closing_id) {
-      pending_focus_window = {};
-    }
-    if (pending_mobile_active_window.is_valid() &&
-        pending_mobile_active_window.id() == closing_id) {
-      pending_mobile_active_window = {};
-    }
+  ae::ObjId const closing_id = holder.window.id();
+  if (pending_focus_window.is_valid() &&
+      pending_focus_window.id() == closing_id) {
+    pending_focus_window = {};
+  }
+  if (pending_mobile_active_window.is_valid() &&
+      pending_mobile_active_window.id() == closing_id) {
+    pending_mobile_active_window = {};
   }
   auto close_event = SetWindowCatalogOpenEvent::ptr::Create(
       ae::CreateWith{*domain});
@@ -663,14 +634,10 @@ void WindowCatalog::AddWindow() {
   clone_options.stable_prefab_ids = {kWindowPrefabId, kWindowPrefabPresenterId};
   // Shared constants and ancestor-owned objects are discovered by the clone
   // mechanism from the prefab's persisted object-domain membership.
-  CatalogWindow& prefab_window = static_cast<CatalogWindow&>(*prefab_root);
+  auto const& prefab_window = static_cast<CatalogWindow const&>(*prefab_root);
   if (prefab_window.close_button.is_valid()) {
-    // Close button graph lives in the prefab: clone it with the window, but
-    // keep the shared Close label outside the clone. The prefab button has no
-    // catalog ref; WireWindowCloseButton assigns it after the clone.
     clone_options.stable_prefab_ids.insert(kWindowPrefabCloseButtonId);
     clone_options.stable_prefab_ids.insert(kWindowPrefabCloseButtonPresenterId);
-
   }
   apptraverse::CloneCanonicalResult const cloned =
       apptraverse::CloneCanonicalRoot(prefab_domain, *prefab_root, domain,
@@ -686,10 +653,8 @@ void WindowCatalog::AddWindow() {
   holder->window.SetFlags(SetUnloadedDefault(holder->window.flags()));
   Presented(*window_body).presenter.SetFlags(
       SetUnloadedDefault(Presented(*window_body).presenter.flags()));
-  if (window_body->close_button.is_valid()) {
-    // Clone gave the window its own Close graph; point it at this holder's
-    // window + catalog before it is first presented.
-    LoadWindowCloseButton(*this, *window_body);
+  // Wire the cloned Close graph before its first presentation.
+  if (WireWindowCloseButton(*this, *window_body)) {
     MarkWindowCloseButtonUnloadedByDefault(*window_body);
   }
   BindLiveWindowNotifiers(*this, *window_body);

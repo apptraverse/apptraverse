@@ -223,10 +223,7 @@ void UiLocalizationString::RestoreLiveReachableLayersAfterHistoricalCapture(
 }
 
 void UiLocalizationString::MaterializeLanguage(int language_index) {
-  if (language_index < 0 ||
-      static_cast<std::size_t>(language_index) >= strings.size()) {
-    std::abort();
-  }
+  // The input path selects a supported language; distillation supplies every slot.
   auto const slot = static_cast<std::size_t>(language_index);
 
   bool changed = false;

@@ -1,6 +1,7 @@
 #include "apptraverse/platform/windows/win_ui_push_button_presenter.h"
 
 #include "apptraverse/platform/windows/win_ui_native_push_button.h"
+#include "apptraverse/platform/windows/win_ui_frame.h"
 #include "apptraverse/platform/windows/win_ui_utf8.h"
 #include "apptraverse/platform/windows/win32_fatal.h"
 #include "apptraverse/ui/ui_localization_string.h"
@@ -9,29 +10,6 @@ namespace apptraverse::ui::windows {
 
 namespace {
 
-bool ReadChildClientFrame(HWND hwnd, int& x, int& y, int& width, int& height) {
-  RECT rect{};
-  if (GetWindowRect(hwnd, &rect) == 0) {
-    return false;
-  }
-  width = rect.right - rect.left;
-  height = rect.bottom - rect.top;
-  HWND const parent = GetParent(hwnd);
-  if (parent == nullptr) {
-    return false;
-  }
-  POINT origin{rect.left, rect.top};
-  SetLastError(0);
-  if (MapWindowPoints(HWND_DESKTOP, parent, &origin, 1) == 0) {
-    DWORD const err = GetLastError();
-    if (err != ERROR_SUCCESS) {
-      return false;
-    }
-  }
-  x = origin.x;
-  y = origin.y;
-  return true;
-}
 
 ui::UiControlLayout EffectiveLayout(WinPushButtonPresenter const& presenter) {
   ui::UiControlLayout layout{
@@ -76,10 +54,7 @@ void WinPushButtonPresenter::ApplyLayout() {
   int y = 0;
   int width = 0;
   int height = 0;
-  if (!ReadChildClientFrame(hwnd_, x, y, width, height)) {
-    DWORD const err = GetLastError();
-    FatalWin32("GetWindowRect Ui push button layout", err);
-  }
+  ReadChildClientFrame(hwnd_, x, y, width, height);
   ui::UiControlLayout const layout = EffectiveLayout(*this);
   if (x == layout.x && y == layout.y && width == layout.width &&
       height == layout.height) {

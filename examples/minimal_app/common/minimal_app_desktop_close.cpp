@@ -17,14 +17,9 @@ void HandleMinimalAppDesktopWindowClose(
     return;
   }
 
-  application.auxiliary.window.Load();
-  if (application.auxiliary.window.is_valid() &&
-      application.auxiliary.window.id() == closed_desktop_window.obj_id) {
+  if (application.auxiliary.window.id() == closed_desktop_window.obj_id) {
     proxy.EnqueueModelWork([](ae::Domain& domain) {
       ae::Ptr<ae::Obj> const root = domain.Find(MinimalApplicationRootId());
-      if (!root) {
-        return;
-      }
       auto& model_app = static_cast<MinimalApplication&>(*root.operator->());
       auto event = MinimalCloseAuxiliaryWindowEvent::ptr::Create(
           ae::CreateWith{domain});

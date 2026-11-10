@@ -3,6 +3,7 @@
 #endif
 #include <windows.h>
 
+#include <cstdlib>
 #include <filesystem>
 #include <string_view>
 
@@ -22,7 +23,8 @@ std::filesystem::path DefaultStateDir() {
   wchar_t module_path[MAX_PATH]{};
   DWORD const len = GetModuleFileNameW(nullptr, module_path, MAX_PATH);
   if (len == 0 || len >= MAX_PATH) {
-    return std::filesystem::path{"minimal_app_s1_controls_state"};
+    apptraverse::WriteFatalStderr("fatal: cannot resolve application directory\n");
+    std::abort();
   }
   return std::filesystem::path{module_path}.parent_path() /
          "minimal_app_s1_controls_state";

@@ -980,7 +980,7 @@ void TestMobileCloseButtonAndAdaptiveLayout() {
   CHECK(window.close_button->label.id() ==
         catalog->persisted.texts.label_close.id());
 
-  // Close through the button path, then reopen: Close graph is rewired.
+  // Close and reopen using the saved Close graph, without repairing its links.
   ae::ObjId const window_id = window.obj_id;
   window.close_button->HandlePushButtonClicked();
   CHECK(!holder->window.is_loaded());
@@ -991,6 +991,22 @@ void TestMobileCloseButtonAndAdaptiveLayout() {
   CHECK(holder->window->close_button.is_loaded());
   CHECK(holder->window->close_button->window.id() == window_id);
   CHECK(holder->window->close_button->catalog.id() == catalog->obj_id);
+
+  SaveWindowCatalogPersistentSnapshot(*catalog);
+  ae::Domain cold_domain{storage};
+  auto cold = LoadApplication<WindowCatalog>(cold_domain, catalog.id());
+  PrepareWindowCatalogForRun(*cold);
+  auto* cold_holder = AsHolder(cold->persisted.list->rows[0]);
+  auto& cold_window = *cold_holder->window;
+  CHECK(cold_window.close_button->window.id() == window_id);
+  CHECK(cold_window.close_button->catalog.id() == cold.id());
+  CHECK(cold_window.close_button->catalog.domain() == &cold_domain);
+  CHECK(cold_window.close_button_presenter->button.id() == cold_window.close_button.id());
+  CHECK(cold_window.close_button_presenter->window_presenter.id() ==
+        CatalogWindowPresented(cold_window).presenter.id());
+  cold_window.close_button->HandlePushButtonClicked();
+  CHECK(!cold_holder->window.is_loaded());
+  CHECK(catalog->IsHolderWindowOpen(*holder));
 
   // Adaptive main chrome: portrait, then landscape; unchanged size is a no-op.
   catalog->SubmitMainClientViewportFromUi(360, 800);
