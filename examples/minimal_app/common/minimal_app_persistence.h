@@ -26,6 +26,8 @@ int PersistMinimalApplication(MinimalApplication& application,
                               DirectoryDomainStorage& storage);
 
 // USER overlay persist for build-time embedded BACKING sessions (no full-graph SaveRoot).
+int SaveMinimalApplicationEmbeddedUserState(MinimalApplication& application);
+
 int PersistMinimalApplicationEmbeddedUserOverlay(
     MinimalApplication& application, DirectoryDomainStorage& storage);
 

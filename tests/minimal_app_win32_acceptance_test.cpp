@@ -15,6 +15,7 @@
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 
 #include "apptraverse/directory_domain_storage.h"
+#include "apptraverse/single_file_user_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/embedded_distilled_domain.h"
 #include "apptraverse/object_macros.h"
@@ -253,7 +254,7 @@ void RegisterMinimalAppTypes() {
 struct ProfileDomain {
 #if defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
   ae::RamDomainStorage backing;
-  DirectoryDomainStorage user_storage;
+  SingleFileUserStorage user_storage;
   OverlayDomainStorage overlay;
   ae::Domain domain;
 
@@ -264,16 +265,25 @@ struct ProfileDomain {
                 EmbeddedSupplyConstantIdSet(
                     embedded_distilled::minimal::kEmbeddedGraph)},
         domain{overlay} {
+    CHECK(user_storage.LoadFile());
     InstallEmbeddedDistilledBacking(
         backing, embedded_distilled::minimal::kEmbeddedGraph);
   }
 #else
-  DirectoryDomainStorage storage;
+  SingleFileUserStorage storage;
   ae::Domain domain;
 
   explicit ProfileDomain(std::filesystem::path const& state_dir)
-      : storage{state_dir}, domain{storage} {}
+      : storage{state_dir}, domain{storage} { CHECK(storage.LoadFile()); }
 #endif
+  bool SaveFile() {
+#if defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
+    return user_storage.SaveFile();
+#else
+    return storage.SaveFile();
+#endif
+  }
+
 };
 
 void WriteProfileMissingMainWindow(std::filesystem::path const& state_dir) {
@@ -299,6 +309,7 @@ void WriteProfileMissingMainWindow(std::filesystem::path const& state_dir) {
   ae::DomainGraph graph{&domain};
   CHECK(graph.SaveRoot(app, example::minimal::MinimalApplicationRootId())
             .IsOk());
+  CHECK(profile.SaveFile());
 }
 
 void AssertMainWindowRefAbsent(std::filesystem::path const& state_dir) {
@@ -325,12 +336,15 @@ void WriteProfileMissingPresenter(std::filesystem::path const& state_dir) {
       ae::CreateWith{domain}.with_id(ae::ObjId{}));
   ae::DomainGraph graph{&domain};
   CHECK(graph.SaveRoot(window, example::minimal::MinimalMainWindowId()).IsOk());
+  CHECK(profile.SaveFile());
 }
 
 void WriteProfileMissingPresenterObject(std::filesystem::path const& state_dir) {
   RegisterMinimalAppTypes();
-  DirectoryDomainStorage user_storage{state_dir};
+  SingleFileUserStorage user_storage{state_dir};
+  CHECK(user_storage.LoadFile());
   user_storage.Remove(example::minimal::MinimalPresenterId());
+  CHECK(user_storage.SaveFile());
 }
 
 PROCESS_INFORMATION StartDemo(std::filesystem::path const& exe,

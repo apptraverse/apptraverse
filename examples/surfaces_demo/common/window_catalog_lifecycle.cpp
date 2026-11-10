@@ -16,11 +16,10 @@
 
 #include "apptraverse/application_model_session.h"
 #include "apptraverse/directory_domain_storage.h"
+#include "apptraverse/single_file_user_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/embedded_application_model_session.h"
-#if defined(APPTRAVERSE_ENABLE_DISTILLATION)
 #include "apptraverse/distilled_domain_export.h"
-#endif
 #if defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
 #include "embedded_distilled_window_catalog_supply.h"
 #endif
@@ -45,18 +44,12 @@ ae::ObjId CatalogRootId() {
 #if defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
 bool UserProfilePresent(std::filesystem::path const& state_dir) {
   std::error_code profile_error;
-  bool const profile_exists = std::filesystem::exists(state_dir, profile_error);
+  bool const present = std::filesystem::exists(state_dir / "user.bin", profile_error);
   if (profile_error) {
-    WriteFatalStderr("fatal: cannot inspect catalog profile\n");
+    WriteFatalStderr("fatal: cannot inspect catalog USER file\n");
     std::abort();
   }
-  bool const profile_absent =
-      !profile_exists || std::filesystem::is_empty(state_dir, profile_error);
-  if (profile_error) {
-    WriteFatalStderr("fatal: cannot inspect catalog profile contents\n");
-    std::abort();
-  }
-  return !profile_absent;
+  return present;
 }
 
 void LogEmbeddedLoadMarker(std::filesystem::path const& state_dir) {
@@ -121,14 +114,21 @@ int WindowCatalogModelSession::Run(
   state_dir = run_directory / "user";
   std::cerr << "WINDOW_CATALOG_DEBUG_FRESH_PROFILE=" << state_dir.string()
             << '\n';
-  DirectoryDomainStorage backing{initial.backing_directory};
-  DirectoryDomainStorage user_storage{state_dir};
+  ae::RamDomainStorage backing;
+  if (!LoadDirectoryDomainStorageIntoRam(initial.backing_directory, backing)) {
+    WriteFatalStderr("fatal: cannot load catalog initial backing\n");
+    return 1;
+  }
+  SingleFileUserStorage user_storage{state_dir};
+  if (!user_storage.LoadFile()) {
+    WriteFatalStderr("fatal: cannot load catalog USER file\n");
+    return 1;
+  }
   OverlayDomainStorage overlay{user_storage, backing, initial.constant_ids};
   hooks.prepare = PrepareWindowCatalogForRun;
   hooks.persist = [&user_storage](WindowCatalog& catalog) -> int {
-    user_storage.BeginSaveSession();
     SaveWindowCatalogPersistentSnapshot(catalog);
-    if (user_storage.SaveSessionHadFailure()) {
+    if (!user_storage.SaveFile()) {
       WriteFatalStderr("fatal: WindowCatalog shutdown save failed\n");
       return 1;
     }
@@ -137,14 +137,17 @@ int WindowCatalogModelSession::Run(
   return RunApplicationModelSession(overlay, CatalogRootId(), runtime,
                                     std::move(on_published), hooks);
 #elif defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
-  DirectoryDomainStorage user_storage{state_dir};
+  SingleFileUserStorage user_storage{state_dir};
+  if (!user_storage.LoadFile()) {
+    WriteFatalStderr("fatal: cannot load catalog USER file\n");
+    return 1;
+  }
   hooks.prepare = [](WindowCatalog& catalog) {
     PrepareWindowCatalogForRun(catalog);
   };
   hooks.persist = [&user_storage](WindowCatalog& catalog) -> int {
-    user_storage.BeginSaveSession();
     SaveWindowCatalogPersistentSnapshot(catalog);
-    if (user_storage.SaveSessionHadFailure()) {
+    if (!user_storage.SaveFile()) {
       WriteFatalStderr("fatal: WindowCatalog shutdown save failed\n");
       return 1;
     }
@@ -154,38 +157,20 @@ int WindowCatalogModelSession::Run(
       user_storage, embedded_distilled::window_catalog::kEmbeddedGraph, runtime,
       std::move(on_published), hooks);
 #else
+  SingleFileUserStorage user_storage{state_dir};
+  if (!user_storage.LoadFile()) return 1;
 #if defined(APPTRAVERSE_ENABLE_DISTILLATION)
-  std::error_code profile_error;
-  bool const profile_exists = std::filesystem::exists(state_dir, profile_error);
-  if (profile_error) {
-    WriteFatalStderr("fatal: cannot inspect catalog profile\n");
-    std::abort();
-  }
-  bool const profile_absent = !profile_exists ||
-      std::filesystem::is_empty(state_dir, profile_error);
-  if (profile_error) {
-    WriteFatalStderr("fatal: cannot inspect catalog profile contents\n");
-    std::abort();
-  }
-  if (profile_absent) {
-    DirectoryDomainStorage bootstrap_storage{state_dir};
-    ae::Domain bootstrap_domain{bootstrap_storage};
+  if (user_storage.state.empty()) {
+    ae::Domain bootstrap_domain{user_storage};
     auto bootstrap_catalog = BuildWindowCatalogGraph(bootstrap_domain);
     FinalizeDistilledGraph(*bootstrap_catalog);
     SaveDistilledRoot(*bootstrap_catalog);
   }
 #endif
-
-  DirectoryDomainStorage user_storage{state_dir};
   hooks.prepare = PrepareWindowCatalogForRun;
   hooks.persist = [&user_storage](WindowCatalog& catalog) -> int {
-    user_storage.BeginSaveSession();
     SaveWindowCatalogPersistentSnapshot(catalog);
-    if (user_storage.SaveSessionHadFailure()) {
-      WriteFatalStderr("fatal: WindowCatalog shutdown save failed\n");
-      return 1;
-    }
-    return 0;
+    return user_storage.SaveFile() ? 0 : 1;
   };
   return RunApplicationModelSession(user_storage, CatalogRootId(), runtime,
                                     std::move(on_published), hooks);

@@ -1,5 +1,11 @@
 # AppTraverse — прогресс версионирования поставок
 
+## RAM USER and one shutdown file — 2026-11-10 — PASS
+
+WindowCatalog desktop and Windows MinimalApp now use `SingleFileUserStorage`: startup loads `user.bin` into ordinary RAM domain storage; child Close saves only to RAM; application shutdown writes the complete USER layer table and scope metadata to one file. BACKING remains separate and is in memory during the session (including normal Debug). No destructor/background flush, session sidecar or migration of old directory profiles. Existing binary streams encode the file.
+
+Verified zero files after fresh child Close, unchanged existing file bytes/timestamp, RAM lazy reload, cold file restoration of open/closed child geometry and private presenter state, independent sessions, scopes/tombstones and overwrite/error handling. **85/85 Debug tests PASS**, **4/4 targeted MinSizeRel tests PASS**, **40/40 MinSizeRel timing observations PASS**. Child Close medians: Debug **116/148/157/111 ms**, MinSizeRel **23/42/15/13 ms** (cold/burst/stable/saved). MinSizeRel process exit with open child, including file save: **43–55 ms** median across scenarios. [Full validation and scope](../validation/single-file-user-storage-2026-11-10.md).
+
 ## Immediate application event compaction — 2026-11-10
 
 Application runtimes now fold committed events into the base immediately; new nodes inherit this runtime policy. Geometry tests verify empty journals, current bases, zero USER writes before Close, and cold restoration. Library history/version guards remain intact. All 83 non-timing Debug entries passed across the full run plus corrected MinimalApp rerun; Debug timing PASS; 3/3 targeted MinSizeRel tests and 20 normal-executable Close observations PASS. Observed Debug Close slowdown is explicitly unresolved, not an optimization claim. See [validation and timings](../validation/immediate-event-compaction-2026-11-10.md).

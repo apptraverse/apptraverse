@@ -28,17 +28,6 @@ int RunEmbeddedApplicationModelSession(
                                     std::move(on_published), hooks);
 }
 
-template <typename TApplication>
-int RunEmbeddedApplicationModelSession(
-    DirectoryDomainStorage& user_storage, EmbeddedDistilledGraph const& graph,
-    ApplicationModelRuntime& runtime,
-    ApplicationPublishedCallback on_published,
-    ApplicationModelSessionHooks<TApplication> const& hooks) {
-  return RunEmbeddedApplicationModelSession<TApplication>(
-      static_cast<ae::IDomainStorage&>(user_storage), graph, runtime,
-      std::move(on_published), hooks);
-}
-
 }  // namespace apptraverse
 
 #endif  // APPTRAVERSE_EMBEDDED_APPLICATION_MODEL_SESSION_H_

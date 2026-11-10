@@ -111,9 +111,7 @@ int PersistMinimalApplication(MinimalApplication& application,
   return 0;
 }
 
-int PersistMinimalApplicationEmbeddedUserOverlay(
-    MinimalApplication& application, DirectoryDomainStorage& storage) {
-  storage.BeginSaveSession();
+int SaveMinimalApplicationEmbeddedUserState(MinimalApplication& application) {
   FinalizeMinimalApplicationNodesForEmbeddedUserOverlay(application);
   ui::SavePresentedWindow(application.main_window);
   if (application.auxiliary_presented_open) {
@@ -132,11 +130,18 @@ int PersistMinimalApplicationEmbeddedUserOverlay(
     WriteFatalStderr("fatal: MinimalApplication embedded SaveRoot failed\n");
     return 1;
   }
+  return 0;
+}
+
+int PersistMinimalApplicationEmbeddedUserOverlay(
+    MinimalApplication& application, DirectoryDomainStorage& storage) {
+  storage.BeginSaveSession();
+  int const result = SaveMinimalApplicationEmbeddedUserState(application);
   if (storage.SaveSessionHadFailure()) {
     WriteFatalStderr("fatal: MinimalApplication embedded save failed\n");
     return 1;
   }
-  return 0;
+  return result;
 }
 
 int PersistMinimalApplicationEmbeddedUserOverlayFromDomain(

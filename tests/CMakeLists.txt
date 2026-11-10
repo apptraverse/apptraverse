@@ -1499,6 +1499,9 @@ endfunction()
 apptraverse_add_test(apptraverse_application_contract_headless_test
   application_contract_headless_test.cpp)
 
+apptraverse_add_test(apptraverse_single_file_user_storage_test
+  single_file_user_storage_test.cpp)
+
 apptraverse_add_test(apptraverse_object_scope_storage_test
   object_scope_storage_test.cpp)
 

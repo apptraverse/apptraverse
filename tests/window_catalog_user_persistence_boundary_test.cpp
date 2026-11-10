@@ -1,5 +1,8 @@
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
+#include "apptraverse/single_file_user_storage.h"
 #include <iostream>
 #include <memory>
 #include <string>
@@ -63,10 +66,9 @@ std::size_t CountRegularFiles(std::filesystem::path const& root) {
 }
 
 void FlushShutdownCatalog(WindowCatalog& catalog,
-                          DirectoryDomainStorage& disk) {
-  disk.BeginSaveSession();
+                          SingleFileUserStorage& disk) {
   SaveWindowCatalogPersistentSnapshot(catalog);
-  CHECK(!disk.SaveSessionHadFailure());
+  CHECK(disk.SaveFile());
 }
 
 WindowHolder* AsHolder(ui::UiListRow::ptr const& row) {
@@ -117,7 +119,7 @@ std::string ReadPresenterTitle(ui::UiDesktopWindowPresenter& presenter) {
 }
 
 struct EmbeddedCatalogSession {
-  DirectoryDomainStorage disk;
+  SingleFileUserStorage disk;
   ae::RamDomainStorage backing;
   std::unique_ptr<OverlayDomainStorage> overlay;
   std::unique_ptr<InstrumentedDomainStorage> instrumented;
@@ -126,12 +128,13 @@ struct EmbeddedCatalogSession {
   explicit EmbeddedCatalogSession(std::filesystem::path const& user_dir,
                                   bool instrument_user_writes)
       : disk{user_dir} {
+    CHECK(disk.LoadFile());
     InstallEmbeddedDistilledBacking(backing, CatalogGraph());
     overlay = std::make_unique<OverlayDomainStorage>(
         disk, backing, EmbeddedSupplyConstantIdSet(CatalogGraph()));
     if (instrument_user_writes) {
       instrumented = std::make_unique<InstrumentedDomainStorage>(
-          *overlay, user_dir, &disk);
+          *overlay);
       domain = std::make_unique<ae::Domain>(*instrumented);
     } else {
       domain = std::make_unique<ae::Domain>(*overlay);
@@ -139,18 +142,15 @@ struct EmbeddedCatalogSession {
   }
 };
 
-void VerifyColdClosedChildOnDiskOnly(
-    std::filesystem::path const& user_dir, ae::ObjId const& holder_id,
+void VerifyClosedChildFromRam(
+    ae::RamDomainStorage& user, ae::ObjId const& holder_id,
     ae::ObjId const& window_id, ae::ObjId const& expected_presenter_id,
     int expected_x, int expected_y, int expected_w, int expected_h,
     char const* expected_title) {
-  auto const holder_dir = user_dir / std::to_string(holder_id.id());
-  auto const window_dir = user_dir / std::to_string(window_id.id());
-  CHECK(std::filesystem::is_directory(holder_dir));
-  CHECK(std::filesystem::is_directory(window_dir));
-
-  EmbeddedCatalogSession cold{user_dir, false};
-  ae::Domain& cold_domain = *cold.domain;
+  ae::RamDomainStorage backing;
+  InstallEmbeddedDistilledBacking(backing, CatalogGraph());
+  OverlayDomainStorage overlay{user, backing, EmbeddedSupplyConstantIdSet(CatalogGraph())};
+  ae::Domain cold_domain{overlay};
 
   ae::DomainGraph graph{&cold_domain};
   ae::Ptr<ae::Obj> holder_obj;
@@ -235,12 +235,12 @@ void RunBoundaryScenario() {
         setup.instrumented->SnapshotStats();
     catalog->CloseHolderWindow(*holder0);
     files_after_close = CountRegularFiles(user_dir);
-    CHECK(files_after_close > files_after_boot);
+    CHECK(files_after_close == 0);
     CHECK(StoreDelta(setup.instrumented->SnapshotStats(), stats_close_before) > 0);
     CHECK(!holder0->window.is_loaded());
     CHECK(holder0->window.is_valid());
 
-    VerifyColdClosedChildOnDiskOnly(user_dir, closed_holder_id, closed_window_id,
+    VerifyClosedChildFromRam(setup.disk, closed_holder_id, closed_window_id,
                                     closed_presenter_id, 200, 140, 501, 401,
                                     "Unsaved presenter title");
 
@@ -261,7 +261,7 @@ void RunBoundaryScenario() {
   }
 
   std::size_t const files_after_shutdown = CountRegularFiles(user_dir);
-  CHECK(files_after_shutdown >= files_after_close);
+  CHECK(files_after_shutdown == 1);
 
   {
     EmbeddedCatalogSession cold_reload{user_dir, false};
@@ -305,6 +305,13 @@ void RunExistingUserNoWriteUntilBoundary() {
   CHECK(!ec);
   std::size_t const seeded_files = CountRegularFiles(user_dir);
 
+  auto const file = user_dir / "user.bin";
+  auto const timestamp = std::filesystem::last_write_time(file);
+  auto read_bytes = [&] {
+    std::ifstream in{file, std::ios::binary};
+    return std::string{std::istreambuf_iterator<char>{in}, {}};
+  };
+  auto const bytes_before = read_bytes();
   EmbeddedCatalogSession setup{user_dir, true};
   ApplicationModelRuntime runtime;
   (void)runtime;
@@ -326,11 +333,19 @@ void RunExistingUserNoWriteUntilBoundary() {
   CHECK(StoreDelta(setup.instrumented->SnapshotStats(), stats0) == 0);
 
   catalog->CloseHolderWindow(*holder);
-  CHECK(CountRegularFiles(user_dir) > seeded_files);
+  CHECK(CountRegularFiles(user_dir) == seeded_files);
   CHECK(StoreDelta(setup.instrumented->SnapshotStats(), stats0) > 0);
-  VerifyColdClosedChildOnDiskOnly(user_dir, holder_id, window_id, presenter_id,
+  CHECK(std::filesystem::last_write_time(file) == timestamp);
+  CHECK(read_bytes() == bytes_before);
+  VerifyClosedChildFromRam(setup.disk, holder_id, window_id, presenter_id,
                                   44, 55, 320, 240,
                                   "Existing USER presenter title");
+  FlushShutdownCatalog(*catalog, setup.disk);
+  CHECK(CountRegularFiles(user_dir) == 1);
+  EmbeddedCatalogSession cold{user_dir, false};
+  VerifyClosedChildFromRam(cold.disk, holder_id, window_id, presenter_id,
+                          44, 55, 320, 240, "Existing USER presenter title");
+
 }
 
 void RunSessionIsolation() {
@@ -362,7 +377,7 @@ void RunSessionIsolation() {
   CHECK(setup_b.instrumented->SnapshotStats().store_calls == 0);
 
   catalog_b->CloseHolderWindow(*holder_b);
-  CHECK(CountRegularFiles(dir_b) > 0);
+  CHECK(CountRegularFiles(dir_b) == 0);
   CHECK(CountRegularFiles(dir_a) == 0);
   CHECK(setup_a.instrumented->SnapshotStats().store_calls == 0);
   CHECK(setup_b.instrumented->SnapshotStats().store_calls > 0);

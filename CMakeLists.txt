@@ -95,6 +95,7 @@ option(APPTRAVERSE_BUILD_LINUX_GUI "Build Linux GTK hosts and native GUI tests" 
 add_library(apptraverse STATIC
   src/apptraverse.cpp
   src/noninteractive_crt.cpp
+  src/single_file_user_storage.cpp
   src/directory_domain_storage.cpp
   src/overlay_domain_storage.cpp
   src/embedded_distilled_domain.cpp
