@@ -29,6 +29,8 @@ struct CloneOptions {
   std::set<ae::ObjId> stable_prefab_ids;
   std::set<ae::ObjId> boundary_ids{};
   std::optional<ae::ObjId> new_root_id{};
+  // Disk persistence tests; false for runtime Add (child-domain live finalize).
+  bool persist_layers_to_target_storage{false};
 };
 
 struct CloneCanonicalResult {

@@ -16,6 +16,7 @@
 #include "apptraverse/graph_walk.h"
 #include "apptraverse/node.h"
 #include "apptraverse/object_serialization.h"
+#include "apptraverse/operation_storage.h"
 #include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/runtime_node.h"
 
@@ -62,7 +63,7 @@ bool ObjectIdOccupiedInStorage(ae::IDomainStorage& storage, ae::ObjId id) {
 }
 
 bool ObjectIdOccupiedInDomain(ae::Domain& domain, ae::ObjId id) {
-  return static_cast<bool>(domain.Find(id)) ||
+  return static_cast<bool>(domain.FindLocal(id)) ||
          ObjectIdOccupiedInStorage(domain.domain_storage(), id);
 }
 
@@ -71,6 +72,102 @@ CloneCanonicalResult Fail(CloneError error) {
 }
 
 using CloneRemap = ae::DomainGraph::CloneSaveRemapTable;
+
+bool RemapSingleLiveObjectInPlace(
+    ae::Domain& target, ae::Ptr<ae::Obj> const& canonical,
+    ae::ObjId const object_id, std::map<ae::ObjId, ae::ObjId> const& id_remap,
+    std::map<ae::ObjId, ae::Ptr<ae::Obj>> const& live_registry) {
+  bool remap_ok = true;
+  detail::OperationStorage remap_storage{
+      detail::OperationMode::kRemap,
+      /*validation_storage=*/nullptr,
+      /*most_derived_classes=*/nullptr,
+      &target,
+      /*real_storage=*/nullptr,
+      &id_remap,
+      &live_registry,
+      &remap_ok};
+  ae::Domain remap_domain{remap_storage};
+  ae::DomainGraph remap_graph{&remap_domain};
+  CloneRemap traverse_remap;
+  for (auto const& [old_id, new_id] : id_remap) {
+    traverse_remap[old_id.id()] = new_id.id();
+  }
+  traverse_remap[object_id.id()] = object_id.id();
+  remap_graph.SetCloneSaveRemap(&traverse_remap);
+  if (!remap_graph.SaveRoot(canonical, object_id).IsOk()) {
+    return false;
+  }
+  return remap_ok;
+}
+
+bool RebindCloneGraphOnTarget(
+    ae::Domain& target, std::vector<ae::Ptr<ae::Obj>> const& cloned_locals,
+    std::set<ae::ObjId> const& boundary_ids) {
+  std::map<ae::ObjId, ae::ObjId> identity_remap;
+  std::map<ae::ObjId, ae::Ptr<ae::Obj>> live_registry;
+  for (ae::Ptr<ae::Obj> const& obj : cloned_locals) {
+    identity_remap[obj->obj_id] = obj->obj_id;
+    live_registry[obj->obj_id] = obj;
+  }
+  for (ae::ObjId const boundary_id : boundary_ids) {
+    if (ae::Ptr<ae::Obj> const bound = target.Find(boundary_id)) {
+      live_registry[boundary_id] = bound;
+    }
+  }
+  for (ae::Ptr<ae::Obj> const& obj : cloned_locals) {
+    if (!RemapSingleLiveObjectInPlace(target, obj, obj->obj_id, identity_remap,
+                                      live_registry)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool FinalizeCloneFromChildDomain(
+    ae::Domain& child_domain, ae::Domain& target, CloneRemap const& remap,
+    ae::ObjId new_root_id, std::set<ae::ObjId> const& boundary_ids,
+    std::vector<ae::Ptr<ae::Obj>>& cloned_locals_out) {
+  ae::DomainGraph child_load{&child_domain};
+  std::vector<ae::Ptr<ae::Obj>> child_keepalive;
+  child_keepalive.reserve(remap.size());
+
+  auto load_clone_id = [&](ae::ObjId id) -> bool {
+    ae::Ptr<ae::Obj> loaded;
+    if (!child_load.LoadRoot(id, loaded).IsOk() || !loaded) {
+      return false;
+    }
+    child_keepalive.push_back(loaded);
+    return true;
+  };
+
+  if (!load_clone_id(new_root_id)) {
+    return false;
+  }
+  for (auto const& [_, new_raw] : remap) {
+    ae::ObjId const new_id{new_raw};
+    if (new_id == new_root_id) {
+      continue;
+    }
+    if (!load_clone_id(new_id)) {
+      return false;
+    }
+  }
+
+  cloned_locals_out.clear();
+  cloned_locals_out.reserve(remap.size());
+  for (ae::Ptr<ae::Obj> const& obj : child_keepalive) {
+    if (obj->domain != &child_domain) {
+      continue;
+    }
+    ae::ObjId const id = obj->obj_id;
+    child_domain.RemoveObject(obj.get());
+    target.AddObject(id, obj);
+    cloned_locals_out.push_back(obj);
+  }
+
+  return RebindCloneGraphOnTarget(target, cloned_locals_out, boundary_ids);
+}
 
 bool RemapIdReserved(ae::ObjId::Type candidate, ae::ObjId::Type source_root,
                      std::set<ae::ObjId> const& copy_set,
@@ -449,35 +546,44 @@ CloneCanonicalResult CloneCanonicalRoot(ae::Domain& source, ae::Obj& source_root
     }
   }
 
-  if (!InjectAllLayeredObjects(remapped_scratch, target.domain_storage())) {
-    return Fail(CloneError::kPersistFailed);
-  }
+  std::vector<ae::Ptr<ae::Obj>> cloned_copies;
+  if (options.persist_layers_to_target_storage) {
+    if (!InjectAllLayeredObjects(remapped_scratch, target.domain_storage())) {
+      return Fail(CloneError::kPersistFailed);
+    }
 
-  ae::DomainGraph target_load_graph{&target};
-  std::vector<ae::Ptr<ae::Obj>> target_keepalive;
-  target_keepalive.reserve(remap.size());
-  for (auto const& [_, new_id_raw] : remap) {
-    ae::Ptr<ae::Obj> loaded;
-    if (!target_load_graph.LoadRoot(ae::ObjId{new_id_raw}, loaded).IsOk() ||
-        !loaded) {
+    ae::DomainGraph target_load_graph{&target};
+    std::vector<ae::Ptr<ae::Obj>> target_keepalive;
+    target_keepalive.reserve(remap.size());
+    for (auto const& [_, new_id_raw] : remap) {
+      ae::Ptr<ae::Obj> loaded;
+      if (!target_load_graph.LoadRoot(ae::ObjId{new_id_raw}, loaded).IsOk() ||
+          !loaded) {
+        return Fail(CloneError::kLoadFailed);
+      }
+      target_keepalive.push_back(loaded);
+    }
+    cloned_copies = std::move(target_keepalive);
+  } else {
+    std::set<ae::ObjId> child_constants = options.boundary_ids;
+    child_constants.insert(options.stable_prefab_ids.begin(),
+                           options.stable_prefab_ids.end());
+    if (options.stable_origin.is_valid()) {
+      child_constants.insert(options.stable_origin);
+    }
+    OverlayDomainStorage child_storage{remapped_scratch,
+                                       target.domain_storage(), child_constants};
+    ae::Domain child_domain{child_storage};
+    child_domain.set_parent_domain(&target);
+    if (!FinalizeCloneFromChildDomain(child_domain, target, remap, new_root_id,
+                                      options.boundary_ids, cloned_copies)) {
       return Fail(CloneError::kLoadFailed);
     }
-    target_keepalive.push_back(loaded);
   }
 
   ae::Ptr<ae::Obj> loaded_root = target.Find(new_root_id);
   if (!loaded_root || loaded_root->GetClassId() != source_root.GetClassId()) {
     return Fail(CloneError::kLoadFailed);
-  }
-
-  std::vector<ae::Ptr<ae::Obj>> cloned_copies;
-  cloned_copies.reserve(remap.size());
-  for (auto const& [_, new_id_raw] : remap) {
-    ae::Ptr<ae::Obj> copy = target.Find(ae::ObjId{new_id_raw});
-    if (!copy) {
-      return Fail(CloneError::kLoadFailed);
-    }
-    cloned_copies.push_back(copy);
   }
 
   for (auto const& [old_id, new_id_raw] : remap) {
