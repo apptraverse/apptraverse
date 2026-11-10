@@ -84,6 +84,22 @@ void PendingNotify(void* ctx, Node&) {
   ++(*count);
 }
 
+void TestExplicitEmptyLocalization() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto localized = UiLocalizationString::ptr::Create(ae::CreateWith{domain});
+  auto text = UiString::ptr::Create(ae::CreateWith{domain});
+  text->utf8 = "";
+  localized->strings.push_back(text);
+  InitializeRuntimeNode(*localized);
+  localized->MaterializeLanguage(0);
+  CHECK(localized->strings[0].is_loaded());
+  CHECK(localized->Resolve(0).empty());
+  CHECK(ResolveLocalization(localized.operator->(), 0).empty());
+  text->utf8 = "Window {0}";
+  CHECK(ResolveLocalization(localized.operator->(), 0) == "Window {0}");
+}
+
 void TestImmediateCompactionKeepsInactiveLanguageLazy() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
@@ -1681,6 +1697,7 @@ int main(int argc, char** argv) {
   apptraverse::ui::EnsureExtendedUiPresenterRegistration();
   EnsureTestRegistration();
 
+  TestExplicitEmptyLocalization();
   TestImmediateCompactionKeepsInactiveLanguageLazy();
   TestEditBoxMaterializationNotifiesOnChange();
   TestLocalizationLazyLoadRoundtrip();

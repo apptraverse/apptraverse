@@ -216,10 +216,6 @@ void HeadlessDesktopWindowPresenter::ApplyRequestedFrameFromMirror() {
 }
 
 void HeadlessDesktopWindowPresenter::RefreshResolvedTitle() {
-  if (!title.is_valid() || !locale.is_valid()) {
-    last_resolved_localized_text.clear();
-    return;
-  }
   last_resolved_localized_text = title->Resolve(locale->language_index());
 }
 
@@ -337,7 +333,7 @@ struct ContractHarness {
   ae::ObjId en_string_id{};
   ae::ObjId ru_string_id{};
 
-  explicit ContractHarness(bool materialize_en_title)
+  ContractHarness()
       : model_proxy{[this](ModelObjectProxy::ModelWork work) {
           deferred_model_work.push_back(std::move(work));
         }} {
@@ -365,9 +361,7 @@ struct ContractHarness {
     InitializeRuntimeNode(*model_root->presented_window, *model_root);
     model_root->presented_open = true;
 
-    if (materialize_en_title) {
-      model_root->localized_title->MaterializeLanguage(0);
-    }
+    model_root->localized_title->MaterializeLanguage(0);
 
     PublishInitialToUi();
   }
@@ -527,7 +521,7 @@ void TestUiPresentedWindowHierarchy() {
 }
 
 void TestPresenterReachableOnlyViaWindow() {
-  ContractHarness h{false};
+  ContractHarness h;
   CHECK(h.model_root->presented_window->presenter.is_valid());
   CHECK(h.model_root->presented_window->presenter.id() == kPresenterId);
   CHECK(h.ui_root->presented_window->presenter.id() == kPresenterId);
@@ -538,7 +532,7 @@ void TestPresenterReachableOnlyViaWindow() {
 }
 
 void TestWindowPresenterSaveLoadRoundtrip() {
-  ContractHarness h{true};
+  ContractHarness h;
   h.model_root->presented_window->RequestFrame(77, 88, 640, 480);
   ContractWindow::ptr::MakeFromThis(&*h.model_root->presented_window).Save();
   h.model_root->presented_window->presenter.Save();
@@ -565,7 +559,7 @@ void TestWindowPresenterSaveLoadRoundtrip() {
 }
 
 void TestEventModelPublicationUiMirror() {
-  ContractHarness h{false};
+  ContractHarness h;
   CHECK(h.model_root->presented_window->presenter.id() == kPresenterId);
   CHECK(h.model_root->presented_window.id() == h.ui_root->presented_window.id());
   CHECK(&*h.model_root->presented_window != &*h.ui_root->presented_window);
@@ -587,7 +581,7 @@ void TestEventModelPublicationUiMirror() {
 }
 
 void TestNativeFrameReport() {
-  ContractHarness h{false};
+  ContractHarness h;
   h.headless().model_proxy = &h.model_proxy;
   std::int32_t const mirror_width_before =
       h.ui_root->presented_window->client_width();
@@ -624,7 +618,7 @@ void TestNativeFrameReport() {
 }
 
 void TestSystemFrameReportPreservesRestoreGeometry() {
-  ContractHarness h{false};
+  ContractHarness h;
   h.headless().model_proxy = &h.model_proxy;
   h.model_root->presented_window->SubmitFrameFromNative(100, 120, 800, 600, true);
   h.PumpModel();
@@ -644,7 +638,7 @@ void TestSystemFrameReportPreservesRestoreGeometry() {
 }
 
 void TestModelRequestedFrame() {
-  ContractHarness h{false};
+  ContractHarness h;
   h.model_root->presented_window->RequestFrame(50, 60, 700, 500);
   CHECK(CountJournalEventsWithClass(
             *h.model_root->presented_window,
@@ -667,7 +661,7 @@ void TestModelRequestedFrame() {
 }
 
 void TestLazyLocalization() {
-  ContractHarness h{true};
+  ContractHarness h;
   CHECK(h.model_root->localized_title->strings[0].is_loaded());
   CHECK(!h.model_root->localized_title->strings[1].is_loaded());
   CHECK(h.headless().last_resolved_localized_text == kEnTitle);
@@ -688,7 +682,7 @@ void TestLazyLocalization() {
 }
 
 void TestLazyPresentedWindowUnloadReload() {
-  ContractHarness h{true};
+  ContractHarness h;
   h.headless().SubmitFrameFromNative(100, 120, 640, 480, true);
   h.PumpModel();
   h.PublishStructuralFromWindow();

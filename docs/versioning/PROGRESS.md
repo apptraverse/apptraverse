@@ -2911,3 +2911,12 @@ Completed the Windows/headless implementation of the agreed principles on `featu
 Final incremental Debug acceptance: **84/84 non-timing tests + 1/1 Close diagnostic PASS**. Child Close medians **204/208/216/118 ms**; main exit after child Close **45–78 ms**. RAM model Close control **4/6 ms**, zero disk bytes. Fresh-window HWND latency is higher than the earlier single-file run; this is recorded without claiming a controlled performance improvement. No MinSizeRel or platform-device build/run was performed.
 
 See [implementation, limitations, all test results and 20 Close samples](../validation/windows-principles-2026-11-10.md). History/replay remain intact; future distributed/platform work stays deferred.
+
+
+## Required localization graph — 2026-11-10
+
+Removed null/empty/unavailable-slot fallbacks from `ResolveLocalization` and `UiLocalizationString::Resolve`. Resolution directly reads the active language already materialized by model preparation; it does not load a language implicitly. Distillation guarantees the localization object, language index and slot. An explicitly empty UiString remains valid.
+
+Completed the headless application-contract fixture: every presented window now has its active title materialized before initial publication. Removed the same optional-link fallback from its test presenter. Added a positive regression for a real empty UiString and literal `Window {0}` text.
+
+Incremental Windows Debug, AE_NO_DEBUG_LOG=ON: full 85-test run passed 84 and exposed the incomplete application-contract fixture. After the fixture-only fix, that test passed separately (1/1). All 85 tests are therefore covered successfully, including the Close diagnostic; no production changes followed the full run. Logs: `.artifacts/localization-contract-final-build.log`, `localization-contract-final-tests.log`, `localization-fixture-build.log`, `localization-fixture-tests.log`. No MinSizeRel or other platform build was run.

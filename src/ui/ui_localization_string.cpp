@@ -259,18 +259,8 @@ void UiLocalizationString::MaterializeLanguage(int language_index) {
 }
 
 std::string UiLocalizationString::Resolve(int language_index) const {
-  if (strings.empty()) {
-    return {};
-  }
-  if (language_index < 0 ||
-      static_cast<std::size_t>(language_index) >= strings.size()) {
-    std::abort();
-  }
   auto const& entry = strings[static_cast<std::size_t>(language_index)];
-  if (entry) {
-    return entry->utf8;
-  }
-  return {};
+  return entry->utf8;
 }
 
 void UiLocalizationString::Apply(SetUiLocalizationSlotUtf8Event const& event) {
@@ -302,9 +292,6 @@ void UiLocalizationString::Apply(SetUiLocalizationSlotUtf8Event const& event) {
 
 std::string ResolveLocalization(UiLocalizationString const* localization,
                                 int language_index) {
-  if (localization == nullptr) {
-    return {};
-  }
   return localization->Resolve(language_index);
 }
 
