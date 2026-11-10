@@ -652,7 +652,6 @@ void ProbePersistedEmbeddedUserState(std::filesystem::path const& state_dir,
       LoadApplication<example::minimal::MinimalApplication>(
           profile.domain, example::minimal::MinimalApplicationRootId());
   example::minimal::PrepareMinimalApplicationForRun(*loaded);
-  example::minimal::NormalizeMinimalApplicationAfterEmbeddedUserLoad(*loaded);
   loaded->row_list.Load();
   loaded->apply_button.Load();
   loaded->row_list->window_title.Load();
@@ -673,7 +672,6 @@ void ProbePersistedEmbeddedUserCommitReady(
       LoadApplication<example::minimal::MinimalApplication>(
           profile.domain, example::minimal::MinimalApplicationRootId());
   example::minimal::PrepareMinimalApplicationForRun(*loaded);
-  example::minimal::NormalizeMinimalApplicationAfterEmbeddedUserLoad(*loaded);
   loaded->row_list.Load();
   loaded->row_list->window_title.Load();
   CHECK(loaded->row_list->selection_index == expected_selection);
@@ -699,7 +697,7 @@ void ExpectEmbeddedBackingUnchanged() {
 
 std::filesystem::path RunAcceptanceEmbeddedTwoCycle() {
   auto const state_dir = FreshStateDir();
-  auto const demo = DemoExe("win32_minimal_app.exe");
+  auto const demo = DemoExe("win32_minimal_app_load_only.exe");
   auto const load_only = DemoExe("win32_minimal_app_load_only.exe");
   CHECK(std::filesystem::is_empty(state_dir));
   ExpectEmbeddedBackingUnchanged();
@@ -759,7 +757,7 @@ std::filesystem::path RunAcceptanceEmbeddedTwoCycle() {
 
 std::filesystem::path RunAcceptanceFrameColdLoad() {
   auto const state_dir = FreshStateDir();
-  auto const demo = DemoExe("win32_minimal_app.exe");
+  auto const demo = DemoExe("win32_minimal_app_load_only.exe");
   auto const load_only = DemoExe("win32_minimal_app_load_only.exe");
   CHECK(std::filesystem::exists(demo));
   CHECK(std::filesystem::exists(load_only));
@@ -800,7 +798,7 @@ std::filesystem::path RunAcceptanceFrameColdLoad() {
 }
 
 std::filesystem::path RunAcceptance() {
-  auto const demo = DemoExe("win32_minimal_app.exe");
+  auto const demo = DemoExe("win32_minimal_app_load_only.exe");
   auto const load_only = DemoExe("win32_minimal_app_load_only.exe");
   CHECK(std::filesystem::exists(demo));
   CHECK(std::filesystem::exists(load_only));
@@ -869,8 +867,43 @@ void RunRequiredGraphNegativeTests(std::filesystem::path const& good_state,
   }
 }
 
+#if defined(APPTRAVERSE_TEST_DEBUG_BOOTSTRAP)
+void TestDebugAlwaysCreatesFreshGraph(std::filesystem::path const& existing_profile) {
+  auto const previous_user = ReadAllBytes(existing_profile / "user.bin");
+  for (int run = 0; run < 2; ++run) {
+    std::size_t before = 0;
+    for (auto const& entry : std::filesystem::directory_iterator(existing_profile)) {
+      if (entry.is_directory() && entry.path().filename().string().starts_with("debug-run-")) { ++before; }
+    }
+    auto pi = StartDemo(DemoExe("win32_minimal_app.exe"), existing_profile);
+    HWND main = WaitMainWindow(pi.dwProcessId, std::chrono::seconds{30});
+    CHECK(main != nullptr);
+    CHECK(WaitForMainWindowNamedControls(main, std::chrono::seconds{15}));
+    CHECK(!MainWindowShowsAppliedState(main));
+    CHECK(ListSelection(main) == -1);
+    SelectListRow(main, 1);
+    ClickApplyButton(main);
+    WaitMainWindowAppliedState(main);
+    CloseGracefully(main, pi);
+    CHECK(ReadAllBytes(existing_profile / "user.bin") == previous_user);
+    std::size_t after = 0;
+    for (auto const& entry : std::filesystem::directory_iterator(existing_profile)) {
+      if (entry.is_directory() && entry.path().filename().string().starts_with("debug-run-")) {
+        ++after;
+        CHECK(std::filesystem::exists(entry.path() / "user" / "user.bin"));
+        CHECK(std::filesystem::exists(entry.path() / "embedded_distilled_minimal_app_supply.h"));
+      }
+    }
+    CHECK(after == before + 1);
+  }
+}
+#endif
+
 void RunAcceptanceAndRequiredGraphNegatives() {
   auto const good_state = RunAcceptance();
+#if defined(APPTRAVERSE_TEST_DEBUG_BOOTSTRAP)
+  TestDebugAlwaysCreatesFreshGraph(good_state);
+#endif
 #if !defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
   RunRequiredGraphNegativeTests(
       good_state, DemoExe("win32_minimal_app_load_only.exe"));

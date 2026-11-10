@@ -12,23 +12,6 @@
 
 namespace apptraverse {
 
-struct PublicationSerializationStats {
-  std::uint64_t journal_entries_serialized{0};
-  std::uint64_t node_base_snapshots_serialized{0};
-  std::uint64_t journal_replay_calls{0};
-  std::uint64_t node_publication_omit_saves{0};
-  std::uint64_t materialized_scratch_object_count{0};
-  std::uint64_t materialized_historical_event_objects{0};
-  std::uint64_t materialized_scratch_layer_bytes{0};
-  std::uint64_t event_record_vector_seri_calls{0};
-  std::uint64_t event_record_vector_publication_short_circuits{0};
-  std::uint64_t last_materialized_save_micros{0};
-  std::uint64_t last_materialized_post_save_micros{0};
-};
-
-PublicationSerializationStats& ActivePublicationSerializationStats();
-void ResetPublicationSerializationStats();
-
 namespace detail {
 
 template <typename Dnv, typename = void>
@@ -73,15 +56,6 @@ bool OmitNodeHistoryForHistoricalBaseSnapshot(Dnv& dnv) {
   return scope != nullptr &&
          *scope == ae::GraphSerializationScope::HistoricalBaseSnapshot;
 }
-
-void NoteNodeHistorySerialized(std::size_t journal_entries,
-                               bool base_snapshot);
-
-void NoteNodePublicationOmitSave();
-
-void NoteMaterializedScratchObjectCount(std::size_t count);
-
-void NoteEventRecordVectorSeri(bool materialized_publication_short_circuit);
 
 }  // namespace detail
 

@@ -1718,7 +1718,8 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
   apptraverse_add_test(apptraverse_minimal_app_win32_acceptance_test
     minimal_app_win32_acceptance_test.cpp minimal_app_common)
   target_compile_definitions(apptraverse_minimal_app_win32_acceptance_test PRIVATE
-    APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
+    APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL
+    "$<$<CONFIG:Debug>:APPTRAVERSE_TEST_DEBUG_BOOTSTRAP>")
   target_link_libraries(apptraverse_minimal_app_win32_acceptance_test PRIVATE
     apptraverse_ui_windows)
   target_sources(apptraverse_minimal_app_win32_acceptance_test PRIVATE

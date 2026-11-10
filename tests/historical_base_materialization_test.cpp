@@ -718,7 +718,7 @@ void TestHistoricalBaseSurvivesBackingSwap() {
   }
 }
 
-void TestCaptureParentOmitsChildNodeHistory() {
+void TestCaptureParentPreservesChildHistory() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   HistorizedParentWithChild::ptr parent_ref =
@@ -736,11 +736,13 @@ void TestCaptureParentOmitsChildNodeHistory() {
   }
   CHECK(child->journal.size() == 100);
   CHECK(parent->journal.empty());
-  ResetPublicationSerializationStats();
   parent->CaptureBaseState();
-  CHECK(ActivePublicationSerializationStats().journal_entries_serialized == 0);
-  CHECK(ActivePublicationSerializationStats().node_base_snapshots_serialized ==
-        0);
+  auto base = parent->base.Load();
+  auto const& captured = static_cast<HistorizedParentWithChild const&>(*base);
+  CHECK(captured.child->value == child->value);
+  CHECK(captured.child.id() == child->obj_id);
+  CHECK(captured.child->journal.size() == 100);
+  CHECK(child->journal.size() == 100);
 }
 
 void TestMaterializedPublicationOmitsHistory() {
@@ -828,7 +830,7 @@ int main() {
   apptraverse::test::TestUntouchedColdNodeRemainsDifferential();
   apptraverse::test::TestHistoricalBaseUserMaterialization();
   apptraverse::test::TestHistoricalBaseSurvivesBackingSwap();
-  apptraverse::test::TestCaptureParentOmitsChildNodeHistory();
+  apptraverse::test::TestCaptureParentPreservesChildHistory();
   apptraverse::test::TestMaterializedPublicationOmitsHistory();
   apptraverse::test::TestSupplyConstantWithHistoricalBaseSave();
   apptraverse::test::TestHistoricalStringLeafBootstrapAfterOwnerSave();

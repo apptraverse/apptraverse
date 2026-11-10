@@ -31,7 +31,6 @@ struct Serializer<BinaryArchive<B>, std::vector<apptraverse::EventRecord>> {
   SeriResult Seri(Archive& archive, Meta<Vec const> const& val) const {
     bool const short_circuit = detail::IsMaterializedPublicationScope(
         archive.buffer().domain_graph);
-    apptraverse::detail::NoteEventRecordVectorSeri(short_circuit);
     if (short_circuit) {
       std::size_t const zero = 0;
       return archive.buffer().Write(SizeTag{zero});

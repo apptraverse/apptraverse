@@ -106,7 +106,6 @@ add_library(apptraverse STATIC
   src/object_serialization.cpp
   src/graph_walk_registry.cpp
   src/object_clone.cpp
-  src/publication_serialization_scope.cpp
   src/ui_mirror.cpp
   src/model_runtime.cpp
   src/application_model_runtime.cpp

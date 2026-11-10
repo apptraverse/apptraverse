@@ -614,26 +614,9 @@ void RestoreReachableNodeHistory(std::vector<SavedNodeBookkeeping>& saved) {
 }
 
 void SerializeObjectGraphToBuffer(ae::Obj const& root, ByteSink& out) {
-  ResetPublicationSerializationStats();
   ae::RamDomainStorage scratch;
   SaveObjectGraphToScratch(
       root, scratch, ae::GraphSerializationScope::MaterializedPublication);
-  std::uint64_t layer_bytes = 0;
-  for (auto const& [obj_id, class_map_opt] : scratch.state) {
-    if (!class_map_opt) {
-      continue;
-    }
-    for (auto const& [class_id, versions] : *class_map_opt) {
-      for (auto const& [version, data] : versions) {
-        layer_bytes += data.size();
-      }
-    }
-  }
-  detail::NoteMaterializedScratchObjectCount(scratch.state.size());
-  ActivePublicationSerializationStats().materialized_scratch_layer_bytes =
-      layer_bytes;
-  ActivePublicationSerializationStats().materialized_historical_event_objects = 0;
-
   auto const distilled_base_ids =
       CollectDistilledBaseObjectIds(root, scratch.state);
   GraphPublicationPayload const payload =
@@ -649,7 +632,6 @@ void CollectMaterializedReachableObjects(ae::Obj& root,
   ae::RamDomainStorage scratch;
   SaveObjectGraphToScratch(
       root, scratch, ae::GraphSerializationScope::MaterializedPublication);
-  detail::NoteMaterializedScratchObjectCount(scratch.state.size());
   out.clear();
   out.reserve(scratch.state.size());
   for (auto const& [obj_id, class_map_opt] : scratch.state) {
@@ -664,7 +646,6 @@ void CollectMaterializedReachableObjects(ae::Obj& root,
 }
 
 void CollectLiveReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out) {
-  ResetPublicationSerializationStats();
   CollectReachableObjectsFromLiveFields(root, out);
   std::unordered_set<std::uint32_t> seen;
   seen.reserve(out.size() + 16);
@@ -675,7 +656,6 @@ void CollectLiveReachableObjects(ae::Obj& root, std::vector<ae::Obj*>& out) {
   ae::RamDomainStorage scratch;
   SaveObjectGraphToScratch(
       root, scratch, ae::GraphSerializationScope::MaterializedPublication);
-  detail::NoteMaterializedScratchObjectCount(scratch.state.size());
   out.reserve(out.size() + scratch.state.size());
   for (auto const& [obj_id, class_map_opt] : scratch.state) {
     if (!class_map_opt) {
@@ -1071,13 +1051,12 @@ void FormatInitialPublicationLoadDiagnostics(InitialPublicationLoadDiagnostics c
 ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
                                           ae::IDomainStorage& ui_storage,
                                           InitialPublicationLoadDiagnostics* diagnostics_out) {
-  InitialPublicationLoadDiagnostics local;
-  InitialPublicationLoadDiagnostics* diagnostics = diagnostics_out ? diagnostics_out : &local;
-  *diagnostics = {};
+  InitialPublicationLoadDiagnostics* diagnostics = diagnostics_out;
+  if (diagnostics) { *diagnostics = {}; }
 
   if (in.pos > in.size) {
-    diagnostics->stage = InitialPublicationLoadStage::ReadEnvelope;
-    diagnostics->offset = static_cast<std::uint32_t>(in.pos);
+    if (diagnostics) { diagnostics->stage = InitialPublicationLoadStage::ReadEnvelope; }
+    if (diagnostics) { diagnostics->offset = static_cast<std::uint32_t>(in.pos); }
     return {};
   }
   std::vector<std::uint8_t> const envelope_bytes(in.data + in.pos,
@@ -1087,14 +1066,14 @@ ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain
   ae::seri::BinaryArchive archive{std::move(buffer)};
   InitialPublicationEnvelope envelope{};
   if (archive.Load(envelope).IsErr()) {
-    diagnostics->stage = InitialPublicationLoadStage::ReadEnvelope;
-    diagnostics->offset = static_cast<std::uint32_t>(in.pos);
+    if (diagnostics) { diagnostics->stage = InitialPublicationLoadStage::ReadEnvelope; }
+    if (diagnostics) { diagnostics->offset = static_cast<std::uint32_t>(in.pos); }
     return {};
   }
   in.pos = in.size;
 
   std::uint32_t const root_id = envelope.root_id;
-  diagnostics->root_id = root_id;
+  if (diagnostics) { diagnostics->root_id = root_id; }
 
   ByteSource graph;
   graph.data = envelope.graph_bytes.data();
@@ -1103,8 +1082,8 @@ ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain
 
   GraphPublicationPayload payload;
   if (!LoadGraphPublicationPayload(graph, payload)) {
-    diagnostics->stage = InitialPublicationLoadStage::ReadGraphPayload;
-    diagnostics->offset = 0;
+    if (diagnostics) { diagnostics->stage = InitialPublicationLoadStage::ReadGraphPayload; }
+    if (diagnostics) { diagnostics->offset = 0; }
     return {};
   }
 
@@ -1120,29 +1099,21 @@ ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain
   ae::Ptr<ae::Obj> ui_root;
   auto const load_result = load_graph.LoadRoot(ae::ObjId{root_id}, ui_root);
   if (load_result.IsErr()) {
-    diagnostics->stage = InitialPublicationLoadStage::LoadRoot;
-    diagnostics->load_error_code = load_result.error().error_code;
+    if (diagnostics) { diagnostics->stage = InitialPublicationLoadStage::LoadRoot; }
+    if (diagnostics) { diagnostics->load_error_code = load_result.error().error_code; }
     RecordStorageLayers(ui_storage, ae::ObjId{root_id}, diagnostics);
     return {};
   }
 
   ApplyGraphPublicationNodeGenerations(payload, ui_domain);
 
-  diagnostics->stage = InitialPublicationLoadStage::Ok;
+  if (diagnostics) { diagnostics->stage = InitialPublicationLoadStage::Ok; }
   return ui_root;
 }
 
 ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
                                       ae::IDomainStorage& ui_storage) {
-  InitialPublicationLoadDiagnostics diagnostics;
-  auto ui_root = TryLoadInitialPublication(in, ui_domain, ui_storage, &diagnostics);
-  if (!ui_root) {
-    char message[512];
-    FormatInitialPublicationLoadDiagnostics(diagnostics, message, sizeof(message));
-    WriteFatalStderr(message);
-    std::abort();
-  }
-  return ui_root;
+  return TryLoadInitialPublication(in, ui_domain, ui_storage);
 }
 
 namespace {

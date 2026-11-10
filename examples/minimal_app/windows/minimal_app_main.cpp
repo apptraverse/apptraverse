@@ -12,6 +12,9 @@
 
 #include "minimal_app_desktop_close.h"
 #include "minimal_app_lifecycle.h"
+#if defined(APPTRAVERSE_MINIMAL_APP_DEBUG_BOOTSTRAP)
+#include "minimal_app_distillation.h"
+#endif
 
 namespace {
 
@@ -34,6 +37,12 @@ int main(int argc, char** argv) {
   std::filesystem::path state_dir = DefaultStateDir();
   for (int i = 1; i < argc; ++i) {
     std::string_view arg{argv[i]};
+#if defined(APPTRAVERSE_MINIMAL_APP_DEBUG_BOOTSTRAP)
+    if (arg == "--distill-only" && i + 1 < argc) {
+      apptraverse::example::minimal::DistillMinimalApplication(argv[++i]);
+      return 0;
+    }
+#endif
     if (arg == "--state-dir" && i + 1 < argc) {
       state_dir = argv[++i];
     }
@@ -44,13 +53,8 @@ int main(int argc, char** argv) {
 
   apptraverse::windows::WinApplicationHostCallbacks callbacks;
   callbacks.run_model = [&](apptraverse::ApplicationPublishedCallback on_published) {
-#if defined(APPTRAVERSE_MINIMAL_APP_LOAD_ONLY)
-    bool const allow_bootstrap = false;
-#else
-    bool const allow_bootstrap = true;
-#endif
     model_exit_status = apptraverse::example::minimal::RunMinimalApplicationModel(
-        state_dir, runtime, on_published, allow_bootstrap);
+        state_dir, runtime, on_published);
   };
   callbacks.request_stop = [&] { runtime.RequestStop(); };
   callbacks.on_desktop_window_close =

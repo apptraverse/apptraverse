@@ -9,12 +9,9 @@ namespace apptraverse::example::minimal {
 
 void SealAuxiliaryWindowClosed(MinimalApplication& application) {
   application.auxiliary_presented_open = false;
-  if (application.auxiliary.window.is_valid() &&
-      application.auxiliary.window.is_loaded()) {
+  if (application.auxiliary.window.is_loaded()) {
     ui::UnloadPresentedWindow(application.auxiliary.window);
-    if (application.auxiliary.closer.is_valid()) {
-      application.auxiliary.closer.Save();
-    }
+    application.auxiliary.closer.Save();
   }
   application.auxiliary.apply_button.Reset();
   application.auxiliary.row_list.Reset();

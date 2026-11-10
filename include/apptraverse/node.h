@@ -99,7 +99,6 @@ class Node : public ae::Obj {
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
     if (detail::OmitNodeHistoryForPublication(dnv)) {
-      detail::NoteNodePublicationOmitSave();
       SharedPtr<Node> empty_base{};
       static std::vector<EventRecord> const kEmptyJournal{};
       dnv(base_, empty_base, kEmptyJournal);
@@ -117,7 +116,6 @@ class Node : public ae::Obj {
       dnv(base_, empty_base, kEmptyJournal);
       return;
     }
-    detail::NoteNodeHistorySerialized(journal.size(), base.is_valid());
     ae::DomainGraph* const graph =
         detail::DnvSerializationScope<std::decay_t<Dnv>>::GetGraph(dnv);
     bool const force_historical_base =

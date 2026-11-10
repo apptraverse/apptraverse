@@ -73,11 +73,8 @@ std::unordered_map<HWND, ae::ObjId::Type> BuildCatalogWindowHwndMap(
     apptraverse::WindowCatalog& catalog) {
   std::unordered_map<HWND, ae::ObjId::Type> map;
   TryMapCatalogWindowHwnd(catalog.persisted.main_window, map);
-  if (catalog.persisted.list) {
+  {
     for (auto const& row : catalog.persisted.list->rows) {
-      if (!row) {
-        continue;
-      }
       auto* holder = static_cast<apptraverse::WindowHolder*>(&*row);
       TryMapCatalogWindowHwnd(holder->window, map);
     }

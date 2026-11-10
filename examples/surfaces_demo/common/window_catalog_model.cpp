@@ -243,9 +243,6 @@ void ApplyChromeRect(ui::UiPushButtonPresenter& presenter,
 
 void ApplyButtonChromeRect(Presenter::ptr& presenter,
                            WindowCatalogChromeRect const& rect) {
-  if (!presenter.is_valid()) {
-    return;
-  }
   presenter.Load();
   ApplyChromeRect(static_cast<ui::UiPushButtonPresenter&>(*presenter), rect);
 }
@@ -269,7 +266,7 @@ void WindowCatalog::Apply(SetWindowCatalogMainClientViewportEvent const& event) 
   WindowCatalogMainChromeLayout const layout =
       ComputeWindowCatalogMainChromeLayout(event.width, event.height, dpi);
   // Chrome presenters only: the desktop window frame is owned by the platform.
-  if (persisted.presenters.list_presenter.is_valid()) {
+  {
     persisted.presenters.list_presenter.Load();
     auto& list_presenter = static_cast<ui::UiListContainerPresenter&>(
         *persisted.presenters.list_presenter);
@@ -528,10 +525,8 @@ void WindowCatalog::MaterializeCatalogStrings(int language_index) {
   persisted.texts.list_row_title_format->MaterializeLanguage(language_index);
   persisted.texts.list_row_title_closed_suffix->MaterializeLanguage(
       language_index);
-  if (persisted.texts.label_close.is_valid()) {
-    persisted.texts.label_close.Load();
-    persisted.texts.label_close->MaterializeLanguage(language_index);
-  }
+  persisted.texts.label_close.Load();
+  persisted.texts.label_close->MaterializeLanguage(language_index);
   if (persisted.main_window.is_loaded()) {
     MainPresented(*this).presenter->title->MaterializeLanguage(language_index);
   }

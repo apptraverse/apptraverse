@@ -16,6 +16,7 @@
 #include "apptraverse/application_model_session.h"
 #include "apptraverse/application_ui_session.h"
 #include "apptraverse/directory_domain_storage.h"
+#include "apptraverse/single_file_user_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/embedded_application_model_session.h"
 #include "apptraverse/embedded_distilled_domain.h"
@@ -70,7 +71,6 @@ using example::minimal::MinimalAuxiliaryOpenerId;
 using example::minimal::MinimalLocaleId;
 using example::minimal::MinimalMainWindowId;
 using example::minimal::MinimalPresenterId;
-using example::minimal::NormalizeMinimalApplicationAfterEmbeddedUserLoad;
 using example::minimal::PersistMinimalApplication;
 using example::minimal::PersistMinimalApplicationEmbeddedUserOverlay;
 using example::minimal::PrepareMinimalApplicationForRun;
@@ -982,7 +982,7 @@ void TestMinimalAppAuxiliaryCloseEmbeddedUserShutdownColdLoad() {
   CHECK(cold_app->journal.empty());
   cold_app->main_window.Load();
   CHECK(cold_app->main_window->journal.empty());
-  NormalizeMinimalApplicationAfterEmbeddedUserLoad(*cold_app);
+
   CheckOpenCloseOwnerWiring(*cold_app, cold_domain);
   PrepareMinimalApplicationForRun(*cold_app);
   CHECK(!cold_app->auxiliary_presented_open);
@@ -1045,6 +1045,70 @@ void TestMinimalAppAuxiliaryCloseSessionUserFlushCold() {
 
   {
     DirectoryDomainStorage cold_disk{user_dir};
+    ae::RamDomainStorage cold_backing;
+    InstallEmbeddedDistilledBacking(cold_backing, owned.graph);
+    OverlayDomainStorage cold_overlay{
+        cold_disk, cold_backing, EmbeddedSupplyConstantIdSet(owned.graph)};
+    ae::Domain cold_domain{cold_overlay};
+    auto cold_app = LoadApplication<MinimalApplication>(
+        cold_domain, MinimalApplicationRootId());
+    CHECK(cold_app->auxiliary.window.id() == aux_window_id);
+    CHECK(!cold_app->auxiliary_presented_open);
+    CHECK(!cold_app->auxiliary.window.is_loaded());
+    cold_app->auxiliary.window.Load();
+    ui::UiDesktopWindow& loaded = *cold_app->auxiliary.window;
+    CHECK(loaded.x() == 77);
+    CHECK(loaded.y() == 88);
+    CHECK(loaded.restore_client_width() == 400);
+    CHECK(loaded.restore_client_height() == 300);
+    CHECK(loaded.presenter.is_valid());
+    CHECK(!loaded.presenter.is_loaded());
+    loaded.presenter.Load();
+    CHECK(loaded.presenter.id() == aux_presenter_id);
+  }
+}
+
+void TestMinimalAppAuxiliaryCloseRamUserShutdownCold() {
+  OwnedEmbeddedMinimalGraph owned = DistillHeadlessMinimalAppEmbeddedGraph();
+  std::filesystem::path const user_dir =
+      std::filesystem::temp_directory_path() /
+      "minimal_app_aux_close_ram_user_shutdown_cold";
+  std::error_code ec;
+  std::filesystem::remove_all(user_dir, ec);
+
+  ae::ObjId aux_window_id{};
+  ae::ObjId aux_presenter_id{};
+
+  {
+    ae::RamDomainStorage disk;
+    ae::RamDomainStorage backing;
+    InstallEmbeddedDistilledBacking(backing, owned.graph);
+    OverlayDomainStorage overlay{
+        disk, backing, EmbeddedSupplyConstantIdSet(owned.graph)};
+    ae::Domain domain{overlay};
+    auto app = LoadApplication<MinimalApplication>(
+        domain, MinimalApplicationRootId());
+    PrepareMinimalApplicationForRun(*app);
+    app->OpenAuxiliaryWindowImpl();
+    app->auxiliary.window.Load();
+    ui::UiDesktopWindow& aux = *app->auxiliary.window;
+    aux.SubmitFrameFromNative(77, 88, 400, 300, true);
+    aux_window_id = aux.obj_id;
+    aux_presenter_id = aux.presenter.id();
+    app->CloseAuxiliaryWindowImpl();
+    CHECK(app->auxiliary.window.is_valid());
+    CHECK(!app->auxiliary.window.is_loaded());
+    CHECK(!app->auxiliary_presented_open);
+    CHECK(CountRegularFiles(user_dir) == 0);
+    CHECK(SaveMinimalApplicationEmbeddedUserState(*app) == 0);
+    CHECK(CountRegularFiles(user_dir) == 0);
+    CHECK(SaveUserStorageFile(disk, user_dir));
+    CHECK(CountRegularFiles(user_dir) == 1);
+  }
+
+  {
+    ae::RamDomainStorage cold_disk;
+    CHECK(LoadUserStorageFile(cold_disk, user_dir));
     ae::RamDomainStorage cold_backing;
     InstallEmbeddedDistilledBacking(cold_backing, owned.graph);
     OverlayDomainStorage cold_overlay{
@@ -1662,6 +1726,7 @@ int main() {
   apptraverse::test::TestMinimalAppAuxiliaryCloseOpenHeadless();
   apptraverse::test::TestMinimalAppAuxiliaryCloseEmbeddedUserShutdownColdLoad();
   apptraverse::test::TestMinimalAppAuxiliaryCloseSessionUserFlushCold();
+  apptraverse::test::TestMinimalAppAuxiliaryCloseRamUserShutdownCold();
   apptraverse::test::TestMinimalAppPrepareMaterializesActiveLanguageOnly(0);
   apptraverse::test::TestMinimalAppPrepareMaterializesActiveLanguageOnly(1);
   apptraverse::test::TestMinimalAppPrepareActiveLanguageOpenDetail();

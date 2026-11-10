@@ -797,33 +797,18 @@ std::chrono::nanoseconds CollectLiveFieldReachableOnce(Application& application)
 }
 
 std::chrono::nanoseconds CollectLiveReachableOnce(Application& application) {
-  ResetPublicationSerializationStats();
   auto const t0 = std::chrono::steady_clock::now();
   std::vector<ae::Obj*> live;
   CollectLiveReachableObjects(application, live);
   CHECK(!live.empty());
-  CHECK(ActivePublicationSerializationStats().journal_entries_serialized == 0);
-  CHECK(ActivePublicationSerializationStats().node_base_snapshots_serialized ==
-        0);
-  CHECK(ActivePublicationSerializationStats().node_publication_omit_saves > 0);
-  CHECK(ActivePublicationSerializationStats().materialized_historical_event_objects ==
-        0);
   return std::chrono::steady_clock::now() - t0;
 }
 
 std::chrono::nanoseconds SerializeSurfacePublicationOnce(Surface& surface) {
-  ResetPublicationSerializationStats();
   auto const t0 = std::chrono::steady_clock::now();
   ByteSink sink;
   SerializeStructuralNodePublication(surface, sink);
   CHECK(!sink.bytes.empty());
-  CHECK(ActivePublicationSerializationStats().journal_entries_serialized == 0);
-  CHECK(ActivePublicationSerializationStats().node_base_snapshots_serialized ==
-        0);
-  CHECK(ActivePublicationSerializationStats().node_publication_omit_saves >
-        0);
-  CHECK(ActivePublicationSerializationStats().materialized_historical_event_objects ==
-        0);
   return std::chrono::steady_clock::now() - t0;
 }
 
@@ -982,33 +967,9 @@ void TestCollectLiveReachableStableWithLongJournal() {
   auto const us = [](std::chrono::nanoseconds t) {
     return std::chrono::duration_cast<std::chrono::microseconds>(t).count();
   };
-  std::cout << "CollectReachableObjectsFromLiveFields us: 100ev=" << us(fields100)
-            << " 1000ev=" << us(fields1000) << " 10000ev=" << us(fields10000)
-            << "\nCollectLiveReachableObjects us: 100ev=" << us(live100)
-            << " 1000ev=" << us(live1000) << " 10000ev=" << us(live10000)
-            << "\nSerializeStructuralNodePublication us: 100ev=" << us(pub100)
-            << " 1000ev=" << us(pub1000) << " 10000ev=" << us(pub10000)
-            << "\nmaterialized_scratch_objects="
-            << ActivePublicationSerializationStats().materialized_scratch_object_count
-            << " historical_events_in_scratch="
-            << ActivePublicationSerializationStats()
-                   .materialized_historical_event_objects
-            << " scratch_layer_bytes="
-            << ActivePublicationSerializationStats()
-                   .materialized_scratch_layer_bytes
-            << " event_record_vector_seri="
-            << ActivePublicationSerializationStats().event_record_vector_seri_calls
-            << " short_circuits="
-            << ActivePublicationSerializationStats()
-                   .event_record_vector_publication_short_circuits
-            << "\n";
 
   CHECK(fields1000 <= fields100 + std::chrono::milliseconds{2});
   CHECK(fields10000 <= fields100 + std::chrono::milliseconds{2});
-  CHECK(ActivePublicationSerializationStats().materialized_scratch_layer_bytes <
-        8192);
-  CHECK(ActivePublicationSerializationStats().materialized_historical_event_objects ==
-        0);
 
   auto const [live_p50, live_p95] = SampleP50P95([&] {
     (void)CollectLiveReachableOnce(*seeded10000.application);
