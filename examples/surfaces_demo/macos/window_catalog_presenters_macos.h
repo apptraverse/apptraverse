@@ -32,6 +32,13 @@ class CatalogDesktopWindowPresenter
     dnv(base_, catalog);
   }
 
+  bool PresentsChildControl(Presenter const& child) const override {
+    // Native caption Close supplies this action; identify its content control
+    // through the distilled prefab link, independently of model host mode.
+    auto const& catalog_window = static_cast<CatalogWindow const&>(*window);
+    return child.obj_id != catalog_window.close_button_presenter.id();
+  }
+
   void OnLoad() override {
     assert(SessionMainNativeFrameQueue() != nullptr);
     assert(session_catalog_main_window_id_.is_valid());

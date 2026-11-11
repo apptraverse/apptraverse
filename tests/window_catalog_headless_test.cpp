@@ -1490,9 +1490,11 @@ void TestPresentationEnvironmentPreservesPortableState() {
   auto* first = AsHolder(catalog->persisted.list->rows[0]);
   first->window->RequestFrame(-310, -90, 720, 460);
   auto const first_id = first->window.id();
+  // The generic headless presenter includes the button in either model mode.
+  // Only a native desktop presenter suppresses its redundant content control.
   auto& close_presenter = *first->window->close_button_presenter;
   close_presenter.window_presenter->presentation_loaded = true;
-  CHECK(!close_presenter.EnabledForPresentation());
+  CHECK(close_presenter.EnabledForPresentation());
   catalog->AddWindow();
   auto* second = AsHolder(catalog->persisted.list->rows[1]);
   catalog->UserCloseWindow(second->window.id());
@@ -1516,7 +1518,7 @@ void TestPresentationEnvironmentPreservesPortableState() {
   auto* cold_second = AsHolder(cold->persisted.list->rows[1]);
   auto& cold_close = *cold_first->window->close_button_presenter;
   cold_close.window_presenter->presentation_loaded = true;
-  CHECK(!cold_close.EnabledForPresentation());
+  CHECK(cold_close.EnabledForPresentation());
   CHECK(cold_first->window.id() == first_id);
   CHECK(cold_first->window->x() == -310);
   CHECK(cold_first->window->y() == -90);

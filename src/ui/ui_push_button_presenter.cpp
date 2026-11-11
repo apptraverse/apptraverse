@@ -10,7 +10,7 @@ bool UiPushButtonPresenter::ReadyForPresentation() const {
 }
 
 bool UiPushButtonPresenter::EnabledForPresentation() const {
-  return button->VisibleInCurrentPresentation();
+  return window_presenter->PresentsChildControl(*this);
 }
 
 void UiPushButtonPresenter::NotifyClickedFromUi() {

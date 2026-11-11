@@ -110,7 +110,41 @@ void TestConditionalPresentationLifecycle() {
   CHECK(presenter->unloads == 2);
 }
 
+class SelectiveWindowPresenter : public UiWindowPresenter {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::SelectiveWindowPresenter",
+                           SelectiveWindowPresenter, UiWindowPresenter, 0)
+ protected:
+  SelectiveWindowPresenter() = default;
+ public:
+  explicit SelectiveWindowPresenter(ae::ObjProp prop) : UiWindowPresenter{prop} {}
+  ae::ObjId native_action_control;
+  bool PresentsChildControl(Presenter const& child) const override {
+    return child.obj_id != native_action_control;
+  }
+};
+APPTRAVERSE_REGISTER(SelectiveWindowPresenter);
+
+void TestParentOwnsChildPresentationPolicy() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto desktop = SelectiveWindowPresenter::ptr::Create(ae::CreateWith{domain});
+  auto paged = UiWindowPresenter::ptr::Create(ae::CreateWith{domain});
+  auto close = UiPushButtonPresenter::ptr::Create(ae::CreateWith{domain});
+  auto ordinary = UiPushButtonPresenter::ptr::Create(ae::CreateWith{domain});
+  desktop->native_action_control = close.id();
+  close->window_presenter = desktop;
+  ordinary->window_presenter = desktop;
+  CHECK(!close->EnabledForPresentation());
+  CHECK(ordinary->EnabledForPresentation());
+  // The same control needs no model policy or changes to become visible.
+  close->window_presenter = paged;
+  CHECK(close->EnabledForPresentation());
+  close->window_presenter = desktop;
+  CHECK(!close->EnabledForPresentation());
+}
+
 void EnsureTestRegistration() {
+  (void)&g_apptraverse_registrar_SelectiveWindowPresenter;
   (void)&g_apptraverse_registrar_ConditionalPresenter;
   (void)&g_apptraverse_registrar_TestClickButton;
   (void)&apptraverse::test::g_apptraverse_registrar_DerivedUiLocalizationString;
@@ -1732,6 +1766,7 @@ int main(int argc, char** argv) {
   EnsureTestRegistration();
 
   TestConditionalPresentationLifecycle();
+  TestParentOwnsChildPresentationPolicy();
   TestExplicitEmptyLocalization();
   TestImmediateCompactionKeepsInactiveLanguageLazy();
   TestPushButtonMaterializationNotifiesOnChange();

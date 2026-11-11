@@ -2,6 +2,10 @@
 
 Follow-up to `b32db56` on `feature/cross-platform-user-state`.
 
+The model-driven visibility implementation below is historical. It is superseded
+by [presenter-owned Close policy](window-catalog-presenter-close-policy-2026-11-11.md),
+which preserves the graph and removes the model visibility hook.
+
 Desktop WindowCatalog windows use the native caption Close control. The
 in-content Close button is presented only in paged mode (Android/Web/iOS).
 Its model object and presenter remain in the portable graph. No serialized

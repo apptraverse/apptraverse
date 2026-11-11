@@ -167,11 +167,33 @@ void TestAndroidEmbeddedBackingUserColdLoadWithoutNormalize() {
   }
 }
 
+void TestAndroidClosePresentationIgnoresModelMode() {
+  ae::RamDomainStorage backing;
+  InstallEmbeddedDistilledBacking(
+      backing, embedded_distilled::window_catalog::kEmbeddedGraph);
+  ae::RamDomainStorage user;
+  OverlayDomainStorage overlay{
+      user, backing, EmbeddedSupplyConstantIdSet(
+                         embedded_distilled::window_catalog::kEmbeddedGraph)};
+  ae::Domain domain{overlay};
+  auto catalog = LoadApplication<WindowCatalog>(domain, kCatalogId);
+  PrepareWindowCatalogForDesktopRun(*catalog);
+  catalog->AddWindow();
+  auto* holder = AsHolder(catalog->persisted.list->rows[0]);
+  auto const& close = *holder->window->close_button_presenter;
+  CHECK(!catalog->persisted.mobile_pager);
+  CHECK(close.EnabledForPresentation());
+  PrepareWindowCatalogForPagedRun(*catalog);
+  CHECK(catalog->persisted.mobile_pager);
+  CHECK(close.EnabledForPresentation());
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
 int main() {
   apptraverse::EnsureWindowCatalogAndroidGraphRegistration();
+  apptraverse::test::TestAndroidClosePresentationIgnoresModelMode();
   apptraverse::test::TestAndroidEmbeddedBackingUserColdLoadWithoutNormalize();
   std::cout << "window_catalog_android_embedded_session_test OK\n";
   return 0;

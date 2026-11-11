@@ -125,6 +125,16 @@ void TestWebEmbeddedBackingUserColdLoadWithoutNormalize() {
     holder0_id = AsHolder(catalog->persisted.list->rows[0])->obj_id;
     holder1_id = AsHolder(catalog->persisted.list->rows[1])->obj_id;
     open_window_id = AsHolder(catalog->persisted.list->rows[1])->window.id();
+    // The Web presenter owns the in-page Close control independently of the
+    // portable model's saved presentation mode (for example imported desktop USER).
+    auto& close = *AsHolder(catalog->persisted.list->rows[1])
+                       ->window->close_button_presenter;
+    CHECK(close.EnabledForPresentation());
+    PrepareWindowCatalogForDesktopRun(*catalog);
+    CHECK(!catalog->persisted.mobile_pager);
+    CHECK(close.EnabledForPresentation());
+    PrepareWindowCatalogForPagedRun(*catalog);
+    CHECK(close.EnabledForPresentation());
     CHECK(std::filesystem::is_empty(user_dir));
     ShutdownSaveCatalog(*catalog, user_storage, user_dir);
     ExpectNoLocalizationSupplyBodiesInUser(*catalog, overlay, user_storage);

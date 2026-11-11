@@ -657,7 +657,6 @@ class CatalogCloseButton : public ui::UiPushButton {
   CatalogWindow::ptr window;
 
   void QueueClickFromUi(ModelObjectProxy& proxy) const override;
-  bool VisibleInCurrentPresentation() const override;
   void HandlePushButtonClicked() override;
 };
 

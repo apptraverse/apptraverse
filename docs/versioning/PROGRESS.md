@@ -1,4 +1,20 @@
 # AppTraverse — прогресс версионирования поставок
+## Presenter-owned Close control — 2026-11-11 — PASS
+
+Removed model-driven button visibility. Existing Windows/Linux/macOS catalog
+window presenters suppress their prefab-linked content Close control; paged
+presenters keep it. Both paths retain the same model Close command. No saved
+fields, class IDs or graph links changed, and all four supplies retain their
+previous canonical hash. Other `mobile_pager` navigation behavior remains
+outside this bounded change.
+
+Verified incremental Debug: Windows 5 focused tests and both foreign-USER native
+GUI scenarios; Linux 16/16; Android emulator 7/7; Web embedded, functional and
+headed lifecycle; four-platform matrix 52/52 with 32 unchanged read-only inputs.
+Original Android APK and default USER preserved. Apple source policy updated;
+Apple runtime and MinSizeRel not run for this change.
+[Implementation, scope and evidence](../validation/window-catalog-presenter-close-policy-2026-11-11.md).
+
 ## Native desktop Close presentation — 2026-11-11 — PASS
 
 Desktop windows retain native caption Close and no longer create the in-content
