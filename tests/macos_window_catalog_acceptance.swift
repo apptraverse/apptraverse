@@ -84,6 +84,28 @@ private final class Acceptance {
         guard let content = main?.window.contentView else { return nil }
         return find(content)
     }
+    func nativeClickRow(_ row: Int, double: Bool = false,
+                        atTrailingEdge: Bool = false) {
+        let table = nativeListTable()!
+        let window = table.window!
+        let rowFrame = table.rect(ofRow: row)
+        let point = table.convert(NSPoint(
+            x: atTrailingEdge ? table.bounds.maxX - 12 : rowFrame.minX + 20,
+            y: rowFrame.midY), to: nil)
+        let stamp = ProcessInfo.processInfo.systemUptime
+        for count in 1...(double ? 2 : 1) {
+            let down = NSEvent.mouseEvent(with: .leftMouseDown, location: point,
+                modifierFlags: [], timestamp: stamp + Double(count - 1) * 0.08,
+                windowNumber: window.windowNumber, context: nil,
+                eventNumber: count * 2, clickCount: count, pressure: 1)!
+            let up = NSEvent.mouseEvent(with: .leftMouseUp, location: point,
+                modifierFlags: [], timestamp: stamp + Double(count - 1) * 0.08 + 0.02,
+                windowNumber: window.windowNumber, context: nil,
+                eventNumber: count * 2 + 1, clickCount: count, pressure: 0)!
+            NSApp.postEvent(down, atStart: false)
+            NSApp.postEvent(up, atStart: false)
+        }
+    }
     func users() -> [URL] {
         let enumerator = FileManager.default.enumerator(
             at: directory, includingPropertiesForKeys: nil)
@@ -99,6 +121,17 @@ private final class Acceptance {
         let view = adapter.window.contentView!
         view.layoutSubtreeIfNeeded()
         view.displayIfNeeded()
+        if let list = adapter.lists.first, !list.rows.isEmpty {
+            let table = nativeListTable()!
+            let cell = table.view(atColumn: 0, row: 0,
+                                  makeIfNecessary: true) as! NSTableCellView
+            cell.layoutSubtreeIfNeeded()
+            require(cell.textField!.stringValue == list.rows[0].text,
+                    "native row text differs from the publication")
+            require(cell.textField!.bounds.width > 100 &&
+                    cell.textField!.bounds.height >= 12,
+                    "native row text has no visible layout")
+        }
         let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
         view.cacheDisplay(in: view.bounds, to: bitmap)
         let png = bitmap.representation(using: .png, properties: [:])!
@@ -174,6 +207,9 @@ private final class Acceptance {
         })
         addStep("SwiftUI list mounts a real native table", ready: {
             self.nativeListTable() != nil
+        }, check: {
+            require(self.nativeListTable()!.acceptsFirstMouse(for: nil),
+                    "native list must accept its first activation click")
         })
         addStep("Add reaches model and publishes native child", action: {
             self.click("Add")
@@ -246,14 +282,13 @@ private final class Acceptance {
         }, check: {
             require(self.list!.rows[0].id != self.list!.rows[1].id, "clones share identity")
         })
-        addStep("native table selection traverses SwiftUI binding and proxy", action: {
-            self.nativeListTable()!.selectRowIndexes(
-                IndexSet(integer: 0), byExtendingSelection: false)
+        addStep("native single click selects through model", action: {
+            self.nativeClickRow(0, atTrailingEdge: true)
         }, ready: {
             self.list!.selectedRow == 0 && self.nativeListTable()!.selectedRow == 0
         })
-        addStep("list activation focuses existing child", action: {
-            self.list!.activate(0)
+        addStep("native double click focuses existing child", action: {
+            self.nativeClickRow(0, double: true, atTrailingEdge: true)
         }, ready: { self.child(1)!.window.isKeyWindow })
         addStep("locale publication updates all native windows", action: {
             self.click("RU")
@@ -296,7 +331,10 @@ private final class Acceptance {
         })
         addStep("Delete removes selected child and row", action: {
             self.click("Удалить")
-        }, ready: { self.list!.rows.count == 1 && self.child(1) == nil }, check: {
+        }, ready: {
+            self.list!.rows.count == 1 && self.child(1) == nil &&
+                self.nativeListTable()!.selectedRow == (self.list!.selectedRow ?? -1)
+        }, check: {
             require(self.list!.rows[0].text == "Окно 2", "Delete removed wrong child")
         })
         addStep("next clone remains independent after Delete", action: {
@@ -356,8 +394,7 @@ private final class Acceptance {
             self.snapshot(self.main!, name: "cold-main")
         })
         addStep("cold closed child selects through native table binding", action: {
-            self.nativeListTable()!.selectRowIndexes(
-                IndexSet(integer: 1), byExtendingSelection: false)
+            self.nativeClickRow(1, atTrailingEdge: true)
         }, ready: {
             self.list!.selectedRow == 1 && self.nativeListTable()!.selectedRow == 1
         })

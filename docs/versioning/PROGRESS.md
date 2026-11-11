@@ -3080,3 +3080,13 @@ No other-platform native or iOS PASS is claimed; iPhone deferred by user.
 External Computer Use service requires macOS 14.4 and cannot start on this host;
 own-window content capture works. Full scope, failures/fixes and limits:
 [macOS validation](../validation/window-catalog-macos-2026-11-10.md).
+
+## 2026-11-10 — macOS actual window-list mouse route
+
+Reproduced the user's list-click defect with real AppKit NSEvent single/double
+clicks. Replaced competing SwiftUI row gestures with one native NSTableView
+selection/doubleAction route; preserved displayed row identity and confirmed
+model selection. Added visible native text geometry and first-mouse checks.
+Final Debug/embedded/cold native+lifecycle+WindowCatalog headless: **3/3 PASS**,
+83.74 s; six common regression checks: **6/6 PASS**, 35.19 s.
+[Full native-click evidence](../validation/window-catalog-macos-native-clicks-2026-11-10.md).

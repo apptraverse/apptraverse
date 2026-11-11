@@ -227,29 +227,163 @@ private struct MacButtonControl: View {
     }
 }
 
+// The native list owns mouse tracking and double-click recognition. Attaching
+// a SwiftUI row gesture to List competes with AppKit's selection recognizer.
+private struct MacNativeList: NSViewRepresentable {
+    @ObservedObject var adapter: MacListAdapter
+
+    func makeCoordinator() -> Coordinator { Coordinator(adapter: adapter) }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let table = NSTableView(frame: NSRect(x: 0, y: 0,
+            width: adapter.frame.width, height: adapter.frame.height))
+        table.autoresizingMask = [.width]
+        table.headerView = nil
+        table.style = .plain
+        table.rowHeight = 20
+        table.intercellSpacing = .zero
+        table.allowsMultipleSelection = false
+        table.allowsEmptySelection = true
+        table.backgroundColor = .white
+        table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+        table.setAccessibilityIdentifier("list-\(adapter.id)")
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("primary"))
+        column.resizingMask = .autoresizingMask
+        column.width = adapter.frame.width
+        table.addTableColumn(column)
+        table.delegate = context.coordinator
+        table.dataSource = context.coordinator
+        table.target = context.coordinator
+        table.doubleAction = #selector(Coordinator.activate(_:))
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.drawsBackground = true
+        scroll.backgroundColor = .white
+        scroll.documentView = table
+        context.coordinator.sync(table)
+        return scroll
+    }
+
+    func updateNSView(_ scroll: NSScrollView, context: Context) {
+        context.coordinator.adapter = adapter
+        context.coordinator.sync(scroll.documentView as! NSTableView)
+    }
+
+    static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
+        let table = scroll.documentView as! NSTableView
+        table.target = nil
+        table.delegate = nil
+        table.dataSource = nil
+        coordinator.adapter = nil
+    }
+
+    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+        weak var adapter: MacListAdapter?
+        private var displayedRows: [MacListRowSnapshot] = []
+        private var appliedSelection: Int?
+        private var applyingPublication = false
+
+        init(adapter: MacListAdapter) { self.adapter = adapter }
+
+        func sync(_ table: NSTableView) {
+            guard let adapter else { return }
+            let rowsChanged = displayedRows != adapter.rows
+            let selectionChanged = appliedSelection != adapter.selectedRow
+            // Reapplying an unchanged mirror selection during a layout update
+            // would undo a native click while its model command is in flight.
+            guard rowsChanged || selectionChanged else { return }
+            applyingPublication = true
+            if rowsChanged {
+                displayedRows = adapter.rows
+                table.reloadData()
+            }
+            appliedSelection = adapter.selectedRow
+            if let selected = adapter.selectedRow {
+                table.selectRowIndexes(IndexSet(integer: selected),
+                                       byExtendingSelection: false)
+            } else {
+                table.deselectAll(nil)
+            }
+            applyingPublication = false
+        }
+
+        func numberOfRows(in tableView: NSTableView) -> Int { displayedRows.count }
+
+        func tableView(_ tableView: NSTableView,
+                       objectValueFor tableColumn: NSTableColumn?, row: Int) -> Any? {
+            displayedRows[row].text
+        }
+
+        func tableView(_ tableView: NSTableView,
+                       viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+            let identifier = NSUserInterfaceItemIdentifier("primary-cell")
+            let cell: NSTableCellView
+            if let existing = tableView.makeView(withIdentifier: identifier,
+                                                owner: self) as? NSTableCellView {
+                cell = existing
+            } else {
+                cell = NSTableCellView()
+                cell.identifier = identifier
+                let text = NSTextField(labelWithString: "")
+                text.font = .systemFont(ofSize: 12)
+                text.lineBreakMode = .byTruncatingTail
+                text.translatesAutoresizingMaskIntoConstraints = false
+                cell.textField = text
+                cell.addSubview(text)
+                NSLayoutConstraint.activate([
+                    text.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
+                    text.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
+                    text.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
+                ])
+            }
+            cell.textField!.stringValue = displayedRows[row].text
+            return cell
+        }
+
+        func tableView(_ tableView: NSTableView,
+                       selectionIndexesForProposedSelection proposed: IndexSet) -> IndexSet {
+            // Like a desktop listbox, clicking whitespace does not clear its
+            // selection. Publications may still explicitly render no selection.
+            if !applyingPublication && proposed.isEmpty {
+                return tableView.selectedRowIndexes
+            }
+            return proposed
+        }
+
+        func tableViewSelectionDidChange(_ notification: Notification) {
+            guard !applyingPublication,
+                  let table = notification.object as? NSTableView,
+                  let adapter,
+                  displayedRows.indices.contains(table.selectedRow) else { return }
+            let identity = displayedRows[table.selectedRow].id
+            // Displayed rows may lag a structural publication. Resolve the
+            // clicked identity in the current mirror before submitting input.
+            if let row = adapter.rows.firstIndex(where: { $0.id == identity }) {
+                adapter.commandSink?.selectListRow(row, token: adapter.id)
+            }
+        }
+
+        @objc func activate(_ table: NSTableView) {
+            guard let adapter,
+                  displayedRows.indices.contains(table.clickedRow) else { return }
+            let identity = displayedRows[table.clickedRow].id
+            if let row = adapter.rows.firstIndex(where: { $0.id == identity }) {
+                adapter.activate(row)
+            }
+        }
+    }
+}
+
 private struct MacListControl: View {
     @ObservedObject var adapter: MacListAdapter
 
     var body: some View {
-        List(selection: adapter.selection) {
-            ForEach(Array(adapter.rows.enumerated()), id: \.element.id) { row in
-                Text(row.element.text)
-                    .font(.system(size: 12))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                    .tag(row.offset)
-                    .onTapGesture(count: 2) { adapter.activate(row.offset) }
-                    .listRowInsets(EdgeInsets(top: 0, leading: 4,
-                                             bottom: 0, trailing: 4))
-            }
-        }
-        .listStyle(.plain)
-        .environment(\.defaultMinListRowHeight, 20)
-        .overlay(Rectangle().strokeBorder(Color(white: 0.55), lineWidth: 1))
-        .accessibilityIdentifier("list-\(adapter.id)")
-        .frame(width: adapter.frame.width, height: adapter.frame.height)
-        .position(x: adapter.frame.x + adapter.frame.width / 2,
-                  y: adapter.frame.y + adapter.frame.height / 2)
+        MacNativeList(adapter: adapter)
+            .overlay(Rectangle().strokeBorder(Color(white: 0.55), lineWidth: 1))
+            .frame(width: adapter.frame.width, height: adapter.frame.height)
+            .position(x: adapter.frame.x + adapter.frame.width / 2,
+                      y: adapter.frame.y + adapter.frame.height / 2)
     }
 }
 
