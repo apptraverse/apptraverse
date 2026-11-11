@@ -1,6 +1,24 @@
 option(APPTRAVERSE_BUILD_EVOLUTION_TESTS
   "Build isolated application/state evolution fixtures and their Python matrix" ON)
 
+if(MSVC AND CMAKE_SIZEOF_VOID_P EQUAL 8)
+  find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
+  foreach(_runtime_app win32_window_catalog_demo win32_window_catalog_demo_load_only
+                       win32_minimal_app win32_minimal_app_load_only)
+    if(TARGET ${_runtime_app})
+      add_test(NAME ${_runtime_app}_binary_contract
+        COMMAND "${Python3_EXECUTABLE}"
+          "${PROJECT_SOURCE_DIR}/scripts/inspect_windows_binary.py"
+          "$<TARGET_FILE:${_runtime_app}>"
+          --map "$<TARGET_FILE_DIR:${_runtime_app}>/$<TARGET_FILE_BASE_NAME:${_runtime_app}>.map"
+          --runtime-only
+        CONFIGURATIONS Release MinSizeRel RelWithDebInfo)
+      set_tests_properties(${_runtime_app}_binary_contract PROPERTIES
+        LABELS "windows;binary_contract")
+    endif()
+  endforeach()
+endif()
+
 if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
   find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
 

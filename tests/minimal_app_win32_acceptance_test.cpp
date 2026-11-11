@@ -118,6 +118,14 @@ std::filesystem::path DemoExe(char const* name) {
   return ExeDir() / name;
 }
 
+std::filesystem::path RuntimeDemoExe() {
+#if defined(APPTRAVERSE_TEST_DEBUG_BOOTSTRAP)
+  return DemoExe("win32_minimal_app_load_only.exe");
+#else
+  return DemoExe("win32_minimal_app.exe");
+#endif
+}
+
 std::filesystem::path FreshStateDir() {
   auto dir = std::filesystem::temp_directory_path() /
              "apptraverse_test" / "minimal_app_win32_acceptance";
@@ -697,7 +705,7 @@ void ExpectEmbeddedBackingUnchanged() {
 
 std::filesystem::path RunAcceptanceEmbeddedTwoCycle() {
   auto const state_dir = FreshStateDir();
-  auto const demo = DemoExe("win32_minimal_app_load_only.exe");
+  auto const demo = RuntimeDemoExe();
   auto const load_only = DemoExe("win32_minimal_app_load_only.exe");
   CHECK(std::filesystem::is_empty(state_dir));
   ExpectEmbeddedBackingUnchanged();
@@ -757,7 +765,7 @@ std::filesystem::path RunAcceptanceEmbeddedTwoCycle() {
 
 std::filesystem::path RunAcceptanceFrameColdLoad() {
   auto const state_dir = FreshStateDir();
-  auto const demo = DemoExe("win32_minimal_app_load_only.exe");
+  auto const demo = RuntimeDemoExe();
   auto const load_only = DemoExe("win32_minimal_app_load_only.exe");
   CHECK(std::filesystem::exists(demo));
   CHECK(std::filesystem::exists(load_only));
@@ -798,7 +806,7 @@ std::filesystem::path RunAcceptanceFrameColdLoad() {
 }
 
 std::filesystem::path RunAcceptance() {
-  auto const demo = DemoExe("win32_minimal_app_load_only.exe");
+  auto const demo = RuntimeDemoExe();
   auto const load_only = DemoExe("win32_minimal_app_load_only.exe");
   CHECK(std::filesystem::exists(demo));
   CHECK(std::filesystem::exists(load_only));

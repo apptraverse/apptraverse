@@ -48,7 +48,8 @@ foreach(_minimal_demo win32_minimal_app win32_minimal_app_load_only)
     target_link_options(${_minimal_demo} PRIVATE /ENTRY:mainCRTStartup)
     target_link_libraries(${_minimal_demo} PRIVATE apptraverse_compile_policy)
     target_link_options(${_minimal_demo} PRIVATE
-      "$<$<CONFIG:MinSizeRel>:/LTCG;/OPT:REF;/OPT:ICF=5;/GUARD:NO;/MAP:${CMAKE_CURRENT_BINARY_DIR}/$<TARGET_FILE_BASE_NAME:${_minimal_demo}>.map>"
+      "$<$<CONFIG:MinSizeRel>:/LTCG;/GUARD:NO>"
+      "$<$<NOT:$<CONFIG:Debug>>:/MAP:$<TARGET_FILE_DIR:${_minimal_demo}>/$<TARGET_FILE_BASE_NAME:${_minimal_demo}>.map>"
     )
   endif()
   if(MINGW)

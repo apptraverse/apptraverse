@@ -1,4 +1,10 @@
 # AppTraverse — прогресс версионирования поставок
+## Windows static release runtime and size — 2026-11-10 — PASS
+
+Release configurations now select the static MSVC CRT for the application and dependencies; Debug retains its existing CRT. Windows runtime registration and archive members exclude unused standalone presenters, mobile Close factory, initial graph builders and distillation/directory-persistence code. Full library registration entry points remain available.
+
+Final MinSizeRel: WindowCatalog **684,544 B (668.5 KiB)**, MinimalApp **622,592 B (608 KiB)**. Both import only KERNEL32 and USER32. Pruning saves **24.5 / 18 KiB** against the static-CRT-only controls; the static CRT itself adds **212 / 214.5 KiB** against the dynamic baseline. **82/82 Debug**, **17/17 targeted MinSizeRel** tests pass, including four binary contracts and native save/restart of the normal EXEs. [Size analysis, implementation and evidence](../validation/windows-static-runtime-size-2026-11-10.md).
+
 
 ## RAM USER and one shutdown file — 2026-11-10 — PASS
 

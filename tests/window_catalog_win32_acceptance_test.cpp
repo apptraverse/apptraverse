@@ -125,6 +125,15 @@ std::filesystem::path DemoExe(char const* name) {
   return ExeDir() / name;
 }
 
+std::filesystem::path RuntimeDemoExe() {
+#if defined(APPTRAVERSE_TEST_DEBUG_BOOTSTRAP)
+  return DemoExe("win32_window_catalog_demo_load_only.exe");
+#else
+  // Release acceptance must exercise the shipped application itself.
+  return DemoExe("win32_window_catalog_demo.exe");
+#endif
+}
+
 struct CatalogFrame {
   int x = 0;
   int y = 0;
@@ -994,7 +1003,7 @@ void ExpectSameTopLevelWithTitle(DWORD pid, HWND expected,
 
 std::filesystem::path RunRestartPersistenceAcceptance() {
   auto const state_dir = FreshStateDir("window_catalog_win32_acceptance");
-  auto const demo = DemoExe("win32_window_catalog_demo_load_only.exe");
+  auto const demo = RuntimeDemoExe();
   auto const load_only = DemoExe("win32_window_catalog_demo_load_only.exe");
   CHECK(std::filesystem::exists(demo));
   CHECK(std::filesystem::exists(load_only));
@@ -1151,7 +1160,7 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
 void RunLanguageAndFocusAcceptance() {
   auto const state_dir = FreshStateDir("window_catalog_win32_lang_focus");
 
-  auto const demo = DemoExe("win32_window_catalog_demo_load_only.exe");
+  auto const demo = RuntimeDemoExe();
   CHECK(std::filesystem::exists(demo));
 
   PROCESS_INFORMATION pi = StartDemo(demo, state_dir);
@@ -1480,7 +1489,7 @@ void RunRequiredUnsupportedSchemaNegativeTests(
 
 void RunDeleteAndColdReloadAcceptance() {
   auto const state_dir = FreshStateDir("window_catalog_win32_delete_cold");
-  auto const demo = DemoExe("win32_window_catalog_demo_load_only.exe");
+  auto const demo = RuntimeDemoExe();
   auto const load_only = DemoExe("win32_window_catalog_demo_load_only.exe");
   CHECK(std::filesystem::exists(demo));
   CHECK(std::filesystem::exists(load_only));

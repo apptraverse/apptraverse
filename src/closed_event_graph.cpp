@@ -22,7 +22,7 @@ namespace {
 
 void BuildEventExportScratch(ae::Obj const& root,
                              ae::RamDomainStorage& scratch) {
-  EnsureObjectRegistration();
+  EnsureCoreObjectRegistration();
   assert(root.domain != nullptr);
 
   ae::Domain scratch_domain{scratch};
@@ -115,7 +115,7 @@ bool DeserializeObjectGraph(std::vector<std::uint8_t> const& payload,
 bool ValidateStoredClassChains(
     ae::RamDomainStorage const& parsed,
     std::vector<StoredClassChainInfo>* out_chains) {
-  EnsureObjectRegistration();
+  EnsureCoreObjectRegistration();
   auto& registry = ae::Registry::GetRegistry();
   auto const obj_class_id = ae::Obj::kClassId;
   if (out_chains != nullptr) {
@@ -243,7 +243,7 @@ bool FreezeEventPayload(
     ae::Obj const& event,
     EventGraphExportBoundary const& boundary,
     std::vector<std::uint8_t>& out_payload) {
-  EnsureObjectRegistration();
+  EnsureCoreObjectRegistration();
   assert(event.domain != nullptr);
 
   if (!boundary.IsPermitted(event.obj_id)) {
@@ -408,7 +408,7 @@ ae::Ptr<Event> ImportClosedEventGraph(
     ae::IDomainStorage& receiver_storage,
     std::set<ae::ObjId>& reserved_ids,
     std::map<ae::ObjId, ae::ObjId>* out_mapping) {
-  EnsureObjectRegistration();
+  EnsureCoreObjectRegistration();
 
   std::vector<StoredClassChainInfo> chains;
   if (!ValidateClosedEventGraphStorage(parsed, root_event_id, 0, &chains)) {

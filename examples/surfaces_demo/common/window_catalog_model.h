@@ -613,6 +613,8 @@ void AssignInitialCatalogWindowBounds(CatalogWindow& window,
                                       std::uint32_t number);
 
 void EnsureWindowCatalogModelRegistration();
+// Desktop supply has native Close, without a mobile in-content Close button.
+void EnsureWindowCatalogDesktopModelRegistration();
 
 }  // namespace apptraverse
 

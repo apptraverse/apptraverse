@@ -10,9 +10,9 @@
 
 namespace apptraverse::example::minimal {
 std::filesystem::path DistillMinimalApplication(std::filesystem::path const& output_directory) {
-  EnsureObjectRegistration();
-  ui::EnsureUiPresenterRegistration();
-  ui::windows::EnsureWinUiPresenterRegistration();
+  EnsureCoreObjectRegistration();
+  ui::EnsureUiControlRegistration();
+  ui::windows::EnsureWinControlPresenterRegistration();
   EnsureMinimalApplicationRegistration();
   auto const backing_directory = output_directory /
       ("initial-" + std::to_string(ae::ObjId::GenerateUnique().id()));

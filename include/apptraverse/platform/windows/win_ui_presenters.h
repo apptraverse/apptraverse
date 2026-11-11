@@ -202,6 +202,8 @@ class WinListContainerPresenter : public UiListContainerPresenter {
 
 };
 
+// The desktop window, push button and list presenters used by Windows apps.
+void EnsureWinControlPresenterRegistration();
 void EnsureWinUiPresenterRegistration();
 
 }  // namespace apptraverse::ui::windows

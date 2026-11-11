@@ -6,15 +6,14 @@
 namespace apptraverse::ui::windows {
 namespace {
 
-APPTRAVERSE_REGISTER(WinWindowPresenter);
 APPTRAVERSE_REGISTER(WinDesktopWindowPresenter);
 APPTRAVERSE_REGISTER(WinPushButtonPresenter);
 APPTRAVERSE_REGISTER(WinListContainerPresenter);
 
 }  // namespace
 
-void EnsureWinUiPresenterRegistration() {
-  EnsureUiPresenterRegistration();
+void EnsureWinControlPresenterRegistration() {
+  EnsureUiControlRegistration();
   (void)&g_apptraverse_registrar_WinDesktopWindowPresenter;
   (void)&g_apptraverse_registrar_WinPushButtonPresenter;
   (void)&g_apptraverse_registrar_WinListContainerPresenter;

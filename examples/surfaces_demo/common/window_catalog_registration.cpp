@@ -4,14 +4,9 @@
 
 namespace apptraverse {
 
-void TouchWindowCatalogCoreRegistration();
-void TouchWindowCatalogEventsRegistration();
-
 void EnsureWindowCatalogModelRegistration() {
-  example::surfaces::EnsureCatalogActionRegistration();
+  EnsureWindowCatalogDesktopModelRegistration();
   example::surfaces::EnsureCatalogCloseButtonRegistration();
-  TouchWindowCatalogCoreRegistration();
-  TouchWindowCatalogEventsRegistration();
 }
 
 }  // namespace apptraverse

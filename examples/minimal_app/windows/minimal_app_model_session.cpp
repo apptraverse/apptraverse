@@ -19,9 +19,9 @@
 namespace apptraverse::example::minimal {
 int RunMinimalApplicationModel(std::filesystem::path const& requested_state_dir,
     ApplicationModelRuntime& runtime, ApplicationPublishedCallback on_published) {
-  EnsureObjectRegistration();
-  ui::EnsureUiPresenterRegistration();
-  ui::windows::EnsureWinUiPresenterRegistration();
+  EnsureCoreObjectRegistration();
+  ui::EnsureUiControlRegistration();
+  ui::windows::EnsureWinControlPresenterRegistration();
   EnsureMinimalApplicationRegistration();
   auto state_dir = requested_state_dir;
   ae::RamDomainStorage user;

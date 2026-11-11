@@ -14,14 +14,9 @@ APPTRAVERSE_REGISTER(Presenter);
 
 }  // namespace
 
-namespace ui {
-void ForceUiRegistration();
-}  // namespace ui
-
 // Forces the static library object file (and its Registrars) to be linked.
-void EnsureObjectRegistration() {
+void EnsureCoreObjectRegistration() {
   EnableNoninteractiveCrt();
-  ui::ForceUiRegistration();
 }
 
 }  // namespace apptraverse

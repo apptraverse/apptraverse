@@ -116,6 +116,9 @@ class UiListContainerPresenter : public Presenter {
       int language_index) const;
 };
 
+// Window, push button and native list controls. Native lists have no per-row presenter.
+void EnsureUiControlRegistration();
+// Full library schema, including standalone row presenters.
 void EnsureUiPresenterRegistration();
 
 }  // namespace apptraverse::ui

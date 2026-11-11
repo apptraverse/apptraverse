@@ -33,7 +33,6 @@ APPTRAVERSE_REGISTER(UiListRow);
 APPTRAVERSE_REGISTER(UiListContainer);
 APPTRAVERSE_REGISTER(SetUiListSelectionEvent);
 APPTRAVERSE_REGISTER(RemoveUiListRowEvent);
-APPTRAVERSE_REGISTER(UiListRowPresenter);
 APPTRAVERSE_REGISTER(UiWindowPresenter);
 APPTRAVERSE_REGISTER(UiDesktopWindowPresenter);
 APPTRAVERSE_REGISTER(UiPushButtonPresenter);
@@ -41,18 +40,9 @@ APPTRAVERSE_REGISTER(UiListContainerPresenter);
 
 }  // namespace
 
-void EnsureUiPresenterRegistration() {
-  (void)&g_apptraverse_registrar_UiWindowPresenter;
-  (void)&g_apptraverse_registrar_UiDesktopWindowPresenter;
-  (void)&g_apptraverse_registrar_UiPushButtonPresenter;
-  (void)&g_apptraverse_registrar_UiListContainerPresenter;
-  (void)&g_apptraverse_registrar_UiListRowPresenter;
-}
-
-void ForceUiRegistration() {
+void EnsureUiControlRegistration() {
   (void)&g_apptraverse_registrar_UiString;
   (void)&g_apptraverse_registrar_UiPresentedWindow;
-  EnsureUiPresenterRegistration();
 }
 
 }  // namespace apptraverse::ui

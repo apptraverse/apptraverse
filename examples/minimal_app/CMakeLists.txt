@@ -4,6 +4,8 @@ add_library(minimal_app_common STATIC
   common/minimal_app_graph_builder.cpp
   common/minimal_app_prepare.cpp
   common/minimal_app_persistence.cpp
+  common/minimal_app_directory_persistence.cpp
+  common/minimal_app_bootstrap.cpp
   common/minimal_app_window_events.cpp
   common/minimal_app_window_lifecycle.cpp
   common/minimal_app_desktop_close.cpp
@@ -12,7 +14,12 @@ target_include_directories(minimal_app_common PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/common
 )
 target_link_libraries(minimal_app_common PUBLIC apptraverse)
-target_compile_definitions(minimal_app_common PUBLIC APPTRAVERSE_ENABLE_DISTILLATION)
+set_source_files_properties(common/minimal_app_bootstrap.cpp PROPERTIES
+  COMPILE_DEFINITIONS APPTRAVERSE_ENABLE_DISTILLATION)
+if(NOT WIN32)
+  # Preserve the existing bootstrap selection for the other platform consumers.
+  target_compile_definitions(minimal_app_common INTERFACE APPTRAVERSE_ENABLE_DISTILLATION)
+endif()
 target_compile_features(minimal_app_common PUBLIC cxx_std_20)
 if(MSVC)
   target_compile_options(minimal_app_common PRIVATE /utf-8)

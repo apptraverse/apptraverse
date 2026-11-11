@@ -241,3 +241,12 @@ Logs: `.artifacts/principles-all-accepted-build.log`, `.artifacts/principles-all
 The preliminary run exposed an over-strict assumption that every desktop prefab has an in-content Close button. That regression was corrected by preserving the intentional optional component while requiring its internal links. The old-binary diagnostic was interrupted after this known failure; only the complete subsequent run above is final acceptance. No production source changes followed that final run.
 
 No identified Windows/headless item from this audit remains open. The previously recorded other-platform normalization/probe callers, Android SyncPost lifetime and mobile/web window hierarchy are still outside the user's current platform scope. Distributed/resource-delivery/cache architecture and future supply-registry replacement remain deferred; this Windows acceptance does not certify them.
+
+## Windows static release runtime and size — 2026-11-10 — complete
+
+- Non-Debug MSVC configurations use static CRT/STL across application and dependency libraries; Debug keeps /MDd.
+- Windows consumers select their required registration modules. The full library APIs remain compatible. Initial builders, bootstrap and legacy directory persistence are separated from runtime archive members.
+- Final MinSizeRel EXEs import only KERNEL32/USER32 and pass four binary contracts excluding distillation, builder objects and unused concrete factories.
+- WindowCatalog: 684,544 bytes (668.5 KiB); MinimalApp: 622,592 bytes (608 KiB). Pruning saves 24.5/18 KiB after static CRT integration. Static CRT is the reason for the net increase over the dynamic-runtime baseline.
+- Validation: 82/82 Debug CTests and 17/17 targeted MinSizeRel CTests PASS, including native interaction/save/restart of the shipped applications. No clean build, user profile, dependency mutation or other-platform build.
+- Full size attribution, A/B controls, temporary-directory correction and linker retry evidence: [validation report](validation/windows-static-runtime-size-2026-11-10.md).

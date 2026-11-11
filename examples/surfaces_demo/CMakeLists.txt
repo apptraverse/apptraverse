@@ -115,6 +115,7 @@ add_library(surfaces_demo_window_catalog_common STATIC
   common/window_catalog_model.cpp
   common/window_catalog_localization.cpp
   common/window_catalog_registration.cpp
+  common/window_catalog_desktop_registration.cpp
   common/window_catalog_core_registration.cpp
   common/window_catalog_events_registration.cpp
   common/window_catalog_actions.cpp
@@ -168,6 +169,7 @@ if(WIN32 AND NOT EMSCRIPTEN)
   # Reusable-window catalog consumer (WindowCatalog application).
   add_library(surfaces_demo_window_catalog STATIC
     windows/window_catalog_graph.cpp
+    windows/window_catalog_graph_builder.cpp
   )
   target_include_directories(surfaces_demo_window_catalog PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/common

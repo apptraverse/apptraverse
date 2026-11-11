@@ -1,4 +1,8 @@
-﻿cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.20)
+
+# Keep Debug's shared CRT for development. Every release configuration, including
+# dependencies created below, uses the static C/C++ runtime (CMP0091 is NEW).
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:DebugDLL>")
 
 project(AppTraverse
   VERSION 0.1.0
@@ -94,6 +98,7 @@ option(APPTRAVERSE_BUILD_LEGACY_EXAMPLES
 option(APPTRAVERSE_BUILD_LINUX_GUI "Build Linux GTK hosts and native GUI tests" ON)
 add_library(apptraverse STATIC
   src/apptraverse.cpp
+  src/object_registration.cpp
   src/noninteractive_crt.cpp
   src/single_file_user_storage.cpp
   src/directory_domain_storage.cpp
@@ -122,12 +127,12 @@ add_library(apptraverse STATIC
   src/ui/ui_presenters.cpp
   src/ui/ui_window_presenter.cpp
   src/ui/ui_registration.cpp
+  src/ui/ui_list_row_presenter_registration.cpp
 )
 target_include_directories(apptraverse PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(apptraverse PUBLIC
   aether::objects aether::miscpp apptraverse_compile_policy)
 target_compile_features(apptraverse PUBLIC cxx_std_20)
-target_compile_definitions(apptraverse PUBLIC AE_DISTILLATION=1)
 if(WIN32)
   target_compile_definitions(apptraverse PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
   add_library(apptraverse_ui_windows STATIC
@@ -137,6 +142,7 @@ if(WIN32)
     src/platform/windows/win_ui_push_button_presenter.cpp
     src/platform/windows/win_ui_presenters.cpp
     src/platform/windows/win_ui_registration.cpp
+    src/platform/windows/win_window_registration.cpp
     src/platform/windows/win32_fatal.cpp
     src/platform/windows/win_application_message_host.cpp
     src/platform/windows/win_application_loading_window.cpp

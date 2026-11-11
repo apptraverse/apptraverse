@@ -49,7 +49,7 @@ int WindowCatalogModelSession::Run(
       [this](ModelObjectProxy::ModelWork work) {
         runtime.Post(std::move(work));
       });
-  EnsureObjectRegistration();
+  EnsureCoreObjectRegistration();
   EnsureWindowCatalogGraphRegistration();
 
   ApplicationModelSessionHooks<WindowCatalog> hooks;

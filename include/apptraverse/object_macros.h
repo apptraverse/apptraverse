@@ -47,6 +47,8 @@ namespace apptraverse {
 // Call once from each executable/shared library that links apptraverse so the
 // Registrar static initializers in the static library are not stripped.
 void EnsureObjectRegistration();
+// Core only; applications then register the UI components in their supply.
+void EnsureCoreObjectRegistration();
 
 }  // namespace apptraverse
 
