@@ -30,8 +30,10 @@ Swift and native Apple frameworks keep their platform ABI.
 
 Targets:
 
-- `ios_window_catalog_demo.app`: ordinary Debug, fresh graph once per process.
-- `ios_window_catalog_demo_load_only.app`: explicit embedded cold-load consumer.
+- `ios_window_catalog_demo.app`: **WindowCatalog Debug**, ordinary Debug,
+  fresh graph once per process. A cold launch deliberately starts empty.
+- `ios_window_catalog_demo_load_only.app`: **WindowCatalog**, explicit embedded
+  consumer for normal use, restoring its saved USER on a cold launch.
 - `apptraverse_ios_window_catalog_acceptance_debug.app` and `_load_only.app`:
   separate native acceptance fixtures, not product test modes.
 
@@ -41,14 +43,14 @@ Other example applications and other platforms are outside this port's scope.
 ## Simulator launch
 
 List available devices with `xcrun simctl list devices available`. After booting
-a device, install and launch the selected bundle, for example:
+a device, install and launch the embedded consumer for persistent use:
 
 ```sh
-xcrun simctl install DEVICE_ID build/ios-simulator-debug/examples/surfaces_demo/ios/ios_window_catalog_demo.app
-xcrun simctl launch DEVICE_ID org.apptraverse.WindowCatalog.ios
+xcrun simctl install DEVICE_ID build/ios-simulator-debug/examples/surfaces_demo/ios/ios_window_catalog_demo_load_only.app
+xcrun simctl launch DEVICE_ID org.apptraverse.WindowCatalog.ios.loadonly
 ```
 
-The load-only bundle identifier is `org.apptraverse.WindowCatalog.ios.loadonly`.
+The separate Debug bundle identifier is `org.apptraverse.WindowCatalog.ios`.
 First simulator-service startup/installation may be slow on older hosts; allow
 it to finish rather than erase device data. The acceptance runner allows up to
 300 seconds for each cold install/launch.
@@ -64,14 +66,22 @@ Layout follows the real safe-area canvas and responds to rotation. The common
 model's viewport Event places the child Close control with 12dp margins and a
 48dp height; iOS uses logical points at density 160.
 
-Background ends the model session: accepted commands drain, the current graph
-is saved into RAM USER and one `user.bin` is written. Foreground creates a new
+Native UIApplication deactivation ends the model session, starting before the
+app-switcher/background transition: accepted commands drain, the current graph
+is saved into RAM USER and one `user.bin` is written under a UIKit background
+task. Native activation creates a new
 bridge/runtime/UI session over the same application-owned RAM profile. No graph
 objects are kept globally; no per-click/resize or continuing-runtime disk flush
 is added. Ordinary Debug starts fresh on a new process launch, while foreground
 within that process resumes the same profile. Explicit load-only startup reads
 the saved USER against its embedded supply. Old experimental profiles are not
-migrated and must not be mixed with another distilled supply.
+migrated and must not be mixed with another distilled supply. A Debug run's
+USER can be used by an embedded consumer only with that run's exact generated
+supply; copying USER alone from a different graph is not a valid handoff.
+
+There is no reliable final callback for a suspended app being killed. Saving
+starts at deactivation rather than waiting for `applicationWillTerminate` or
+doing I/O from a POSIX signal handler.
 
 ## Native checks
 
@@ -86,10 +96,16 @@ python3 scripts/test_ios_window_catalog.py \
 The runner installs test-only apps and verifies result files from three actual
 processes: Debug fresh, embedded seed, embedded cold restart. It checks native
 UITableView selection and UIPageControl callbacks, model page intents, rotation,
-Close/Open/Delete, localization, lazy identities, background/foreground session
+Close/Open/Delete, localization, lazy identities, deactivation/activation session
 boundaries and one USER file. A separate test verifies displayed-row identity
 when native callbacks outlive a structural snapshot. PNGs capture actual app
 window content; test expectations live outside the application USER profile.
+
+An additional embedded scenario leaves the seeded app running, switches to the
+system Settings app through simctl, observes one USER file, terminates the
+background process and verifies a separate cold launch of the same profile.
+This exercises real OS lifecycle delivery as well as the in-process native
+notification checks.
 
 The additional XCUITest project in `tests/ios_ui_clicks` exercises actual
 Simulator taps/double-taps/swipes against the installed product Debug app.

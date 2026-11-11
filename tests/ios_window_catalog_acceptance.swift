@@ -54,6 +54,7 @@ private final class Acceptance {
     }
     let root: URL
     let cold: Bool
+    let osBackground: Bool
     let host: IosApplicationHost
     var steps: [Step] = []
     var index = 0
@@ -62,8 +63,8 @@ private final class Acceptance {
     var firstIdentity: UInt64 = 0
     var thirdIdentity: UInt64 = 0
     var expected: Expected?
-    init(root: URL, cold: Bool, host: IosApplicationHost) {
-        self.root = root; self.cold = cold; self.host = host
+    init(root: URL, cold: Bool, osBackground: Bool, host: IosApplicationHost) {
+        self.root = root; self.cold = cold; self.osBackground = osBackground; self.host = host
     }
     var list: IosListAdapter? { host.lists.values.first }
     var main: IosWindowSceneModel? { host.mainScene }
@@ -159,11 +160,13 @@ private final class Acceptance {
                 self.child(3) != nil && self.host.activeToken == self.child(3)?.id
             }, check: { require(self.child(3)!.identity == self.expected!.closed, "cold reopened window identity changed") })
         } else { seed() }
-        step("orderly shutdown", action: { self.host.requestStop() }, ready: {
-            self.host.lastModelExitCode() == 0 && self.host.scenes.isEmpty
-        }, check: {
-            require(self.userFiles().count == 1, "shutdown must write exactly one user.bin")
-        })
+        if !osBackground || cold {
+            step("orderly shutdown", action: { self.host.requestStop() }, ready: {
+                self.host.lastModelExitCode() == 0 && self.host.scenes.isEmpty
+            }, check: {
+                require(self.userFiles().count == 1, "shutdown must write exactly one user.bin")
+            })
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { self.begin() }
     }
     func seed() {
@@ -228,10 +231,17 @@ private final class Acceptance {
             self.expected = Expected(rows: self.list!.rows.map(\.id), labels: self.list!.rows.map(\.text), active: self.host.activeScene!.identity, closed: self.thirdIdentity)
             try! JSONEncoder().encode(self.expected!).write(to: self.root.appendingPathComponent("expected.json"))
         })
-        step("background ends session and writes single USER", action: { self.host.sceneDidEnterBackground() }, ready: {
+        if osBackground { return }
+        step("native deactivation notification writes single USER", action: {
+            NotificationCenter.default.post(name: UIApplication.willResignActiveNotification,
+                                            object: UIApplication.shared)
+        }, ready: {
             self.host.lastModelExitCode() == 0 && self.host.scenes.isEmpty
         }, check: { require(self.userFiles().count == 1, "background boundary did not persist") })
-        step("foreground resumes same RAM profile", action: { self.host.sceneDidBecomeActive() }, ready: {
+        step("native activation notification resumes RAM profile", action: {
+            NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification,
+                                            object: UIApplication.shared)
+        }, ready: {
             self.host.activeScene != nil && self.list?.rows.count == 2
         }, check: {
             require(self.host.activeScene!.identity == self.expected!.active, "foreground lost active identity")
@@ -243,6 +253,16 @@ private final class Acceptance {
     }
     func begin() {
         if index == steps.count {
+            if osBackground && !cold {
+                require(UIApplication.shared.applicationState == .active, "OS fixture must be active before background")
+                require(userFiles().isEmpty, "OS fixture saved before the native lifecycle transition")
+                try! Data("READY".utf8).write(to: root.appendingPathComponent("ready-os-background"))
+                print("IOS_OS_BACKGROUND_READY \(index)"); fflush(stdout)
+                // Stay alive. The external runner causes an actual OS app
+                // switch, observes the resulting USER and terminates this
+                // process before checking a separate cold launch.
+                return
+            }
             let result: [String: Any] = ["status": "PASS", "checkpoints": index, "cold": cold]
             try! JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted]).write(to: root.appendingPathComponent(cold ? "result-cold.json" : "result-seed.json"))
             print("IOS_ACCEPTANCE_PASS \(index)"); fflush(stdout); exit(0)
@@ -277,7 +297,8 @@ private struct IosAcceptanceApp: App {
         let application = ATWindowCatalogIosApplication(userDirectory: root.appendingPathComponent("profile").path)
         let host = IosApplicationHost { delegate in application.makeBridge(delegate) }
         _host = StateObject(wrappedValue: host)
-        scenario = Acceptance(root: root, cold: arguments.contains("--cold"), host: host)
+        scenario = Acceptance(root: root, cold: arguments.contains("--cold"),
+                              osBackground: arguments.contains("--os-background"), host: host)
     }
     var body: some Scene {
         WindowGroup {

@@ -285,7 +285,6 @@ private struct IosPagerIndicator: UIViewRepresentable {
 
 public struct IosApplicationRootView: View {
     @ObservedObject public var host: IosApplicationHost
-    @Environment(\.scenePhase) private var scenePhase
 
     public init(host: IosApplicationHost) { self.host = host }
 
@@ -316,10 +315,6 @@ public struct IosApplicationRootView: View {
           }
         }
         .onAppear { host.startIfNeeded() }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .background { host.sceneDidEnterBackground() }
-            if phase == .active { host.sceneDidBecomeActive() }
-        }
     }
 }
 
@@ -334,7 +329,7 @@ public final class IosApplicationHost: NSObject, ObservableObject,
     var lists: [UInt64: IosListAdapter] = [:]
     private var started = false
     private var stopping = false
-    private var foreground = true
+    private var applicationActive = true
     private var manualStop = false
     private var latestViewport = CGSize.zero
     private var lastExitStatus: Int?
@@ -351,10 +346,24 @@ public final class IosApplicationHost: NSObject, ObservableObject,
     public init(bridgeFactory: @escaping
         (ATIosApplicationBridgeDelegate) -> ATIosApplicationBridge) {
         self.bridgeFactory = bridgeFactory
+        super.init()
+        let notifications = NotificationCenter.default
+        notifications.addObserver(self, selector: #selector(applicationWillResignActive),
+                                  name: UIApplication.willResignActiveNotification, object: nil)
+        notifications.addObserver(self, selector: #selector(applicationDidEnterBackground),
+                                  name: UIApplication.didEnterBackgroundNotification, object: nil)
+        notifications.addObserver(self, selector: #selector(applicationDidBecomeActive),
+                                  name: UIApplication.didBecomeActiveNotification, object: nil)
     }
 
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    @objc private func applicationWillResignActive() { sceneWillDeactivate() }
+    @objc private func applicationDidEnterBackground() { sceneDidEnterBackground() }
+    @objc private func applicationDidBecomeActive() { sceneDidBecomeActive() }
+
     public func startIfNeeded() {
-        guard !started && !manualStop else { return }
+        guard !started && !manualStop && applicationActive else { return }
         started = true
         stopping = false
         bridge = bridgeFactory(self)
@@ -388,15 +397,28 @@ public final class IosApplicationHost: NSObject, ObservableObject,
         stopping = true
         bridge.requestStop()
     }
-    public func sceneDidEnterBackground() {
-        foreground = false
+    public func sceneWillDeactivate() {
+        // App-switcher dismissal may kill the process before a background
+        // transition. End the session at the earlier native deactivation.
+        applicationActive = false
         guard started && !stopping else { return }
-        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "AppTraverse session shutdown") {}
+        if backgroundTask == .invalid {
+            backgroundTask = UIApplication.shared.beginBackgroundTask(
+                withName: "AppTraverse session shutdown") { [weak self] in
+                    self?.endBackgroundTask()
+                }
+        }
         stopSession()
     }
+    public func sceneDidEnterBackground() { sceneWillDeactivate() }
     public func sceneDidBecomeActive() {
-        foreground = true
+        applicationActive = true
         startIfNeeded()
+    }
+    private func endBackgroundTask() {
+        guard backgroundTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTask)
+        backgroundTask = .invalid
     }
     // Existing callers use this name; the operation is now an orderly session
     // shutdown, not a disk checkpoint while the model continues running.
@@ -461,12 +483,9 @@ public final class IosApplicationHost: NSObject, ObservableObject,
         stopping = false
         activeToken = nil
         pageTokens = []
-        if backgroundTask != .invalid {
-            UIApplication.shared.endBackgroundTask(backgroundTask)
-            backgroundTask = .invalid
-        }
+        endBackgroundTask()
         precondition(lastExitStatus == 0, "AppTraverse iOS model session failed")
-        if foreground && !manualStop { startIfNeeded() }
+        if applicationActive && !manualStop { startIfNeeded() }
     }
     public func bridge(_ bridge: ATIosApplicationBridge,
                        backgroundSaveDidFinish result: NSInteger) {

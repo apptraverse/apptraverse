@@ -3114,3 +3114,22 @@ built; iPhone 15 Pro/iOS 17.2 simulator acceptance **3/3 processes PASS**,
 installed/launched normally; portrait/landscape captures visually checked.
 Physical iPhone/signing and other-platform native execution are NOT RUN.
 [iOS architecture and executed evidence](../validation/window-catalog-ios-2026-11-10.md).
+
+## 2026-11-11 — iOS native deactivation and persistent consumer
+
+The user's close/relaunch report exposed the installed Debug product's fresh-
+process policy and a view-owned background-only lifecycle route. Verified a
+real OS Settings transition saved the latest Debug USER before changes. Added
+host-owned native deactivation/background/activation notifications: one orderly
+drain/save/join under a background task, resume only after join. No common model,
+USER/schema changes or per-command checkpoint. Debug remains fresh and is now
+named WindowCatalog Debug; the explicit embedded consumer is WindowCatalog.
+
+Incremental iOS build **11/11 steps PASS**. Native acceptance **5/5 processes
+PASS**: original Debug/embedded/cold 21+21+5 checkpoints, plus an actual OS app
+switch, single USER, process termination and **5/5** additional cold checks.
+Latest user's supply/USER pair backed up together for persistent installation.
+Installed the explicit consumer with that exact supply and transferred the
+6,092-byte USER. Actual product OS deactivation, terminate and cold launch PASS;
+USER remained byte-identical, Window 2 and its three-page ring restored.
+[Diagnosis, lifecycle semantics and evidence](../validation/window-catalog-ios-lifecycle-2026-11-11.md).

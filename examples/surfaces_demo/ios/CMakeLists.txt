@@ -198,3 +198,7 @@ foreach(_app ios_window_catalog_demo ios_window_catalog_demo_load_only)
 endforeach()
 set_target_properties(ios_window_catalog_demo_load_only PROPERTIES
   MACOSX_BUNDLE_GUI_IDENTIFIER "org.apptraverse.WindowCatalog.ios.loadonly")
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  set_target_properties(ios_window_catalog_demo PROPERTIES
+    MACOSX_BUNDLE_BUNDLE_NAME "WindowCatalog Debug")
+endif()

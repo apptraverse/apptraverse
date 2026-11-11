@@ -15,10 +15,16 @@ remain the authority for row selection, titles, enabled state, geometry and page
 identity. UIKit selection and activation recognizers do not compete with SwiftUI
 row gestures. Runtime tokens and view adapters are never persistent model fields.
 
-Entering the background stops and joins the model session, whose persist hook
-writes one USER file. A foreground transition creates a fresh runtime/UI bridge
-against the application-owned RAM profile. This is a session shutdown/resume,
-not a checkpoint written on every click. The application decides fresh Debug
+The host observes native UIApplication deactivation, background and activation
+notifications independently of the SwiftUI view. Deactivation starts an orderly
+model-session shutdown early enough for the app-switcher path. One UIKit
+background task covers draining accepted commands, the persist hook writing one
+USER file, and joining the model thread. Repeated lifecycle notifications do not
+start another session or background task. Activation creates a fresh runtime/UI
+bridge against the application-owned RAM profile after the old session has
+joined. This is a session shutdown/resume, not a checkpoint written on every
+click. A suspended app need not receive a termination callback; forced process
+termination cannot guarantee new I/O. The application decides fresh Debug
 process startup versus embedded cold USER loading.
 
 Queued button intents resolve their model target when executed. An already
