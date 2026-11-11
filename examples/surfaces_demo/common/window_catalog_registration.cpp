@@ -4,8 +4,11 @@
 
 namespace apptraverse {
 
+void TouchWindowCatalogMobileEventsRegistration();
+
 void EnsureWindowCatalogModelRegistration() {
   EnsureWindowCatalogDesktopModelRegistration();
+  TouchWindowCatalogMobileEventsRegistration();
   example::surfaces::EnsureCatalogCloseButtonRegistration();
 }
 

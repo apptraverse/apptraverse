@@ -195,8 +195,6 @@ void RunDeleteMatrixScenario(ae::Domain& domain, WindowCatalog& catalog,
 }
 
 void TestQueuedCatalogActionsKeepRowIdentity() {
-  EnsureObjectRegistration();
-  EnsureHeadlessWindowCatalogGraphRegistration();
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto catalog = BuildHeadlessWindowCatalogGraph(domain);
@@ -257,8 +255,6 @@ void TestQueuedCatalogActionsKeepRowIdentity() {
 }
 
 void TestHeadlessDeleteClearsSelectionIndexRam() {
-  EnsureObjectRegistration();
-  EnsureHeadlessWindowCatalogGraphRegistration();
 
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
@@ -309,8 +305,6 @@ void TestHeadlessDeleteClearsSelectionIndexRam() {
 }
 
 void TestHeadlessDeleteSelectionAbPersistAndColdLoad() {
-  EnsureObjectRegistration();
-  EnsureHeadlessWindowCatalogGraphRegistration();
 
   ae::ObjId const catalog_id{
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
@@ -652,8 +646,6 @@ void ExpectUiMirrorLocalization(WindowCatalog& ui_catalog,
 }
 
 void TestHeadlessCatalogChromeE2e() {
-  EnsureObjectRegistration();
-  EnsureHeadlessWindowCatalogGraphRegistration();
 
   ae::ObjId const catalog_id{
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
@@ -943,8 +935,6 @@ void TestHeadlessCatalogChromeE2e() {
 }
 
 void TestMobileCloseButtonAndAdaptiveLayout() {
-  EnsureObjectRegistration();
-  EnsureHeadlessWindowCatalogGraphRegistration();
 
   using window_catalog_demo::ObjId;
   using window_catalog_demo::ToObjId;
@@ -1044,7 +1034,7 @@ void TestMobileCloseButtonAndAdaptiveLayout() {
 }  // namespace apptraverse::test
 
 int main() {
-  apptraverse::EnableNoninteractiveCrt();
+  apptraverse::EnsureHeadlessWindowCatalogGraphRegistration();
   apptraverse::test::TestQueuedCatalogActionsKeepRowIdentity();
   apptraverse::test::TestHeadlessDeleteClearsSelectionIndexRam();
   apptraverse::test::TestHeadlessDeleteSelectionAbPersistAndColdLoad();

@@ -58,7 +58,6 @@ namespace {
 
 using example::minimal::BootstrapMinimalApplicationProfileIfAbsent;
 using example::minimal::BuildHeadlessMinimalApplicationGraph;
-using example::minimal::EnsureHeadlessMinimalApplicationGraphRegistration;
 using example::minimal::MakeMinimalLabel;
 using example::minimal::MinimalApplication;
 using example::minimal::MinimalApplicationRootId;
@@ -458,8 +457,6 @@ void TestMinimalAppEmbeddedBackingUserHeadlessE2e() {
 }
 
 void TestMinimalAppHeadlessSessionE2e() {
-  EnsureObjectRegistration();
-  EnsureHeadlessMinimalApplicationGraphRegistration();
 
   std::filesystem::path const profile_dir = TestProfileDir();
   {
@@ -670,8 +667,6 @@ void TestMinimalAppHeadlessSessionE2e() {
 }
 
 void TestMinimalAppHeadlessUiCommandE2e() {
-  EnsureObjectRegistration();
-  EnsureHeadlessMinimalApplicationGraphRegistration();
 
   ae::RamDomainStorage model_storage;
   ae::Domain model_domain{model_storage};
@@ -790,8 +785,6 @@ void CheckOpenCloseOwnerWiring(MinimalApplication& app, ae::Domain& domain) {
 }
 
 void TestMinimalAppAuxiliaryPersistColdLoad() {
-  EnsureObjectRegistration();
-  EnsureHeadlessMinimalApplicationGraphRegistration();
 
   std::filesystem::path const profile_dir =
       std::filesystem::temp_directory_path() / "minimal_app_aux_persist_test";
@@ -822,9 +815,6 @@ void TestMinimalAppAuxiliaryPersistColdLoad() {
 }
 
 void TestMinimalAppAuxiliaryCloseOpenHeadless() {
-  EnsureObjectRegistration();
-  EnsureHeadlessMinimalApplicationGraphRegistration();
-  example::minimal::EnsureMinimalAppWindowEventsRegistration();
 
   ae::RamDomainStorage model_storage;
   ae::Domain model_domain{model_storage};
@@ -913,9 +903,6 @@ void TestMinimalAppAuxiliaryCloseOpenHeadless() {
 }
 
 void TestMinimalAppAuxiliaryCloseEmbeddedUserShutdownColdLoad() {
-  EnsureObjectRegistration();
-  EnsureHeadlessMinimalApplicationGraphRegistration();
-  example::minimal::EnsureMinimalAppWindowEventsRegistration();
 
   std::filesystem::path const user_dir =
       std::filesystem::temp_directory_path() /
@@ -1213,8 +1200,6 @@ void CheckSharedRefsAndCycleIdentity(MinimalApplication& app) {
 }
 
 void TestMinimalAppProductionOpenerColdLoadInitialPublication() {
-  EnsureObjectRegistration();
-  EnsureHeadlessMinimalApplicationGraphRegistration();
 
   std::filesystem::path const profile_dir =
       std::filesystem::temp_directory_path() /
@@ -1267,8 +1252,6 @@ void TestMinimalAppProductionOpenerColdLoadInitialPublication() {
 }
 
 void TestMinimalAppProductionOpenerInitialPublication() {
-  EnsureObjectRegistration();
-  EnsureHeadlessMinimalApplicationGraphRegistration();
 
   ae::RamDomainStorage build_storage;
   ae::Domain build_domain{build_storage};
@@ -1298,8 +1281,6 @@ void TestMinimalAppProductionOpenerInitialPublication() {
 }
 
 void TestMinimalAppProductionOpenerColdLoadBeforePrepare() {
-  EnsureObjectRegistration();
-  EnsureHeadlessMinimalApplicationGraphRegistration();
 
   std::filesystem::path const profile_dir =
       std::filesystem::temp_directory_path() /
@@ -1344,8 +1325,6 @@ void TestMinimalAppProductionOpenerColdLoadBeforePrepare() {
 }
 
 void TestMinimalAppOpenerLabelInInitialPublication() {
-  EnsureObjectRegistration();
-  EnsureHeadlessMinimalApplicationGraphRegistration();
 
   std::filesystem::path const profile_dir =
       std::filesystem::temp_directory_path() /
@@ -1402,8 +1381,6 @@ void TestMinimalAppOpenerLabelInInitialPublication() {
 }
 
 void TestMinimalAppApplyCheckpointPersistColdLoad() {
-  EnsureObjectRegistration();
-  EnsureHeadlessMinimalApplicationGraphRegistration();
 
   std::filesystem::path const profile_dir =
       std::filesystem::temp_directory_path() /
@@ -1550,8 +1527,6 @@ void CheckActiveLanguageSlots(ui::UiLocalizationString& label, int active_index,
 }
 
 void TestMinimalAppPrepareMaterializesActiveLanguageOnly(int active_language) {
-  EnsureObjectRegistration();
-  EnsureHeadlessMinimalApplicationGraphRegistration();
 
   BilingualMinimalStrings const text{
       "Apply-EN", "Apply-RU", "RowA-EN", "RowA-RU", "RowB-EN", "RowB-RU",
@@ -1622,8 +1597,6 @@ void TestMinimalAppPrepareMaterializesActiveLanguageOnly(int active_language) {
 }
 
 void TestMinimalAppPrepareActiveLanguageOpenDetail() {
-  EnsureObjectRegistration();
-  EnsureHeadlessMinimalApplicationGraphRegistration();
 
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
@@ -1662,8 +1635,6 @@ void TestMinimalAppPrepareActiveLanguageOpenDetail() {
 }
 
 void TestMinimalAppPrepareUnloadedRequiredApplyLabelRef() {
-  EnsureObjectRegistration();
-  EnsureHeadlessMinimalApplicationGraphRegistration();
 
   BilingualMinimalStrings const text{
       "Apply-EN", "Apply-RU", "RowA-EN", "RowA-RU", "RowB-EN", "RowB-RU",
@@ -1713,7 +1684,7 @@ void TestMinimalAppPrepareUnloadedRequiredApplyLabelRef() {
 }  // namespace apptraverse::test
 
 int main() {
-  apptraverse::EnableNoninteractiveCrt();
+  apptraverse::example::minimal::EnsureHeadlessMinimalApplicationGraphRegistration();
   apptraverse::test::TestMinimalAppProductionOpenerColdLoadInitialPublication();
   apptraverse::test::TestMinimalAppProductionOpenerInitialPublication();
   apptraverse::test::TestMinimalAppProductionOpenerColdLoadBeforePrepare();

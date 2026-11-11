@@ -64,8 +64,6 @@ WindowCatalog::ptr BuildHeadlessWindowCatalogGraph(ae::Domain& domain) {
 
 WindowCatalog::ptr BuildHeadlessWindowCatalogGraph(
     ae::Domain& domain, WindowCatalogGraphOptions options) {
-  ui::EnsureUiPresenterRegistration();
-
   WindowCatalogPresenterFactory factory;
   factory.create_window = [](ae::Domain& build_domain, ae::ObjId presenter_id,
                              WindowCatalog::ptr const&) {
@@ -91,8 +89,9 @@ WindowCatalog::ptr BuildHeadlessWindowCatalogGraph(
 }
 
 void EnsureHeadlessWindowCatalogGraphRegistration() {
+  EnsureCoreObjectRegistration();
   EnsureWindowCatalogModelRegistration();
-  ui::EnsureUiPresenterRegistration();
+  ui::EnsureUiControlRegistration();
   (void)&example::surfaces::
       g_apptraverse_registrar_HeadlessCatalogListContainerPresenter;
 }

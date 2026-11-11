@@ -172,7 +172,6 @@ void RunRoundTrip() {
 }  // namespace apptraverse::test
 
 int main() {
-  apptraverse::EnsureObjectRegistration();
   apptraverse::example::minimal::EnsureHeadlessMinimalApplicationGraphRegistration();
   apptraverse::test::RunRoundTrip();
   return 0;

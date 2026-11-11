@@ -23,6 +23,7 @@ void RunListCreateFatal() {
       ae::CreateWith{domain});
   list->window_presenter = parent;
   list->control_id = 1;
+  list->notify_list_selection_change = false;
   list->layout_x = list->layout_y = 0;
   list->layout_width = list->layout_height = 100;
   // Deliberately unavailable native parent: OnLoad must not return success.

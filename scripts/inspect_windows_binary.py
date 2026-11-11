@@ -124,6 +124,7 @@ def runtime_only_violations(report, map_text):
         'minimal_app_graph_builder.cpp.obj', 'minimal_app_bootstrap.cpp.obj',
         'ui_list_row_presenter_registration.cpp.obj', 'win_window_registration.cpp.obj',
         'object_registration.cpp.obj', 'window_catalog_registration.cpp.obj',
+        'window_catalog_mobile_events_registration.cpp.obj',
         'window_catalog_close_button.cpp.obj',
     )
     for obj in forbidden_objects:
@@ -135,7 +136,8 @@ def runtime_only_violations(report, map_text):
                  'DistillWindowCatalog@', 'BootstrapMinimalApplicationProfileIfAbsent@'):
         if name in map_text:
             errors.append('Distillation symbol in runtime: ' + name)
-    for cls in ('UiListRowPresenter', 'WinWindowPresenter', 'CatalogCloseButton'):
+    for cls in ('UiListRowPresenter', 'WinWindowPresenter', 'CatalogCloseButton',
+                'SetWindowCatalogMobileActiveEvent'):
         if 'g_apptraverse_registrar_' + cls + '@' in map_text:
             errors.append('Unused concrete factory: ' + cls)
     return errors
@@ -161,7 +163,7 @@ def main():
     for error in errors:
         print('FAIL: ' + error)
     if args.runtime_only and not errors:
-        print('PASS: static runtime; no distillation/builders or unused concrete factories')
+        print('PASS: static runtime; no forbidden distillation objects or concrete factories')
     return 1 if errors else 0
 
 

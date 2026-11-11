@@ -1444,6 +1444,7 @@ void TestListSelectionViaPresenterProxy() {
   auto ui_list_presenter = UiListContainerPresenter::ptr::Create(
       ae::CreateWith{ui_domain});
   ui_list_presenter->container = ui_list;
+  ui_list_presenter->notify_list_selection_change = true;
   ui_list_presenter->window_presenter = ui_window_presenter;
   ui_list_presenter->model_proxy = &proxy;
 

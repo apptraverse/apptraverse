@@ -144,8 +144,8 @@ class ContractApplicationRoot : public NodeFor<ContractApplicationRoot> {
   ContractWindow::ptr presented_window;
   ui::UiLocaleSettings::ptr locale;
   ui::UiLocalizationString::ptr localized_title;
-  int marker{0};
-  bool presented_open{false};
+  int marker;
+  bool presented_open;
 
   void Apply(ContractSetMarkerEvent const& event);
   void Apply(ContractClosePresentedWindowEvent const& event);
@@ -168,7 +168,7 @@ class ContractSetMarkerEvent
 
   AE_OBJECT_REFLECT(AE_MMBR(marker))
 
-  int marker{0};
+  int marker;
 };
 
 class ContractClosePresentedWindowEvent
@@ -206,9 +206,6 @@ void HeadlessDesktopWindowPresenter::OnModelChanged() {
 void HeadlessDesktopWindowPresenter::ApplyRequestedFrameFromMirror() {
   ++apply_requested_frame_count;
   ui::UiDesktopWindow::ptr const desktop = desktop_window();
-  if (!desktop.is_valid()) {
-    return;
-  }
   simulated_native_x = desktop->x();
   simulated_native_y = desktop->y();
   simulated_native_cw = desktop->restore_client_width();
@@ -268,6 +265,8 @@ APPTRAVERSE_REGISTER(ContractWindow);
 APPTRAVERSE_REGISTER(HeadlessDesktopWindowPresenter);
 
 void EnsureContractTestRegistration() {
+  EnsureCoreObjectRegistration();
+  ui::EnsureUiControlRegistration();
   (void)&g_apptraverse_registrar_ContractApplicationRoot;
   (void)&g_apptraverse_registrar_ContractSetMarkerEvent;
   (void)&g_apptraverse_registrar_ContractClosePresentedWindowEvent;
@@ -337,12 +336,10 @@ struct ContractHarness {
       : model_proxy{[this](ModelObjectProxy::ModelWork work) {
           deferred_model_work.push_back(std::move(work));
         }} {
-    EnsureObjectRegistration();
-    ui::EnsureUiPresenterRegistration();
-    EnsureContractTestRegistration();
-
     model_root = ContractApplicationRoot::ptr::Create(
         ae::CreateWith{model_domain}.with_id(kRootId));
+    model_root->marker = 0;
+    model_root->presented_open = true;
     InitializeRuntimeNode(*model_root);
     model_root->locale = ui::UiLocaleSettings::ptr::Create(
         ae::CreateWith{model_domain}.with_id(kLocaleId));
@@ -359,7 +356,6 @@ struct ContractHarness {
                                model_root->localized_title,
                                model_root->locale);
     InitializeRuntimeNode(*model_root->presented_window, *model_root);
-    model_root->presented_open = true;
 
     model_root->localized_title->MaterializeLanguage(0);
 
@@ -447,10 +443,6 @@ void HeadlessDesktopWindowPresenter::OnUnload() {
 }
 
 void TestPresentedWindowDistilledBaseReplay() {
-  EnsureObjectRegistration();
-  ui::EnsureUiPresenterRegistration();
-  EnsureContractTestRegistration();
-
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   ae::ObjId en_string_id{};
@@ -458,6 +450,8 @@ void TestPresentedWindowDistilledBaseReplay() {
 
   auto root = ContractApplicationRoot::ptr::Create(
       ae::CreateWith{domain}.with_id(kRootId));
+  root->marker = 0;
+  root->presented_open = true;
   InitializeRuntimeNode(*root);
   root->locale = ui::UiLocaleSettings::ptr::Create(
       ae::CreateWith{domain}.with_id(kLocaleId));
@@ -741,7 +735,7 @@ void TestLazyPresentedWindowUnloadReload() {
 }  // namespace apptraverse::test
 
 int main() {
-  apptraverse::EnableNoninteractiveCrt();
+  apptraverse::test::EnsureContractTestRegistration();
   apptraverse::test::TestPresentedWindowDistilledBaseReplay();
   apptraverse::test::TestUiPresentedWindowHierarchy();
   apptraverse::test::TestPresenterReachableOnlyViaWindow();

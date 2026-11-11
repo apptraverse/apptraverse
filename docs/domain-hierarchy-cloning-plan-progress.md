@@ -258,3 +258,23 @@ No identified Windows/headless item from this audit remains open. The previously
 - Full library APIs remain available to other consumers. Release binary gates now also prohibit the two broad registration modules, while preserving static runtime and excluding distillation/unneeded concrete factories.
 - PASS: 82/82 Debug CTests, 17/17 targeted MinSizeRel CTests, both Debug supply generations. MinSizeRel sizes unchanged at 684,544 / 622,592 bytes; only KERNEL32/USER32 imports.
 - [Detailed implementation and evidence](validation/windows-registration-entry-points-2026-11-10.md).
+
+## Windows/headless contract follow-up — 2026-11-10 — complete
+
+Base: `0615051`. Corrected the four concrete findings from the subsequent audit:
+separated the mobile catalog event registration from the desktop archive path;
+removed remaining serialized defaults in the list presenter and contract-test
+model/events; removed the test presenter's missing-window silent skip; and moved
+headless registration to one entry point in each executable's main.
+
+The new binary check first rejected the previous catalog EXE for its mobile
+factory, then passed all four rebuilt normal/load-only EXEs. Full headless
+registration still supports the mobile case. Existing library history and common
+model behavior are retained; the binary check covers its named forbidden members
+and factories, not an assertion of globally minimal code.
+
+Validation: **82/82 Debug PASS** (288.88 seconds), **17/17 targeted MinSizeRel PASS**
+(59.58 seconds), both incremental builds and Debug supply generation PASS.
+Catalog size: **681,984 B (666 KiB)**, down 2,560 B; MinimalApp unchanged at
+**622,592 B (608 KiB)**. Both import only KERNEL32/USER32. No timing improvement
+is claimed. [Changes, regression evidence, scope and logs](validation/windows-headless-contract-followup-2026-11-10.md).

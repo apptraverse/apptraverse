@@ -65,7 +65,7 @@ class UiListContainerPresenter : public Presenter {
 
  public:
   explicit UiListContainerPresenter(ae::ObjProp prop)
-      : Presenter{prop}, notify_list_selection_change{false} {}
+      : Presenter{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(container), AE_MMBR(window_presenter),
                     AE_MMBR(layout_x), AE_MMBR(layout_y),

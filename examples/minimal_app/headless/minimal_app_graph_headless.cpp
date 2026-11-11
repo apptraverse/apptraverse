@@ -26,8 +26,9 @@ MinimalApplication::ptr BuildHeadlessMinimalApplicationGraph(
 }
 
 void EnsureHeadlessMinimalApplicationGraphRegistration() {
+  EnsureCoreObjectRegistration();
   EnsureMinimalApplicationRegistration();
-  ui::EnsureUiPresenterRegistration();
+  ui::EnsureUiControlRegistration();
 }
 
 }  // namespace apptraverse::example::minimal

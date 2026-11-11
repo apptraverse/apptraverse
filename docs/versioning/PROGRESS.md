@@ -1,4 +1,10 @@
 # AppTraverse — прогресс версионирования поставок
+## Windows/headless contract follow-up — 2026-11-10 — PASS
+
+Separated mobile catalog event registration from the Windows desktop path; removed serialized defaults from the common list presenter and contract-test model/events; removed the headless presenter's missing-window silent skip; consolidated headless registration at main. The headless mobile scenario remains enabled.
+
+The expanded binary check rejects the previous catalog EXE and passes all four rebuilt normal/load-only consumers. **82/82 Debug**, **17/17 targeted MinSizeRel** tests pass. Catalog is **681,984 B (666 KiB)**, down **2,560 B**; MinimalApp stays **622,592 B**. Both import only KERNEL32/USER32. This closes the four audit findings; the named binary exclusions are not a proof of globally minimal code. [Implementation, regression evidence and validation](../validation/windows-headless-contract-followup-2026-11-10.md).
+
 ## One Windows application registration entry point — 2026-11-10 — PASS
 
 WindowCatalog and MinimalApp each register their complete runtime schema once from main, before normal startup or Debug distillation. Duplicate registration in model sessions, distillation, the catalog builder and Windows test helpers was removed. Tests now cold-load through the same entry point as the applications. Internal library anchors and other-platform entry points remain compatible.
