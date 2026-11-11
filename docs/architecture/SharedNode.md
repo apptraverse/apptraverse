@@ -1,6 +1,7 @@
 # SharedNode: native memory synchronization
 
-Scope: serialization foundation and two-live-replica delivery on
+Scope: native serialization, reliable live delivery and host admission into a
+three-participant room on
 `feature/shared-node-native-memory`, based on main
 `8b592f994c2ad2931bcef22a044a6a21dbe05c4e`. The user's November 11 request
 explicitly starts new SharedNode work; the older removal/deferment of network
@@ -53,10 +54,12 @@ same-class collisions are not resolved by this slice.
 ## Two-live-replica delivery
 
 `SharedSyncRuntime` is model-thread code over `IByteLink`. Its native reflected
-`SharedSyncMessage` carries InitialState, Event or ACK, target Node, packet/Event
-identity, timestamp and a typed `SharedGraphSnapshot`. Version 1.0 is accepted;
-other header versions are rejected without successful ACK. Full schema/capability
-negotiation between different client builds remains separate work.
+`SharedSyncMessage` carries InitialState, Event, ACK or CoverageReceipt, target
+Node, packet/Event identity, timestamp and a typed `SharedGraphSnapshot`.
+New messages use version 1.1. Native 1.0 data packets remain readable and retain
+their frozen bytes; their replies use the same minor version. Admission requires
+1.1. Other header versions are rejected without successful ACK. This is not full
+schema/capability negotiation between different client builds.
 
 The application owns persistence. Its `Persist` callback must save the whole
 local Application graph, including the shared root and local delivery subtree,
@@ -77,6 +80,9 @@ a local Event, records its origin locally, queues independent outgoing packets
 for its peers and persists them. This explicit authoring entry point is required
 for this runtime; arbitrary calls to ordinary `Node::Commit` are not automatically
 classified or transmitted. Outgoing Event closure is captured before Apply.
+Each origin frame is retained in the local root independently of per-peer
+pending, so a later participant can receive the original frame even after an
+older destination acknowledged it.
 
 Both methods queue and persist without sending. `Service(now_us)` sends pending
 bytes and repeats them after the configured interval. Offline suppresses sends;
@@ -103,6 +109,56 @@ Before remote insertion, the runtime tries it on a disposable native copy.
 serializer, preserving application fields during timestamp-ordered replay.
 Failed speculative replay cannot partially change the live replica.
 
+## Host admission and direct delivery
+
+The application calls `AdmitPeer(node_id, join_event, joining_uid, timestamp)`
+on H. The ordinary application Join Event references the new participant's
+native graph (for example Bob's name and Link descriptor). Its Apply must add
+that descriptor to the shared Node's links. The runtime does not decode chat
+classes or create application profiles by UID.
+
+H freezes one admission plan binding Join ID, joining UID, host UID, initial
+packet ID and exact snapshot-covered Event IDs. In one model-thread operation
+it applies Join, reconciles local peer metadata, retains the pre-Apply Join
+frame, freezes initial state including Join, and saves all delivery obligations
+before Service can send. Join goes to existing participants; initial state goes
+to B. Either can arrive first.
+
+A installs the received plan before queueing its own Events for B. Covered
+history is assigned to H's initial delivery: it is suppressed in A→B scheduling
+but is not yet marked delivered. A immediately sends its own uncovered Events
+to both H and B using B's UID. That includes an older Event that H had not
+received when freezing the snapshot; its retained origin frame is reused even
+if H subsequently ACKed it. There is no A-B handshake.
+
+When B's initial ACK arrives, H confirms only H→B coverage and queues reliable
+CoverageReceipt obligations for existing peers in the same persistence step.
+A accepts a receipt only for the exact installed admission, marks that coverage
+delivered to B, saves, and emits a terminal ACK. H persists notice completion
+separately from business Event delivery. ACKs themselves are not ACKed. A
+receipt arriving before Join receives no success ACK and is retried by H.
+Duplicate Join/receipt cannot downgrade confirmed coverage or create duplicate
+participants. All admission and receipt progress is local-persistent.
+
+Coverage remains directional. B's snapshot receipt does not confirm H→A
+delivery, so H continues any outstanding sends to A. B knows the initial source
+H has the snapshot, but does not infer that A has all of it. Imported history
+does not become B-authored history. After admission, each participant directly
+sends its own new Events to every other participant; H does not relay A's or
+B's ordinary Events. Established A↔B delivery continues when H is Offline.
+
+An Event overtaking the recipient's initial state or necessary Join receives no
+success ACK. Its origin retains the durable packet until retry can apply it.
+No agreement exchange or fabricated participant is needed. Suppressing covered
+incremental history does not forbid repeating the one frozen initial packet
+after its ACK is lost; the receiver re-ACKs it without replacing live state.
+
+Local delivery schemas are S2, with S0/S1 metadata loaders and the original
+QueueSharedPacketEvent layout loader. Existing frozen pending bytes are not
+rewritten. S1 origin IDs that never retained a pre-Apply frame cannot supply
+uncovered old history to a newly added peer; the runtime refuses to invent that
+frame from newer dependency state.
+
 ## Memory stand
 
 `IByteLink` accepts destination UID and bytes, and receives source UID and bytes.
@@ -117,18 +173,15 @@ Heartbeat generation and timeout detection are not implemented by this stand.
 
 ## Next slices
 
-1. H accepts Join B and sends its native participant graph to A. H supplies B's
-   initial state; subsequent events originate directly to all peers. A can send
-   to B as soon as it knows B's UID; no A-B handshake is required.
-2. Extend exact initial-state coverage and reliable confirmation to all peers,
-   and test every
-   ordering of Join, initial state, Event and ACK. Pending dependency handling
-   must not fabricate participants or overwrite receiver-local state.
-3. Node-owned safe checkpoint/compaction policy, tested with late Events,
+1. Node-owned safe checkpoint/compaction policy, tested with late Events,
    offline peers and late attachment. Keep history until that contract is proven.
-4. Different-build schema/capability compatibility, transport heartbeat and real
+2. Different-build schema/capability compatibility, transport heartbeat and real
    Aether adaptation after the memory contract. Dynamic topology and arbitrary
    mutable dependency graphs need their own application conflict/replay tests.
+
+The current admission contract is a fixed three-participant memory scenario.
+Removal/rejoin, admission by multiple coordinators, host failover during
+admission and generic merging of independently formed rooms are not implemented.
 
 Ordering remains by `timestamp_us` within the agreed single-computer scope.
 Event identity does not become a hidden ordering key. Equal-timestamp behavior
@@ -143,7 +196,9 @@ In a Debug build configured with `BUILD_TESTING=ON`:
 cmake --build build/shared-node-debug --target apptraverse_shared_node_headless_check
 ```
 
-This builds and executes six native/memory test executables, including live
-delivery/restart and new-only graph import, without historical GUI examples.
+This builds and executes seven native/memory test executables, including live
+delivery/restart, three-participant admission and new-only graph import, without
+historical GUI examples.
 Validation: [foundation](../validation/shared-node-native-memory-2026-11-11.md),
-[live delivery](../validation/shared-node-live-memory-2026-11-11.md).
+[live delivery](../validation/shared-node-live-memory-2026-11-11.md),
+[three participants](../validation/shared-node-three-peer-memory-2026-11-11.md).

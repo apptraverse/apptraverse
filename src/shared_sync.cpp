@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
+#include <set>
 #include <utility>
 
 #include "aether-miscpp/serialization/binary_archive.h"
@@ -13,6 +14,61 @@
 
 namespace apptraverse {
 namespace {
+
+// The original 1.0 schema remains a native reflected type so persisted frozen
+// packets can still be decoded without changing their identity or bytes.
+struct SharedSyncMessageV0 {
+  std::uint16_t major;
+  std::uint16_t minor;
+  SharedSyncKind kind;
+  SharedSyncKind acknowledged_kind;
+  ae::ObjId node_id;
+  ae::ObjId packet_id;
+  ae::ObjId event_id;
+  std::uint64_t timestamp_us;
+  SharedGraphSnapshot graph;
+  std::vector<ae::ObjId> covered_events;
+  AE_REFLECT_MEMBERS(major, minor, kind, acknowledged_kind, node_id, packet_id,
+                    event_id, timestamp_us, graph, covered_events)
+};
+
+bool HasAdmission(SharedAdmissionPlan const& plan) {
+  return plan.join_event_id.is_valid();
+}
+
+bool ValidAdmission(SharedAdmissionPlan const& plan) {
+  if (!plan.is_valid()) {
+    return false;
+  }
+  std::set<ae::ObjId> distinct;
+  for (auto const id : plan.covered_events) {
+    if (!id.is_valid() || !distinct.insert(id).second) {
+      return false;
+    }
+  }
+  return distinct.count(plan.join_event_id) != 0;
+}
+
+SharedSyncMessageV0 LegacyMessage(SharedSyncMessage const& message) {
+  return {message.major, message.minor, message.kind, message.acknowledged_kind,
+          message.node_id, message.packet_id, message.event_id,
+          message.timestamp_us, message.graph, message.covered_events};
+}
+
+SharedSyncMessage CurrentMessage(SharedSyncMessageV0 old) {
+  SharedSyncMessage message;
+  message.major = old.major;
+  message.minor = old.minor;
+  message.kind = old.kind;
+  message.acknowledged_kind = old.acknowledged_kind;
+  message.node_id = old.node_id;
+  message.packet_id = old.packet_id;
+  message.event_id = old.event_id;
+  message.timestamp_us = old.timestamp_us;
+  message.graph = std::move(old.graph);
+  message.covered_events = std::move(old.covered_events);
+  return message;
+}
 
 bool Includes(std::vector<ae::ObjId> const& ids, ae::ObjId id) {
   return std::find(ids.begin(), ids.end(), id) != ids.end();
@@ -40,7 +96,7 @@ std::vector<ae::ObjId> JournalIds(SharedNode const& node) {
 // Trial insertion is isolated: failed out-of-order replay may partially mutate
 // its target. Both the current node and the incoming Event use native layers.
 bool CanInsert(SharedNode const& node, SharedGraphSnapshot const& event_graph,
-                std::uint64_t timestamp_us) {
+                std::uint64_t timestamp_us, std::string const& joining_endpoint = {}) {
   SharedGraphSnapshot current;
   if (!CaptureSharedGraph(node, current)) {
     return false;
@@ -50,23 +106,36 @@ bool CanInsert(SharedNode const& node, SharedGraphSnapshot const& event_graph,
   ae::Domain domain{scratch};
   ae::DomainGraph graph{&domain, ae::GraphSerializationScope::NetworkShared};
   auto held = graph.LoadRoot(node.obj_id);
-  auto* trial = held ? held.as<SharedNode>() : nullptr;
-  if (trial == nullptr) {
+  if (!held || ae::Registry::GetRegistry().GenerationDistance(
+                   SharedNode::kClassId, held->GetClassId()) < 0) {
     return false;
   }
+  auto* trial = held.as<SharedNode>();
   ae::Ptr<ae::Obj> imported;
   if (!ImportSharedGraphNewObjects(event_graph, domain, scratch, imported)) {
     return false;
   }
+  if (ae::Registry::GetRegistry().GenerationDistance(
+          Event::kClassId, imported->GetClassId()) < 0) {
+    return false;
+  }
   auto* event = imported.as<Event>();
-  if (event == nullptr || !IsTargetClass(*event, *trial)) {
+  if (!IsTargetClass(*event, *trial)) {
     return false;
   }
   Event::ptr reference{&domain, event->obj_id, {}, imported};
-  return trial->TryInsertJournalEvent(
+  bool const inserted = trial->TryInsertJournalEvent(
       EventRecord{.event = std::move(reference),
                    .order = {.timestamp_us = timestamp_us},
                    .retained_since_us = SystemUtcMicros()});
+  if (!inserted) {
+    return false;
+  }
+  return joining_endpoint.empty() ||
+         std::count_if(trial->links.begin(), trial->links.end(),
+             [&](auto const& link) {
+               return link->endpoint_uid == joining_endpoint;
+             }) == 1;
 }
 
 void InsertValidated(SharedNode& node, Event::ptr event,
@@ -82,21 +151,43 @@ void InsertValidated(SharedNode& node, Event::ptr event,
 }
 
 bool ValidMessageShape(SharedSyncMessage const& message) {
-  if (message.major != 1 || message.minor != 0 ||
+  if (message.major != 1 || message.minor > 1 ||
       !message.node_id.is_valid() || !message.packet_id.is_valid()) {
+    return false;
+  }
+  auto const& plan = message.admission;
+  if (HasAdmission(plan)) {
+    if (message.minor == 0 || !ValidAdmission(plan)) {
+      return false;
+    }
+  } else if (plan.snapshot_id.is_valid() || !plan.host_endpoint.empty() ||
+             !plan.joining_endpoint.empty() || !plan.covered_events.empty()) {
     return false;
   }
   switch (message.kind) {
     case SharedSyncKind::InitialState:
       return !message.event_id.is_valid() && message.timestamp_us == 0 &&
-             message.graph.root_id == message.node_id;
+             message.graph.root_id == message.node_id &&
+             (!HasAdmission(plan) ||
+              (plan.snapshot_id == message.packet_id &&
+               plan.covered_events == message.covered_events));
     case SharedSyncKind::Event:
       return message.event_id.is_valid() && message.timestamp_us != 0 &&
              message.graph.root_id == message.event_id &&
-             message.covered_events.empty();
+             message.covered_events.empty() &&
+             (!HasAdmission(plan) || plan.join_event_id == message.event_id);
     case SharedSyncKind::Ack:
       return (message.acknowledged_kind == SharedSyncKind::InitialState ||
-              message.acknowledged_kind == SharedSyncKind::Event) &&
+              message.acknowledged_kind == SharedSyncKind::Event ||
+              (message.minor == 1 &&
+               message.acknowledged_kind == SharedSyncKind::CoverageReceipt)) &&
+             message.graph.layers.empty() && !message.graph.root_id.is_valid() &&
+             message.covered_events.empty() && message.timestamp_us == 0 &&
+             !HasAdmission(plan);
+    case SharedSyncKind::CoverageReceipt:
+      return message.minor == 1 && HasAdmission(plan) &&
+             message.packet_id == plan.snapshot_id &&
+             message.event_id == plan.join_event_id &&
              message.graph.layers.empty() && !message.graph.root_id.is_valid() &&
              message.covered_events.empty() && message.timestamp_us == 0;
   }
@@ -107,10 +198,21 @@ bool ValidMessageShape(SharedSyncMessage const& message) {
 
 bool SerializeSharedSyncMessage(SharedSyncMessage const& message,
                                 std::vector<std::uint8_t>& bytes) {
+  // The old reflected tuple cannot carry admission metadata or its control
+  // messages. Reject a lossy downgrade rather than silently dropping that state.
+  if (message.minor == 0 &&
+      (message.admission != SharedAdmissionPlan{} ||
+       message.kind == SharedSyncKind::CoverageReceipt ||
+       (message.kind == SharedSyncKind::Ack &&
+        message.acknowledged_kind == SharedSyncKind::CoverageReceipt))) {
+    return false;
+  }
   std::vector<std::uint8_t> output;
   ae::seri::BinaryVectorBuffer buffer{output};
   ae::seri::BinaryArchive archive{buffer};
-  if (archive.Save(message).IsErr()) {
+  auto const saved = message.minor == 0 ? archive.Save(LegacyMessage(message))
+                                       : archive.Save(message);
+  if (saved.IsErr()) {
     return false;
   }
   bytes = std::move(output);
@@ -120,10 +222,28 @@ bool SerializeSharedSyncMessage(SharedSyncMessage const& message,
 bool DeserializeSharedSyncMessage(std::vector<std::uint8_t> const& bytes,
                                   SharedSyncMessage& message) {
   auto copy = bytes;
+  ae::seri::BinaryVectorBuffer prefix_buffer{copy};
+  ae::seri::BinaryArchive prefix{prefix_buffer};
+  std::uint16_t major = 0;
+  std::uint16_t minor = 0;
+  if (prefix.Load(major).IsErr() || prefix.Load(minor).IsErr() ||
+      major != 1 || minor > 1) {
+    return false;
+  }
   ae::seri::BinaryVectorBuffer buffer{copy};
   ae::seri::BinaryArchive archive{buffer};
   SharedSyncMessage parsed;
-  if (archive.Load(parsed).IsErr() ||
+  bool loaded = false;
+  if (minor == 0) {
+    SharedSyncMessageV0 old;
+    loaded = archive.Load(old).IsOk();
+    if (loaded) {
+      parsed = CurrentMessage(std::move(old));
+    }
+  } else {
+    loaded = archive.Load(parsed).IsOk();
+  }
+  if (!loaded ||
       archive.buffer().read_position() != copy.size() ||
       !ValidMessageShape(parsed)) {
     return false;
@@ -151,6 +271,7 @@ void SharedSyncRuntime::InitializeLocalState(SharedNode& node) {
   auto local = SharedNodeLocalState::ptr::Create(ae::CreateWith{*node.domain});
   local->peers.clear();
   local->local_events.clear();
+  local->local_frames.clear();
   InitializeRuntimeNode(*local);
   node.local_state = std::move(local);
 }
@@ -158,10 +279,15 @@ void SharedSyncRuntime::InitializeLocalState(SharedNode& node) {
 void SharedSyncRuntime::RegisterNode(SharedNode::ptr node) {
   assert(node.is_valid() && node.is_loaded() && node.domain() == &domain_ &&
          node->local_state.is_valid());
+  ReconcilePeers(*node);
+  nodes_[node.id()] = std::move(node);
+}
+
+void SharedSyncRuntime::ReconcilePeers(SharedNode& node) {
   // Membership changes in the local metadata subtree are local Events.
-  for (auto const& descriptor : node->links) {
+  for (auto const& descriptor : node.links) {
     if (descriptor->endpoint_uid == local_endpoint_ ||
-        FindPeer(*node, descriptor->endpoint_uid).is_valid()) {
+        FindPeer(node, descriptor->endpoint_uid).is_valid()) {
       continue;
     }
     auto peer = SharedPeerState::ptr::Create(ae::CreateWith{domain_});
@@ -170,10 +296,12 @@ void SharedSyncRuntime::RegisterNode(SharedNode::ptr node) {
     peer->pending_packets.clear();
     peer->initial_complete = false;
     peer->received_initial_packets.clear();
+    peer->admission = {};
+    peer->coverage_confirmed = false;
+    peer->delivered_notices.clear();
     InitializeRuntimeNode(*peer);
-    node->local_state->AddPeer(std::move(peer));
+    node.local_state->AddPeer(std::move(peer));
   }
-  nodes_[node.id()] = std::move(node);
 }
 
 SharedNode::ptr SharedSyncRuntime::FindNode(ae::ObjId node_id) const {
@@ -245,41 +373,68 @@ bool SharedSyncRuntime::QueueInitialState(ae::ObjId node_id,
   return PersistState();
 }
 
-bool SharedSyncRuntime::QueueLocalEvents(SharedNode& node,
-                                          SharedGraphSnapshot const* newly_frozen) {
+bool SharedSyncRuntime::QueueLocalEvents(SharedNode& node) {
   for (auto const id : node.local_state->local_events) {
     auto const* record = FindRecord(node, id);
     assert(record != nullptr);  // Shared history is held until checkpoint work.
     for (auto const& peer : node.local_state->peers) {
-      if (peer->HasDelivered(id)) {
+      if (peer->HasDelivered(id) || peer->IsCoveredByAdmission(id)) {
         continue;
       }
       bool const queued = std::any_of(peer->pending_packets.begin(),
           peer->pending_packets.end(), [&](auto const& packet) {
-            return packet.event_id == id || Includes(packet.covered_events, id);
+            return (!packet.coverage_notice && packet.event_id == id) ||
+                   (packet.initial && Includes(packet.covered_events, id));
           });
       if (queued) {
         continue;
       }
-      SharedSyncMessage message;
-      message.kind = SharedSyncKind::Event;
-      message.node_id = node.obj_id;
-      message.packet_id = id;
-      message.event_id = id;
-      message.timestamp_us = record->order.timestamp_us;
-      if (newly_frozen != nullptr && newly_frozen->root_id == id) {
-        message.graph = *newly_frozen;
-      } else if (!CaptureSharedGraph(*record->event, message.graph)) {
+      auto const* frame = node.local_state->FindLocalFrame(id);
+      if (frame == nullptr) {
+        // Old local metadata may have retained only IDs. It cannot recreate a
+        // lost pre-Apply closure from newer dependency state. Never invent it.
         return false;
       }
-      SharedPendingPacket pending;
-      pending.packet_id = id;
-      pending.event_id = id;
-      if (!SerializeSharedSyncMessage(message, pending.bytes)) {
-        return false;
-      }
-      peer->QueuePacket(std::move(pending));
+      peer->QueuePacket(*frame);
     }
+  }
+  return true;
+}
+
+bool SharedSyncRuntime::InstallAdmission(SharedNode& node,
+                                          SharedAdmissionPlan const& plan) {
+  auto peer = FindPeer(node, plan.joining_endpoint);
+  if (!peer.is_valid() || (peer->admission.is_valid() && peer->admission != plan)) {
+    return false;
+  }
+  peer->InstallAdmission(plan);
+  return true;
+}
+
+bool SharedSyncRuntime::QueueCoverageReceipts(SharedNode& node,
+                                               SharedAdmissionPlan const& plan) {
+  assert(plan.host_endpoint == local_endpoint_);
+  for (auto const& peer : node.local_state->peers) {
+    if (peer->link->endpoint_uid == plan.joining_endpoint ||
+        peer->HasNoticeDelivered(plan.snapshot_id) ||
+        peer->FindPending(plan.snapshot_id) != nullptr) {
+      continue;
+    }
+    SharedSyncMessage notice;
+    notice.kind = SharedSyncKind::CoverageReceipt;
+    notice.node_id = node.obj_id;
+    notice.packet_id = plan.snapshot_id;
+    notice.event_id = plan.join_event_id;
+    notice.admission = plan;
+    SharedPendingPacket pending;
+    pending.packet_id = plan.snapshot_id;
+    pending.event_id = plan.join_event_id;
+    pending.coverage_notice = true;
+    pending.admission = plan;
+    if (!SerializeSharedSyncMessage(notice, pending.bytes)) {
+      return false;
+    }
+    peer->QueuePacket(std::move(pending));
   }
   return true;
 }
@@ -305,11 +460,101 @@ bool SharedSyncRuntime::CommitLocal(ae::ObjId node_id, Event::ptr event,
     return false;
   }
   auto const id = event.id();
+  SharedSyncMessage message;
+  message.node_id = node_id;
+  message.packet_id = id;
+  message.event_id = id;
+  message.timestamp_us = timestamp_us;
+  message.graph = std::move(frozen);
+  SharedPendingPacket origin;
+  origin.packet_id = id;
+  origin.event_id = id;
+  if (!SerializeSharedSyncMessage(message, origin.bytes)) {
+    return false;
+  }
   InsertValidated(*node, std::move(event), timestamp_us);
-  node->local_state->NoteLocalEvent(id);
+  node->local_state->RememberLocalFrame(std::move(origin));
   // The payload is the immutable pre-Apply closure. A newly learned mutable
   // dependency must not arrive with post-Event state and be changed twice.
-  return QueueLocalEvents(*node, &frozen) && PersistState();
+  return QueueLocalEvents(*node) && PersistState();
+}
+
+bool SharedSyncRuntime::AdmitPeer(ae::ObjId node_id, Event::ptr join_event,
+                                   std::string joining_endpoint,
+                                   std::uint64_t timestamp_us) {
+  auto node = FindNode(node_id);
+  if (failed_ || !node.is_valid() || !join_event.is_valid() ||
+      !join_event.is_loaded() || join_event.domain() != &domain_ ||
+      joining_endpoint.empty() || joining_endpoint == local_endpoint_ ||
+      !IsTargetClass(*join_event, *node) ||
+      FindRecord(*node, join_event.id()) != nullptr ||
+      std::any_of(node->links.begin(), node->links.end(), [&](auto const& link) {
+        return link->endpoint_uid == joining_endpoint;
+      })) {
+    return false;
+  }
+  if (timestamp_us == 0) {
+    timestamp_us = SystemUtcMicros();
+    if (!node->journal.empty() &&
+        timestamp_us <= node->journal.back().order.timestamp_us) {
+      timestamp_us = node->journal.back().order.timestamp_us + 1;
+    }
+  }
+  SharedGraphSnapshot frozen_join;
+  if (!CaptureSharedGraph(*join_event, frozen_join) ||
+      !CanInsert(*node, frozen_join, timestamp_us, joining_endpoint)) {
+    return false;
+  }
+  auto const join_id = join_event.id();
+  InsertValidated(*node, std::move(join_event), timestamp_us);
+  ReconcilePeers(*node);
+  SharedAdmissionPlan plan;
+  plan.join_event_id = join_id;
+  do {
+    plan.snapshot_id = ae::ObjId::GenerateUnique();
+  } while (!plan.snapshot_id.is_valid() || plan.snapshot_id == join_id);
+  plan.host_endpoint = local_endpoint_;
+  plan.joining_endpoint = std::move(joining_endpoint);
+  plan.covered_events = JournalIds(*node);
+  if (!InstallAdmission(*node, plan)) {
+    return false;
+  }
+
+  SharedSyncMessage join;
+  join.node_id = node_id;
+  join.packet_id = join_id;
+  join.event_id = join_id;
+  join.timestamp_us = timestamp_us;
+  join.graph = std::move(frozen_join);
+  join.admission = plan;
+  SharedPendingPacket origin;
+  origin.packet_id = join_id;
+  origin.event_id = join_id;
+  origin.admission = plan;
+  if (!SerializeSharedSyncMessage(join, origin.bytes)) {
+    return false;
+  }
+  node->local_state->RememberLocalFrame(std::move(origin));
+
+  SharedSyncMessage initial;
+  initial.kind = SharedSyncKind::InitialState;
+  initial.node_id = node_id;
+  initial.packet_id = plan.snapshot_id;
+  initial.covered_events = plan.covered_events;
+  initial.admission = plan;
+  if (!CaptureSharedGraph(*node, initial.graph)) {
+    return false;
+  }
+  SharedPendingPacket pending;
+  pending.packet_id = plan.snapshot_id;
+  pending.initial = true;
+  pending.covered_events = plan.covered_events;
+  pending.admission = plan;
+  if (!SerializeSharedSyncMessage(initial, pending.bytes)) {
+    return false;
+  }
+  FindPeer(*node, plan.joining_endpoint)->QueuePacket(std::move(pending));
+  return QueueLocalEvents(*node) && PersistState();
 }
 
 void SharedSyncRuntime::Service(std::uint64_t now_us) {
@@ -353,6 +598,7 @@ void SharedSyncRuntime::OnBytes(std::string const& source,
       case SharedSyncKind::InitialState: accepted = OnInitial(source, message); break;
       case SharedSyncKind::Event: accepted = OnEvent(source, message); break;
       case SharedSyncKind::Ack: accepted = OnAck(source, message); break;
+      case SharedSyncKind::CoverageReceipt: accepted = OnCoverage(source, message); break;
     }
   }
   if (!accepted) {
@@ -373,6 +619,9 @@ bool SharedSyncRuntime::OnInitial(std::string const& source,
   }
   auto const expectation = expected_.find(message.node_id);
   if (expectation == expected_.end() || expectation->second.source != source ||
+      (HasAdmission(message.admission) &&
+       (message.admission.host_endpoint != source ||
+        message.admission.joining_endpoint != local_endpoint_)) ||
       !ValidateSharedGraphSnapshot(message.graph,
                                     expectation->second.class_id)) {
     return false;
@@ -383,8 +632,12 @@ bool SharedSyncRuntime::OnInitial(std::string const& source,
   ae::Domain checking{checked};
   ae::DomainGraph graph{&checking, ae::GraphSerializationScope::NetworkShared};
   auto root = graph.LoadRoot(message.node_id);
-  auto* candidate = root ? root.as<SharedNode>() : nullptr;
-  if (candidate == nullptr || JournalIds(*candidate) != message.covered_events) {
+  if (!root || ae::Registry::GetRegistry().GenerationDistance(
+                   SharedNode::kClassId, root->GetClassId()) < 0) {
+    return false;
+  }
+  auto* candidate = root.as<SharedNode>();
+  if (JournalIds(*candidate) != message.covered_events) {
     return false;
   }
   auto const has_endpoint = [&](std::string const& endpoint) {
@@ -427,6 +680,26 @@ bool SharedSyncRuntime::OnEvent(std::string const& source,
       !ValidateSharedGraphSnapshot(message.graph, Event::kClassId)) {
     return false;
   }
+  auto const& plan = message.admission;
+  if (HasAdmission(plan)) {
+    if (plan.host_endpoint != source || plan.joining_endpoint == local_endpoint_) {
+      return false;
+    }
+    auto joining = FindPeer(*node, plan.joining_endpoint);
+    if (joining.is_valid() && joining->admission.is_valid() &&
+        joining->admission != plan) {
+      return false;
+    }
+    // A newly discovered peer may need older origins after their previous
+    // destination ACKed them. Require the retained pre-Apply frame, never
+    // regenerate it from newer dependencies after accepting the Join.
+    for (auto const id : node->local_state->local_events) {
+      if (!Includes(plan.covered_events, id) &&
+          node->local_state->FindLocalFrame(id) == nullptr) {
+        return false;
+      }
+    }
+  }
   auto const* known = FindRecord(*node, message.event_id);
   if (known != nullptr) {
     if (known->order.timestamp_us != message.timestamp_us) {
@@ -439,6 +712,12 @@ bool SharedSyncRuntime::OnEvent(std::string const& source,
             message.graph.layers.find(message.event_id)->second) {
       return false;  // Identity is not permission to ACK different Event data.
     }
+    if (HasAdmission(plan)) {
+      ReconcilePeers(*node);
+      if (!InstallAdmission(*node, plan) || !QueueLocalEvents(*node)) {
+        return false;
+      }
+    }
     // A known journal entry may have been created by local model work since
     // the last save. Every success ACK still answers durable state.
     if (!PersistState()) {
@@ -447,7 +726,8 @@ bool SharedSyncRuntime::OnEvent(std::string const& source,
     SendAck(source, message);
     return true;
   }
-  if (!CanInsert(*node, message.graph, message.timestamp_us)) {
+  if (!CanInsert(*node, message.graph, message.timestamp_us,
+                   HasAdmission(plan) ? plan.joining_endpoint : std::string{})) {
     return false;
   }
   ae::Ptr<ae::Obj> imported;
@@ -456,6 +736,14 @@ bool SharedSyncRuntime::OnEvent(std::string const& source,
   }
   Event::ptr event{&domain_, message.event_id, {}, imported};
   InsertValidated(*node, std::move(event), message.timestamp_us);
+  if (HasAdmission(plan)) {
+    // Install suppression BEFORE discovering/queueing uncovered own Events.
+    ReconcilePeers(*node);
+    if (!InstallAdmission(*node, plan) || !QueueLocalEvents(*node)) {
+      failed_ = true;
+      return false;
+    }
+  }
   if (!PersistState()) {
     return false;
   }
@@ -478,14 +766,44 @@ bool SharedSyncRuntime::OnAck(std::string const& source,
     return true;  // Delayed duplicate ACK has no state transition.
   }
   auto const expected_kind = pending->initial ? SharedSyncKind::InitialState
-                                             : SharedSyncKind::Event;
+      : pending->coverage_notice ? SharedSyncKind::CoverageReceipt
+                                 : SharedSyncKind::Event;
   if (message.acknowledged_kind != expected_kind ||
       message.event_id != pending->event_id) {
     return false;
   }
+  auto const admission = pending->admission;
+  bool const initial_admission = pending->initial && HasAdmission(admission);
   peer->CompletePacket(message.packet_id);
   next_send_.erase(RetryKey{message.node_id, source, message.packet_id});
+  // Completion and reliable dissemination form one persistent transition. A
+  // crash after this save restores both the confirmed B state and notices.
+  if (initial_admission && !QueueCoverageReceipts(*node, admission)) {
+    failed_ = true;
+    return false;
+  }
   return PersistState();
+}
+
+bool SharedSyncRuntime::OnCoverage(std::string const& source,
+                                    SharedSyncMessage const& message) {
+  auto node = FindNode(message.node_id);
+  auto const& plan = message.admission;
+  if (!node.is_valid() || source != plan.host_endpoint ||
+      !FindPeer(*node, source).is_valid() ||
+      FindRecord(*node, plan.join_event_id) == nullptr) {
+    return false;
+  }
+  auto joining = FindPeer(*node, plan.joining_endpoint);
+  if (!joining.is_valid() || joining->admission != plan) {
+    return false;  // Receipt overtook Join: durable host retry will deliver it.
+  }
+  joining->ConfirmAdmission(plan);
+  if (!PersistState()) {
+    return false;
+  }
+  SendAck(source, message);
+  return true;
 }
 
 void SharedSyncRuntime::SendAck(std::string const& destination,
@@ -494,6 +812,8 @@ void SharedSyncRuntime::SendAck(std::string const& destination,
     return;
   }
   SharedSyncMessage ack;
+  ack.major = original.major;
+  ack.minor = original.minor;
   ack.kind = SharedSyncKind::Ack;
   ack.acknowledged_kind = original.kind;
   ack.node_id = original.node_id;

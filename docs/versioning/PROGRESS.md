@@ -1,5 +1,24 @@
 # AppTraverse — прогресс версионирования поставок
 
+## SharedNode host admission and direct three-peer memory delivery — 2026-11-11 — PASS
+
+Continued `feature/shared-node-native-memory` from `08e951c`. The host now
+persists an application Join, frozen initial state and exact admission coverage
+before transmission. Existing peers immediately send their own uncovered
+Events directly to the new UID. Reliable coverage receipts distinguish assigned
+snapshot delivery from confirmed delivery, without clearing another recipient's
+pending. Retained pre-Apply origin frames survive earlier destination ACKs.
+
+**7/7 SharedNode/native CTest entries and 9/9 targeted headless regressions
+passed** on MSVC x64 Debug. Eight new scenario groups cover Join/snapshot/Event
+races, control and ACK loss, duplicates, reverse order, offline destinations,
+host offline with direct A↔B delivery, actual destruction/restore and native
+1.0 Event/ACK compatibility. Exact send counts verify zero covered incremental
+A→B history and no host relay. Disabling coverage suppression made that oracle
+fail; the mutation was reverted and the final suite passed. Native messages are
+1.1; admission requires 1.1. Compaction and full mixed-build negotiation remain
+separate work. [Validation and limits](../validation/shared-node-three-peer-memory-2026-11-11.md).
+
 ## SharedNode live memory delivery, ACK/retry and restart — 2026-11-11 — PASS
 
 Continued `feature/shared-node-native-memory` from `7d1732b`. Added native

@@ -11,9 +11,12 @@ APPTRAVERSE_REGISTER(MarkSharedEventDeliveredEvent);
 APPTRAVERSE_REGISTER(QueueSharedPacketEvent);
 APPTRAVERSE_REGISTER(CompleteSharedPacketEvent);
 APPTRAVERSE_REGISTER(RememberSharedInitialEvent);
+APPTRAVERSE_REGISTER(InstallSharedAdmissionEvent);
+APPTRAVERSE_REGISTER(ConfirmSharedAdmissionEvent);
 APPTRAVERSE_REGISTER(SharedNodeLocalState);
 APPTRAVERSE_REGISTER(AddSharedPeerStateEvent);
 APPTRAVERSE_REGISTER(NoteSharedLocalEventEvent);
+APPTRAVERSE_REGISTER(RememberSharedLocalFrameEvent);
 APPTRAVERSE_REGISTER(SharedNode);
 APPTRAVERSE_REGISTER(AddSharedLinkEvent);
 
@@ -25,11 +28,25 @@ void EnsureSharedNodeRegistration() {
   (void)&g_apptraverse_registrar_QueueSharedPacketEvent;
   (void)&g_apptraverse_registrar_CompleteSharedPacketEvent;
   (void)&g_apptraverse_registrar_RememberSharedInitialEvent;
+  (void)&g_apptraverse_registrar_InstallSharedAdmissionEvent;
+  (void)&g_apptraverse_registrar_ConfirmSharedAdmissionEvent;
   (void)&g_apptraverse_registrar_SharedNodeLocalState;
   (void)&g_apptraverse_registrar_AddSharedPeerStateEvent;
   (void)&g_apptraverse_registrar_NoteSharedLocalEventEvent;
+  (void)&g_apptraverse_registrar_RememberSharedLocalFrameEvent;
   (void)&g_apptraverse_registrar_SharedNode;
   (void)&g_apptraverse_registrar_AddSharedLinkEvent;
+}
+
+bool SharedAdmissionPlan::is_valid() const {
+  return join_event_id.is_valid() && snapshot_id.is_valid() &&
+         join_event_id != snapshot_id &&
+         !host_endpoint.empty() && !joining_endpoint.empty() &&
+         host_endpoint != joining_endpoint &&
+         std::find(covered_events.begin(), covered_events.end(), join_event_id) !=
+             covered_events.end() &&
+         std::all_of(covered_events.begin(), covered_events.end(),
+                     [](ae::ObjId id) { return id.is_valid(); });
 }
 
 void SharedPeerState::MarkDelivered(ae::ObjId event_id) {
@@ -81,6 +98,11 @@ bool SharedPeerState::CanApply(QueueSharedPacketEvent const& event) const {
   auto const& packet = event.packet;
   return packet.packet_id.is_valid() && !packet.bytes.empty() &&
          (packet.initial || packet.event_id.is_valid()) &&
+         !(packet.initial && packet.coverage_notice) &&
+         (!packet.coverage_notice ||
+          (packet.admission.is_valid() &&
+           packet.packet_id == packet.admission.snapshot_id &&
+           packet.event_id == packet.admission.join_event_id)) &&
          FindPending(packet.packet_id) == nullptr &&
          std::all_of(packet.covered_events.begin(), packet.covered_events.end(),
                      [](ae::ObjId id) { return id.is_valid(); });
@@ -107,15 +129,89 @@ void SharedPeerState::Apply(CompleteSharedPacketEvent const& event) {
   auto const pending = std::find_if(pending_packets.begin(), pending_packets.end(),
       [&](auto const& packet) { return packet.packet_id == event.packet_id; });
   assert(pending != pending_packets.end());
-  if (pending->initial) {
+  auto const completed = *pending;
+  pending_packets.erase(pending);
+  if (completed.initial) {
     initial_complete = true;
-    for (auto id : pending->covered_events) {
+    for (auto id : completed.covered_events) {
       AddDelivered(id);
     }
+    if (admission.is_valid() && admission.snapshot_id == completed.packet_id) {
+      coverage_confirmed = true;
+    }
+    RemoveCoveredPending(completed.covered_events);
+  } else if (completed.coverage_notice) {
+    if (!HasNoticeDelivered(completed.packet_id)) {
+      delivered_notices.push_back(completed.packet_id);
+    }
   } else {
-    AddDelivered(pending->event_id);
+    AddDelivered(completed.event_id);
   }
-  pending_packets.erase(pending);
+}
+
+void SharedPeerState::RemoveCoveredPending(
+    std::vector<ae::ObjId> const& covered_events) {
+  pending_packets.erase(std::remove_if(pending_packets.begin(),
+      pending_packets.end(), [&](auto const& packet) {
+        return !packet.initial && !packet.coverage_notice &&
+               std::find(covered_events.begin(), covered_events.end(),
+                         packet.event_id) != covered_events.end();
+      }), pending_packets.end());
+}
+
+bool SharedPeerState::HasNoticeDelivered(ae::ObjId packet_id) const {
+  return std::find(delivered_notices.begin(), delivered_notices.end(),
+                   packet_id) != delivered_notices.end();
+}
+
+bool SharedPeerState::IsCoveredByAdmission(ae::ObjId event_id) const {
+  return admission.is_valid() &&
+         std::find(admission.covered_events.begin(),
+                   admission.covered_events.end(), event_id) !=
+             admission.covered_events.end();
+}
+
+void SharedPeerState::InstallAdmission(SharedAdmissionPlan plan) {
+  if (admission == plan && admission.is_valid()) {
+    return;
+  }
+  auto event = InstallSharedAdmissionEvent::ptr::Create(ae::CreateWith{*domain});
+  event->plan = std::move(plan);
+  Commit(std::move(event));
+}
+
+bool SharedPeerState::CanApply(InstallSharedAdmissionEvent const& event) const {
+  return event.plan.is_valid() && link.is_valid() && link.is_loaded() &&
+         event.plan.joining_endpoint == link->endpoint_uid &&
+         !admission.is_valid();
+}
+
+void SharedPeerState::Apply(InstallSharedAdmissionEvent const& event) {
+  admission = event.plan;
+  // Installing expected coverage is not remote delivery confirmation.
+  coverage_confirmed = false;
+}
+
+void SharedPeerState::ConfirmAdmission(SharedAdmissionPlan plan) {
+  if (coverage_confirmed && admission == plan) {
+    return;
+  }
+  auto event = ConfirmSharedAdmissionEvent::ptr::Create(ae::CreateWith{*domain});
+  event->plan = std::move(plan);
+  Commit(std::move(event));
+}
+
+bool SharedPeerState::CanApply(ConfirmSharedAdmissionEvent const& event) const {
+  return event.plan.is_valid() && admission == event.plan &&
+         !coverage_confirmed;
+}
+
+void SharedPeerState::Apply(ConfirmSharedAdmissionEvent const& event) {
+  coverage_confirmed = true;
+  for (auto id : event.plan.covered_events) {
+    AddDelivered(id);
+  }
+  RemoveCoveredPending(event.plan.covered_events);
 }
 
 bool SharedPeerState::HasReceivedInitial(ae::ObjId packet_id) const {
@@ -200,6 +296,39 @@ void SharedNodeLocalState::Apply(NoteSharedLocalEventEvent const& event) {
       local_events.end()) {
     local_events.push_back(event.event_id);
   }
+}
+
+SharedPendingPacket const* SharedNodeLocalState::FindLocalFrame(
+    ae::ObjId event_id) const {
+  auto const found = std::find_if(local_frames.begin(), local_frames.end(),
+      [event_id](auto const& frame) { return frame.event_id == event_id; });
+  return found == local_frames.end() ? nullptr : &*found;
+}
+
+void SharedNodeLocalState::RememberLocalFrame(SharedPendingPacket frame) {
+  auto const* existing = FindLocalFrame(frame.event_id);
+  if (existing != nullptr && *existing == frame) {
+    return;
+  }
+  auto event = RememberSharedLocalFrameEvent::ptr::Create(ae::CreateWith{*domain});
+  event->frame = std::move(frame);
+  Commit(std::move(event));
+}
+
+bool SharedNodeLocalState::CanApply(
+    RememberSharedLocalFrameEvent const& event) const {
+  return event.frame.event_id.is_valid() && event.frame.packet_id.is_valid() &&
+         !event.frame.initial && !event.frame.coverage_notice &&
+         !event.frame.bytes.empty() &&
+         FindLocalFrame(event.frame.event_id) == nullptr;
+}
+
+void SharedNodeLocalState::Apply(RememberSharedLocalFrameEvent const& event) {
+  if (std::find(local_events.begin(), local_events.end(), event.frame.event_id) ==
+      local_events.end()) {
+    local_events.push_back(event.frame.event_id);
+  }
+  local_frames.push_back(event.frame);
 }
 
 void SharedNode::AddLink(SharedLinkDescriptor::ptr link) {

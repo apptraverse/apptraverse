@@ -23,17 +23,23 @@ add_executable(apptraverse_shared_graph_import_test shared_graph_import_test.cpp
 target_link_libraries(apptraverse_shared_graph_import_test PRIVATE apptraverse_shared_node)
 add_test(NAME apptraverse_shared_graph_import_test COMMAND apptraverse_shared_graph_import_test)
 
+add_executable(apptraverse_shared_three_peer_test shared_three_peer_test.cpp)
+target_link_libraries(apptraverse_shared_three_peer_test PRIVATE apptraverse_shared_node)
+add_test(NAME apptraverse_shared_three_peer_test COMMAND apptraverse_shared_three_peer_test)
+
 set_tests_properties(apptraverse_network_local_ptr_test
   apptraverse_memory_link_test apptraverse_shared_node_memory_test
   apptraverse_shared_sync_test apptraverse_shared_graph_import_test
+  apptraverse_shared_three_peer_test
   PROPERTIES LABELS "shared_node;headless" TIMEOUT 60)
 
 add_custom_target(apptraverse_shared_node_headless_check
   COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure -R
-    "^apptraverse_(network_local_ptr|memory_link|shared_node_memory|shared_sync|shared_graph_import|native_object_graph_serialization)_test$"
+    "^apptraverse_(network_local_ptr|memory_link|shared_node_memory|shared_sync|shared_graph_import|shared_three_peer|native_object_graph_serialization)_test$"
   DEPENDS apptraverse_network_local_ptr_test apptraverse_memory_link_test
     apptraverse_shared_node_memory_test apptraverse_shared_sync_test
     apptraverse_shared_graph_import_test
+    apptraverse_shared_three_peer_test
     apptraverse_native_object_graph_serialization_test
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
   VERBATIM)

@@ -15,13 +15,15 @@
 
 namespace apptraverse {
 
-enum class SharedSyncKind : std::uint8_t { InitialState = 1, Event = 2, Ack = 3 };
+enum class SharedSyncKind : std::uint8_t {
+  InitialState = 1, Event = 2, Ack = 3, CoverageReceipt = 4
+};
 
 // The entire message, including native object layers, uses BinaryArchive.
 // No opaque custom graph encoding is hidden inside the payload.
 struct SharedSyncMessage {
   std::uint16_t major{1};
-  std::uint16_t minor{0};
+  std::uint16_t minor{1};
   SharedSyncKind kind{SharedSyncKind::Event};
   SharedSyncKind acknowledged_kind{SharedSyncKind::Event};
   ae::ObjId node_id;
@@ -30,9 +32,10 @@ struct SharedSyncMessage {
   std::uint64_t timestamp_us{0};
   SharedGraphSnapshot graph;
   std::vector<ae::ObjId> covered_events;
+  SharedAdmissionPlan admission;
 
   AE_REFLECT_MEMBERS(major, minor, kind, acknowledged_kind, node_id, packet_id,
-                    event_id, timestamp_us, graph, covered_events)
+                    event_id, timestamp_us, graph, covered_events, admission)
 };
 
 bool SerializeSharedSyncMessage(SharedSyncMessage const& message,
@@ -63,9 +66,14 @@ class SharedSyncRuntime {
   void ExpectInitialState(ae::ObjId node_id, std::string source_endpoint,
                           std::uint32_t expected_class_id, AttachInitial attach);
 
-  // Both methods persist frozen outgoing packets but do not send them. Service
+  // These entry points persist frozen packets but do not send them. Service
   // drives actual transmission, enabling destruction after persist/before Send.
   bool QueueInitialState(ae::ObjId node_id, std::string const& destination);
+  // The application Join Event carries the participant's native graph. Its
+  // Apply must introduce joining_endpoint in node.links. Join, snapshot and
+  // delivery obligations are frozen/persisted before any transmission.
+  bool AdmitPeer(ae::ObjId node_id, Event::ptr join_event,
+                   std::string joining_endpoint, std::uint64_t timestamp_us = 0);
   bool CommitLocal(ae::ObjId node_id, Event::ptr event,
                     std::uint64_t timestamp_us = 0);
   void Service(std::uint64_t now_us);
@@ -83,12 +91,15 @@ class SharedSyncRuntime {
   SharedPeerState::ptr FindPeer(SharedNode const& node,
                                 std::string const& endpoint) const;
   bool PersistState();
-  bool QueueLocalEvents(SharedNode& node,
-                         SharedGraphSnapshot const* newly_frozen = nullptr);
+  bool QueueLocalEvents(SharedNode& node);
+  bool QueueCoverageReceipts(SharedNode& node, SharedAdmissionPlan const& plan);
+  void ReconcilePeers(SharedNode& node);
+  bool InstallAdmission(SharedNode& node, SharedAdmissionPlan const& plan);
   void OnBytes(std::string const& source, std::vector<std::uint8_t> const& bytes);
   bool OnInitial(std::string const& source, SharedSyncMessage const& message);
   bool OnEvent(std::string const& source, SharedSyncMessage const& message);
   bool OnAck(std::string const& source, SharedSyncMessage const& message);
+  bool OnCoverage(std::string const& source, SharedSyncMessage const& message);
   void SendAck(std::string const& destination, SharedSyncMessage const& original);
 
   ae::Domain& domain_;
