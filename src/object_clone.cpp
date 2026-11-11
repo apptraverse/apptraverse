@@ -5,7 +5,6 @@
 #include <cstdio>
 #include <deque>
 #include <set>
-#include <source_location>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -70,12 +69,7 @@ bool ObjectIdOccupiedInDomain(ae::Domain& domain, ae::ObjId id) {
   return false;
 }
 
-CloneCanonicalResult Fail(CloneError error,
-                          std::source_location location = std::source_location::current()) {
-  if (std::getenv("APPTRAVERSE_CLONE_FAIL_TRACE") != nullptr) {
-    std::fprintf(stderr, "CloneCanonicalRoot error=%d line=%u\n",
-                 static_cast<int>(error), location.line());
-  }
+CloneCanonicalResult Fail(CloneError error) {
   return CloneCanonicalResult{{}, error};
 }
 

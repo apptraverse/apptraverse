@@ -9,6 +9,9 @@ by this audit. Guidance and documentation were updated.
 
 ## Open findings
 
+Status update after the audit: C1 was resolved by the runtime-tracing removal
+iteration below. C2–C4 remain open; the original evidence is retained here.
+
 ### C1 — P2: optional runtime clone tracing remains
 
 `src/object_clone.cpp:73–80` checks `APPTRAVERSE_CLONE_FAIL_TRACE` with `getenv`
@@ -133,3 +136,36 @@ No new MinSizeRel build/run, native UI acceptance, latency benchmark, standalone
 Æther test suite, other-platform build/device or external Google Doc edit was
 performed during this audit. Æther's own tests are disabled by the AppTraverse
 dependency configuration; upstream publication still needs their separate run.
+
+## Follow-up: remove permanent runtime tracing — 2026-11-10
+
+Starting revision: `d0739d1`. Removed the optional Clone environment switch and
+source-location plumbing (C1), the unused initial-publication diagnostic stages,
+fields and formatter, and the old Surfaces shutdown tracing subsystem. The
+trace-only instrumented storage wrapper and timing/statistics snapshots were
+removed with it. Required fatal messages, error return values, accepted-work
+draining, shutdown Save and failure exit codes are preserved. The UI-session
+test checks observable rejection/no presenter activation rather than an internal
+diagnostic stage. Cross-platform edits only remove references to the deleted
+source or adapt the Android probe to the simplified common signature.
+
+Incremental Windows Debug (`AE_NO_DEBUG_LOG=ON`) active application/test build:
+PASS. Focused CTest: **16/16 PASS**, **108.50 s**, including Clone/history,
+publication/model runtime, headless applications, USER persistence, unload
+round-trips, both Windows application acceptance tests and native fatal handling.
+Logs: `.artifacts/remove-runtime-trace-active-build.log` and
+`.artifacts/remove-runtime-trace-tests.log`. No MinSizeRel or other-platform
+build/run and no fresh latency benchmark was performed.
+
+An additional attempt to link the old `win32_surfaces_demo` failed on missing
+`EnsureSurfacesDemoWin32Registration` and `AttachSurfacesDemoWin32SurfacePresenters`.
+Their implementation files were already excluded from that target's dependency
+sources at the starting revision; this change does not alter those registrations.
+The touched old host/lifecycle source files compiled, but the legacy executable
+is not build-verified. Log: `.artifacts/remove-runtime-trace-build.log`.
+
+The follow-up source audit also found that `APPTRAVERSE_BUILD_LEGACY_EXAMPLES=OFF`
+does not exclude the old Surface Windows executables and separate exporter from
+default `all`, including MinSizeRel. This is a build-scope issue, not evidence of
+those objects being linked into Catalog/MinimalApp. Gating those historical
+targets remains separate work, as do C2–C4.

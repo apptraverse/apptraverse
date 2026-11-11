@@ -1,7 +1,5 @@
 #include "surfaces_lifecycle.h"
 
-#include "surfaces_shutdown_trace.h"
-
 #ifdef APPTRAVERSE_ENABLE_DISTILLATION
 #include <filesystem>
 
@@ -108,14 +106,7 @@ void SurfacesModelSession::Run(
 
   {
     DirectoryDomainStorage durable_storage{state_dir};
-    std::optional<InstrumentedDomainStorage> instrumented_storage;
-    ae::IDomainStorage* storage = &durable_storage;
-    if (SurfacesShutdownTrace::Enabled()) {
-      instrumented_storage.emplace(durable_storage, durable_storage.root(),
-                                   &durable_storage);
-      storage = &*instrumented_storage;
-    }
-    ae::Domain domain{*storage};
+    ae::Domain domain{durable_storage};
     auto application = LoadApplication<Application>(
         domain, ae::ObjId{surfaces_demo::ToObjId(
                     surfaces_demo::ObjId::Application)});
@@ -154,7 +145,6 @@ void SurfacesModelSession::Run(
         });
         if (stop) {
           if (pending_work.empty()) {
-            SurfacesShutdownTrace::MarkModelDrainedAcceptedTasks();
             break;
           }
           work = std::move(pending_work.front());
@@ -250,34 +240,13 @@ void SurfacesModelSession::Run(
     }
 
     ClearLiveReachableNodesMaterializedChangeNotifier(*application);
-    SurfacesShutdownTrace::MarkClearLiveNotifiersDone();
 
     durable_storage.BeginSaveSession();
-    SurfacesShutdownTrace::MarkApplicationSaveStart();
     application.Save();
-    SurfacesShutdownTrace::MarkApplicationSaveEnd();
-    DirectoryDomainStorageStoreStats const store_stats =
-        durable_storage.SnapshotSaveSessionStats();
     if (durable_storage.SaveSessionHadFailure()) {
       shutdown_exit_code = 1;
     }
-    SurfacesShutdownTrace::LogStorageStoreStats(
-        store_stats.layer_store_calls, store_stats.layers_bytes_accepted,
-        store_stats.layers_written, store_stats.layers_skipped_unchanged,
-        store_stats.layers_written_bytes, store_stats.layers_failed_commits);
-    if (instrumented_storage) {
-      InstrumentedDomainStorageStats const save_stats =
-          instrumented_storage->SnapshotStats();
-      SurfacesShutdownTrace::LogInstrumentedSaveStats(
-          save_stats.store_calls, save_stats.store_bytes_accepted,
-          save_stats.store_disk_bytes_written, save_stats.store_new_layers,
-          save_stats.store_overwrite_layers,
-          save_stats.store_skipped_unchanged_layers,
-          save_stats.store_failed_commits);
-    }
-    SurfacesShutdownTrace::MarkApplicationGraphTeardownStart();
   }
-  SurfacesShutdownTrace::MarkModelDomainDestroyed();
 }
 
 }  // namespace apptraverse

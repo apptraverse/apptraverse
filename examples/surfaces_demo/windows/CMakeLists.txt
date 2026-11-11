@@ -2,7 +2,6 @@ set(_surfaces_win_sources
   main.cpp
   win_app.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/../common/surfaces_lifecycle.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/../common/surfaces_shutdown_trace.cpp
 )
 
 function(apptraverse_add_surfaces_demo_executable target distill_lib evolution_lib windows_lib)

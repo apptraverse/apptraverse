@@ -405,11 +405,9 @@ void CheckInitialPublicationRefusedBeforePresenters(
   ByteSource in;
   in.data = bytes.data();
   in.size = bytes.size();
-  InitialPublicationLoadDiagnostics diagnostics;
   ae::Ptr<ae::Obj> root =
-      TryLoadInitialPublication(in, ui_domain, ui_storage, &diagnostics);
+      TryLoadInitialPublication(in, ui_domain, ui_storage);
   CHECK(!root);
-  CHECK(diagnostics.stage == InitialPublicationLoadStage::LoadRoot);
   CHECK(!ui_domain.Find(kRootId));
   CHECK(g_session_presenter_load_total == 0);
 }

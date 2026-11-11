@@ -1,6 +1,5 @@
 #include "win_app.h"
 
-#include "surfaces_shutdown_trace.h"
 
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/surfaces/surfaces_win32_messages.h"
@@ -264,13 +263,11 @@ void WinApp::RunNextSessionAutomationStep() {
 }
 
 void WinApp::RequestApplicationStop() {
-  SurfacesShutdownTrace::MarkCloseRequested();
   if (ui_application_) {
     QueueAllWindowBounds();
     QueueDesktopZOrderSnapshot();
     QueueForegroundAsCurrent();
   }
-  SurfacesShutdownTrace::MarkCloseUiStateQueued();
   session_.RequestStop();
 }
 
@@ -422,7 +419,6 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
         FatalWin32("PostMessageW publication", err);
       }
     });
-    SurfacesShutdownTrace::MarkDoneEventSet();
     if (SetEvent(done_event) == 0) {
       DWORD const err = GetLastError();
       FatalWin32("SetEvent done_event", err);
@@ -455,8 +451,6 @@ int WinApp::Run(std::filesystem::path const& state_dir) {
 
   model_thread_.join();
   UnloadPresenters(*ui_application_);
-  SurfacesShutdownTrace::MarkUnloadPresentersDone();
-  SurfacesShutdownTrace::MarkWindowsGone();
   ui_application_ = {};
   ui_domain_.reset();
   if (model_proxy_) {

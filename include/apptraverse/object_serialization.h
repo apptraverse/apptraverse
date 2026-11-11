@@ -74,49 +74,11 @@ bool InitialPublicationPayloadContainsObject(
     std::vector<std::uint8_t> const& initial_publication_bytes,
     ae::ObjId object_id);
 
-enum class InitialPublicationLoadStage : std::uint8_t {
-  Ok = 0,
-  ReadRootId,
-  ReadEnvelope,
-  ReadGraphPayload,
-  ReadLayerCount,
-  ReadLayerHeader,
-  ReadLayerPayload,
-  InjectLayerBytes,
-  LoadRoot,
-  ReadGenerationCount,
-  ReadGenerationEntry,
-};
-
-struct InitialPublicationLoadDiagnostics {
-  InitialPublicationLoadStage stage{InitialPublicationLoadStage::Ok};
-  std::uint32_t root_id{0};
-  std::uint32_t obj_id{0};
-  std::uint32_t class_id{0};
-  std::uint8_t version{0};
-  std::uint32_t offset{0};
-  std::uint32_t size{0};
-  std::uint32_t layer_index{0};
-  std::uint32_t layer_count{0};
-  // Populated for root load failures.
-  std::uint32_t object_class_id{0};
-  std::uint32_t factory_class_id{0};
-  int load_error_code{0};
-  char storage_layers[192]{};
-};
-
-void FormatInitialPublicationLoadDiagnostics(InitialPublicationLoadDiagnostics const& diagnostics,
-                                             char* buffer, std::size_t buffer_size);
-
-bool LoadExistingObject(ae::Obj& object, ae::Domain& domain,
-                        ae::IDomainStorage* storage_for_diag = nullptr,
-                        InitialPublicationLoadDiagnostics* diagnostics = nullptr);
+bool LoadExistingObject(ae::Obj& object, ae::Domain& domain);
 
 // Returns null when the buffer cannot build a UI mirror root (no assert).
 ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
-                                          ae::IDomainStorage& ui_storage,
-                                          InitialPublicationLoadDiagnostics* diagnostics_out =
-                                              nullptr);
+                                          ae::IDomainStorage& ui_storage);
 // Required application boundary: either a complete mirror root or termination.
 ae::Ptr<ae::Obj> LoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
                                         ae::IDomainStorage& ui_storage);

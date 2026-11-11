@@ -2976,3 +2976,21 @@ repair in the headless mobile-close prefab, unknown ancestor-class factory
 rejection (source-confirmed risk without a runtime repro), and stale CI.
 Passing existing tests does not cover the two missing boundary fixtures.
 [Detailed findings, evidence, checklist and limitations](../validation/canon-conformance-2026-11-10.md).
+
+## Remove permanent runtime tracing — 2026-11-10
+
+Based on `d0739d1`, removed the Clone trace environment switch/source-location
+plumbing, initial-publication diagnostic stages/fields/formatter and the old
+Surfaces shutdown tracing implementation, markers and trace-only storage wrapper.
+Error results, required fatal messages and shutdown Save behavior are unchanged.
+UI-session tests retain observable load rejection/no activation assertions.
+References to the removed source and the Android probe signature were adjusted
+mechanically; no other-platform acceptance is claimed.
+
+Incremental Windows Debug (`AE_NO_DEBUG_LOG=ON`) active targets: build PASS;
+focused tests **16/16 PASS**, **108.50 s**, including both Windows application
+acceptance tests. No MinSizeRel or timing benchmark. An extra legacy Surfaces
+link attempt exposed existing missing registration/presenter implementation
+dependencies; its compile passed but executable link did not. No unrelated
+registration/CI/domain/prefab fixes were made.
+See [follow-up evidence and remaining findings](../validation/canon-conformance-2026-11-10.md#follow-up-remove-permanent-runtime-tracing--2026-11-10).

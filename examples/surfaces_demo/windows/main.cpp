@@ -16,7 +16,6 @@
 #include "win_app.h"
 #include "surfaces_evolution_ops.h"
 #include "surfaces_session_automation.h"
-#include "surfaces_shutdown_trace.h"
 #include "apptraverse/platform/windows/surfaces_win_registration.h"
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "apptraverse/surfaces/surfaces_registration.h"
@@ -59,10 +58,8 @@ int main(int argc, char** argv) {
     }
   }
 
-  if (!apptraverse::SurfacesShutdownTrace::Enabled()) {
-    // GUI host: no debug console even when launched from a terminal/parent.
-    FreeConsole();
-  }
+  // GUI host: no debug console even when launched from a terminal/parent.
+  FreeConsole();
   apptraverse::EnableNoninteractiveCrt();
   apptraverse::EnsureObjectRegistration();
   apptraverse::EnsureSurfacesRegistration();
@@ -76,7 +73,5 @@ int main(int argc, char** argv) {
         apptraverse::ParseSurfacesSessionAutomation(session_automation));
   }
   int const code = app.Run(state_dir);
-  apptraverse::SurfacesShutdownTrace::MarkProcessExit();
-  apptraverse::SurfacesShutdownTrace::FlushSummary();
   return code;
 }

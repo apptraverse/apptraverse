@@ -91,15 +91,12 @@ AndroidInitialPublicationLabelProbeResult RunAndroidInitialPublicationLabelProbe
   ByteSource in;
   in.data = initial.bytes.data();
   in.size = initial.bytes.size();
-  InitialPublicationLoadDiagnostics diagnostics;
   ae::Ptr<ae::Obj> ui_root =
-      TryLoadInitialPublication(in, ui_domain, ui_storage, &diagnostics);
+      TryLoadInitialPublication(in, ui_domain, ui_storage);
 
   if (!ui_root) {
     SetStage(result, "load_initial_publication");
-    char message[512];
-    FormatInitialPublicationLoadDiagnostics(diagnostics, message, sizeof(message));
-    SetDetail(result, message);
+    SetDetail(result, "initial publication load failed");
     return result;
   }
 

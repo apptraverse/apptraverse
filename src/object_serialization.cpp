@@ -184,28 +184,6 @@ void RemoveDistilledBaseObjects(std::vector<ae::Obj*>& objects) {
       objects.end());
 }
 
-void RecordStorageLayers(ae::IDomainStorage& storage, ae::ObjId id,
-                         InitialPublicationLoadDiagnostics* diagnostics) {
-  if (diagnostics == nullptr) {
-    return;
-  }
-  ae::ClassList const classes = storage.Enumerate(id);
-  std::size_t pos = 0;
-  for (std::size_t i = 0; i < classes.size() && pos + 12 < sizeof(diagnostics->storage_layers);
-       ++i) {
-    if (i > 0) {
-      diagnostics->storage_layers[pos++] = ',';
-    }
-    int const written = std::snprintf(
-        diagnostics->storage_layers + pos,
-        sizeof(diagnostics->storage_layers) - pos, "%u", classes[i]);
-    if (written <= 0) {
-      break;
-    }
-    pos += static_cast<std::size_t>(written);
-  }
-}
-
 std::unordered_set<std::uint32_t> CollectDistilledBaseObjectIds(
     ae::Obj const& root, ae::RamDomainStorage::ObjClassData const& scratch_state) {
   std::unordered_set<std::uint32_t> distilled_base_ids;
@@ -275,10 +253,8 @@ bool LoadGraphPublicationPayload(ByteSource& in, GraphPublicationPayload& payloa
 
 bool InjectGraphPublicationLayers(
     GraphPublicationPayload const& payload, ae::IDomainStorage& storage,
-    std::vector<std::uint32_t>& unique_obj_ids,
-    InitialPublicationLoadDiagnostics* diagnostics) {
+    std::vector<std::uint32_t>& unique_obj_ids) {
   unique_obj_ids.clear();
-  std::uint32_t layer_index = 0;
   for (auto const& [obj_id, class_map_opt] : payload.layers) {
     if (!class_map_opt) {
       continue;
@@ -287,17 +263,8 @@ bool InjectGraphPublicationLayers(
       for (auto const& [version, data] : versions) {
         if (!InjectObjectBytes(storage, {obj_id, class_id, version},
                                data.data(), data.size())) {
-          if (diagnostics) {
-            diagnostics->stage = InitialPublicationLoadStage::InjectLayerBytes;
-            diagnostics->layer_index = layer_index;
-            diagnostics->obj_id = obj_id.id();
-            diagnostics->class_id = class_id;
-            diagnostics->version = version;
-            diagnostics->size = static_cast<std::uint32_t>(data.size());
-          }
           return false;
         }
-        ++layer_index;
         auto const oid = obj_id.id();
         if (std::find(unique_obj_ids.begin(), unique_obj_ids.end(), oid) ==
             unique_obj_ids.end()) {
@@ -305,9 +272,6 @@ bool InjectGraphPublicationLayers(
         }
       }
     }
-  }
-  if (diagnostics) {
-    diagnostics->layer_count = layer_index;
   }
   return true;
 }
@@ -327,19 +291,18 @@ bool ApplyGraphPublicationPayloadToUiDomain(
     GraphPublicationPayload const& payload, ae::Obj& existing_root,
     ae::Domain& domain, ae::IDomainStorage& domain_storage) {
   std::vector<std::uint32_t> object_ids;
-  if (!InjectGraphPublicationLayers(payload, domain_storage, object_ids,
-                                    nullptr)) {
+  if (!InjectGraphPublicationLayers(payload, domain_storage, object_ids)) {
     return false;
   }
   // Re-read the injected layers into the live mirror instances. Refs to live
   // objects resolve to the same instances; objects new to the mirror are
   // built by those refs. Objects the mirror has not loaded stay lazy.
-  if (!LoadExistingObject(existing_root, domain, nullptr, nullptr)) {
+  if (!LoadExistingObject(existing_root, domain)) {
     return false;
   }
   for (std::uint32_t const id : object_ids) {
     if (auto object = domain.Find(ae::ObjId{id}); object) {
-      if (!LoadExistingObject(*object, domain, nullptr, nullptr)) {
+      if (!LoadExistingObject(*object, domain)) {
         return false;
       }
     }
@@ -350,49 +313,25 @@ bool ApplyGraphPublicationPayloadToUiDomain(
 
 }  // namespace
 
-bool LoadExistingObject(ae::Obj& object, ae::Domain& domain,
-                        ae::IDomainStorage* storage_for_diag,
-                        InitialPublicationLoadDiagnostics* diagnostics) {
+bool LoadExistingObject(ae::Obj& object, ae::Domain& domain) {
   ae::DomainGraph graph{&domain};
   auto ptr = domain.Find(object.obj_id);
   if (!ptr) {
-    if (diagnostics) {
-      diagnostics->object_class_id = object.GetClassId();
-    }
     return false;
   }
   auto* factory = ae::Registry::GetRegistry().FindFactory(object.GetClassId());
   if (factory == nullptr || factory->load == nullptr) {
-    if (diagnostics) {
-      diagnostics->object_class_id = object.GetClassId();
-      diagnostics->factory_class_id = 0;
-      if (storage_for_diag) {
-        RecordStorageLayers(*storage_for_diag, object.obj_id, diagnostics);
-      }
-    }
     return false;
   }
   auto const load_result = factory->load(&graph, ptr, object.obj_id);
   if (load_result && load_result->IsErr()) {
-    if (diagnostics) {
-      diagnostics->object_class_id = object.GetClassId();
-#ifndef NDEBUG
-      diagnostics->factory_class_id = factory->cls_id;
-#else
-      diagnostics->factory_class_id = object.GetClassId();
-#endif
-      diagnostics->load_error_code = load_result->error().error_code;
-      if (storage_for_diag) {
-        RecordStorageLayers(*storage_for_diag, object.obj_id, diagnostics);
-      }
-    }
     return false;
   }
   return true;
 }
 
 void LoadExistingObjectOrAbort(ae::Obj& object, ae::Domain& domain) {
-  if (!LoadExistingObject(object, domain, nullptr, nullptr)) {
+  if (!LoadExistingObject(object, domain)) {
     WriteFatalStderr("fatal: single-object load failed\n");
     std::abort();
   }
@@ -998,65 +937,10 @@ void SerializeInitialPublication(ae::Obj const& root, ByteSink& out) {
   }
 }
 
-void FormatInitialPublicationLoadDiagnostics(InitialPublicationLoadDiagnostics const& diagnostics,
-                                             char* buffer, std::size_t buffer_size) {
-  char const* stage = "unknown";
-  switch (diagnostics.stage) {
-    case InitialPublicationLoadStage::Ok:
-      stage = "ok";
-      break;
-    case InitialPublicationLoadStage::ReadRootId:
-      stage = "read_root_id";
-      break;
-    case InitialPublicationLoadStage::ReadEnvelope:
-      stage = "read_envelope";
-      break;
-    case InitialPublicationLoadStage::ReadGraphPayload:
-      stage = "read_graph_payload";
-      break;
-    case InitialPublicationLoadStage::ReadLayerCount:
-      stage = "read_layer_count";
-      break;
-    case InitialPublicationLoadStage::ReadLayerHeader:
-      stage = "read_layer_header";
-      break;
-    case InitialPublicationLoadStage::ReadLayerPayload:
-      stage = "read_layer_payload";
-      break;
-    case InitialPublicationLoadStage::InjectLayerBytes:
-      stage = "inject_layer_bytes";
-      break;
-    case InitialPublicationLoadStage::LoadRoot:
-      stage = "load_root";
-      break;
-    case InitialPublicationLoadStage::ReadGenerationCount:
-      stage = "read_generation_count";
-      break;
-    case InitialPublicationLoadStage::ReadGenerationEntry:
-      stage = "read_generation_entry";
-      break;
-  }
-  std::snprintf(
-      buffer, buffer_size,
-      "InitialPublicationLoad failed stage=%s root_id=%u obj_id=%u class_id=%u version=%u "
-      "offset=%u size=%u layer_index=%u layer_count=%u object_class_id=%u "
-      "factory_class_id=%u load_error_code=%d storage_layers=%s\n",
-      stage, diagnostics.root_id, diagnostics.obj_id, diagnostics.class_id,
-      static_cast<unsigned>(diagnostics.version), diagnostics.offset, diagnostics.size,
-      diagnostics.layer_index, diagnostics.layer_count, diagnostics.object_class_id,
-      diagnostics.factory_class_id, diagnostics.load_error_code,
-      diagnostics.storage_layers[0] != '\0' ? diagnostics.storage_layers : "(none)");
-}
-
 ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
-                                          ae::IDomainStorage& ui_storage,
-                                          InitialPublicationLoadDiagnostics* diagnostics_out) {
-  InitialPublicationLoadDiagnostics* diagnostics = diagnostics_out;
-  if (diagnostics) { *diagnostics = {}; }
+                                          ae::IDomainStorage& ui_storage) {
 
   if (in.pos > in.size) {
-    if (diagnostics) { diagnostics->stage = InitialPublicationLoadStage::ReadEnvelope; }
-    if (diagnostics) { diagnostics->offset = static_cast<std::uint32_t>(in.pos); }
     return {};
   }
   std::vector<std::uint8_t> const envelope_bytes(in.data + in.pos,
@@ -1066,14 +950,11 @@ ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain
   ae::seri::BinaryArchive archive{std::move(buffer)};
   InitialPublicationEnvelope envelope{};
   if (archive.Load(envelope).IsErr()) {
-    if (diagnostics) { diagnostics->stage = InitialPublicationLoadStage::ReadEnvelope; }
-    if (diagnostics) { diagnostics->offset = static_cast<std::uint32_t>(in.pos); }
     return {};
   }
   in.pos = in.size;
 
   std::uint32_t const root_id = envelope.root_id;
-  if (diagnostics) { diagnostics->root_id = root_id; }
 
   ByteSource graph;
   graph.data = envelope.graph_bytes.data();
@@ -1082,14 +963,11 @@ ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain
 
   GraphPublicationPayload payload;
   if (!LoadGraphPublicationPayload(graph, payload)) {
-    if (diagnostics) { diagnostics->stage = InitialPublicationLoadStage::ReadGraphPayload; }
-    if (diagnostics) { diagnostics->offset = 0; }
     return {};
   }
 
   std::vector<std::uint32_t> unique_obj_ids;
-  if (!InjectGraphPublicationLayers(payload, ui_storage, unique_obj_ids,
-                                    diagnostics)) {
+  if (!InjectGraphPublicationLayers(payload, ui_storage, unique_obj_ids)) {
     return {};
   }
 
@@ -1099,15 +977,11 @@ ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain
   ae::Ptr<ae::Obj> ui_root;
   auto const load_result = load_graph.LoadRoot(ae::ObjId{root_id}, ui_root);
   if (load_result.IsErr()) {
-    if (diagnostics) { diagnostics->stage = InitialPublicationLoadStage::LoadRoot; }
-    if (diagnostics) { diagnostics->load_error_code = load_result.error().error_code; }
-    RecordStorageLayers(ui_storage, ae::ObjId{root_id}, diagnostics);
     return {};
   }
 
   ApplyGraphPublicationNodeGenerations(payload, ui_domain);
 
-  if (diagnostics) { diagnostics->stage = InitialPublicationLoadStage::Ok; }
   return ui_root;
 }
 
