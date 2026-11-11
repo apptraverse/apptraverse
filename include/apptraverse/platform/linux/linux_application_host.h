@@ -16,10 +16,10 @@
 typedef int gboolean;
 typedef void* gpointer;
 
-gboolean LinuxApplicationHostPublicationIdle(gpointer data);
-
 namespace apptraverse {
 namespace linux {
+
+gboolean LinuxApplicationHostPublicationIdle(gpointer data);
 
 struct LinuxApplicationHostCallbacks {
   using RunModel = std::function<void(ApplicationPublishedCallback)>;
@@ -32,6 +32,7 @@ struct LinuxApplicationHostCallbacks {
   TakePublishedSidecarCallback take_incremental_sidecar;
   std::function<void(ae::Obj& application_root)> after_incremental;
   std::function<void(ae::Obj& application_root)> after_initial;
+  UiPresentersPrepareHook prepare_ui_presenters;
 };
 
 class LinuxApplicationHost {

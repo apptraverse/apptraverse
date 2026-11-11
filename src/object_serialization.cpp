@@ -39,7 +39,9 @@ struct StructuralPublicationEnvelope {
   std::uint64_t generation{};
   std::vector<std::uint8_t> graph_bytes;
   std::uint8_t sidecar{};
-  AE_REFLECT_MEMBERS(object_id, generation, graph_bytes, sidecar)
+  std::vector<std::uint32_t> desktop_frame_requests;
+  AE_REFLECT_MEMBERS(object_id, generation, graph_bytes, sidecar,
+                    desktop_frame_requests)
 };
 
 struct InitialPublicationEnvelope {
@@ -97,8 +99,10 @@ ui::UiDesktopWindow* AsUiDesktopWindow(ae::Obj* obj) {
   return AsObjOf<ui::UiDesktopWindow>(obj);
 }
 
-void ApplyUiDesktopFrameRequestPresentation(ae::Obj& gui_root,
-                                           ae::ObjId window_id) {
+void ApplyUiDesktopFrameRequestPresentation(
+    ae::Obj& gui_root, std::vector<std::uint32_t> const& window_ids) {
+  std::unordered_set<std::uint32_t> const requested(window_ids.begin(),
+                                                  window_ids.end());
   std::vector<ae::Obj*> objects;
   CollectLiveReachableObjects(gui_root, objects);
   auto& registry = ae::Registry::GetRegistry();
@@ -113,12 +117,16 @@ void ApplyUiDesktopFrameRequestPresentation(ae::Obj& gui_root,
     }
     auto* desktop_presenter =
         static_cast<ui::UiDesktopWindowPresenter*>(presenter);
+    // New presenters have no native window yet; their OnLoad uses the
+    // published explicit frame. Only existing native windows need a request.
+    if (!desktop_presenter->presentation_loaded) {
+      continue;
+    }
     auto const window = desktop_presenter->desktop_window();
-    if (!window.is_valid() || window->obj_id != window_id) {
+    if (requested.count(window->obj_id.id()) == 0) {
       continue;
     }
     desktop_presenter->ApplyRequestedFrameFromMirror();
-    return;
   }
 }
 
@@ -206,7 +214,8 @@ std::unordered_set<std::uint32_t> CollectDistilledBaseObjectIds(
 
 GraphPublicationPayload BuildGraphPublicationPayload(
     ae::Obj const& root, ae::RamDomainStorage const& scratch,
-    std::unordered_set<std::uint32_t> const& distilled_base_ids) {
+    std::unordered_set<std::uint32_t> const& distilled_base_ids,
+    std::vector<std::uint32_t>* desktop_frame_requests) {
   GraphPublicationPayload payload;
   for (auto const& [obj_id, class_map_opt] : scratch.state) {
     if (!class_map_opt) {
@@ -226,6 +235,14 @@ GraphPublicationPayload BuildGraphPublicationPayload(
     }
     payload.generations.push_back(
         GraphPublicationNodeGeneration{obj_id.id(), node->Generation()});
+    // Use the existing materialized graph save to collect every window once,
+    // including windows nested under an application publication root.
+    if (desktop_frame_requests != nullptr) {
+      auto* desktop = AsUiDesktopWindow(node);
+      if (desktop != nullptr && desktop->TakeFrameRequestPendingPublication()) {
+        desktop_frame_requests->push_back(obj_id.id());
+      }
+    }
   }
   return payload;
 }
@@ -235,6 +252,23 @@ bool SaveGraphPublicationPayload(GraphPublicationPayload const& payload,
   ae::seri::BinaryVectorBuffer buffer{out.bytes};
   ae::seri::BinaryArchive archive{std::move(buffer)};
   return archive.Save(payload).IsOk();
+}
+
+void SerializeObjectGraphToBufferImpl(
+    ae::Obj const& root, ByteSink& out,
+    std::vector<std::uint32_t>* desktop_frame_requests) {
+  ae::RamDomainStorage scratch;
+  SaveObjectGraphToScratch(
+      root, scratch, ae::GraphSerializationScope::MaterializedPublication);
+  auto const distilled_base_ids =
+      CollectDistilledBaseObjectIds(root, scratch.state);
+  GraphPublicationPayload const payload =
+      BuildGraphPublicationPayload(root, scratch, distilled_base_ids,
+                                   desktop_frame_requests);
+  if (!SaveGraphPublicationPayload(payload, out)) {
+    WriteFatalStderr("fatal: graph publication payload save failed\n");
+    std::abort();
+  }
 }
 
 bool LoadGraphPublicationPayload(ByteSource& in, GraphPublicationPayload& payload) {
@@ -553,17 +587,7 @@ void RestoreReachableNodeHistory(std::vector<SavedNodeBookkeeping>& saved) {
 }
 
 void SerializeObjectGraphToBuffer(ae::Obj const& root, ByteSink& out) {
-  ae::RamDomainStorage scratch;
-  SaveObjectGraphToScratch(
-      root, scratch, ae::GraphSerializationScope::MaterializedPublication);
-  auto const distilled_base_ids =
-      CollectDistilledBaseObjectIds(root, scratch.state);
-  GraphPublicationPayload const payload =
-      BuildGraphPublicationPayload(root, scratch, distilled_base_ids);
-  if (!SaveGraphPublicationPayload(payload, out)) {
-    WriteFatalStderr("fatal: graph publication payload save failed\n");
-    std::abort();
-  }
+  SerializeObjectGraphToBufferImpl(root, out, nullptr);
 }
 
 void CollectMaterializedReachableObjects(ae::Obj& root,
@@ -680,14 +704,16 @@ void SerializeStructuralNodePublication(Node const& node, ByteSink& out) {
   envelope.object_id = node.obj_id.id();
   envelope.generation = node.Generation();
   ByteSink graph;
-  SerializeObjectGraphToBuffer(node, graph);
+  SerializeObjectGraphToBufferImpl(node, graph,
+                                   &envelope.desktop_frame_requests);
   envelope.graph_bytes = std::move(graph.bytes);
+  // Preserve the root-window sidecar API for low-level callers. Presentation
+  // uses the complete id list, regardless of the structural envelope root.
   envelope.sidecar = kStructuralPublicationSidecarNone;
-  if (ui::UiDesktopWindow* desktop =
-          AsUiDesktopWindow(const_cast<Node*>(&node))) {
-    if (desktop->TakeFrameRequestPendingPublication()) {
-      envelope.sidecar = kStructuralPublicationSidecarUiDesktopFrameRequest;
-    }
+  if (std::find(envelope.desktop_frame_requests.begin(),
+                envelope.desktop_frame_requests.end(), envelope.object_id) !=
+      envelope.desktop_frame_requests.end()) {
+    envelope.sidecar = kStructuralPublicationSidecarUiDesktopFrameRequest;
   }
   out.bytes.clear();
   ae::seri::BinaryVectorBuffer buffer{out.bytes};
@@ -701,7 +727,9 @@ void SerializeStructuralNodePublication(Node const& node, ByteSink& out) {
 
 ae::Obj& ApplyStructuralPublication(ByteSource& in, ae::Domain& domain,
                                     ae::IDomainStorage& storage,
-                                    std::uint8_t* sidecar_out) {
+                                    std::uint8_t* sidecar_out,
+                                    std::vector<std::uint32_t>*
+                                        desktop_frame_requests_out) {
   if (in.pos > in.size) {
     WriteFatalStderr("fatal: structural publication envelope truncated\n");
     std::abort();
@@ -728,6 +756,9 @@ ae::Obj& ApplyStructuralPublication(ByteSource& in, ae::Domain& domain,
   FinalizeUiNodeState(*object, envelope.generation);
   if (sidecar_out != nullptr) {
     *sidecar_out = envelope.sidecar;
+  }
+  if (desktop_frame_requests_out != nullptr) {
+    *desktop_frame_requests_out = std::move(envelope.desktop_frame_requests);
   }
   return *object;
 }
@@ -1178,11 +1209,11 @@ ae::Obj& ApplyStructuralPublicationAndUpdatePresenters(
     UiPresentersPrepareHook prepare_presenters) {
   StructuralPresentationKeepalive keepalive =
       CaptureStructuralPresentationKeepalive(gui_root);
-  std::uint8_t sidecar = kStructuralPublicationSidecarNone;
-  ae::Obj& changed =
-      ApplyStructuralPublication(in, domain, storage, &sidecar);
-  if (sidecar == kStructuralPublicationSidecarUiDesktopFrameRequest) {
-    ApplyUiDesktopFrameRequestPresentation(gui_root, changed.obj_id);
+  std::vector<std::uint32_t> desktop_frame_requests;
+  ae::Obj& changed = ApplyStructuralPublication(
+      in, domain, storage, nullptr, &desktop_frame_requests);
+  if (!desktop_frame_requests.empty()) {
+    ApplyUiDesktopFrameRequestPresentation(gui_root, desktop_frame_requests);
   }
   UpdatePresentersAfterStructuralPublication(
       gui_root, keepalive.active_presenters, host, model_proxy,

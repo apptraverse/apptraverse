@@ -1483,6 +1483,9 @@ endfunction()
 apptraverse_add_test(apptraverse_application_contract_headless_test
   application_contract_headless_test.cpp)
 
+apptraverse_add_test(apptraverse_nested_window_frame_publication_test
+  nested_window_frame_publication_test.cpp)
+
 apptraverse_add_test(apptraverse_single_file_user_storage_test
   single_file_user_storage_test.cpp)
 
@@ -1502,37 +1505,83 @@ apptraverse_add_test(apptraverse_window_catalog_headless_test
   window_catalog_headless_test.cpp
   surfaces_demo_window_catalog_headless)
 
-apptraverse_add_test(apptraverse_window_catalog_close_unload_disk_stage_test
-  window_catalog_close_unload_disk_stage_test.cpp
-  surfaces_demo_window_catalog)
-target_include_directories(apptraverse_window_catalog_close_unload_disk_stage_test PRIVATE
-  ${APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR}
-  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
-  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/windows)
-if(MSVC)
-  target_compile_options(apptraverse_window_catalog_close_unload_disk_stage_test PRIVATE /utf-8)
+if(TARGET surfaces_demo_window_catalog)
+  set(_window_catalog_test_library surfaces_demo_window_catalog)
+elseif(TARGET surfaces_demo_window_catalog_linux)
+  set(_window_catalog_test_library surfaces_demo_window_catalog_linux)
 endif()
-if(TARGET apptraverse_window_catalog_embedded_supply)
-  add_dependencies(apptraverse_window_catalog_close_unload_disk_stage_test
-    apptraverse_window_catalog_embedded_supply)
-endif()
-set_tests_properties(apptraverse_window_catalog_close_unload_disk_stage_test PROPERTIES
-  LABELS "window_catalog;diagnostic")
 
-apptraverse_add_test(apptraverse_window_catalog_user_persistence_boundary_test
-  window_catalog_user_persistence_boundary_test.cpp
-  surfaces_demo_window_catalog)
-target_include_directories(
-  apptraverse_window_catalog_user_persistence_boundary_test PRIVATE
-  ${APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR}
-  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common)
-if(MSVC)
-  target_compile_options(
-    apptraverse_window_catalog_user_persistence_boundary_test PRIVATE /utf-8)
-endif()
-if(TARGET apptraverse_window_catalog_embedded_supply)
-  add_dependencies(apptraverse_window_catalog_user_persistence_boundary_test
-    apptraverse_window_catalog_embedded_supply)
+if(_window_catalog_test_library)
+  foreach(_test window_catalog_close_unload_disk_stage
+                window_catalog_user_persistence_boundary
+                window_catalog_embedded_overlay
+                window_catalog_main_native_frame_coalesce)
+    set(_target apptraverse_${_test}_test)
+    apptraverse_add_test(${_target} ${_test}_test.cpp
+      ${_window_catalog_test_library})
+    target_include_directories(${_target} PRIVATE
+      ${APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR}
+      ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common)
+    if(MSVC)
+      target_compile_options(${_target} PRIVATE /utf-8)
+    endif()
+    add_dependencies(${_target} apptraverse_window_catalog_embedded_supply)
+    target_sources(${_target} PRIVATE
+      "${APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR}/embedded_distilled_window_catalog_supply.h")
+    set_tests_properties(${_target} PROPERTIES LABELS "window_catalog")
+  endforeach()
+  set_tests_properties(apptraverse_window_catalog_close_unload_disk_stage_test
+    PROPERTIES LABELS "window_catalog;diagnostic")
+endif() # native WindowCatalog graph
+
+if(TARGET surfaces_demo_window_catalog_linux)
+  find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
+  set(_linux_catalog_acceptance_sources
+    window_catalog_linux_acceptance_main.cpp
+    window_catalog_linux_session_automation.cpp
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/window_catalog_lifecycle.cpp)
+  add_executable(apptraverse_window_catalog_linux_acceptance_runner
+    ${_linux_catalog_acceptance_sources})
+  target_link_libraries(apptraverse_window_catalog_linux_acceptance_runner PRIVATE
+    surfaces_demo_window_catalog_linux)
+  target_compile_definitions(apptraverse_window_catalog_linux_acceptance_runner PRIVATE
+    APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
+  target_include_directories(apptraverse_window_catalog_linux_acceptance_runner PRIVATE
+    ${APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR})
+  target_sources(apptraverse_window_catalog_linux_acceptance_runner PRIVATE
+    "${APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR}/embedded_distilled_window_catalog_supply.h")
+  add_dependencies(apptraverse_window_catalog_linux_acceptance_runner
+    apptraverse_window_catalog_embedded_supply linux_window_catalog_demo_load_only)
+
+  set(_linux_catalog_fresh_args)
+  set(_linux_catalog_acceptance_dependencies
+    apptraverse_window_catalog_linux_acceptance_runner)
+  if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    add_executable(apptraverse_window_catalog_linux_fresh_runner
+      ${_linux_catalog_acceptance_sources}
+      ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/window_catalog_distillation.cpp)
+    target_link_libraries(apptraverse_window_catalog_linux_fresh_runner PRIVATE
+      surfaces_demo_window_catalog_linux)
+    target_compile_definitions(apptraverse_window_catalog_linux_fresh_runner PRIVATE
+      APPTRAVERSE_WINDOW_CATALOG_DEBUG_BOOTSTRAP)
+    list(APPEND _linux_catalog_fresh_args --fresh-exe
+      $<TARGET_FILE:apptraverse_window_catalog_linux_fresh_runner>)
+    list(APPEND _linux_catalog_acceptance_dependencies
+      apptraverse_window_catalog_linux_fresh_runner)
+  endif()
+  add_test(NAME apptraverse_window_catalog_linux_acceptance_test
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_SOURCE_DIR}/tools/linux_window_catalog_l3_smoke.py"
+      $<TARGET_FILE:apptraverse_window_catalog_linux_acceptance_runner>
+      ${_linux_catalog_fresh_args})
+  set_tests_properties(apptraverse_window_catalog_linux_acceptance_test PROPERTIES
+    LABELS "linux;window_catalog;gui" TIMEOUT 1200 RUN_SERIAL TRUE)
+  add_custom_target(apptraverse_window_catalog_linux_l3_smoke
+    COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
+      -R "^apptraverse_window_catalog_linux_acceptance_test$"
+    DEPENDS ${_linux_catalog_acceptance_dependencies}
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    USES_TERMINAL)
 endif()
 
 target_include_directories(apptraverse_window_catalog_headless_test PRIVATE
@@ -1593,27 +1642,6 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
     apptraverse_minimal_app_embedded_supply)
   add_test(NAME apptraverse_minimal_app_embedded_export_test
     COMMAND apptraverse_minimal_app_embedded_export_test)
-
-  add_executable(apptraverse_window_catalog_embedded_overlay_test
-    window_catalog_embedded_overlay_test.cpp)
-  target_link_libraries(apptraverse_window_catalog_embedded_overlay_test PRIVATE
-    surfaces_demo_window_catalog apptraverse)
-  target_include_directories(apptraverse_window_catalog_embedded_overlay_test PRIVATE
-    ${APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR}
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/windows)
-  if(MSVC)
-    target_compile_options(apptraverse_window_catalog_embedded_overlay_test PRIVATE
-      /utf-8)
-  endif()
-  if(TARGET apptraverse_window_catalog_embedded_supply)
-    add_dependencies(apptraverse_window_catalog_embedded_overlay_test
-      apptraverse_window_catalog_embedded_supply)
-    target_sources(apptraverse_window_catalog_embedded_overlay_test PRIVATE
-      "${APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR}/embedded_distilled_window_catalog_supply.h")
-  endif()
-  add_test(NAME apptraverse_window_catalog_embedded_overlay_test
-    COMMAND apptraverse_window_catalog_embedded_overlay_test)
 
   set(_android_wc_embedded_test_sources
     window_catalog_android_embedded_session_test.cpp
@@ -1715,27 +1743,6 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
   endif()
   set_tests_properties(apptraverse_window_catalog_win32_close_timing_diagnostic_test PROPERTIES
     LABELS "window_catalog;diagnostic" TIMEOUT 600)
-
-  apptraverse_add_test(apptraverse_window_catalog_main_native_frame_coalesce_test
-    window_catalog_main_native_frame_coalesce_test.cpp surfaces_demo_window_catalog)
-  target_link_libraries(apptraverse_window_catalog_main_native_frame_coalesce_test PRIVATE
-    apptraverse)
-  target_include_directories(apptraverse_window_catalog_main_native_frame_coalesce_test PRIVATE
-    ${APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR}
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/windows)
-  if(MSVC)
-    target_compile_options(apptraverse_window_catalog_main_native_frame_coalesce_test PRIVATE
-      /utf-8)
-  endif()
-  if(TARGET apptraverse_window_catalog_embedded_supply)
-    add_dependencies(apptraverse_window_catalog_main_native_frame_coalesce_test
-      apptraverse_window_catalog_embedded_supply)
-    target_sources(apptraverse_window_catalog_main_native_frame_coalesce_test PRIVATE
-      "${APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR}/embedded_distilled_window_catalog_supply.h")
-  endif()
-  set_tests_properties(apptraverse_window_catalog_main_native_frame_coalesce_test PROPERTIES
-    LABELS "window_catalog")
 
   apptraverse_add_test(apptraverse_minimal_app_win32_acceptance_test
     minimal_app_win32_acceptance_test.cpp minimal_app_windows)

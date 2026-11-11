@@ -17,7 +17,7 @@ APPTRAVERSE_REGISTER(LinuxListContainerPresenter);
 }  // namespace
 
 void EnsureLinuxUiPresenterRegistration() {
-  EnsureUiPresenterRegistration();
+  EnsureUiControlRegistration();
   (void)&g_apptraverse_registrar_LinuxDesktopWindowPresenter;
   (void)&g_apptraverse_registrar_LinuxPushButtonPresenter;
   (void)&g_apptraverse_registrar_LinuxListContainerPresenter;

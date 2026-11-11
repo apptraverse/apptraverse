@@ -10,8 +10,6 @@
 
 namespace apptraverse::ui::linux {
 
-class LinuxDesktopWindowPresenter;
-
 class LinuxListContainerPresenter : public UiListContainerPresenter {
   APPTRAVERSE_NAMED_OBJECT(
       "apptraverse::ui::linux::LinuxListContainerPresenter",
@@ -52,11 +50,13 @@ class LinuxListContainerPresenter : public UiListContainerPresenter {
   void SyncFromMirror();
   void HandleRowSelected(GtkListBoxRow* row);
   static void OnRowSelected(GtkListBox* box, GtkListBoxRow* row, gpointer user_data);
-  LinuxDesktopWindowPresenter* Desktop() const;
+  static void OnRowActivated(GtkListBox* box, GtkListBoxRow* row,
+                             gpointer user_data);
 
   GtkWidget* list_box_{nullptr};
   std::vector<NativeRow> native_rows_;
   gulong row_selected_handler_{0};
+  gulong row_activated_handler_{0};
   bool applying_mirror_sync_{false};
 };
 

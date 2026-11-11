@@ -7,8 +7,8 @@ alwaysApply: true
 
 ## Active scope and canon (2026-11-10)
 
-- **Execution order:** current user task within Windows/headless scope. [PLAN §P0–P6](../../docs/versioning/PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6) is the long-term roadmap; old other-platform NEXT entries and **U5.2–U6**, **9D–9H** are not active instructions.
-- **Priority:** Windows WindowCatalog, its headless tests and shared library dependencies only in the current user scope. CI and other example applications (including MinimalApp) are excluded. The seven-backend application-template roadmap remains a long-term goal; other platforms, devices, administration and deep Object Core matrices require a separate task.
+- **Execution order:** current Linux GTK/WSL WindowCatalog port, preserving Windows/headless behavior. [PLAN §P0–P6](../../docs/versioning/PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6) is the long-term roadmap; old other-platform NEXT entries and **U5.2–U6**, **9D–9H** are not active instructions.
+- **Priority:** WindowCatalog on Linux GTK/WSL, Windows, its headless tests and shared library dependencies. CI and other example applications (including MinimalApp) remain excluded. Further platforms, devices, administration and deep Object Core matrices require a separate task.
 - **Boundary:** common/backend libraries must not depend on examples or WindowCatalog. Reuse ApplicationModelRuntime, ApplicationUiSession, ModelObjectProxy and model-session entrypoints; native hosts/controls belong to reusable backend libraries. Independent MinimalApp is the second consumer. Do not copy SurfacesModelSession/mirror orchestration into each new port.
 - **Architecture knowledge:** [docs/architecture/AppTraverse_Architecture_RU.md](../../docs/architecture/AppTraverse_Architecture_RU.md) (accepted principles **2026-11-10**; old implementation observations are historical). Do not duplicate canon in PLAN/PROGRESS.
 - **Storage/startup:** plain RAM USER; child Close has no file writes; shutdown writes one user.bin. Normal Windows Debug always builds a fresh graph without loading prior USER, and owns distillation. Release loads embedded supply; no release distillation code.
@@ -29,7 +29,7 @@ When porting surfaces a defect, fix the **architectural root cause** in the corr
 - Preserve historical PASS with scope; record current regressions separately.
 - Object Core matrices and production hardening remain **DEFERRED**.
 
-Current acceptance is Windows WindowCatalog/headless. Do not repair CI or other examples in this scope. Preserve the long-term seven-backend roadmap without treating its old NEXT items as an active instruction.
+Current task adds Linux WindowCatalog acceptance to the verified Windows/headless scope. Do not claim Linux PASS without execution. Do not repair CI or other examples. Preserve the long-term seven-backend roadmap without treating its old NEXT items as an active instruction.
 
 ## Incremental build only
 

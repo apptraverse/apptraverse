@@ -1,7 +1,6 @@
 #include "apptraverse/platform/linux/linux_ui_push_button_presenter.h"
 
 #include "apptraverse/platform/linux/linux_fatal.h"
-#include "apptraverse/platform/linux/linux_ui_window_presenter.h"
 #include "apptraverse/ui/ui_localization_string.h"
 
 namespace apptraverse::ui::linux {
@@ -12,12 +11,8 @@ void LinuxPushButtonPresenter::OnClicked(GtkButton* button, gpointer user_data) 
 }
 
 void LinuxPushButtonPresenter::OnLoad() {
-  auto* desktop = static_cast<LinuxDesktopWindowPresenter*>(
-      window_presenter.operator->());
-  GtkWidget* parent = desktop != nullptr ? desktop->ClientMount() : nullptr;
-  if (parent == nullptr) {
-    FatalLinux("LinuxPushButtonPresenter::OnLoad missing parent");
-  }
+  auto* parent = static_cast<GtkWidget*>(
+      window_presenter->NativeChildParentHandle());
 
   ui::UiControlLayout const layout =
       window_presenter->ResolveChildLayout({layout_x, layout_y, layout_width,
@@ -46,25 +41,17 @@ void LinuxPushButtonPresenter::SyncFromMirror() {
       window_presenter->ResolveChildLayout({layout_x, layout_y, layout_width,
                                             layout_height, control_id});
   gtk_widget_set_size_request(button_, layout.width, layout.height);
-  GtkWidget* const parent = gtk_widget_get_parent(button_);
-  if (parent != nullptr && GTK_IS_FIXED(parent)) {
-    gtk_fixed_move(GTK_FIXED(parent), button_, layout.x, layout.y);
-  }
+  auto* const parent = static_cast<GtkWidget*>(
+      window_presenter->NativeChildParentHandle());
+  gtk_fixed_move(GTK_FIXED(parent), button_, layout.x, layout.y);
 }
 
 void LinuxPushButtonPresenter::OnModelChanged() { SyncFromMirror(); }
 
 void LinuxPushButtonPresenter::OnUnload() {
-  if (button_ == nullptr) {
-    return;
-  }
-  if (clicked_handler_ != 0) {
-    g_signal_handler_disconnect(button_, clicked_handler_);
-    clicked_handler_ = 0;
-  }
-  if (GTK_IS_WIDGET(button_)) {
-    gtk_widget_destroy(button_);
-  }
+  g_signal_handler_disconnect(button_, clicked_handler_);
+  clicked_handler_ = 0;
+  gtk_widget_destroy(button_);
   button_ = nullptr;
 }
 

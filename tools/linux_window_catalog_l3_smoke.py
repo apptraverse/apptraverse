@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Embedded USER cold-load smoke for linux_window_catalog_demo (WSL Ubuntu + WSLg)."""
+"""GTK acceptance runner: USER round-trips, native input and geometry on X11."""
 
 from __future__ import annotations
 
@@ -54,10 +54,7 @@ def require_markers(text: str, markers: list[str]) -> None:
         sys.exit(1)
 
 
-SHUTDOWN_MARKERS = [
-    "WINDOW_CATALOG_SHUTDOWN_PERSIST_OK",
-    "WINDOW_CATALOG_SHUTDOWN_STOPPED",
-]
+SHUTDOWN_MARKERS = ["WINDOW_CATALOG_LINUX_USER_FILE_OK"]
 
 
 def run_profile_phases(
@@ -77,6 +74,13 @@ def run_profile_phases(
                 print(out, file=sys.stderr)
                 return None
             require_markers(out, markers + SHUTDOWN_MARKERS)
+            user_file = profile / "user.bin"
+            if not user_file.is_file() or user_file.stat().st_size == 0:
+                print(f"FAIL: shutdown did not write {user_file}", file=sys.stderr)
+                return None
+            if list(profile.rglob("*")) != [user_file]:
+                print(f"FAIL: USER contains files beyond user.bin: {profile}", file=sys.stderr)
+                return None
             outputs.append(out)
         return outputs
     finally:
@@ -92,9 +96,63 @@ def raw_frames(text: str) -> dict[str, tuple[int, ...]]:
     return frames
 
 
+def geometry_frames(text: str, phase: str) -> dict[str, tuple[int, ...]]:
+    frames: dict[str, tuple[int, ...]] = {}
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) == 7 and parts[:2] == ["WINDOW_CATALOG_LINUX_FRAME", phase]:
+            frames[parts[2]] = tuple(int(v) for v in parts[3:])
+    return frames
+
+
+def verify_geometry_roundtrip(saved: str, loaded: str) -> bool:
+    before = geometry_frames(saved, "geom_saved")
+    after = geometry_frames(loaded, "geom_loaded")
+    if len(before) != 4 or before != after:
+        print(f"FAIL: native geometry round-trip: {before} -> {after}", file=sys.stderr)
+        return False
+    return True
+
+
+def verify_fresh_debug(
+    fresh_exe: Path, load_only_exe: Path, timeout_s: int, env: dict[str, str]
+) -> bool:
+    parent = Path(tempfile.mkdtemp(prefix="apptraverse_wc_linux_debug_"))
+    profiles: list[Path] = []
+    try:
+        # Both launches receive the same parent, which already contains a USER
+        # after launch one. Each fresh runner must start with zero rows.
+        for _ in range(2):
+            code, out = run_phase(fresh_exe, parent, "l3_save", timeout_s, env)
+            if code != 0:
+                print(out, file=sys.stderr)
+                return False
+            require_markers(out, ["WINDOW_CATALOG_LINUX_SAVE_READY"] + SHUTDOWN_MARKERS)
+            marker = "WINDOW_CATALOG_DEBUG_FRESH_PROFILE="
+            paths = [Path(line[len(marker):]) for line in out.splitlines() if line.startswith(marker)]
+            if len(paths) != 1 or paths[0].parent.parent != parent:
+                print("FAIL: missing or unexpected fresh Debug profile", file=sys.stderr)
+                return False
+            profile = paths[0]
+            if not (profile / "user.bin").is_file() or profile in profiles:
+                print("FAIL: Debug reused a profile or did not save USER", file=sys.stderr)
+                return False
+            profiles.append(profile)
+        code, out = run_phase(load_only_exe, profiles[0], "l3_cold_verify", timeout_s, env)
+        if code != 0:
+            print(out, file=sys.stderr)
+            return False
+        require_markers(out, ["WINDOW_CATALOG_LINUX_COLD_STATE_OK"] + SHUTDOWN_MARKERS)
+        return True
+    finally:
+        shutil.rmtree(parent, ignore_errors=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("exe", type=Path)
+    parser.add_argument("--fresh-exe", type=Path,
+                        help="same test runner with the normal Debug fresh lifecycle")
     parser.add_argument("--timeout-s", type=int, default=240)
     args = parser.parse_args()
     exe = args.exe.resolve()
@@ -105,6 +163,22 @@ def main() -> int:
     env = os.environ.copy()
     env["GDK_BACKEND"] = "x11"
 
+    if args.fresh_exe is not None:
+        if not verify_fresh_debug(args.fresh_exe.resolve(), exe, args.timeout_s, env):
+            return 1
+
+    if run_profile_phases(
+        exe,
+        "apptraverse_wc_linux_native_geometry_",
+        [("native_geometry", [
+            "WINDOW_CATALOG_LINUX_OS_PLACEMENT_EVENT_OK",
+            "WINDOW_CATALOG_LINUX_MAXIMIZE_RESTORE_OK",
+        ])],
+        args.timeout_s,
+        env,
+    ) is None:
+        return 1
+
     child_close = run_profile_phases(
         exe,
         "apptraverse_wc_linux_child_close_",
@@ -112,8 +186,8 @@ def main() -> int:
             (
                 "l3_child_close_save",
                 [
-                    "WINDOW_CATALOG_LOADED_FROM_EMBEDDED_BACKING",
                     "WINDOW_CATALOG_LINUX_LIST_ROW_IDENTITY_OK",
+                    "WINDOW_CATALOG_LINUX_ROW_ACTIVATED_OK",
                     "WINDOW_CATALOG_LINUX_CHILD_CLOSE_REOPEN_OK",
                     "WINDOW_CATALOG_LINUX_CHILD_CLOSE_FRAMES_MODEL_OK",
                     "WINDOW_CATALOG_LINUX_CHILD_CLOSE_SAVE_READY",
@@ -122,7 +196,6 @@ def main() -> int:
             (
                 "l3_child_close_cold",
                 [
-                    "WINDOW_CATALOG_LOADED_FROM_PROFILE",
                     "WINDOW_CATALOG_LINUX_CHILD_CLOSE_COLD_OK",
                 ],
             ),
@@ -147,7 +220,6 @@ def main() -> int:
             (
                 "l3_save",
                 [
-                    "WINDOW_CATALOG_LOADED_FROM_EMBEDDED_BACKING",
                     "WINDOW_CATALOG_LINUX_REOPEN_SAME_NATIVE_OK",
                     "WINDOW_CATALOG_LINUX_LOCALE_TOGGLE_OK",
                     "WINDOW_CATALOG_LINUX_SAVE_READY",
@@ -156,7 +228,6 @@ def main() -> int:
             (
                 "l3_cold_verify",
                 [
-                    "WINDOW_CATALOG_LOADED_FROM_PROFILE",
                     "WINDOW_CATALOG_LINUX_COLD_STATE_OK",
                     "WINDOW_CATALOG_LINUX_POST_COMMAND_OK",
                 ],
@@ -169,64 +240,37 @@ def main() -> int:
     ) is None:
         return 1
 
-    profile = Path(tempfile.mkdtemp(prefix="apptraverse_wc_linux_geom_z_"))
-    try:
-        code, out1 = run_phase(exe, profile, "l3_geom_z_save", args.timeout_s, env)
-        if code != 0:
-            print(f"FAIL: l3_geom_z_save exit {code}", file=sys.stderr)
-            print(out1, file=sys.stderr)
-            return 1
-        require_markers(
-            out1,
-            [
-                "WINDOW_CATALOG_LOADED_FROM_EMBEDDED_BACKING",
-                "WINDOW_CATALOG_LINUX_INITIAL_RENDER_OK",
-                "WINDOW_CATALOG_LINUX_GEOM_Z_MODEL_OK",
-                "WINDOW_CATALOG_SHUTDOWN_PERSIST_OK",
-                "WINDOW_CATALOG_SHUTDOWN_STOPPED",
-            ],
-        )
-
-        code, out2 = run_phase(exe, profile, "l3_geom_z_cold", args.timeout_s, env)
-        if code != 0:
-            print(f"FAIL: l3_geom_z_cold exit {code}", file=sys.stderr)
-            print(out2, file=sys.stderr)
-            return 1
-        require_markers(
-            out2,
-            [
-                "WINDOW_CATALOG_LOADED_FROM_PROFILE",
-                "WINDOW_CATALOG_LINUX_GEOM_Z_COLD_OK",
-                "WINDOW_CATALOG_LINUX_GEOM_Z_CYCLE2_SAVE_OK",
-                "WINDOW_CATALOG_SHUTDOWN_PERSIST_OK",
-                "WINDOW_CATALOG_SHUTDOWN_STOPPED",
-            ],
-        )
-
-        code, out3 = run_phase(
-            exe, profile, "l3_geom_z_cycle2_cold", args.timeout_s, env
-        )
-        if code != 0:
-            print(f"FAIL: l3_geom_z_cycle2_cold exit {code}", file=sys.stderr)
-            print(out3, file=sys.stderr)
-            return 1
-        require_markers(
-            out3,
-            [
-                "WINDOW_CATALOG_LOADED_FROM_PROFILE",
-                "WINDOW_CATALOG_LINUX_GEOM_Z_CYCLE2_COLD_OK",
-                "WINDOW_CATALOG_SHUTDOWN_PERSIST_OK",
-                "WINDOW_CATALOG_SHUTDOWN_STOPPED",
-            ],
-        )
-
-        print(
-            "PASS: linux_window_catalog_l3_smoke "
-            "(child close, l3, geom/z, GDK_BACKEND=x11)"
-        )
-        return 0
-    finally:
-        shutil.rmtree(profile, ignore_errors=True)
+    geometry = run_profile_phases(
+        exe,
+        "apptraverse_wc_linux_geom_z_",
+        [
+            ("l3_geom_z_save", ["WINDOW_CATALOG_LINUX_GEOM_Z_MODEL_OK"]),
+            (
+                "l3_geom_z_cold",
+                [
+                    "WINDOW_CATALOG_LINUX_GEOM_Z_COLD_OK",
+                    "WINDOW_CATALOG_LINUX_GEOM_Z_CYCLE2_SAVE_OK",
+                ],
+            ),
+            (
+                "l3_geom_z_cycle2_cold",
+                ["WINDOW_CATALOG_LINUX_GEOM_Z_CYCLE2_COLD_OK"],
+            ),
+        ],
+        args.timeout_s,
+        env,
+    )
+    if geometry is None:
+        return 1
+    if not verify_geometry_roundtrip(geometry[0], geometry[1]):
+        return 1
+    if not verify_geometry_roundtrip(geometry[1], geometry[2]):
+        return 1
+    print(
+        "PASS: linux_window_catalog_l3_smoke "
+        "(child close, l3, geom/z, one user.bin, GDK_BACKEND=x11)"
+    )
+    return 0
 
 
 if __name__ == "__main__":

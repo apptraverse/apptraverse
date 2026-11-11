@@ -95,6 +95,13 @@ void SelectListRowNative(ui::linux::LinuxListContainerPresenter& list,
   gtk_list_box_select_row(GTK_LIST_BOX(widget), row);
 }
 
+void ActivateListRowNative(ui::linux::LinuxListContainerPresenter& list,
+                           int index) {
+  GtkListBox* const box = GTK_LIST_BOX(list.ListWidget());
+  GtkListBoxRow* const row = gtk_list_box_get_row_at_index(box, index);
+  g_signal_emit_by_name(box, "row-activated", row);
+}
+
 void ClickButtonNative(ui::linux::LinuxPushButtonPresenter& button) {
   gtk_button_clicked(GTK_BUTTON(button.ButtonWidget()));
 }
@@ -454,10 +461,12 @@ void SnapshotCycle2ExpectationsFromMirror(WindowCatalog& catalog) {
 
 void WhenCatalogWindowsSettled(WindowCatalog& catalog,
                                void (*then)(WindowCatalog&));
+void LogCatalogNativeFrames(WindowCatalog& catalog, char const* phase);
 
 void FinishGeomZCycle1Save(WindowCatalog& catalog) {
   FlushCatalogNativeFrames(catalog);
   SnapshotCycle1ExpectationsFromMirror(catalog);
+  LogCatalogNativeFrames(catalog, "geom_saved");
   LogMarker("WINDOW_CATALOG_LINUX_GEOM_Z_MODEL_OK");
   CloseMain(catalog);
 }
@@ -470,6 +479,7 @@ void ApplyGeomZCycle1WhenSettled(WindowCatalog& catalog) {
 void FinishGeomZCycle2Save(WindowCatalog& catalog) {
   FlushCatalogNativeFrames(catalog);
   SnapshotCycle2ExpectationsFromMirror(catalog);
+  LogCatalogNativeFrames(catalog, "geom_saved");
   LogMarker("WINDOW_CATALOG_LINUX_GEOM_Z_CYCLE2_SAVE_OK");
   CloseMain(catalog);
 }
@@ -589,7 +599,7 @@ bool ReadRawClientFrame(ui::linux::LinuxDesktopWindowPresenter& presenter,
   gtk_widget_get_allocation(presenter.ClientMount(), &allocation);
   out.w = allocation.width;
   out.h = allocation.height;
-  return out.x > -30000 && out.y > -30000;
+  return true;
 }
 
 CatalogWindow& RowWindow(WindowCatalog& catalog, int row_index) {
@@ -637,6 +647,41 @@ void LogCatalogRawFrames(FrameExpect const frames[4]) {
   }
 }
 
+// The model stores frame origin and client size, not raw client origin.
+// Keep the raw snapshots above as an independent cross-process observation.
+void LogCatalogNativeFrames(WindowCatalog& catalog, char const* phase) {
+  char const* const names[4] = {"main", "child0", "child1", "child2"};
+  for (int i = 0; i < 4; ++i) {
+    auto& presenter = i == 0 ? LinuxMainWindow(catalog)
+                            : *LinuxChildForRow(catalog, i - 1);
+    FrameExpect frame{};
+    if (!ReadNativeFrame(presenter, frame)) {
+      FailCc("fatal: cannot snapshot mapped catalog window\n");
+    }
+    std::cerr << "WINDOW_CATALOG_LINUX_FRAME " << phase << ' ' << names[i]
+              << ' ' << frame.x << ' ' << frame.y << ' ' << frame.w << ' '
+              << frame.h << '\n';
+  }
+}
+
+void VerifyGeomZCycle1ColdThenMove(WindowCatalog& catalog) {
+  LogCatalogNativeFrames(catalog, "geom_loaded");
+  if (!CatalogDesktopZOrderMatchesNative(catalog)) {
+    FailCc("fatal: cold catalog native z-order differs from saved model\n");
+  }
+  LogMarker("WINDOW_CATALOG_LINUX_GEOM_Z_COLD_OK");
+  ApplyGeomZCycle2WhenSettled(catalog);
+}
+
+void VerifyGeomZCycle2ColdThenClose(WindowCatalog& catalog) {
+  LogCatalogNativeFrames(catalog, "geom_loaded");
+  if (!CatalogDesktopZOrderMatchesNative(catalog)) {
+    FailCc("fatal: second cold catalog native z-order differs from saved model\n");
+  }
+  LogMarker("WINDOW_CATALOG_LINUX_GEOM_Z_CYCLE2_COLD_OK");
+  CloseMain(catalog);
+}
+
 void MoveAllCatalogWindowsNative(WindowCatalog& catalog, FrameExpect main,
                                  FrameExpect const* children) {
   MoveResizeNative(LinuxMainWindow(catalog).TopLevelWindow(), main);
@@ -662,7 +707,7 @@ gboolean PollCatalogWindowsSettled(gpointer data) {
   auto* poll = static_cast<SettlePoll*>(data);
   FrameExpect raw[4]{};
   bool const readable = ReadCatalogRawFrames(*poll->catalog, raw);
-  bool same = readable;
+  bool same = readable && CatalogAllOpenWindowsNativeMirrorSynced(*poll->catalog);
   for (int i = 0; readable && i < 4; ++i) {
     same = same && FrameMatchesExpect(raw[i], poll->last[i]);
     poll->last[i] = raw[i];
@@ -794,7 +839,7 @@ void HandleChildCloseIncremental(WindowCatalog& catalog) {
       if (catalog.persisted.list->selection_index != State().cc_row) {
         return;
       }
-      ClickButtonNative(LinuxOpen(catalog));
+      ActivateListRowNative(LinuxList(catalog), State().cc_row);
       State().step = AutomationStep::CcAwaitOpen;
       return;
     case AutomationStep::CcAwaitOpen:
@@ -808,6 +853,7 @@ void HandleChildCloseIncremental(WindowCatalog& catalog) {
         return;
       }
       LogMarker("WINDOW_CATALOG_LINUX_CHILD_CLOSE_THREE_OPEN");
+      LogMarker("WINDOW_CATALOG_LINUX_ROW_ACTIVATED_OK");
       State().cc_iteration = 0;
       MoveAndCloseCcChild(catalog);
       return;
@@ -906,10 +952,83 @@ void VerifyChildCloseCold(WindowCatalog& catalog) {
   WhenCatalogWindowsSettled(catalog, &FinishChildCloseCold);
 }
 
+struct NativeGeometryPoll {
+  WindowCatalog* catalog;
+  int step = 0;
+  int polls = 0;
+  int stable = 0;
+  FrameExpect restore{};
+};
+
+gboolean PollNativeGeometry(gpointer data) {
+  auto* poll = static_cast<NativeGeometryPoll*>(data);
+  if (++poll->polls > kSettlePollLimit) {
+    FailCc("fatal: native maximize/restore did not settle\n");
+  }
+  auto& catalog = *poll->catalog;
+  auto& presenter = LinuxMainWindow(catalog);
+  GtkWidget* const widget = presenter.TopLevelWindow();
+  auto& window = *catalog.persisted.main_window;
+  if (!gtk_widget_get_mapped(widget)) return G_SOURCE_CONTINUE;
+  auto const native_state =
+      gdk_window_get_state(gtk_widget_get_window(widget));
+  bool const maximized = (native_state & GDK_WINDOW_STATE_MAXIMIZED) != 0;
+  FrameExpect native{};
+  if (!ReadNativeFrame(presenter, native)) return G_SOURCE_CONTINUE;
+  FrameExpect const restore{window.x(), window.y(),
+                            window.restore_client_width(),
+                            window.restore_client_height()};
+  bool const live_size_matches = native.w == window.client_width() &&
+                                 native.h == window.client_height();
+  if (poll->step == 0) {
+    if (maximized || !window.HasExplicitPosition() ||
+        !CatalogWindowNativeMatchesMirror(window)) {
+      poll->stable = 0;
+      return G_SOURCE_CONTINUE;
+    }
+    if (++poll->stable < kSettleStablePolls) return G_SOURCE_CONTINUE;
+    LogMarker("WINDOW_CATALOG_LINUX_OS_PLACEMENT_EVENT_OK");
+    poll->restore = restore;
+    poll->step = 1;
+    poll->stable = 0;
+    poll->polls = 0;
+    gtk_window_maximize(GTK_WINDOW(widget));
+    return G_SOURCE_CONTINUE;
+  }
+  if (!FrameMatchesExpect(restore, poll->restore)) {
+    FailCc("fatal: maximize/restore overwrote the normal restore frame\n");
+  }
+  if (poll->step == 1) {
+    if (!maximized || !live_size_matches) {
+      poll->stable = 0;
+      return G_SOURCE_CONTINUE;
+    }
+    if (++poll->stable < kSettleStablePolls) return G_SOURCE_CONTINUE;
+    poll->step = 2;
+    poll->stable = 0;
+    poll->polls = 0;
+    gtk_window_unmaximize(GTK_WINDOW(widget));
+    return G_SOURCE_CONTINUE;
+  }
+  if (maximized || !live_size_matches ||
+      !FrameMatchesExpect(native, poll->restore)) {
+    poll->stable = 0;
+    return G_SOURCE_CONTINUE;
+  }
+  if (++poll->stable < kSettleStablePolls) return G_SOURCE_CONTINUE;
+  LogMarker("WINDOW_CATALOG_LINUX_MAXIMIZE_RESTORE_OK");
+  CloseMain(catalog);
+  delete poll;
+  return G_SOURCE_REMOVE;
+}
+
 }  // namespace
 
 LinuxWindowCatalogSessionAutomation ParseLinuxWindowCatalogSessionAutomation(
     std::string_view value) {
+  if (value == "native_geometry") {
+    return LinuxWindowCatalogSessionAutomation::NativeGeometry;
+  }
   if (value == "l3_save") {
     return LinuxWindowCatalogSessionAutomation::L3Save;
   }
@@ -965,7 +1084,18 @@ void LinuxWindowCatalogSessionAutomationHooks::OnAfterInitial(ae::Obj& ui_root) 
   }
 
   auto& catalog = AsCatalog(ui_root);
+  if (State().mode == LinuxWindowCatalogSessionAutomation::NativeGeometry) {
+    if (catalog.persisted.main_window->HasExplicitPosition()) {
+      FailCc("fatal: initial graph must leave placement to the window manager\n");
+    }
+    g_timeout_add(kSettlePollMs, &PollNativeGeometry,
+                  new NativeGeometryPoll{&catalog});
+    return;
+  }
   if (State().mode == LinuxWindowCatalogSessionAutomation::L3Save) {
+    if (RowCount(catalog) != 0) {
+      FailCc("fatal: fresh catalog must start with zero rows\n");
+    }
     ClickButtonNative(LinuxAdd(catalog));
     State().step = AutomationStep::SaveAwaitAdd1;
     return;
@@ -1026,32 +1156,16 @@ void LinuxWindowCatalogSessionAutomationHooks::OnAfterInitial(ae::Obj& ui_root) 
   }
 
   if (State().mode == LinuxWindowCatalogSessionAutomation::L3GeomZCold) {
-    catalog.persisted.main_window.Load();
-    if (catalog.persisted.main_window->x() == 80 && catalog.persisted.main_window->y() == 80) {
-      WriteFatalStderr("fatal: cold load did not restore moved main geometry\n");
-      std::abort();
-    }
-    SnapshotCycle1ExpectationsFromMirror(catalog);
-    if (!catalog.persisted.desktop_z_order.empty() &&
-        CatalogDesktopZOrderMatchesNative(catalog)) {
-      LogMarker("WINDOW_CATALOG_LINUX_Z_ORDER_COLD_OK");
-    }
-    LogMarker("WINDOW_CATALOG_LINUX_GEOM_Z_COLD_OK");
+    RequireThreeCatalogRows(catalog);
     State().step = AutomationStep::Idle;
-    WhenCatalogWindowsSettled(catalog, &ApplyGeomZCycle2WhenSettled);
+    WhenCatalogWindowsSettled(catalog, &VerifyGeomZCycle1ColdThenMove);
     return;
   }
 
   if (State().mode == LinuxWindowCatalogSessionAutomation::L3GeomZCycle2Cold) {
-    catalog.persisted.main_window.Load();
-    SnapshotCycle2ExpectationsFromMirror(catalog);
-    if (!catalog.persisted.desktop_z_order.empty() &&
-        CatalogDesktopZOrderMatchesNative(catalog)) {
-      LogMarker("WINDOW_CATALOG_LINUX_Z_ORDER_CYCLE2_COLD_OK");
-    }
-    LogMarker("WINDOW_CATALOG_LINUX_GEOM_Z_CYCLE2_COLD_OK");
-    CloseMain(catalog);
+    RequireThreeCatalogRows(catalog);
     State().step = AutomationStep::Idle;
+    WhenCatalogWindowsSettled(catalog, &VerifyGeomZCycle2ColdThenClose);
   }
 }
 

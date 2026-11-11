@@ -3,18 +3,10 @@
 #include <algorithm>
 
 #include "apptraverse/platform/linux/linux_fatal.h"
-#include "apptraverse/platform/linux/linux_ui_window_presenter.h"
 #include "apptraverse/ui/ui_list_container.h"
 #include "apptraverse/ui/ui_localization_string.h"
 
 namespace apptraverse::ui::linux {
-
-LinuxDesktopWindowPresenter* LinuxListContainerPresenter::Desktop() const {
-  if (!window_presenter) {
-    return nullptr;
-  }
-  return static_cast<LinuxDesktopWindowPresenter*>(window_presenter.operator->());
-}
 
 void LinuxListContainerPresenter::OnRowSelected(GtkListBox* box,
                                               GtkListBoxRow* row,
@@ -25,7 +17,7 @@ void LinuxListContainerPresenter::OnRowSelected(GtkListBox* box,
 }
 
 void LinuxListContainerPresenter::HandleRowSelected(GtkListBoxRow* row) {
-  if (applying_mirror_sync_ || row == nullptr) {
+  if (applying_mirror_sync_ || !notify_list_selection_change || row == nullptr) {
     return;
   }
   int const index = gtk_list_box_row_get_index(row);
@@ -35,12 +27,23 @@ void LinuxListContainerPresenter::HandleRowSelected(GtkListBoxRow* row) {
   SubmitListRowSelectionChangedFromUi(static_cast<std::size_t>(index));
 }
 
-void LinuxListContainerPresenter::OnLoad() {
-  LinuxDesktopWindowPresenter* desktop = Desktop();
-  GtkWidget* parent = desktop != nullptr ? desktop->ClientMount() : nullptr;
-  if (parent == nullptr || !container) {
-    FatalLinux("LinuxListContainerPresenter::OnLoad missing parent");
+void LinuxListContainerPresenter::OnRowActivated(GtkListBox* box,
+                                                GtkListBoxRow* row,
+                                                gpointer user_data) {
+  (void)box;
+  auto* self = static_cast<LinuxListContainerPresenter*>(user_data);
+  if (self->applying_mirror_sync_ || row == nullptr) {
+    return;
   }
+  int const index = gtk_list_box_row_get_index(row);
+  if (index >= 0) {
+    self->SubmitListRowActivatedFromUi(static_cast<std::size_t>(index));
+  }
+}
+
+void LinuxListContainerPresenter::OnLoad() {
+  auto* parent = static_cast<GtkWidget*>(
+      window_presenter->NativeChildParentHandle());
 
   ui::UiControlLayout const layout =
       window_presenter->ResolveChildLayout({layout_x, layout_y, layout_width,
@@ -54,6 +57,8 @@ void LinuxListContainerPresenter::OnLoad() {
   gtk_widget_set_size_request(list_box_, layout.width, layout.height);
   row_selected_handler_ = g_signal_connect(
       list_box_, "row-selected", G_CALLBACK(OnRowSelected), this);
+  row_activated_handler_ = g_signal_connect(
+      list_box_, "row-activated", G_CALLBACK(OnRowActivated), this);
   gtk_fixed_put(GTK_FIXED(parent), list_box_, layout.x, layout.y);
   gtk_widget_show(list_box_);
   SyncFromMirror();
@@ -66,6 +71,9 @@ LinuxListContainerPresenter::CreateNativeRow(ae::ObjId row_id,
   native.row_id = row_id;
   native.row = gtk_list_box_row_new();
   native.label = gtk_label_new(label.c_str());
+  if (native.row == nullptr || native.label == nullptr) {
+    FatalLinux("create GTK list row");
+  }
   native.text = label;
   gtk_widget_set_halign(native.label, GTK_ALIGN_START);
   gtk_widget_set_tooltip_text(native.row, label.c_str());
@@ -84,10 +92,9 @@ void LinuxListContainerPresenter::SyncFromMirror() {
       window_presenter->ResolveChildLayout({layout_x, layout_y, layout_width,
                                             layout_height, control_id});
   gtk_widget_set_size_request(list_box_, layout.width, layout.height);
-  GtkWidget* const parent = gtk_widget_get_parent(list_box_);
-  if (parent != nullptr && GTK_IS_FIXED(parent)) {
-    gtk_fixed_move(GTK_FIXED(parent), list_box_, layout.x, layout.y);
-  }
+  auto* const parent = static_cast<GtkWidget*>(
+      window_presenter->NativeChildParentHandle());
+  gtk_fixed_move(GTK_FIXED(parent), list_box_, layout.x, layout.y);
 
   std::vector<NativeRow> previous = std::move(native_rows_);
   native_rows_.clear();
@@ -136,9 +143,9 @@ void LinuxListContainerPresenter::SyncFromMirror() {
     std::int32_t const desired = container->selection_index;
     GtkListBoxRow* const current = gtk_list_box_get_selected_row(box);
     GtkListBoxRow* const target =
-        desired >= 0 && desired < static_cast<std::int32_t>(native_rows_.size())
-            ? GTK_LIST_BOX_ROW(native_rows_[static_cast<std::size_t>(desired)].row)
-            : nullptr;
+        desired == -1
+            ? nullptr
+            : GTK_LIST_BOX_ROW(native_rows_[static_cast<std::size_t>(desired)].row);
     if (target != current) {
       if (target != nullptr) {
         gtk_list_box_select_row(box, target);
@@ -154,16 +161,11 @@ void LinuxListContainerPresenter::SyncFromMirror() {
 void LinuxListContainerPresenter::OnModelChanged() { SyncFromMirror(); }
 
 void LinuxListContainerPresenter::OnUnload() {
-  if (list_box_ == nullptr) {
-    return;
-  }
-  if (row_selected_handler_ != 0) {
-    g_signal_handler_disconnect(list_box_, row_selected_handler_);
-    row_selected_handler_ = 0;
-  }
-  if (GTK_IS_WIDGET(list_box_)) {
-    gtk_widget_destroy(list_box_);
-  }
+  g_signal_handler_disconnect(list_box_, row_selected_handler_);
+  g_signal_handler_disconnect(list_box_, row_activated_handler_);
+  row_selected_handler_ = 0;
+  row_activated_handler_ = 0;
+  gtk_widget_destroy(list_box_);
   list_box_ = nullptr;
   native_rows_.clear();
 }

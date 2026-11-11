@@ -18,28 +18,7 @@ void* LinuxDesktopWindowPresenter::NativeChildParentHandle() const {
 }
 
 std::string LinuxDesktopWindowPresenter::ResolveTitleText() const {
-  if (!locale.is_valid()) {
-    return {};
-  }
   return ResolvePresentedWindowTitle(locale->language_index());
-}
-
-bool LinuxDesktopWindowPresenter::ClientRectOnMonitor(GtkWidget* window,
-                                                      gint origin_x,
-                                                      gint origin_y) {
-  GdkRectangle const client{origin_x, origin_y,
-                            gtk_widget_get_allocated_width(window),
-                            gtk_widget_get_allocated_height(window)};
-  GdkDisplay* const display = gtk_widget_get_display(window);
-  int const monitors = gdk_display_get_n_monitors(display);
-  for (int i = 0; i < monitors; ++i) {
-    GdkRectangle geometry{};
-    gdk_monitor_get_geometry(gdk_display_get_monitor(display, i), &geometry);
-    if (gdk_rectangle_intersect(&client, &geometry, nullptr)) {
-      return true;
-    }
-  }
-  return false;
 }
 
 bool LinuxDesktopWindowPresenter::FramesEqual(ClientFrame a, ClientFrame b) {
@@ -49,56 +28,40 @@ bool LinuxDesktopWindowPresenter::FramesEqual(ClientFrame a, ClientFrame b) {
 
 LinuxDesktopWindowPresenter::ClientFrame
 LinuxDesktopWindowPresenter::ReadMirrorClientFrame() const {
-  ClientFrame frame{};
   auto const desktop = desktop_window();
-  if (!desktop) {
-    return frame;
-  }
-  frame.x = desktop->x();
-  frame.y = desktop->y();
-  frame.client_width = desktop->restore_client_width();
-  frame.client_height = desktop->restore_client_height();
-  return frame;
+  return {desktop->x(), desktop->y(), desktop->restore_client_width(),
+          desktop->restore_client_height()};
 }
 
 LinuxDesktopWindowPresenter::ClientFrame
 LinuxDesktopWindowPresenter::ReadNativeClientFrame() const {
-  ClientFrame frame{};
-  if (!placement_known_ || window_ == nullptr ||
-      !gtk_widget_get_realized(window_)) {
-    return frame;
-  }
-  gint origin_x = 0;
-  gint origin_y = 0;
-  gdk_window_get_origin(gtk_widget_get_window(window_), &origin_x, &origin_y);
-  frame.x = origin_x - placement_dx_;
-  frame.y = origin_y - placement_dy_;
-  if (client_mount_ != nullptr && gtk_widget_get_visible(client_mount_)) {
-    GtkAllocation allocation{};
-    gtk_widget_get_allocation(client_mount_, &allocation);
-    frame.client_width = allocation.width;
-    frame.client_height = allocation.height;
-  } else {
-    gtk_window_get_size(GTK_WINDOW(window_), &frame.client_width,
-                        &frame.client_height);
-  }
+  ClientFrame frame;
+  // GTK returns the gravity-relative frame position accepted by
+  // gtk_window_move. Keep it independent of the requested position, including
+  // when the window manager chooses an initial position or moves it offscreen.
+  gtk_window_get_position(GTK_WINDOW(window_), &frame.x, &frame.y);
+  GtkAllocation allocation;
+  gtk_widget_get_allocation(client_mount_, &allocation);
+  frame.client_width = allocation.width;
+  frame.client_height = allocation.height;
   return frame;
 }
 
 void LinuxDesktopWindowPresenter::HandleNativeFrameChanged() {
-  if (applying_mirror_frame_ || user_close_requested_ || !placement_known_) {
-    return;
-  }
-  auto const desktop = desktop_window();
-  if (window_ == nullptr || !desktop) {
+  if (applying_mirror_frame_ || user_close_requested_ || !mapped_) {
     return;
   }
   ClientFrame const native = ReadNativeClientFrame();
   if (native.client_width <= 0 || native.client_height <= 0) {
     return;
   }
-  SubmitFrameFromNative(native.x, native.y, native.client_width,
-                        native.client_height, !applying_mirror_frame_);
+  GdkWindowState const state =
+      gdk_window_get_state(gtk_widget_get_window(window_));
+  bool const restore =
+      (state & (GDK_WINDOW_STATE_MAXIMIZED | GDK_WINDOW_STATE_ICONIFIED |
+                GDK_WINDOW_STATE_FULLSCREEN)) == 0;
+  ReportNativeFrameToModel(native.x, native.y, native.client_width,
+                           native.client_height, restore);
 }
 
 void LinuxDesktopWindowPresenter::ReportNativeClientFrame() {
@@ -106,39 +69,33 @@ void LinuxDesktopWindowPresenter::ReportNativeClientFrame() {
 }
 
 gboolean LinuxDesktopWindowPresenter::OnConfigure(GtkWidget* widget,
-                                                    GdkEventConfigure* event,
-                                                    gpointer user_data) {
+                                                  GdkEventConfigure* event,
+                                                  gpointer user_data) {
+  (void)widget;
   (void)event;
-  auto* self = static_cast<LinuxDesktopWindowPresenter*>(user_data);
-  if (!self->placement_known_) {
-    if (!self->mapped_) {
-      return FALSE;
-    }
-    // Some window managers place the client at an offset from the
-    // gtk_window_move reference point that _NET_FRAME_EXTENTS does not
-    // describe (WSLg adds an undeclared shadow margin). Frames are reported in
-    // move coordinates using the offset of the first placement, measured
-    // against the last position requested before it.
-    gint origin_x = 0;
-    gint origin_y = 0;
-    gdk_window_get_origin(gtk_widget_get_window(widget), &origin_x, &origin_y);
-    if (!ClientRectOnMonitor(widget, origin_x, origin_y)) {
-      return FALSE;
-    }
-    self->placement_dx_ = origin_x - self->placement_request_x_;
-    self->placement_dy_ = origin_y - self->placement_request_y_;
-    self->placement_known_ = true;
-  }
-  self->HandleNativeFrameChanged();
+  static_cast<LinuxDesktopWindowPresenter*>(user_data)->HandleNativeFrameChanged();
   return FALSE;
 }
 
 gboolean LinuxDesktopWindowPresenter::OnMapEvent(GtkWidget* widget,
-                                                 GdkEvent* event,
-                                                 gpointer user_data) {
-  (void)widget;
+                                                GdkEvent* event,
+                                                gpointer user_data) {
   (void)event;
-  static_cast<LinuxDesktopWindowPresenter*>(user_data)->mapped_ = true;
+  auto* self = static_cast<LinuxDesktopWindowPresenter*>(user_data);
+  bool const initial_map = !self->mapped_;
+  self->mapped_ = true;
+  self->HandleNativeFrameChanged();
+  if (initial_map) {
+    GdkMonitor* const monitor = gdk_display_get_monitor_at_window(
+        gtk_widget_get_display(widget), gtk_widget_get_window(widget));
+    if (monitor == nullptr) {
+      FatalLinux("gdk_display_get_monitor_at_window");
+    }
+    GdkRectangle workarea;
+    gdk_monitor_get_workarea(monitor, &workarea);
+    self->SubmitScreenFromNative(workarea.x, workarea.y, workarea.width,
+                                  workarea.height);
+  }
   return FALSE;
 }
 
@@ -146,50 +103,35 @@ void LinuxDesktopWindowPresenter::OnClientMountSizeAllocate(
     GtkWidget* widget, GdkRectangle* allocation, gpointer user_data) {
   (void)widget;
   (void)allocation;
-  auto* self = static_cast<LinuxDesktopWindowPresenter*>(user_data);
-  self->HandleNativeFrameChanged();
+  static_cast<LinuxDesktopWindowPresenter*>(user_data)->HandleNativeFrameChanged();
 }
 
 gboolean LinuxDesktopWindowPresenter::OnDeleteEvent(GtkWidget* widget,
-                                                    GdkEvent* event,
-                                                    gpointer user_data) {
+                                                   GdkEvent* event,
+                                                   gpointer user_data) {
+  (void)widget;
   (void)event;
   auto* self = static_cast<LinuxDesktopWindowPresenter*>(user_data);
   if (self->user_close_requested_) {
     return TRUE;
   }
   self->HandleNativeFrameChanged();
-  // The close command may remove this window from the model before the
-  // publication unloads the presenter; later frame reports would target it.
+  // Model Close may unload the target before the publication destroys GTK UI.
   self->user_close_requested_ = true;
   self->DisconnectNativeFrameReports();
-  auto* host =
-      static_cast<LinuxPresentationHost*>(self->presentation_host);
-  if (host != nullptr && host->on_desktop_window_user_close != nullptr) {
-    host->on_desktop_window_user_close(host->opaque,
-                                       self->window.operator->());
-  }
-  (void)widget;
+  auto* host = static_cast<LinuxPresentationHost*>(self->presentation_host);
+  host->on_desktop_window_user_close(host->opaque, self->window.operator->());
   return TRUE;
 }
 
 void LinuxDesktopWindowPresenter::ApplyRequestedFrameFromMirror() {
-  if (applying_mirror_frame_ || window_ == nullptr ||
-      !gtk_widget_get_realized(window_)) {
-    return;
-  }
-  auto const desktop = desktop_window();
-  if (!desktop) {
+  if (applying_mirror_frame_ || user_close_requested_ || !mapped_) {
     return;
   }
   ClientFrame const mirror = ReadMirrorClientFrame();
   ClientFrame const native = ReadNativeClientFrame();
   if (FramesEqual(mirror, native)) {
     return;
-  }
-  if (!placement_known_) {
-    placement_request_x_ = mirror.x;
-    placement_request_y_ = mirror.y;
   }
   applying_mirror_frame_ = true;
   gtk_window_resize(GTK_WINDOW(window_), mirror.client_width,
@@ -202,9 +144,6 @@ void LinuxDesktopWindowPresenter::OnLoad() {
   auto const desktop = desktop_window();
   user_close_requested_ = false;
   mapped_ = false;
-  placement_known_ = false;
-  placement_request_x_ = desktop->x();
-  placement_request_y_ = desktop->y();
 
   window_ = gtk_window_new(GTK_WINDOW_TOPLEVEL);
   if (window_ == nullptr) {
@@ -227,24 +166,16 @@ void LinuxDesktopWindowPresenter::OnLoad() {
       g_signal_connect(client_mount_, "size-allocate",
                        G_CALLBACK(OnClientMountSizeAllocate), this);
 
-  int const client_w = desktop->restore_client_width() > 0
-                           ? desktop->restore_client_width()
-                           : (desktop->client_width() > 0 ? desktop->client_width()
-                                                          : 640);
-  int const client_h = desktop->restore_client_height() > 0
-                           ? desktop->restore_client_height()
-                           : (desktop->client_height() > 0 ? desktop->client_height()
-                                                           : 480);
   applying_mirror_frame_ = true;
-  gtk_window_set_default_size(GTK_WINDOW(window_), client_w, client_h);
-  gtk_window_resize(GTK_WINDOW(window_), client_w, client_h);
-  gtk_window_move(GTK_WINDOW(window_), desktop->x(), desktop->y());
-  // The model frame is a user position. A window mapped at (0,0) without
-  // USPosition/PPosition may be treated as unpositioned by an X11 WM.
-  gtk_window_set_geometry_hints(GTK_WINDOW(window_), nullptr, nullptr,
-                                GDK_HINT_USER_POS);
+  gtk_window_set_default_size(GTK_WINDOW(window_),
+                               desktop->restore_client_width(),
+                               desktop->restore_client_height());
+  if (desktop->HasExplicitPosition()) {
+    gtk_window_move(GTK_WINDOW(window_), desktop->x(), desktop->y());
+    gtk_window_set_geometry_hints(GTK_WINDOW(window_), nullptr, nullptr,
+                                  GDK_HINT_USER_POS);
+  }
   applying_mirror_frame_ = false;
-
   SyncTitleFromMirror();
   gtk_widget_show_all(window_);
 }
@@ -275,11 +206,10 @@ void LinuxDesktopWindowPresenter::OnUnload() {
   delete_handler_ = 0;
   map_handler_ = 0;
   DisconnectNativeFrameReports();
-  if (GTK_IS_WIDGET(window_)) {
-    gtk_widget_destroy(window_);
-  }
+  gtk_widget_destroy(window_);
   window_ = nullptr;
   client_mount_ = nullptr;
+  mapped_ = false;
 }
 
 }  // namespace apptraverse::ui::linux

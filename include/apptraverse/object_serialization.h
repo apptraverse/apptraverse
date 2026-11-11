@@ -193,15 +193,19 @@ ae::Obj& ApplyIncrementalPublication(ByteSource& in, ae::Domain& domain,
 // payload length, SerializeObjectGraphToBuffer payload. Use this when the
 // Node's reachable graph grows (e.g. Add Item). Field-only updates of an
 // already-mirrored object may keep SerializeIncrementalNodePublication.
+// Consumes pending desktop-frame requests for every materialized window in the
+// fragment; the envelope carries their ids even for an application-root save.
 void SerializeStructuralNodePublication(Node const& node, ByteSink& out);
 
 // Apply a structural envelope into an already-mirrored GUI Node. Nested
 // LoadRoot materializes new shells for newly referenced ObjIds. Does not
 // call presenter hooks — prefer ApplyStructuralPublicationAndUpdatePresenters
-// when presentation must stay in sync.
-ae::Obj& ApplyStructuralPublication(ByteSource& in, ae::Domain& domain,
-                                    ae::IDomainStorage& storage,
-                                    std::uint8_t* sidecar_out = nullptr);
+// when presentation must stay in sync. sidecar_out retains the root-window
+// request flag; desktop_frame_requests_out receives all requested window ids.
+ae::Obj& ApplyStructuralPublication(
+    ByteSource& in, ae::Domain& domain, ae::IDomainStorage& storage,
+    std::uint8_t* sidecar_out = nullptr,
+    std::vector<std::uint32_t>* desktop_frame_requests_out = nullptr);
 
 }  // namespace apptraverse
 

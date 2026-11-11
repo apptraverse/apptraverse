@@ -24,6 +24,7 @@ enum class LinuxWindowCatalogSessionAutomation {
   L3GeomZCycle2Cold,
   L3ChildCloseSave,
   L3ChildCloseCold,
+  NativeGeometry,
 };
 
 LinuxWindowCatalogSessionAutomation ParseLinuxWindowCatalogSessionAutomation(

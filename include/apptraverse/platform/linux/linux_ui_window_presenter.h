@@ -53,8 +53,6 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
   };
 
   static bool FramesEqual(ClientFrame a, ClientFrame b);
-  static bool ClientRectOnMonitor(GtkWidget* window, gint origin_x,
-                                  gint origin_y);
 
   std::string ResolveTitleText() const;
   void SyncTitleFromMirror();
@@ -81,11 +79,6 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
   bool applying_mirror_frame_{false};
   bool user_close_requested_{false};
   bool mapped_{false};
-  bool placement_known_{false};
-  std::int32_t placement_request_x_{0};
-  std::int32_t placement_request_y_{0};
-  std::int32_t placement_dx_{0};
-  std::int32_t placement_dy_{0};
 };
 
 }  // namespace apptraverse::ui::linux

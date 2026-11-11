@@ -21,7 +21,7 @@ ui::linux::LinuxDesktopWindowPresenter* CatalogWindowPresenter(
 
 void TryMapGtkWindow(CatalogWindow::ptr const& window_ref,
                      std::unordered_map<GtkWidget*, std::uint32_t>& out) {
-  if (!window_ref.is_valid() || !window_ref.is_loaded()) {
+  if (!window_ref.is_loaded()) {
     return;
   }
   ui::linux::LinuxDesktopWindowPresenter* presenter =
@@ -37,22 +37,16 @@ void TryMapGtkWindow(CatalogWindow::ptr const& window_ref,
 
 GtkWidget* GtkForCatalogWindowId(WindowCatalog& catalog,
                                    ae::ObjId::Type window_id) {
-  if (catalog.persisted.main_window.is_valid() &&
-      catalog.persisted.main_window.id().id() == window_id) {
+  if (catalog.persisted.main_window.id().id() == window_id) {
     ui::linux::LinuxDesktopWindowPresenter* presenter =
         CatalogWindowPresenter(*catalog.persisted.main_window);
     return presenter != nullptr ? presenter->TopLevelWindow() : nullptr;
   }
   catalog.persisted.list.Load();
-  if (!catalog.persisted.list) {
-    return nullptr;
-  }
   for (auto const& row : catalog.persisted.list->rows) {
-    if (!row) {
-      continue;
-    }
+    row.Load();
     auto* holder = static_cast<WindowHolder*>(&*row);
-    if (!holder->window.is_valid() || holder->window.id().id() != window_id) {
+    if (!holder->window.is_loaded() || holder->window.id().id() != window_id) {
       continue;
     }
     ui::linux::LinuxDesktopWindowPresenter* presenter =
@@ -69,14 +63,10 @@ std::vector<std::uint32_t> CaptureCatalogDesktopZOrderTopToBottom(
   std::unordered_map<GtkWidget*, std::uint32_t> widget_to_id;
   TryMapGtkWindow(catalog.persisted.main_window, widget_to_id);
   catalog.persisted.list.Load();
-  if (catalog.persisted.list) {
-    for (auto const& row : catalog.persisted.list->rows) {
-      if (!row) {
-        continue;
-      }
-      auto* holder = static_cast<WindowHolder*>(&*row);
-      TryMapGtkWindow(holder->window, widget_to_id);
-    }
+  for (auto const& row : catalog.persisted.list->rows) {
+    row.Load();
+    auto* holder = static_cast<WindowHolder*>(&*row);
+    TryMapGtkWindow(holder->window, widget_to_id);
   }
   if (widget_to_id.empty()) {
     return {};
@@ -105,9 +95,6 @@ void RestoreCatalogDesktopZOrder(WindowCatalog& catalog) {
   }
   std::vector<GtkWidget*> ordered_widgets;
   for (auto const& window_ref : catalog.persisted.desktop_z_order) {
-    if (!window_ref.is_valid()) {
-      continue;
-    }
     GtkWidget* const widget =
         GtkForCatalogWindowId(catalog, window_ref.id().id());
     if (widget != nullptr) {
@@ -119,7 +106,7 @@ void RestoreCatalogDesktopZOrder(WindowCatalog& catalog) {
 
 void FlushCatalogNativeFrames(WindowCatalog& catalog) {
   auto flush_one = [](CatalogWindow::ptr const& window_ref) {
-    if (!window_ref.is_valid() || !window_ref.is_loaded()) {
+    if (!window_ref.is_loaded()) {
       return;
     }
     ui::linux::LinuxDesktopWindowPresenter* presenter =
@@ -130,14 +117,10 @@ void FlushCatalogNativeFrames(WindowCatalog& catalog) {
   };
   flush_one(catalog.persisted.main_window);
   catalog.persisted.list.Load();
-  if (catalog.persisted.list) {
-    for (auto const& row : catalog.persisted.list->rows) {
-      if (!row) {
-        continue;
-      }
-      auto* holder = static_cast<WindowHolder*>(&*row);
-      flush_one(holder->window);
-    }
+  for (auto const& row : catalog.persisted.list->rows) {
+    row.Load();
+    auto* holder = static_cast<WindowHolder*>(&*row);
+    flush_one(holder->window);
   }
 }
 

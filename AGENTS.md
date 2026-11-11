@@ -26,12 +26,12 @@ When a defect appears during porting, fix the **architectural cause** in the rig
 - Keep historical PASS records with their scope; record current regressions separately.
 - Non-blocking Object Core matrices and production hardening stay **DEFERRED**.
 
-Current work and acceptance: Windows WindowCatalog, its headless tests and the shared library it uses. CI and other example applications are excluded by the user's current instruction. The seven-backend roadmap remains a long-term goal, not authorization to work on other platforms.
+Current work: port WindowCatalog to Linux GTK through WSL, preserving the verified Windows/headless behavior and the shared application template. Linux acceptance is pending until its build and native tests execute. CI and other example applications remain excluded. The seven-backend roadmap is not authorization to work on further platforms.
 
 ## Active plan (P0–P6)
 
-- **Order:** follow the current user task within Windows/headless scope. [PLAN §P0–P6](docs/versioning/PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6) retains the long-term roadmap; its old other-platform NEXT entries and **U5.2–U6**, **9D–9H** are not active instructions.
-- **Priority:** current user scope is Windows WindowCatalog and its headless tests. Preserve the common application template; CI, MinimalApp/other examples, other-platform acceptance, administration and the long-term P3/P4 roadmap require a separate task.
+- **Order:** follow the current Linux WindowCatalog port task and preserve Windows/headless regression coverage. [PLAN §P0–P6](docs/versioning/PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6) retains the long-term roadmap; its old other-platform NEXT entries and **U5.2–U6**, **9D–9H** are not active instructions.
+- **Priority:** WindowCatalog on Linux GTK/WSL, Windows and headless. Preserve the common application template; CI, MinimalApp/other examples, further platforms, administration and the long-term P3/P4 roadmap require a separate task.
 - **Boundary:** common/backend libraries не зависят от examples/WindowCatalog; native host/controls принадлежат backend, модель/Events/prefab/composition — приложению. Независимый MinimalApp проверяет переиспользование. Не копировать SurfacesModelSession и mirror-код в новые порты.
 - **Deferred (не возвращать в активную очередь без отдельного задания):** Object Core T16/T17, полная матрица Clone/upgrade, `kSupplyConstantIds` replacement, production hardening, resource download matrices — см. PLAN §P3 DEFERRED.
 - **Canon:** [docs/architecture/AppTraverse_Architecture_RU.md](docs/architecture/AppTraverse_Architecture_RU.md) (2026-11-10 accepted principles; historical observations are explicitly separated).

@@ -5,8 +5,6 @@
 #include <glib.h>
 #include <gtk/gtk.h>
 
-#include "apptraverse/platform/linux/linux_fatal.h"
-
 namespace apptraverse {
 namespace linux {
 namespace {
@@ -59,7 +57,8 @@ void LinuxApplicationHost::HandlePublication(ApplicationPublicationKind kind) {
 
 void LinuxApplicationHost::OnInitialPublished() {
   std::vector<std::uint8_t> bytes = runtime_.TakePublishedCopyForUiApply();
-  ui_session_.emplace(bytes, &presentation_host_, model_proxy_);
+  ui_session_.emplace(bytes, &presentation_host_, model_proxy_,
+                      callbacks_.prepare_ui_presenters);
   if (callbacks_.after_initial) {
     callbacks_.after_initial(ui_session_->root());
   }
@@ -67,9 +66,6 @@ void LinuxApplicationHost::OnInitialPublished() {
 }
 
 void LinuxApplicationHost::OnIncrementalPublished() {
-  if (!ui_session_) {
-    FatalLinux("LinuxApplicationHost incremental before initial");
-  }
   std::vector<std::uint8_t> bytes = runtime_.TakePublishedCopyForUiApply(
       callbacks_.take_incremental_sidecar);
   ui_session_->ApplyStructural(bytes);
