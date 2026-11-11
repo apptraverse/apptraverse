@@ -15,6 +15,7 @@
 - Runtime lifecycle states (`ReadyForPresentation`, activated parent, disabled control, closed/lazy window) are real; do not conflate them with missing graph links.
 - Side effects (Save/Load/Inject, I/O, mutation) must not run only inside `assert`; execute once, store the result, assert on that result (must still run under `NDEBUG`).
 - **WindowCatalog prototype schema:** application classes stay **S0-only** for now. New fields go into existing S0 Load/Save; old experimental on-disk profiles are **not** migrated or auto-read. Application S1/S2 or migrations only by separate assignment — this does not remove library versioning or specialized versioning tests.
+- Cold persistence tests must pair USER with the same embedded BACKING. Re-running a Debug producer can assign new constant IDs; reusing older USER with that new supply is an unsupported upgrade scenario, not a cold-restart test. Preserve prior profiles instead of adding silent repair/reset paths.
 
 ## Porting and regression (backend / template work)
 
@@ -28,7 +29,7 @@ When a defect appears during porting, fix the **architectural cause** in the rig
 
 Current work: autonomously complete WindowCatalog ports in order Linux GTK through WSL, Android, then WebAssembly, preserving the verified Windows/headless behavior and the shared application template. The user authorized all three ports, builds/tests and commit/push without continuation questions. macOS/iOS are being ported independently on a MacBook in a different branch: do not modify or merge that work. CI and other example applications remain excluded. Maximization support is explicitly deferred; do not implement it as part of these ports.
 
-Acceptance checkpoint (2026-11-10): these three ports are implemented and tested within the scopes recorded in `docs/validation/window-catalog-{linux,android,web}-port-2026-11-10.md`. Preserve the documented WSLg position limitation, Android onStop and Web explicit-shutdown persistence boundaries, and the Windows interactive-foreground test precondition. ARM64/devices, other browsers, Release packaging and deferred maximization are not implied follow-up tasks.
+Acceptance checkpoint (2026-11-10): these three ports are implemented and tested within the scopes recorded in `docs/validation/window-catalog-{linux,android,web}-port-2026-11-10.md`. The 2026-11-11 lifecycle follow-up extends Web persistence to hidden/pagehide and verifies ordinary Android task dismissal; use the load-only Debug variants for manual persistence, preserving normal Debug fresh policy. Preserve the documented WSLg position limitation and the Windows interactive-foreground test precondition. ARM64/devices, other browsers, Release packaging and deferred maximization are not implied follow-up tasks.
 
 ## Active plan (P0–P6)
 

@@ -57,6 +57,43 @@ EM_JS(void, ApptraverseIdbfsSyncStore, (), {
   });
 });
 
+EM_JS(int, ApptraverseIdbfsCommitLifecycleFile,
+      (const char* mount_utf8, const char* file_utf8,
+       const std::uint8_t* bytes, std::size_t size), {
+  var mount = PATH.normalize(UTF8ToString(mount_utf8));
+  var file = PATH.normalize(UTF8ToString(file_utf8));
+  if (!file.startsWith(mount + '/')) return 0;
+  var db = IDBFS.dbs[mount];
+  if (!db) return 0;
+  var transaction;
+  try {
+    FS.mkdirTree(PATH.dirname(file));
+    // IndexedDB cannot store a view backed by Wasm's SharedArrayBuffer.
+    FS.writeFile(file, new Uint8Array(HEAPU8.subarray(bytes, bytes + size)));
+    transaction = db.transaction([IDBFS.DB_STORE_NAME], 'readwrite');
+    var store = transaction.objectStore(IDBFS.DB_STORE_NAME);
+    var path = file;
+    while (path !== mount) {
+      var stat = FS.stat(path);
+      var entry = { timestamp: stat.mtime, mode: stat.mode };
+      if (path === file) entry.contents = FS.readFile(file);
+      store.put(entry, path);
+      path = PATH.dirname(path);
+    }
+    transaction.onabort = function() {
+      console.error('IDBFS lifecycle USER commit failed', transaction.error);
+    };
+    // Queue all data before ending the lifecycle event, without an asynchronous
+    // database-open/enumeration/request callback between here and commit().
+    transaction.commit();
+    return 1;
+  } catch (error) {
+    if (transaction) transaction.abort();
+    console.error('Lifecycle USER commit failed', error);
+    return 0;
+  }
+});
+
 void DispatchLoadSuccess() {
   IdbfsCompletionCallback cb = std::move(g_load_success);
   g_load_success = {};
@@ -144,6 +181,17 @@ void SyncIdbfsStore(IdbfsCompletionCallback on_success,
   g_store_success = std::move(on_success);
   g_store_error = std::move(on_error);
   ApptraverseIdbfsSyncStore();
+}
+
+bool CommitIdbfsFileForPageLifecycle(std::string const& mount_path,
+                                    std::string const& file_path,
+                                    std::vector<std::uint8_t> const& bytes) {
+  if (!emscripten_is_main_browser_thread() ||
+      file_path.compare(0, mount_path.size() + 1, mount_path + "/") != 0) {
+    return false;
+  }
+  return ApptraverseIdbfsCommitLifecycleFile(
+      mount_path.c_str(), file_path.c_str(), bytes.data(), bytes.size()) != 0;
 }
 
 }  // namespace apptraverse::web

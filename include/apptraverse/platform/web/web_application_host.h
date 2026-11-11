@@ -6,6 +6,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include <pthread.h>
 
@@ -34,6 +35,9 @@ struct WebApplicationHostCallbacks {
   std::function<void(ae::Obj& application_root)> after_incremental;
   std::function<void()> request_stop;
   std::function<int(ae::Domain& domain)> persist_model;
+  // Must only capture model/RAM state. No filesystem or browser/UI work: this
+  // callback runs on the model worker while main waits at the lifecycle barrier.
+  std::function<bool(ae::Domain&, std::vector<std::uint8_t>&)> capture_model_state;
   std::function<void()> on_save_started;
   std::function<void()> on_save_succeeded;
   std::function<void()> on_save_failed;
@@ -58,6 +62,7 @@ class WebApplicationHost {
 
   void RequestSave();
   void RequestShutdown();
+  bool PersistForPageLifecycle(std::string const& file_path);
 
   [[nodiscard]] WebApplicationHostLifecycle lifecycle() const {
     return lifecycle_.load(std::memory_order_acquire);

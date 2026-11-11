@@ -25,13 +25,25 @@ Activity first goes into the background. Recreating the Activity in the same
 process keeps the live model and remounts its presenters.
 
 **debugLoadOnly** keeps Debug assertions and symbols but reads/writes
-`files/<stateSubdir>/user.bin`. It exists for cold-restart acceptance of the
-consumer path; it does not change normal Debug policy. The build-host exporter
+`files/<stateSubdir>/user.bin`. Use it for interactive close/reopen demonstrations
+and cold-restart acceptance of the consumer path; it does not change normal
+Debug policy. The build-host exporter
 creates the embedded initial graph for both variants. Its builder and distiller
 are absent from the Android native runtime library. The generated header belongs
 to each native build directory, not the source tree. ARM64/device builds and
 Release packaging are not covered by the x86_64 emulator acceptance below. Other
 example applications are outside this acceptance scope and were not run.
+
+For manual persistence checks, install `app-debugLoadOnly.apk` with `adb install
+-r`, then open the ordinary launcher icon. This uses the stable default profile
+`files/window_catalog_state/user.bin`. Back or Home invokes `onStop`; removing
+the task from Recents may then end the process. Opening the launcher icon again
+loads that file. Normal `app-debug.apk` intentionally starts empty on each
+process launch even though its previous run was saved. Installing with `-r`
+keeps existing profiles; neither variant imports or deletes older Debug runs.
+These are same-build restart checks. Regenerating embedded BACKING can change
+constant object IDs; migration of USER between different supplies is outside the
+prototype scope. Keep a profile paired with the APK that created it.
 
 ## Incremental build
 
@@ -84,6 +96,12 @@ model-derived Close geometry and Activity replacement with the same model
 process. Working actions must create no `user.bin`. Backgrounding must create
 one file. A subsequent process restart restores the active child in
 `debugLoadOnly`; normal Debug starts empty and leaves the earlier file unchanged.
+Two additional API34/Pixel-launcher cases use real Back/Home and swipe the
+catalog card out of Recents and verify that its task ID disappears. Android may
+retain a cached process after task removal; the tests terminate only that
+remaining demo process, when necessary, and verify a different PID after
+relaunch. They preserve the active child and RU locale in `debugLoadOnly`, and
+verify fresh-state policy in normal Debug.
 The host `apptraverse_window_catalog_android_embedded_session_test` separately
 checks cold USER loading into fresh RAM/backing, stable IDs, closed/open lazy
 state and exclusion of immutable localization bodies from USER.

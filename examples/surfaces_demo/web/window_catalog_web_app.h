@@ -3,6 +3,7 @@
 
 #include <filesystem>
 #include <memory>
+#include "aether-objects/domain_storage/ram_domain_storage.h"
 
 #include "apptraverse/application_model_runtime.h"
 #include "apptraverse/platform/web/web_application_host.h"
@@ -12,7 +13,7 @@ namespace apptraverse {
 
 // Web WindowCatalog host: model thread + main-thread UI mirror via
 // web::WebApplicationHost, mobile pager (same model as Android), embedded
-// BACKING plus RAM USER; shutdown writes one user.bin and syncs IDBFS.
+// BACKING plus RAM USER; page lifecycle/shutdown persist one user.bin in IDBFS.
 class WebWindowCatalogApp {
  public:
   static WebWindowCatalogApp& Instance();
@@ -21,6 +22,7 @@ class WebWindowCatalogApp {
 
   // Main-thread bridge entry points (see extern "C" exports in the .cpp).
   void RequestShutdown();
+  bool PersistForPageLifecycle();
   void MobileSwipe(int delta);
   void MobilePageShown(unsigned window_obj_id);
   void ViewportChanged(int width, int height);
@@ -33,6 +35,7 @@ class WebWindowCatalogApp {
   void PublishMobilePages(ae::Obj& application_root);
 
   std::filesystem::path state_dir_;
+  ae::RamDomainStorage user_storage_;
   ApplicationModelRuntime runtime_;
   ui::web::WebPresentationHost presentation_host_;
   std::unique_ptr<web::WebApplicationHost> host_;

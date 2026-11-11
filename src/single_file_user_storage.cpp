@@ -13,19 +13,12 @@ namespace {
 using Scopes = std::map<ae::ObjId, std::array<std::uint32_t, 3>>;
 }
 
-bool LoadUserStorageFile(ae::RamDomainStorage& storage, std::filesystem::path const& profile) {
-  auto const file_ = profile / "user.bin";
-  errno = 0;
-  std::ifstream input{file_, std::ios::binary};
-  if (!input && errno == ENOENT) {
-    storage.state.clear();
-    storage.object_scopes.clear();
-    return true;
-  }
-  if (!input) return false;
-  std::vector<std::uint8_t> bytes{std::istreambuf_iterator<char>{input}, {}};
-  if (input.bad()) return false;
-  ae::seri::BinaryVectorBuffer buffer{bytes};
+bool DeserializeUserStorage(ae::RamDomainStorage& storage,
+                            std::vector<std::uint8_t> const& bytes) {
+  // BinaryVectorBuffer currently takes a mutable vector even for reads.
+  // Keep the public input const without casting away its ownership contract.
+  auto input_bytes = bytes;
+  ae::seri::BinaryVectorBuffer buffer{input_bytes};
   ae::seri::BinaryArchive archive{std::move(buffer)};
   ae::RamDomainStorage::ObjClassData loaded;
   Scopes scopes;
@@ -40,17 +33,40 @@ bool LoadUserStorageFile(ae::RamDomainStorage& storage, std::filesystem::path co
   return true;
 }
 
-bool SaveUserStorageFile(ae::RamDomainStorage const& storage, std::filesystem::path const& profile) {
-  auto const file_ = profile / "user.bin";
+bool SerializeUserStorage(ae::RamDomainStorage const& storage,
+                          std::vector<std::uint8_t>& bytes) {
   Scopes scopes;
   for (auto const& [id, scope] : storage.object_scopes) {
     scopes.emplace(id, std::array<std::uint32_t, 3>{scope.root_id.id(),
         scope.parent_root_id.id(), scope.is_constant ? 1U : 0U});
   }
-  std::vector<std::uint8_t> bytes;
-  ae::seri::BinaryVectorBuffer buffer{bytes};
+  std::vector<std::uint8_t> encoded;
+  ae::seri::BinaryVectorBuffer buffer{encoded};
   ae::seri::BinaryArchive archive{std::move(buffer)};
   if (archive.Save(storage.state).IsErr() || archive.Save(scopes).IsErr()) return false;
+  bytes = std::move(encoded);
+  return true;
+}
+
+bool LoadUserStorageFile(ae::RamDomainStorage& storage, std::filesystem::path const& profile) {
+  auto const file_ = profile / "user.bin";
+  errno = 0;
+  std::ifstream input{file_, std::ios::binary};
+  if (!input && errno == ENOENT) {
+    storage.state.clear();
+    storage.object_scopes.clear();
+    return true;
+  }
+  if (!input) return false;
+  std::vector<std::uint8_t> bytes{std::istreambuf_iterator<char>{input}, {}};
+  if (input.bad()) return false;
+  return DeserializeUserStorage(storage, bytes);
+}
+
+bool SaveUserStorageFile(ae::RamDomainStorage const& storage, std::filesystem::path const& profile) {
+  auto const file_ = profile / "user.bin";
+  std::vector<std::uint8_t> bytes;
+  if (!SerializeUserStorage(storage, bytes)) return false;
   std::error_code ec;
   std::filesystem::create_directories(file_.parent_path(), ec);
   if (ec) return false;

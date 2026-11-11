@@ -299,6 +299,23 @@ void WebApplicationHost::RequestShutdown() {
   BeginModelStopAfterSaveBarrier();
 }
 
+bool WebApplicationHost::PersistForPageLifecycle(std::string const& file_path) {
+  if (!emscripten_is_main_browser_thread() || !model_thread_live_ ||
+      lifecycle() != WebApplicationHostLifecycle::kRunning ||
+      !callbacks_.capture_model_state) {
+    return false;
+  }
+  std::vector<std::uint8_t> bytes;
+  bool captured = false;
+  // Accepted commands are drained even when their UI publication is pending.
+  // Do not request shutdown or wait for IDBFS callbacks while the page leaves.
+  runtime_.SyncPost([&](ae::Domain& domain) {
+    captured = callbacks_.capture_model_state(domain, bytes);
+  });
+  return captured && CommitIdbfsFileForPageLifecycle(
+      idbfs_mount_path_, file_path, bytes);
+}
+
 void WebApplicationHost::BeginModelStopAfterSaveBarrier() {
   if (callbacks_.request_stop) {
     callbacks_.request_stop();

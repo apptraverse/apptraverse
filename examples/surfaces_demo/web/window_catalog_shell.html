@@ -194,6 +194,19 @@
       }
 
       function installInput() {
+        var lifecycleSaved = false;
+        function persistHiddenPage() {
+          if (lifecycleSaved) return;
+          var fn = bridge('ApptraverseWindowCatalogPageHidden');
+          if (fn) lifecycleSaved = fn() !== 0;
+        }
+        document.addEventListener('visibilitychange', function() {
+          if (document.visibilityState === 'hidden') persistHiddenPage();
+          else lifecycleSaved = false;
+        });
+        // Fallback for navigation/close and pages returning from bfcache.
+        window.addEventListener('pagehide', persistHiddenPage);
+        window.addEventListener('pageshow', function() { lifecycleSaved = false; });
         el('prev-page').addEventListener('click', function() { swipe(-1); });
         el('next-page').addEventListener('click', function() { swipe(1); });
         el('shutdown-button').addEventListener('click', shutdown);

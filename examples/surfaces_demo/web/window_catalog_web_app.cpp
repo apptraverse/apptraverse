@@ -83,6 +83,10 @@ EMSCRIPTEN_KEEPALIVE void ApptraverseWindowCatalogRequestShutdown() {
   WebWindowCatalogApp::Instance().RequestShutdown();
 }
 
+EMSCRIPTEN_KEEPALIVE int ApptraverseWindowCatalogPageHidden() {
+  return WebWindowCatalogApp::Instance().PersistForPageLifecycle() ? 1 : 0;
+}
+
 EMSCRIPTEN_KEEPALIVE void ApptraverseWindowCatalogMobileSwipe(int delta) {
   WebWindowCatalogApp::Instance().MobileSwipe(delta);
 }
@@ -125,10 +129,9 @@ void WebWindowCatalogApp::Start(std::filesystem::path state_dir) {
     state_dir_ /= "debug-run-" + std::to_string(ae::ObjId::GenerateUnique().id());
     state_dir_ /= "user";
 #endif
-    ae::RamDomainStorage user_storage;
 #if !defined(APPTRAVERSE_WEB_CATALOG_FRESH_USER)
-    if (!LoadUserStorageFile(user_storage, state_dir_)) return 1;
-    if (!user_storage.state.empty()) {
+    if (!LoadUserStorageFile(user_storage_, state_dir_)) return 1;
+    if (!user_storage_.state.empty()) {
       EM_ASM({ console.log('WINDOW_CATALOG_LOADED_FROM_PROFILE'); });
     } else {
       EM_ASM({ console.log('WINDOW_CATALOG_LOADED_FROM_EMBEDDED_BACKING'); });
@@ -143,16 +146,22 @@ void WebWindowCatalogApp::Start(std::filesystem::path state_dir) {
       catalog.pending_focus_window = {};
       catalog.pending_mobile_active_window = {};
     };
-    hooks.persist = [this, &user_storage](WindowCatalog& catalog) -> int {
-      return PersistWindowCatalogEmbeddedUserOverlay(catalog, user_storage, state_dir_);
+    hooks.persist = [this](WindowCatalog& catalog) -> int {
+      return PersistWindowCatalogEmbeddedUserOverlay(catalog, user_storage_, state_dir_);
     };
 
     int const session_result = RunEmbeddedApplicationModelSession(
-        user_storage, embedded_distilled::window_catalog_web::kEmbeddedGraph,
+        user_storage_, embedded_distilled::window_catalog_web::kEmbeddedGraph,
         runtime_, std::move(on_published), hooks);
     return session_result;
   };
   callbacks.request_stop = [this] { runtime_.RequestStop(); };
+  callbacks.capture_model_state = [this](ae::Domain& domain,
+                                         std::vector<std::uint8_t>& bytes) {
+    auto catalog = domain.Find(CatalogRootId()).as<WindowCatalog>();
+    SaveWindowCatalogPersistentSnapshot(*catalog);
+    return SerializeUserStorage(user_storage_, bytes);
+  };
   callbacks.after_initial = [this](ae::Obj& root) {
     EM_ASM({
       AtCatalog.setStatus("");
@@ -191,9 +200,23 @@ void WebWindowCatalogApp::FinishTeardown(bool shutdown_succeeded) {
 }
 
 void WebWindowCatalogApp::RequestShutdown() {
-  if (host_) {
+  // A tab can disappear in the same event turn as this button click. Queue the
+  // complete USER transaction before stopping; the normal async shutdown still
+  // acknowledges persistence and releases the model/UI while the page lives.
+  if (host_ && PersistForPageLifecycle()) {
     host_->RequestShutdown();
   }
+}
+
+bool WebWindowCatalogApp::PersistForPageLifecycle() {
+  if (!host_ || !host_->ui_session() ||
+      host_->lifecycle() != web::WebApplicationHostLifecycle::kRunning) {
+    return true;
+  }
+  bool const saved = host_->PersistForPageLifecycle(
+      (state_dir_ / "user.bin").generic_string());
+  if (!saved) SetStatus("Save failed");
+  return saved;
 }
 
 void WebWindowCatalogApp::MobileSwipe(int delta) {

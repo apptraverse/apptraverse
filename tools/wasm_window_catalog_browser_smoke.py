@@ -140,8 +140,7 @@ def acceptance(page: Page, fresh_url: str, load_url: str, screenshot: Path) -> N
     page.locator(ROWS).first.dblclick()
     child_page(page, 'Window 2')
     expect(page.locator('.catalog-page')).to_have_count(2)
-    page.evaluate("window.dispatchEvent(new Event('pagehide')); document.dispatchEvent(new Event('visibilitychange'))")
-    assert snapshot(page) == before, 'UI actions/child Close/background notification wrote USER'
+    assert snapshot(page) == before, 'UI actions/child Close wrote USER'
     screenshot.parent.mkdir(parents=True, exist_ok=True)
     page.screenshot(path=str(screenshot), full_page=True)
     saved = shutdown(page)
@@ -191,16 +190,22 @@ def main() -> int:
     load_url = args.load_only_url or args.url.replace('web_window_catalog_demo.html', 'web_window_catalog_demo_load_only.html')
     errors: list[str] = []
     messages: list[str] = []
+    def record_console(message):
+        if (message.type == 'error' and message.text.startswith('Failed to load resource:')
+                and message.location.get('url', '').endswith('/favicon.ico')):
+            return
+        messages.append(message.type + ': ' + message.text)
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True, channel='chrome')
         context = browser.new_context(viewport={'width': 430, 'height': 860}, has_touch=True)
         page = context.new_page()
         page.on('pageerror', lambda error: errors.append(str(error)))
-        page.on('console', lambda msg: messages.append(msg.type + ': ' + msg.text))
+        page.on('console', record_console)
         try:
             acceptance(page, args.url, load_url, Path(args.screenshot))
             assert not errors, errors
-            unexpected = [m for m in messages if m.startswith('error:') and 'favicon' not in m and 'Failed to load resource:' not in m]
+            known_warning = 'error: Blocking on the main thread is very dangerous, see https://emscripten.org/docs/porting/pthreads.html#blocking-on-the-main-browser-thread'
+            unexpected = [m for m in messages if m.startswith('error:') and m != known_warning]
             assert not unexpected, unexpected
             print('PASS: Web WindowCatalog input, model pager/viewport, child Close, one USER file, two cold restarts, fresh Debug')
             return 0
