@@ -54,6 +54,7 @@ class IosPushButtonPresenter : public UiPushButtonPresenter {
     dnv(base_);
   }
 
+  void NotifyClickedFromUi() override;
   void OnLoad() override;
   void OnModelChanged() override;
   void OnUnload() override;

@@ -50,3 +50,19 @@ a fresh complete final suite passed. No host daemon/security settings changed.
 
 The screenshot captures hosting content, without system title bars. These
 checks do not establish native behavior on Windows/Linux/Web/Android or iOS.
+
+## Updated MinSizeRel
+
+The fixed native host also built in MinSizeRel. The executable is
+**1,199,752 bytes** (about 1.144 MiB). Its embedded 52,803-byte supply header is
+byte-identical to the earlier Debug-prepared supply, so the user's existing
+profile remains paired with the same supply. Symbol/dependency inspection found
+no builders, distillation, C++ RTTI/throw machinery or MacPorts runtime libraries.
+
+The output application was replaced after checking for an existing instance
+through the native orderly-quit helper. No instance required termination.
+It was launched with the existing `work/minsize-profile`; PID 65002 remained
+alive for over a minute and the saved 6,811-byte USER remained byte-identical.
+The preceding executable and USER were backed up locally. The acceptance suite
+above was run in Debug/explicit embedded configurations; this MinSizeRel step
+is build, binary inspection and launch evidence, not a second full input suite.

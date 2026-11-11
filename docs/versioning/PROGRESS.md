@@ -3090,3 +3090,27 @@ model selection. Added visible native text geometry and first-mouse checks.
 Final Debug/embedded/cold native+lifecycle+WindowCatalog headless: **3/3 PASS**,
 83.74 s; six common regression checks: **6/6 PASS**, 35.19 s.
 [Full native-click evidence](../validation/window-catalog-macos-native-clicks-2026-11-10.md).
+
+The corrected MinSizeRel executable is 1,199,752 B. Its earlier embedded supply
+is byte-identical; the updated output app was relaunched with the user's
+existing profile, with saved USER unchanged. Binary/launch evidence is recorded
+in the native-click report.
+
+## 2026-11-10 — iPhone WindowCatalog and mobile viewport Event
+
+User expanded this isolated Apple branch to iOS. Added the SwiftUI/UIKit catalog
+composition, two thin catalog presenters, shared model/proxy/Events/mirror,
+model mobile ring, native table/page input, localized Close and rotation.
+Background performs orderly session drain/save/join and foreground resumes
+the same RAM profile through a new runtime; Debug starts fresh once per process.
+An explicit embedded consumer supports separate cold USER startup.
+
+Common application-only S0 viewport Event keeps mobile Close layout in model
+Apply, including DPI changes, tiny viewports and queued closed-window reports.
+No core-library or persistent-field/schema migration change. Host selected
+tests **9/9 PASS** as recorded above. Both iOS products and acceptance apps
+built; iPhone 15 Pro/iOS 17.2 simulator acceptance **3/3 processes PASS**,
+47 checkpoints plus three native callback identity checks. Product Debug
+installed/launched normally; portrait/landscape captures visually checked.
+Physical iPhone/signing and other-platform native execution are NOT RUN.
+[iOS architecture and executed evidence](../validation/window-catalog-ios-2026-11-10.md).

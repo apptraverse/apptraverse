@@ -196,10 +196,14 @@ endif()
 
 if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
   add_subdirectory(macos)
+  if(APPTRAVERSE_BUILD_EXAMPLES)
+    add_subdirectory(ios/host_export)
+  endif()
 endif()
 
 if(IOS)
   add_subdirectory(ios)
+  include(${PROJECT_SOURCE_DIR}/tests/ios_window_catalog_acceptance_targets.cmake)
 endif()
 
 if(NOT ANDROID AND NOT EMSCRIPTEN AND APPTRAVERSE_BUILD_EXAMPLES)

@@ -1,6 +1,6 @@
 #import "apptraverse/platform/ios/ATIosApplicationBridge.h"
 
-#include <atomic>
+#include <cstdlib>
 #include <cstdint>
 #include <memory>
 #include <thread>
@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "apptraverse/noninteractive_crt.h"
+#include "apptraverse/object_serialization.h"
 
 #include "apptraverse/application_ui_session.h"
 #include "apptraverse/model_object_proxy.h"
@@ -80,6 +81,7 @@ class IosNativeViews final
 
 @interface ATIosWindowState ()
 - (instancetype)initWithTitle:(NSString*)title
+                     identity:(uint64_t)identity
                             x:(double)x
                             y:(double)y
                         width:(double)width
@@ -88,12 +90,14 @@ class IosNativeViews final
 
 @implementation ATIosWindowState
 - (instancetype)initWithTitle:(NSString*)title
+                     identity:(uint64_t)identity
                             x:(double)x
                             y:(double)y
                         width:(double)width
                        height:(double)height {
   if ((self = [super init])) {
     _title = title;
+    _identity = identity;
     _x = x;
     _y = y;
     _width = width;
@@ -181,15 +185,16 @@ class IosNativeViews final
 
 @interface ATIosApplicationBridge () {
   apptraverse::ui::ios::IosApplicationBridgeCallbacks _callbacks;
-  apptraverse::ApplicationModelRuntime _runtime;
+  apptraverse::ApplicationModelRuntime _ownedRuntime;
+  apptraverse::ApplicationModelRuntime* _runtime;
   std::unique_ptr<apptraverse::ModelObjectProxy> _proxy;
   std::unique_ptr<IosNativeViews> _nativeViews;
   std::unique_ptr<apptraverse::ApplicationUiSession> _uiSession;
   std::thread _modelThread;
   int _modelExitStatus;
-  std::atomic<bool> _pending_background_save;
-  std::atomic<bool> _background_save_running;
-  std::atomic<bool> _model_thread_live;
+  bool _stopping;
+  std::int32_t _viewportWidth;
+  std::int32_t _viewportHeight;
 }
 @property(nonatomic, weak, readwrite)
     id<ATIosApplicationBridgeDelegate> delegate;
@@ -197,8 +202,7 @@ class IosNativeViews final
                     (apptraverse::ui::ios::IosApplicationBridgeCallbacks)
                         callbacks
                          delegate:(id<ATIosApplicationBridgeDelegate>)delegate;
-- (void)enqueueBackgroundSaveWork;
-- (void)tryStartBackgroundSaveFromPending;
+- (void)publishMobilePresentation;
 @end
 
 @implementation ATIosApplicationBridge
@@ -211,9 +215,10 @@ class IosNativeViews final
     _callbacks = std::move(callbacks);
     _delegate = delegate;
     _modelExitStatus = 1;
-    _pending_background_save.store(false);
-    _background_save_running.store(false);
-    _model_thread_live.store(false);
+    _runtime = _callbacks.runtime ? _callbacks.runtime : &_ownedRuntime;
+    _stopping = false;
+    _viewportWidth = 0;
+    _viewportHeight = 0;
   }
   return self;
 }
@@ -221,13 +226,12 @@ class IosNativeViews final
 - (void)start {
   _proxy = std::make_unique<apptraverse::ModelObjectProxy>(
       [self](apptraverse::ModelObjectProxy::ModelWork work) {
-        _runtime.Post(std::move(work));
+        _runtime->Post(std::move(work));
       });
   _nativeViews = std::make_unique<IosNativeViews>(self);
   _modelThread = std::thread([self] {
-    _model_thread_live.store(true, std::memory_order_release);
     _modelExitStatus = _callbacks.run_model(
-        _runtime, [self](apptraverse::ApplicationPublicationKind kind) {
+        *_runtime, [self](apptraverse::ApplicationPublicationKind kind) {
           dispatch_async(dispatch_get_main_queue(), ^{
             [self
                 consumePublication:
@@ -236,70 +240,62 @@ class IosNativeViews final
                         : ATIosPublicationKindIncremental];
           });
         });
-    _model_thread_live.store(false, std::memory_order_release);
     dispatch_async(dispatch_get_main_queue(), ^{
       [self.delegate bridgeModelDidFinish:self];
     });
   });
 }
 
-- (void)enqueueBackgroundSaveWork {
-  _runtime.Post([self](ae::Domain& domain) {
-    int const persist_result = _callbacks.persist_model
-                                   ? _callbacks.persist_model(domain)
-                                   : 1;
-    dispatch_async(dispatch_get_main_queue(), ^{
-      [self.delegate bridge:self backgroundSaveDidFinish:persist_result];
-      self->_background_save_running.store(false, std::memory_order_release);
-      if (self->_pending_background_save.load(std::memory_order_acquire)) {
-        [self tryStartBackgroundSaveFromPending];
-      }
-    });
-  });
-}
-
-- (void)tryStartBackgroundSaveFromPending {
-  if (!_callbacks.persist_model) {
-    return;
-  }
-  if (!_pending_background_save.load(std::memory_order_acquire)) {
-    return;
-  }
-  bool expected = false;
-  if (!_background_save_running.compare_exchange_strong(
-          expected, true, std::memory_order_acq_rel)) {
-    return;
-  }
-  _pending_background_save.store(false, std::memory_order_release);
-  [self enqueueBackgroundSaveWork];
-}
-
 - (void)requestBackgroundSave {
-  if (!_callbacks.persist_model) {
-    apptraverse::WriteFatalStderr(
-        "fatal: ATIosApplicationBridge::requestBackgroundSave without "
-        "persist_model\n");
+  // Background is a session shutdown; hooks.persist writes the one USER file.
+  [self requestStop];
+}
+
+- (void)publishMobilePresentation {
+  auto const snapshot = _callbacks.mobile_presentation(_uiSession->root());
+  std::vector<ae::Obj*> objects;
+  apptraverse::CollectLiveReachableObjects(_uiSession->root(), objects);
+  auto& registry = ae::Registry::GetRegistry();
+  auto token_for = [&](ae::ObjId id) -> uint64_t {
+    for (auto* object : objects) {
+      if (registry.GenerationDistance(IosDesktopWindowPresenter::kClassId,
+                                      object->GetClassId()) < 0) continue;
+      auto& presenter = *static_cast<IosDesktopWindowPresenter*>(object);
+      if (presenter.presentation_loaded && presenter.window.id() == id) {
+        return Token(presenter);
+      }
+    }
+    apptraverse::WriteFatalStderr("fatal: iOS mobile page has no live presenter\n");
     std::abort();
+  };
+  NSMutableArray<NSNumber*>* pages = [NSMutableArray arrayWithCapacity:snapshot.windows.size()];
+  for (auto id : snapshot.windows) [pages addObject:@(token_for(id))];
+  [self.delegate bridge:self applyMobilePages:pages
+              activeToken:token_for(snapshot.active_window)];
+  if (_viewportWidth > 0 && _viewportHeight > 0 && !_stopping &&
+      _callbacks.on_viewport) {
+    _callbacks.on_viewport(_uiSession->root(), *_proxy,
+                           _viewportWidth, _viewportHeight);
   }
-  _pending_background_save.store(true, std::memory_order_release);
-  if (!_model_thread_live.load(std::memory_order_acquire)) {
-    return;
-  }
-  dispatch_async(dispatch_get_main_queue(), ^{
-    [self tryStartBackgroundSaveFromPending];
-  });
 }
 
 - (void)consumePublication:(ATIosPublicationKind)kind {
   std::vector<std::uint8_t> publication =
-      _runtime.TakePublishedCopyForUiApply();
+      _runtime->TakePublishedCopyForUiApply(
+          kind == ATIosPublicationKindInitial
+              ? apptraverse::TakePublishedSidecarCallback{}
+              : _callbacks.take_incremental_sidecar);
   if (kind == ATIosPublicationKindInitial) {
     _uiSession = std::make_unique<apptraverse::ApplicationUiSession>(
-        publication, _nativeViews.get(), *_proxy);
+        publication, _nativeViews.get(), *_proxy,
+        _callbacks.prepare_ui_presenters);
+    if (_callbacks.after_initial) _callbacks.after_initial(_uiSession->root());
   } else {
     _uiSession->ApplyStructural(publication);
+    if (_callbacks.after_incremental) _callbacks.after_incremental(_uiSession->root());
   }
-  _runtime.NotifyPublicationConsumed();
+  [self publishMobilePresentation];
+  _runtime->NotifyPublicationConsumed();
 }
 
 - (ATIosWindowState*)windowState:(uint64_t)token {
@@ -309,6 +305,7 @@ class IosNativeViews final
       presenter.locale->language_index()));
   return [[ATIosWindowState alloc]
       initWithTitle:title
+           identity:desktop->obj_id.id()
                   x:desktop->x()
                   y:desktop->y()
               width:desktop->client_width()
@@ -346,8 +343,7 @@ class IosNativeViews final
     [rows addObject:[[ATIosListRowState alloc]
                         initWithIdentity:identity
                                    text:ToNSString(
-                                            apptraverse::ui::
-                                                presenter.ResolveListRowPrimaryText(
+                                            presenter.ResolveListRowPrimaryText(
                                                     row, language_index))]];
   }
   return [[ATIosListState alloc]
@@ -361,43 +357,71 @@ class IosNativeViews final
 }
 
 - (void)clickButton:(uint64_t)token {
+  if (_stopping) return;
   FromToken<IosPushButtonPresenter>(token).NotifyClickedFromUi();
 }
 
 - (void)selectListRow:(NSInteger)row token:(uint64_t)token {
+  if (_stopping) return;
   FromToken<IosListContainerPresenter>(token)
       .SubmitListRowSelectionChangedFromUi(static_cast<std::size_t>(row));
 }
 
-- (void)submitWindowX:(double)x
-                    y:(double)y
-                width:(double)width
-               height:(double)height
-                token:(uint64_t)token {
-  (void)x;
-  (void)y;
-  (void)width;
-  (void)height;
-  (void)token;
+- (void)activateListRow:(NSInteger)row token:(uint64_t)token {
+  if (_stopping) return;
+  FromToken<IosListContainerPresenter>(token)
+      .SubmitListRowActivatedFromUi(static_cast<std::size_t>(row));
+}
+
+- (void)submitViewportWidth:(double)width height:(double)height {
+  _viewportWidth = static_cast<std::int32_t>(width);
+  _viewportHeight = static_cast<std::int32_t>(height);
+  if (_stopping || !_uiSession || _viewportWidth <= 0 || _viewportHeight <= 0) return;
+  if (_callbacks.on_viewport) {
+    _callbacks.on_viewport(_uiSession->root(), *_proxy, _viewportWidth, _viewportHeight);
+  }
+}
+
+- (void)submitMobileSwipe:(NSInteger)delta {
+  if (_stopping || !_uiSession) return;
+  _callbacks.on_mobile_swipe(_uiSession->root(), *_proxy, static_cast<int>(delta));
+}
+
+- (void)submitMobilePage:(uint64_t)token {
+  if (_stopping || !_uiSession) return;
+  auto& presenter = FromToken<IosDesktopWindowPresenter>(token);
+  _callbacks.on_mobile_page(_uiSession->root(), *_proxy, presenter.window.id());
+}
+
+- (void)submitWindowX:(double)x y:(double)y width:(double)width
+               height:(double)height token:(uint64_t)token {
+  (void)x; (void)y; (void)token;
+  [self submitViewportWidth:width height:height];
 }
 
 - (BOOL)requestCloseWindow:(uint64_t)token {
+  if (_stopping) return YES;
   auto& presenter = FromToken<IosDesktopWindowPresenter>(token);
-  return _callbacks.close_desktop_window(
+  bool const stops_application = _callbacks.close_desktop_window(
       _uiSession->root(), *presenter.window, *_proxy,
-      [self] { _runtime.RequestStop(); });
+      [self] { _runtime->RequestStop(); });
+  _stopping = stops_application;
+  return stops_application;
 }
 
 - (void)requestStop {
-  _runtime.RequestStop();
+  if (_stopping) return;
+  _stopping = true;
+  _runtime->RequestStop();
 }
 
-- (void)finishTeardown {
+- (NSInteger)finishTeardown {
   _modelThread.join();
   _uiSession.reset();
   _nativeViews.reset();
   _proxy.reset();
   self.delegate = nil;
+  return _modelExitStatus;
 }
 
 @end

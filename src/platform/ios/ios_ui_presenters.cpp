@@ -1,6 +1,7 @@
 #include "apptraverse/platform/ios/ios_ui_presenters.h"
 
 #include "apptraverse/object_macros.h"
+#include "apptraverse/model_object_proxy.h"
 #include "apptraverse/platform/ios/ios_ui_native_views.h"
 
 namespace apptraverse::ui::ios {
@@ -17,6 +18,7 @@ IosUiNativeViews& NativeViews(Presenter const& presenter) {
 }  // namespace
 
 void EnsureIosUiPresenterRegistration() {
+  EnsureUiControlRegistration();
   (void)&g_apptraverse_registrar_IosDesktopWindowPresenter;
   (void)&g_apptraverse_registrar_IosPushButtonPresenter;
   (void)&g_apptraverse_registrar_IosListContainerPresenter;
@@ -32,6 +34,18 @@ void IosDesktopWindowPresenter::OnModelChanged() {
 
 void IosDesktopWindowPresenter::OnUnload() {
   NativeViews(*this).UnloadDesktopWindow(*this);
+}
+
+void IosPushButtonPresenter::NotifyClickedFromUi() {
+  if (!button->enabled()) return;
+  ae::ObjId const id = button.id();
+  model_proxy->EnqueueModelWork([id](ae::Domain& domain) {
+    // A second native tap may already be queued when the first tap closes and
+    // unloads this control. Discard the stale intent without reviving its graph.
+    auto object = domain.Find(id);
+    if (!object) return;
+    object.as<UiPushButton>()->NotifyClicked();
+  });
 }
 
 void IosPushButtonPresenter::OnLoad() {
