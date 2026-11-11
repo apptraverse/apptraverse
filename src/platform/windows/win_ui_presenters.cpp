@@ -52,49 +52,6 @@ void ApplyListLayoutFromMirror(HWND hwnd, std::int32_t layout_x,
 
 }  // namespace
 
-#if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
-void WinDesktopWindowPresenter::TestReportNativeFrame(std::int32_t x,
-                                                      std::int32_t y,
-                                                      std::int32_t client_width,
-                                                      std::int32_t client_height) {
-  (void)x;
-  (void)y;
-  (void)client_width;
-  (void)client_height;
-}
-
-void WinDesktopWindowPresenter::TestMoveNativeOuter(std::int32_t x,
-                                                    std::int32_t y,
-                                                    std::int32_t client_width,
-                                                    std::int32_t client_height) {
-  if (hwnd_ == nullptr) {
-    return;
-  }
-  applying_native_frame_ = true;
-  int outer_w = 0;
-  int outer_h = 0;
-  ClientSizeToOuter(client_width, client_height, outer_w, outer_h);
-  SetWindowPos(hwnd_, nullptr, x, y, outer_w, outer_h,
-               SWP_NOZORDER | SWP_NOACTIVATE);
-  applying_native_frame_ = false;
-  if (interactive_move_active_) {
-    TrackInteractiveNativeFrame();
-  }
-}
-
-void WinDesktopWindowPresenter::TestSimulateInteractiveNativeMove(
-    std::int32_t x, std::int32_t y, std::int32_t client_width,
-    std::int32_t client_height) {
-  TestSetInteractiveMoveActive(true);
-  TestMoveNativeOuter(x, y, client_width, client_height);
-}
-
-void WinDesktopWindowPresenter::TestFinishInteractiveNativeMove() {
-  TestSetInteractiveMoveActive(false);
-  HandleNativeFrameChanged(true);
-}
-#endif
-
 LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
                                                   WPARAM wparam,
                                                   LPARAM lparam) {

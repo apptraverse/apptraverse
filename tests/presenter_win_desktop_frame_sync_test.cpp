@@ -5,6 +5,7 @@ int main() { return 0; }
 
 #include <cstdlib>
 #include <iostream>
+#include <vector>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
@@ -78,6 +79,24 @@ void ReadHwndFrame(HWND hwnd, std::int32_t& x, std::int32_t& y,
   ui::windows::ReadModelFrameFromHwnd(hwnd, x, y, cw, ch);
 }
 
+
+void MoveNativeWindow(HWND hwnd, std::int32_t x, std::int32_t y,
+                      std::int32_t client_width, std::int32_t client_height) {
+  int outer_width = 0;
+  int outer_height = 0;
+  ui::windows::ClientSizeToOuter(client_width, client_height, outer_width,
+                                outer_height);
+  CHECK(SetWindowPos(hwnd, nullptr, x, y, outer_width, outer_height,
+                     SWP_NOZORDER | SWP_NOACTIVATE) != 0);
+}
+
+void CompleteNativeDrag(HWND hwnd, std::int32_t x, std::int32_t y,
+                        std::int32_t client_width, std::int32_t client_height) {
+  SendMessageW(hwnd, WM_ENTERSIZEMOVE, 0, 0);
+  MoveNativeWindow(hwnd, x, y, client_width, client_height);
+  SendMessageW(hwnd, WM_EXITSIZEMOVE, 0, 0);
+}
+
 struct Harness {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
@@ -118,9 +137,9 @@ struct Harness {
 void TestStalePublicationDuringDrag() {
   Harness h;
   HWND const hwnd = h.presenter->hwnd();
-  h.presenter->TestSetInteractiveMoveActive(true);
+  SendMessageW(hwnd, WM_ENTERSIZEMOVE, 0, 0);
 
-  h.presenter->TestMoveNativeOuter(300, 200, 640, 480);
+  MoveNativeWindow(hwnd, 300, 200, 640, 480);
   ApplyFrameToMirror(*h.root->window, 100, 100, 640, 480);
   h.presenter->OnModelChanged();
 
@@ -132,7 +151,7 @@ void TestStalePublicationDuringDrag() {
   CHECK(x == 300);
   CHECK(y == 200);
 
-  h.presenter->TestSetInteractiveMoveActive(false);
+  SendMessageW(hwnd, WM_EXITSIZEMOVE, 0, 0);
   ApplyFrameToMirror(*h.root->window, 300, 200, 640, 480);
   h.presenter->OnModelChanged();
   ReadHwndFrame(hwnd, x, y, cw, ch);
@@ -143,8 +162,8 @@ void TestStalePublicationDuringDrag() {
 void TestStalePublicationAfterRelease() {
   Harness h;
   HWND const hwnd = h.presenter->hwnd();
-  h.presenter->TestMoveNativeOuter(400, 250, 640, 480);
-  h.presenter->TestMoveNativeOuter(500, 350, 640, 480);
+  CompleteNativeDrag(hwnd, 400, 250, 640, 480);
+  CompleteNativeDrag(hwnd, 500, 350, 640, 480);
 
   ApplyFrameToMirror(*h.root->window, 400, 250, 640, 480);
   h.presenter->OnModelChanged();
@@ -176,7 +195,7 @@ void ApplyModelStructuralPublication(Harness& h) {
 void TestProgrammaticMoveAfterSync() {
   Harness h;
   HWND const hwnd = h.presenter->hwnd();
-  h.presenter->TestMoveNativeOuter(120, 130, 640, 480);
+  CompleteNativeDrag(hwnd, 120, 130, 640, 480);
   ApplyFrameToMirror(*h.root->window, 120, 130, 640, 480);
   h.presenter->OnModelChanged();
 
@@ -194,7 +213,7 @@ void TestProgrammaticMoveAfterSync() {
 void TestNonGeometryPublicationDoesNotMove() {
   Harness h;
   HWND const hwnd = h.presenter->hwnd();
-  h.presenter->TestMoveNativeOuter(150, 160, 640, 480);
+  CompleteNativeDrag(hwnd, 150, 160, 640, 480);
   ApplyFrameToMirror(*h.root->window, 150, 160, 640, 480);
   h.presenter->OnModelChanged();
   std::int32_t x0 = 0;
@@ -203,15 +222,24 @@ void TestNonGeometryPublicationDoesNotMove() {
   std::int32_t ch0 = 0;
   ReadHwndFrame(hwnd, x0, y0, cw0, ch0);
   h.presenter->OnModelChanged();
+  std::int32_t x = 0;
+  std::int32_t y = 0;
+  std::int32_t cw = 0;
+  std::int32_t ch = 0;
+  ReadHwndFrame(hwnd, x, y, cw, ch);
+  CHECK(x == x0);
+  CHECK(y == y0);
+  CHECK(cw == cw0);
+  CHECK(ch == ch0);
 }
 
 void TestSecondDragBeforeFirstAck() {
   Harness h;
   HWND const hwnd = h.presenter->hwnd();
-  h.presenter->TestMoveNativeOuter(10, 10, 640, 480);
+  CompleteNativeDrag(hwnd, 10, 10, 640, 480);
   ApplyFrameToMirror(*h.root->window, 10, 10, 640, 480);
   h.presenter->OnModelChanged();
-  h.presenter->TestMoveNativeOuter(20, 30, 640, 480);
+  CompleteNativeDrag(hwnd, 20, 30, 640, 480);
   ApplyFrameToMirror(*h.root->window, 10, 10, 640, 480);
   h.presenter->OnModelChanged();
   std::int32_t x = 0;
@@ -226,11 +254,11 @@ void TestSecondDragBeforeFirstAck() {
 void TestAbaStaleMiddlePublicationDoesNotJump() {
   Harness h;
   HWND const hwnd = h.presenter->hwnd();
-  h.presenter->TestMoveNativeOuter(10, 10, 640, 480);
+  CompleteNativeDrag(hwnd, 10, 10, 640, 480);
   ApplyFrameToMirror(*h.root->window, 10, 10, 640, 480);
-  h.presenter->TestMoveNativeOuter(20, 20, 640, 480);
+  CompleteNativeDrag(hwnd, 20, 20, 640, 480);
   ApplyFrameToMirror(*h.root->window, 20, 20, 640, 480);
-  h.presenter->TestMoveNativeOuter(10, 10, 640, 480);
+  CompleteNativeDrag(hwnd, 10, 10, 640, 480);
   ApplyFrameToMirror(*h.root->window, 20, 20, 640, 480);
   h.presenter->OnModelChanged();
   std::int32_t x = 0;
@@ -245,10 +273,10 @@ void TestAbaStaleMiddlePublicationDoesNotJump() {
 void TestProgrammaticMoveWhileNativePending() {
   Harness h;
   HWND const hwnd = h.presenter->hwnd();
-  h.presenter->TestMoveNativeOuter(50, 50, 640, 480);
+  CompleteNativeDrag(hwnd, 50, 50, 640, 480);
   ApplyFrameToMirror(*h.root->window, 50, 50, 640, 480);
   h.presenter->OnModelChanged();
-  h.presenter->TestMoveNativeOuter(60, 60, 640, 480);
+  CompleteNativeDrag(hwnd, 60, 60, 640, 480);
   h.root->window->RequestFrame(700, 800, 640, 480);
   ApplyModelStructuralPublication(h);
   std::int32_t x = 0;
@@ -262,20 +290,29 @@ void TestProgrammaticMoveWhileNativePending() {
 
 void TestInteractiveDragCoalescesModelSubmits() {
   Harness h;
+  HWND const hwnd = h.presenter->hwnd();
+  // Establish the client size before measuring a movement-only drag.
+  CompleteNativeDrag(hwnd, 100, 100, 640, 480);
   h.pending_reports.clear();
+  SendMessageW(hwnd, WM_ENTERSIZEMOVE, 0, 0);
   for (int i = 0; i < 500; ++i) {
-    h.presenter->TestSimulateInteractiveNativeMove(100 + i, 200 + i, 640, 480);
+    MoveNativeWindow(hwnd, 100 + i, 200 + i, 640, 480);
   }
-  std::size_t const move_phase_reports = h.pending_reports.size();
-  h.presenter->TestFinishInteractiveNativeMove();
-  CHECK(h.pending_reports.size() == move_phase_reports + 1);
+  CHECK(h.pending_reports.empty());
+  SendMessageW(hwnd, WM_EXITSIZEMOVE, 0, 0);
+  CHECK(h.pending_reports.size() == 1);
+  h.pending_reports.front()(h.domain);
+  CHECK(h.root->window->x() == 599);
+  CHECK(h.root->window->y() == 699);
+  CHECK(h.root->window->client_width() == 640);
+  CHECK(h.root->window->client_height() == 480);
 }
 
 void TestResizeStaleEcho() {
   Harness h;
   HWND const hwnd = h.presenter->hwnd();
-  h.presenter->TestSetInteractiveMoveActive(true);
-  h.presenter->TestMoveNativeOuter(180, 190, 720, 520);
+  SendMessageW(hwnd, WM_ENTERSIZEMOVE, 0, 0);
+  MoveNativeWindow(hwnd, 180, 190, 720, 520);
   ApplyFrameToMirror(*h.root->window, 180, 190, 640, 480);
   h.presenter->OnModelChanged();
   std::int32_t cw = 0;
@@ -285,7 +322,7 @@ void TestResizeStaleEcho() {
   ReadHwndFrame(hwnd, x, y, cw, ch);
   CHECK(cw == 720);
   CHECK(ch == 520);
-  h.presenter->TestSetInteractiveMoveActive(false);
+  SendMessageW(hwnd, WM_EXITSIZEMOVE, 0, 0);
   ApplyFrameToMirror(*h.root->window, 180, 190, 720, 520);
   h.presenter->OnModelChanged();
   ReadHwndFrame(hwnd, x, y, cw, ch);

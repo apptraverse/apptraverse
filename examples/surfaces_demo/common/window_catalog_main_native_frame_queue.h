@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <functional>
 #include <mutex>
+#include <optional>
 
 #include "aether-objects/obj/obj_id.h"
 
@@ -13,7 +14,8 @@ namespace apptraverse {
 
 // Coalesces main-window native frame + catalog viewport reports before model
 // Commit. One drain task per catalog at a time; the slot keeps the latest
-// native client geometry. Owned by WindowCatalogModelSession; bound to the
+// live client geometry and, independently, the latest restore geometry.
+// Owned by WindowCatalogModelSession; bound to the
 // session ModelObjectProxy for the lifetime of UI presenters.
 class WindowCatalogMainNativeFrameQueue {
  public:
@@ -28,17 +30,22 @@ class WindowCatalogMainNativeFrameQueue {
             bool updates_restore_geometry);
 
  private:
-  struct CatalogSlot {
-    ae::ObjId catalog_id;
-    ae::ObjId main_window_id;
+  struct NativeFrame {
     std::int32_t x{0};
     std::int32_t y{0};
     std::int32_t client_width{0};
     std::int32_t client_height{0};
-    bool updates_restore_geometry{false};
+  };
+
+  struct CatalogSlot {
+    ae::ObjId catalog_id;
+    ae::ObjId main_window_id;
+    NativeFrame live_frame;
+    std::optional<NativeFrame> restore_frame;
   };
 
   void EnsureDrainScheduled();
+  void Drain(ae::Domain& domain);
 
   mutable std::mutex mu_;
   PostWork post_;

@@ -206,6 +206,9 @@ void TestTwoDragsBackToAWithLaggyMirror() {
 
 void TestInteractiveDragDoesNotSubmitIntermediateSteps() {
   Harness h;
+  // Startup and the initial resize are separate from a movement-only drag.
+  h.SyncModelUiAt(100, 100);
+  CHECK(h.deferred_model_work.empty());
   std::int32_t const x0 = h.model_root->window->x();
   std::int32_t const y0 = h.model_root->window->y();
   SendMessageW(h.presenter->hwnd(), WM_ENTERSIZEMOVE, 0, 0);
@@ -214,13 +217,15 @@ void TestInteractiveDragDoesNotSubmitIntermediateSteps() {
   }
   CHECK(h.model_root->window->x() == x0);
   CHECK(h.model_root->window->y() == y0);
+  CHECK(h.deferred_model_work.empty());
   SendMessageW(h.presenter->hwnd(), WM_EXITSIZEMOVE, 0, 0);
+  CHECK(h.deferred_model_work.size() == 1);
   h.PumpModel();
   CHECK(h.model_root->window->x() == 50 + 199);
   CHECK(h.model_root->window->y() == 60 + 199);
 }
 
-void TestSequentialInteractiveDragsIncrementSerial() {
+void TestSequentialInteractiveDragsPreserveFinalFrame() {
   Harness h;
   h.SyncModelUiAt(10, 10);
   InteractiveDragEnd(*h.presenter, 30, 30, 640, 480);
@@ -236,7 +241,7 @@ void TestSequentialInteractiveDragsIncrementSerial() {
 int main() {
   apptraverse::EnableNoninteractiveCrt();
   apptraverse::test::TestInteractiveDragDoesNotSubmitIntermediateSteps();
-  apptraverse::test::TestSequentialInteractiveDragsIncrementSerial();
+  apptraverse::test::TestSequentialInteractiveDragsPreserveFinalFrame();
   apptraverse::test::TestTwoDragsBackToAWithLaggyMirror();
   std::cout << "presenter_win_desktop_interactive_drag_e2e_test OK\n";
   return 0;

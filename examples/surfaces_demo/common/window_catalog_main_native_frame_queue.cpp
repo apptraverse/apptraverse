@@ -7,35 +7,6 @@
 #include "apptraverse/ui/ui_desktop_window.h"
 
 namespace apptraverse {
-namespace {
-
-struct MainFrameApply {
-  ae::ObjId catalog_id;
-  ae::ObjId main_window_id;
-  std::int32_t x{0};
-  std::int32_t y{0};
-  std::int32_t client_width{0};
-  std::int32_t client_height{0};
-  bool updates_restore_geometry{false};
-};
-
-void ApplyCoalescedMainNativeFrame(ae::Domain& domain,
-                                   MainFrameApply const& slot) {
-  auto window_obj = domain.Find(slot.main_window_id);
-  assert(window_obj && "main window native frame target must exist");
-  auto* window = window_obj.as<ui::UiDesktopWindow>();
-  window->SubmitFrameFromNative(slot.x, slot.y, slot.client_width,
-                                slot.client_height,
-                                slot.updates_restore_geometry);
-  auto catalog_obj = domain.Find(slot.catalog_id);
-  assert(catalog_obj && "catalog viewport target must exist");
-  auto* catalog = catalog_obj.as<WindowCatalog>();
-  catalog->SubmitMainClientViewportFromUi(slot.client_width, slot.client_height,
-                                          160);
-}
-
-}  // namespace
-
 void WindowCatalogMainNativeFrameQueue::BindPostWork(PostWork post) {
   std::lock_guard<std::mutex> lock{mu_};
   posting_closed_ = false;
@@ -56,44 +27,47 @@ void WindowCatalogMainNativeFrameQueue::EnsureDrainScheduled() {
     }
     drain_scheduled_ = true;
   }
-  post_([this](ae::Domain& domain) {
-    MainFrameApply slot{};
-    bool need_again = false;
-    {
-      std::lock_guard<std::mutex> lock{mu_};
-      drain_scheduled_ = false;
-      if (!slot_active_) {
-        return;
-      }
-      slot.catalog_id = slot_.catalog_id;
-      slot.main_window_id = slot_.main_window_id;
-      slot.x = slot_.x;
-      slot.y = slot_.y;
-      slot.client_width = slot_.client_width;
-      slot.client_height = slot_.client_height;
-      slot.updates_restore_geometry = slot_.updates_restore_geometry;
-    }
-    ApplyCoalescedMainNativeFrame(domain, slot);
+  post_([this](ae::Domain& domain) { Drain(domain); });
+}
+
+void WindowCatalogMainNativeFrameQueue::Drain(ae::Domain& domain) {
+  for (;;) {
+    CatalogSlot slot;
     {
       std::lock_guard<std::mutex> lock{mu_};
       if (!slot_active_) {
+        drain_scheduled_ = false;
         return;
       }
-      if (slot_.catalog_id != slot.catalog_id ||
-          slot_.main_window_id != slot.main_window_id ||
-          slot_.x != slot.x || slot_.y != slot.y ||
-          slot_.client_width != slot.client_width ||
-          slot_.client_height != slot.client_height ||
-          slot_.updates_restore_geometry != slot.updates_restore_geometry) {
-        need_again = true;
-      } else {
-        slot_active_ = false;
-      }
+      slot = slot_;
+      slot_active_ = false;
+      slot_.restore_frame.reset();
     }
-    if (need_again) {
-      EnsureDrainScheduled();
+
+    auto window_obj = domain.Find(slot.main_window_id);
+    assert(window_obj && "main window native frame target must exist");
+    auto* window = window_obj.as<ui::UiDesktopWindow>();
+    // A later live report (for example maximization or WM_CLOSE) must not
+    // erase the last completed move/resize or lend it different coordinates.
+    if (slot.restore_frame) {
+      auto const& restore = *slot.restore_frame;
+      window->SubmitFrameFromNative(restore.x, restore.y,
+                                    restore.client_width,
+                                    restore.client_height, true);
     }
-  });
+    auto const& live = slot.live_frame;
+    window->SubmitFrameFromNative(live.x, live.y, live.client_width,
+                                  live.client_height, false);
+    auto catalog_obj = domain.Find(slot.catalog_id);
+    assert(catalog_obj && "catalog viewport target must exist");
+    auto* catalog = catalog_obj.as<WindowCatalog>();
+    catalog->SubmitMainClientViewportFromUi(live.client_width,
+                                            live.client_height, 160);
+
+    // Keep this task scheduled while applying outside the lock. Reports that
+    // arrive during Apply belong to the next snapshot of this same drain,
+    // including when the runtime has already stopped accepting new tasks.
+  }
 }
 
 void WindowCatalogMainNativeFrameQueue::Post(ModelObjectProxy* proxy,
@@ -111,11 +85,10 @@ void WindowCatalogMainNativeFrameQueue::Post(ModelObjectProxy* proxy,
     slot_active_ = true;
     slot_.catalog_id = catalog_id;
     slot_.main_window_id = main_window_id;
-    slot_.x = x;
-    slot_.y = y;
-    slot_.client_width = client_width;
-    slot_.client_height = client_height;
-    slot_.updates_restore_geometry = updates_restore_geometry;
+    slot_.live_frame = NativeFrame{x, y, client_width, client_height};
+    if (updates_restore_geometry) {
+      slot_.restore_frame = slot_.live_frame;
+    }
   }
   EnsureDrainScheduled();
 }

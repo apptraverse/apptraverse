@@ -30,7 +30,11 @@
       "architecture": {
         "value": "x64"
       },
-      "binaryDir": "${sourceDir}/build/win64-vs2022-msvc-debug"
+      "binaryDir": "${sourceDir}/build/win64-vs2022-msvc-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CONFIGURATION_TYPES": "Debug"
+      }
     },
     {
       "name": "linux-x64-ninja-clang-debug",

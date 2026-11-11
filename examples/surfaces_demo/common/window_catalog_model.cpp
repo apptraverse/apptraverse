@@ -331,14 +331,11 @@ void WindowCatalog::SetMobileActiveWindow(CatalogWindow::ptr window) {
 std::vector<CatalogWindow::ptr> WindowCatalog::BuildMobileRing() const {
   std::vector<CatalogWindow::ptr> ring;
   ring.push_back(persisted.main_window);
-  if (!persisted.list) {
-    return ring;
-  }
   persisted.list.Load();
   for (auto const& row : persisted.list->rows) {
     row.Load();
     WindowHolder const* holder = AsHolder(*row);
-    if (holder->window.is_valid() && holder->window.is_loaded()) {
+    if (holder->window.is_loaded()) {
       ring.push_back(holder->window);
     }
   }
@@ -347,11 +344,8 @@ std::vector<CatalogWindow::ptr> WindowCatalog::BuildMobileRing() const {
 CatalogWindow::ptr WindowCatalog::MobileRingPredecessor(
     CatalogWindow const& window) const {
   std::vector<CatalogWindow::ptr> const ring = BuildMobileRing();
-  if (ring.empty()) {
-    return persisted.main_window;
-  }
   for (std::size_t i = 0; i < ring.size(); ++i) {
-    if (ring[i].is_valid() && ring[i].id() == window.obj_id) {
+    if (ring[i].id() == window.obj_id) {
       if (i == 0) {
         return ring.back();
       }
@@ -386,7 +380,7 @@ void WindowCatalog::SubmitMobileSwipeFromUi(int delta) {
   CatalogWindow::ptr const current = ResolveMobileActiveWindow();
   std::size_t index = 0;
   for (std::size_t i = 0; i < ring.size(); ++i) {
-    if (ring[i].is_valid() && ring[i].id() == current.id()) {
+    if (ring[i].id() == current.id()) {
       index = i;
       break;
     }
@@ -410,7 +404,7 @@ void WindowCatalog::SetDesktopZOrderFromObjIds(
     if (holder == nullptr) {
       return false;
     }
-    return holder->window.is_valid() && holder->window.is_loaded();
+    return holder->window.is_loaded();
   };
   std::vector<CatalogWindow::ptr> ordered;
   ordered.reserve(ordered_ids.size());
@@ -604,9 +598,9 @@ void WindowCatalog::AddWindow() {
   std::uint32_t const number = persisted.next_window_number;
   auto holder = WindowHolder::ptr::Create(ae::CreateWith{domain});
   holder->window_number = number;
-  InitializeRuntimeNode(*holder, *this);
   holder->primary_text = persisted.texts.list_row_title_format;
   holder->delete_button = {};
+  holder->presenter = {};
   // Materialize the prefab in a short-lived child domain. Its ordinary graph
   // ownership releases the whole source subgraph after cloning.
   ae::Domain prefab_domain{domain.domain_storage()};
@@ -647,6 +641,8 @@ void WindowCatalog::AddWindow() {
   if (LoadWindowCloseButton(*window_body)) {
     MarkWindowCloseButtonUnloadedByDefault(*window_body);
   }
+  // Capture the initial base only after the holder's persistent links exist.
+  InitializeRuntimeNode(*holder, *this);
   BindLiveWindowNotifiers(*this, *window_body);
   auto add = AddWindowCatalogEntryEvent::ptr::Create(ae::CreateWith{domain});
   add->holder = holder;

@@ -3012,3 +3012,24 @@ and the 5×4 Close diagnostic. No MinSizeRel, device or other application builds
 No further concrete canon violations were found in the reviewed active Windows
 Catalog paths. CI and legacy examples remain excluded, not fixed.
 See [full scope, fixes, failures and verification evidence](../validation/window-catalog-canon-2026-11-10.md).
+
+
+## WindowCatalog five-finding follow-up — 2026-11-10 — PASS
+
+Based on `a2a3352`, fixed loss of restore geometry during native-frame
+coalescing, premature holder history capture, and valid-lazy-list handling.
+Removed production frame-sync test hooks and moved native stimuli entirely
+into tests. The declared VS Debug preset is explicitly Debug-only; a new
+configure-only multi-config regression checks actual Catalog target selection.
+
+The three behavior failures were reproduced before fixes. New tests cover
+mixed restore/live reports, reports during drain, shutdown `user.bin` cold
+geometry, holder replay and lazy ring ordering/closed-window exclusion.
+Final incremental Windows Debug (`AE_NO_DEBUG_LOG=ON`) build PASS;
+**22/22 tests PASS**, **104.10 s**, including native acceptance and 5×4 Close
+observations. The initial configure probe's C1902 was resolved by inheriting
+this build's existing `/Z7` flags. No MinSizeRel/full VS2022/other-platform run.
+The preceding audit's no-further-findings conclusion was incomplete; this
+follow-up records the additional evidence rather than treating its old test
+PASS as proof of all contracts.
+See [changes, regressions and precise verification scope](../validation/window-catalog-canon-five-fixes-2026-11-10.md).

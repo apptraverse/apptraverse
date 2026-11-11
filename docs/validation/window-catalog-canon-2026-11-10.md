@@ -66,3 +66,13 @@ and test evidence, not proof for all theoretical graphs or platforms.
 
 No MinSizeRel, other-platform/device or standalone upstream Æther suite is
 claimed by this iteration. Only the existing Debug build is used.
+
+
+## Subsequent audit and correction — 2026-11-10
+
+The no-further-findings conclusion above was limited by missing scenarios.
+A subsequent audit reproduced lost restore geometry, an incomplete holder
+history base and a valid-lazy-list fallback, and found remaining production
+test hooks and a VS Debug preset mismatch. The [five-finding follow-up](window-catalog-canon-five-fixes-2026-11-10.md)
+records the fixes and a new 22/22 Debug PASS. The older evidence above remains
+historical, not proof that those uncovered paths were correct.

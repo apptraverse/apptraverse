@@ -3,6 +3,21 @@ option(APPTRAVERSE_BUILD_EVOLUTION_TESTS
 
 if(MSVC AND CMAKE_SIZEOF_VOID_P EQUAL 8)
   find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
+  # Exercise the declared Visual Studio Debug settings with a dependency-free
+  # multi-config probe using the compiler/Ninja from this existing build.
+  if(TARGET win32_window_catalog_demo AND CMAKE_GENERATOR MATCHES "^Ninja")
+    add_test(NAME apptraverse_window_catalog_debug_preset_test
+      COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/window_catalog_debug_preset_test.py"
+        --source "${PROJECT_SOURCE_DIR}"
+        --work-dir "${CMAKE_CURRENT_BINARY_DIR}/window_catalog_debug_preset_probe"
+        --cmake "${CMAKE_COMMAND}"
+        --ninja "${CMAKE_MAKE_PROGRAM}"
+        --compiler "${CMAKE_CXX_COMPILER}"
+        --debug-flags "${CMAKE_CXX_FLAGS_DEBUG}")
+    set_tests_properties(apptraverse_window_catalog_debug_preset_test PROPERTIES
+      LABELS "windows;window_catalog;configuration" TIMEOUT 90)
+  endif()
   foreach(_runtime_app win32_window_catalog_demo win32_window_catalog_demo_load_only
                        win32_minimal_app win32_minimal_app_load_only)
     if(TARGET ${_runtime_app})
@@ -1288,13 +1303,9 @@ if(WIN32)
     COMMAND apptraverse_presenter_win_desktop_title_test
   )
 
-  target_compile_definitions(apptraverse_ui_windows PUBLIC
-    APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST=1)
   add_executable(apptraverse_presenter_win_desktop_frame_sync_test
     presenter_win_desktop_frame_sync_test.cpp
   )
-  target_compile_definitions(apptraverse_presenter_win_desktop_frame_sync_test PRIVATE
-    APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST=1)
   target_link_libraries(apptraverse_presenter_win_desktop_frame_sync_test PRIVATE
     apptraverse
     apptraverse_ui_windows
@@ -1307,8 +1318,6 @@ if(WIN32)
   add_executable(apptraverse_presenter_win_desktop_interactive_drag_e2e_test
     presenter_win_desktop_interactive_drag_e2e_test.cpp
   )
-  target_compile_definitions(apptraverse_presenter_win_desktop_interactive_drag_e2e_test PRIVATE
-    APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST=1)
   target_link_libraries(apptraverse_presenter_win_desktop_interactive_drag_e2e_test PRIVATE
     apptraverse
     apptraverse_ui_windows
@@ -1321,8 +1330,6 @@ if(WIN32)
   add_executable(apptraverse_presenter_win_desktop_frame_publication_e2e_test
     presenter_win_desktop_frame_publication_e2e_test.cpp
   )
-  target_compile_definitions(apptraverse_presenter_win_desktop_frame_publication_e2e_test PRIVATE
-    APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST=1)
   target_link_libraries(apptraverse_presenter_win_desktop_frame_publication_e2e_test PRIVATE
     apptraverse
     apptraverse_ui_windows

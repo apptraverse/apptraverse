@@ -195,6 +195,103 @@ void RunDeleteMatrixScenario(ae::Domain& domain, WindowCatalog& catalog,
   CHECK(loaded_after == loaded_before);
 }
 
+void TestAddedHolderReplayPreservesInitialLinks() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto catalog = BuildHeadlessWindowCatalogGraph(domain);
+  FinalizeDistilledGraph(*catalog);
+  PrepareWindowCatalogForRun(*catalog);
+  catalog->AddWindow();
+
+  auto row = catalog->persisted.list->rows.back();
+  WindowHolder& holder = *AsHolder(row);
+  ae::ObjId const title_id = holder.primary_text.id();
+  ae::ObjId const window_id = holder.window.id();
+  ae::ObjId const presenter_id = CatalogWindowPresented(*holder.window).presenter.id();
+  auto const window_number = holder.window_number;
+  std::string const primary_text = ui::ResolvePresentedListRowPrimaryText(row, 0);
+  std::string const row_text = ResolveWindowCatalogHolderListRowText(holder, *catalog, 0);
+  CHECK(title_id == catalog->persisted.texts.list_row_title_format.id());
+  CHECK(primary_text == "Window {0}{1}");
+  CHECK(row_text == "Window 1");
+  CHECK(holder.journal.empty());
+
+  // A freshly created row must already have a complete initial history base.
+  bool const replayed = holder.TryReplayFromBase();
+  CHECK(replayed);
+  CHECK(holder.primary_text.is_valid());
+  CHECK(holder.primary_text.id() == title_id);
+  CHECK(holder.window.id() == window_id);
+  CHECK(holder.window.is_loaded());
+  CHECK(CatalogWindowPresented(*holder.window).presenter.id() == presenter_id);
+  CHECK(holder.window_number == window_number);
+  CHECK(holder.journal.empty());
+  CHECK(ui::ResolvePresentedListRowPrimaryText(row, 0) == primary_text);
+  CHECK(ResolveWindowCatalogHolderListRowText(holder, *catalog, 0) == row_text);
+}
+
+void TestMobileRingLoadsLazyListAndSkipsClosedWindows() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  WindowCatalogGraphOptions options;
+  options.mobile_pager = true;
+  auto catalog = BuildHeadlessWindowCatalogGraph(domain, options);
+  FinalizeDistilledGraph(*catalog);
+  PrepareWindowCatalogForRun(*catalog);
+  catalog->AddWindow();
+  catalog->AddWindow();
+  catalog->AddWindow();
+  auto a = WindowHolder::ptr::MakeFromThis(AsHolder(catalog->persisted.list->rows[0]));
+  auto b = WindowHolder::ptr::MakeFromThis(AsHolder(catalog->persisted.list->rows[1]));
+  auto c = WindowHolder::ptr::MakeFromThis(AsHolder(catalog->persisted.list->rows[2]));
+  ae::ObjId const main_id = catalog->persisted.main_window.id();
+  ae::ObjId const a_id = a->window.id();
+  ae::ObjId const b_id = b->window.id();
+  ae::ObjId const c_id = c->window.id();
+  catalog->CloseHolderWindow(*b);
+  CHECK(!b->window.is_loaded());
+
+  auto ring_ids = [&] {
+    std::vector<ae::ObjId> ids;
+    for (auto const& window : catalog->BuildMobileRing()) {
+      ids.push_back(window.id());
+    }
+    return ids;
+  };
+  std::vector<ae::ObjId> const expected{main_id, a_id, c_id};
+  CHECK(ring_ids() == expected);
+  catalog->persisted.list.Save();
+  catalog->persisted.list.Reset();
+  CHECK(catalog->persisted.list.is_valid());
+  CHECK(!catalog->persisted.list.is_loaded());
+  CHECK(ring_ids() == expected);
+  CHECK(catalog->persisted.list.is_loaded());
+  CHECK(!b->window.is_loaded());
+
+  CHECK(catalog->MobileRingPredecessor(*a->window).id() == main_id);
+  CHECK(catalog->MobileRingPredecessor(*c->window).id() == a_id);
+  CHECK(catalog->MobileRingPredecessor(*catalog->persisted.main_window).id() == c_id);
+  catalog->SetMobileActiveWindow(catalog->persisted.main_window);
+  catalog->SubmitMobileSwipeFromUi(1);
+  CHECK(catalog->ResolveMobileActiveWindow().id() == a_id);
+  catalog->SubmitMobileSwipeFromUi(1);
+  CHECK(catalog->ResolveMobileActiveWindow().id() == c_id);
+  catalog->SubmitMobileSwipeFromUi(1);
+  CHECK(catalog->ResolveMobileActiveWindow().id() == main_id);
+  catalog->SubmitMobileActiveFromUi(b_id);
+  CHECK(catalog->ResolveMobileActiveWindow().id() == main_id);
+
+  // Native ordering can still contain a closed window or duplicate/stale IDs.
+  catalog->SetDesktopZOrderFromObjIds(
+      {c_id.id(), b_id.id(), 0, a_id.id(), c_id.id(), main_id.id()});
+  auto const& order = catalog->persisted.desktop_z_order;
+  CHECK(order.size() == 3);
+  CHECK(order[0].id() == c_id);
+  CHECK(order[1].id() == a_id);
+  CHECK(order[2].id() == main_id);
+  CHECK(!b->window.is_loaded());
+}
+
 void TestQueuedCatalogActionsKeepRowIdentity() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
@@ -1122,6 +1219,8 @@ void TestMobileCloseButtonAndAdaptiveLayout() {
 
 int main() {
   apptraverse::EnsureHeadlessWindowCatalogGraphRegistration();
+  apptraverse::test::TestAddedHolderReplayPreservesInitialLinks();
+  apptraverse::test::TestMobileRingLoadsLazyListAndSkipsClosedWindows();
   apptraverse::test::TestQueuedCatalogActionsKeepRowIdentity();
   apptraverse::test::TestHeadlessDeleteClearsSelectionIndexRam();
   apptraverse::test::TestHeadlessDeleteSelectionAbPersistAndColdLoad();

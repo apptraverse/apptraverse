@@ -125,40 +125,6 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
   std::int32_t last_native_client_height_{-1};
 
-#if defined(APPTRAVERSE_WIN_DESKTOP_FRAME_SYNC_TEST)
-
- public:
-
-  bool TestInteractiveMoveActive() const { return interactive_move_active_; }
-
-  void TestSetInteractiveMoveActive(bool active) {
-
-    interactive_move_active_ = active;
-
-  }
-
-  void TestReportNativeFrame(std::int32_t x, std::int32_t y,
-
-                             std::int32_t client_width,
-
-                             std::int32_t client_height);
-
-  void TestMoveNativeOuter(std::int32_t x, std::int32_t y,
-
-                           std::int32_t client_width,
-
-                           std::int32_t client_height);
-
-  void TestSimulateInteractiveNativeMove(std::int32_t x, std::int32_t y,
-
-                                         std::int32_t client_width,
-
-                                         std::int32_t client_height);
-
-  void TestFinishInteractiveNativeMove();
-
-#endif
-
 };
 
 class WinListContainerPresenter : public UiListContainerPresenter {
