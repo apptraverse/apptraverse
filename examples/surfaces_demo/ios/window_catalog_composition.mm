@@ -33,12 +33,17 @@ struct CatalogProfile {
   std::set<ae::ObjId> constants;
   bool prepared = false;
 
+  int Persist(apptraverse::WindowCatalog& catalog) {
+    apptraverse::SaveWindowCatalogPersistentSnapshot(catalog);
+    return apptraverse::SaveUserStorageFile(user, directory) ? 0 : 1;
+  }
+
   int Run(apptraverse::ApplicationModelRuntime& runtime,
           apptraverse::ApplicationPublishedCallback on_published) {
     if (!prepared) {
 #if defined(APPTRAVERSE_WINDOW_CATALOG_DEBUG_BOOTSTRAP)
-      // One fresh supply per Debug process. Foreground sessions reuse this
-      // profile's RAM USER and BACKING instead of creating another graph.
+      // One fresh supply per Debug process. Deactivation saves USER while the
+      // same model session and its application-owned RAM profile stay alive.
       auto const run_directory = directory /
           ("debug-run-" + std::to_string(ae::ObjId::GenerateUnique().id()));
       auto initial = apptraverse::DistillWindowCatalog(run_directory);
@@ -61,8 +66,7 @@ struct CatalogProfile {
       catalog.pending_focus_window = {};
     };
     hooks.persist = [this](apptraverse::WindowCatalog& catalog) {
-      apptraverse::SaveWindowCatalogPersistentSnapshot(catalog);
-      return apptraverse::SaveUserStorageFile(user, directory) ? 0 : 1;
+      return Persist(catalog);
     };
     return apptraverse::RunApplicationModelSession(
         storage,
@@ -95,6 +99,13 @@ struct CatalogProfile {
   callbacks.run_model = [profile](apptraverse::ApplicationModelRuntime& runtime,
                                  apptraverse::ApplicationPublishedCallback published) {
     return profile->Run(runtime, std::move(published));
+  };
+  callbacks.persist_model = [profile](ae::Domain& domain) {
+    auto catalog = domain.Find(ae::ObjId{
+        apptraverse::window_catalog_demo::ToObjId(
+            apptraverse::window_catalog_demo::ObjId::Catalog)})
+                       .as<apptraverse::WindowCatalog>();
+    return profile->Persist(*catalog);
   };
   callbacks.close_desktop_window =
       [](ae::Obj& root, ae::Obj& closed_window,

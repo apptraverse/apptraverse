@@ -333,6 +333,9 @@ public final class IosApplicationHost: NSObject, ObservableObject,
     private var manualStop = false
     private var latestViewport = CGSize.zero
     private var lastExitStatus: Int?
+    private var lastBackgroundSaveStatus: Int?
+    private var pendingBackgroundSaves = 0
+    private var backgroundSaveFailure: Int?
     private var backgroundTask = UIBackgroundTaskIdentifier.invalid
 
     var activeScene: IosWindowSceneModel? {
@@ -398,17 +401,24 @@ public final class IosApplicationHost: NSObject, ObservableObject,
         bridge.requestStop()
     }
     public func sceneWillDeactivate() {
-        // App-switcher dismissal may kill the process before a background
-        // transition. End the session at the earlier native deactivation.
+        // One save for this active-to-inactive transition. didEnterBackground
+        // may follow the same deactivation without introducing another save.
+        guard applicationActive else { return }
         applicationActive = false
+        requestLiveSave()
+    }
+    private func requestLiveSave() {
         guard started && !stopping else { return }
+        lastBackgroundSaveStatus = nil
+        if pendingBackgroundSaves == 0 { backgroundSaveFailure = nil }
+        pendingBackgroundSaves += 1
         if backgroundTask == .invalid {
             backgroundTask = UIApplication.shared.beginBackgroundTask(
-                withName: "AppTraverse session shutdown") { [weak self] in
+                withName: "AppTraverse USER save") { [weak self] in
                     self?.endBackgroundTask()
                 }
         }
-        stopSession()
+        bridge.requestBackgroundSave()
     }
     public func sceneDidEnterBackground() { sceneWillDeactivate() }
     public func sceneDidBecomeActive() {
@@ -420,10 +430,8 @@ public final class IosApplicationHost: NSObject, ObservableObject,
         UIApplication.shared.endBackgroundTask(backgroundTask)
         backgroundTask = .invalid
     }
-    // Existing callers use this name; the operation is now an orderly session
-    // shutdown, not a disk checkpoint while the model continues running.
-    public func requestBackgroundCheckpoint() { sceneDidEnterBackground() }
-    public func lastBackgroundSaveExitCode() -> Int? { lastExitStatus }
+    public func requestBackgroundCheckpoint() { requestLiveSave() }
+    public func lastBackgroundSaveExitCode() -> Int? { lastBackgroundSaveStatus }
 
     public func bridge(_ bridge: ATIosApplicationBridge, loadWindow token: UInt64) {
         let state = bridge.windowState(token)
@@ -489,6 +497,13 @@ public final class IosApplicationHost: NSObject, ObservableObject,
     }
     public func bridge(_ bridge: ATIosApplicationBridge,
                        backgroundSaveDidFinish result: NSInteger) {
-        lastExitStatus = Int(result)
+        if result != 0 { backgroundSaveFailure = Int(result) }
+        pendingBackgroundSaves -= 1
+        precondition(pendingBackgroundSaves >= 0)
+        if pendingBackgroundSaves == 0 {
+            lastBackgroundSaveStatus = backgroundSaveFailure ?? 0
+            endBackgroundTask()
+            precondition(lastBackgroundSaveStatus == 0, "AppTraverse iOS USER save failed")
+        }
     }
 }

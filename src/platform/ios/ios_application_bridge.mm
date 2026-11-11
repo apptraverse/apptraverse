@@ -247,8 +247,16 @@ class IosNativeViews final
 }
 
 - (void)requestBackgroundSave {
-  // Background is a session shutdown; hooks.persist writes the one USER file.
-  [self requestStop];
+  if (_stopping) return;
+  // Post also accepts work before Run's initial publication. The callback runs
+  // only after application preparation, behind previously accepted commands,
+  // on the same model thread and Domain as the continuing session.
+  _runtime->Post([self](ae::Domain& domain) {
+    int const result = _callbacks.persist_model(domain);
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [self.delegate bridge:self backgroundSaveDidFinish:result];
+    });
+  });
 }
 
 - (void)publishMobilePresentation {

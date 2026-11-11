@@ -90,6 +90,8 @@ typedef NS_ENUM(NSInteger, ATIosPublicationKind) {
                height:(double)height
                 token:(uint64_t)token;
 - (BOOL)requestCloseWindow:(uint64_t)token;
+// Queue application persistence on the live model thread without teardown.
+// Completion is delivered on the main queue through backgroundSaveDidFinish.
 - (void)requestBackgroundSave;
 - (void)requestStop;
 - (NSInteger)finishTeardown;

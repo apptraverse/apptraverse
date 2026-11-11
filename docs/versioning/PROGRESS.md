@@ -3265,3 +3265,15 @@ USER remained byte-identical, Window 2 and its three-page ring restored.
 - Unchanged Android persistent artifact: six of seven cases in batch113.107s, remaining unchanged rotation/navigation case PASS13.261s on focused rerun. USER remained byte-identical; ordinary launcher restored current RU Window2. Unchanged Web functional/lifecycle/Node tests PASS; headed lifecycle16.391s. No Android/Web APK or embedded-supply replacement.
 - Merged macOS/iOS native build and execution are **NOT RUN** on this Windows/WSL host. Imported MacBook PASS evidence remains historical; a MacBook incremental/native run must validate the merged revision before claiming new Apple runtime acceptance. No toolchain limitation is disguised as PASS.
 - [Merge decisions, executed results and evidence](../validation/window-catalog-apple-merge-2026-11-11.md).
+## 2026-11-11 — iOS live USER save
+
+[iOS live-save follow-up — 2026-11-11](../validation/window-catalog-ios-live-save-2026-11-11.md):
+explicit user request replaces iOS deactivation shutdown with queued USER save
+on the continuing model thread. Model, mirror, presenters and UI adapters remain
+alive; activation retains the same session. Shared persistence format/model/core
+and other backends unchanged; architecture §8/rule12 clarify the lifecycle boundary.
+Host exporter65/65 and iOS18/18 build steps PASS. Native acceptance5/5 processes
+PASS, including identity checks, rapid lifecycle/newer accepted commands, actual
+Settings/return with the same PID/bridge/presenters, second save and cold restart.
+Updated persistent WindowCatalog installed/launched on iPhone15Pro/iOS17.2 for
+manual app-switcher verification; prior experimental profiles/executable preserved.

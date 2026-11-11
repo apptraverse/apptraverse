@@ -43,6 +43,7 @@ private struct Expected: Codable {
     var labels: [String]
     var active: UInt64
     var closed: UInt64
+    var selected: Int?
 }
 
 private final class Acceptance {
@@ -63,6 +64,15 @@ private final class Acceptance {
     var firstIdentity: UInt64 = 0
     var thirdIdentity: UInt64 = 0
     var expected: Expected?
+    var retainedBridge: ObjectIdentifier?
+    var retainedScenes: [UInt64: ObjectIdentifier] = [:]
+    var retainedButtons: [UInt64: ObjectIdentifier] = [:]
+    var retainedLists: [UInt64: ObjectIdentifier] = [:]
+    var retainedWindow: ObjectIdentifier?
+    var retainedActive: UInt64?
+    var firstSavedUser: Data?
+    var observedOsDeactivation = false
+    var osObserver: NSObjectProtocol?
     init(root: URL, cold: Bool, osBackground: Bool, host: IosApplicationHost) {
         self.root = root; self.cold = cold; self.osBackground = osBackground; self.host = host
     }
@@ -122,6 +132,34 @@ private final class Acceptance {
             includingPropertiesForKeys: nil)?.allObjects as? [URL] ?? [])
             .filter { $0.lastPathComponent == "user.bin" }
     }
+    func rememberLiveSession() {
+        retainedBridge = ObjectIdentifier(host.bridge)
+        retainedScenes = host.scenes.mapValues { ObjectIdentifier($0) }
+        retainedButtons = host.buttons.mapValues { ObjectIdentifier($0) }
+        retainedLists = host.lists.mapValues { ObjectIdentifier($0) }
+        retainedWindow = ObjectIdentifier(window!)
+        retainedActive = host.activeToken
+    }
+    func requireSameLiveSession(activeUnchanged: Bool = true) {
+        require(host.isRunning && host.lastModelExitCode() == nil, "deactivation ended the model session")
+        require(ObjectIdentifier(host.bridge) == retainedBridge, "deactivation replaced the bridge/runtime")
+        require(host.scenes.mapValues { ObjectIdentifier($0) } == retainedScenes, "deactivation replaced scenes/presenters")
+        require(host.buttons.mapValues { ObjectIdentifier($0) } == retainedButtons, "deactivation replaced button adapters/presenters")
+        require(host.lists.mapValues { ObjectIdentifier($0) } == retainedLists, "deactivation replaced list adapters/presenters")
+        require(ObjectIdentifier(window!) == retainedWindow, "deactivation replaced the native window")
+        require(host.activeScene != nil, "deactivation exposed the loading placeholder")
+        if activeUnchanged { require(host.activeToken == retainedActive, "deactivation changed active page") }
+    }
+    func savedUser() -> Data? {
+        guard let file = userFiles().first else { return nil }
+        return try? Data(contentsOf: file)
+    }
+    func recordExpected() {
+        expected = Expected(rows: list!.rows.map(\.id), labels: list!.rows.map(\.text),
+                            active: host.activeScene!.identity, closed: thirdIdentity,
+                            selected: list!.selectedRow)
+        try! JSONEncoder().encode(expected!).write(to: root.appendingPathComponent("expected.json"))
+    }
     func snapshot(_ name: String) {
         guard let window else { fatalError("No UIWindow for capture") }
         let renderer = UIGraphicsImageRenderer(bounds: window.bounds)
@@ -147,6 +185,7 @@ private final class Acceptance {
                 require(self.list!.rows.map(\.id) == self.expected!.rows, "cold identity changed")
                 require(self.list!.rows.map(\.text) == self.expected!.labels, "cold labels changed")
                 require(self.host.activeScene!.identity == self.expected!.active, "cold active page lost")
+                require(self.list!.selectedRow == self.expected!.selected, "cold selected holder lost")
                 require(self.child(3) == nil, "cold closed child eagerly activated")
                 self.snapshot("cold-restored")
             })
@@ -221,46 +260,117 @@ private final class Acceptance {
             self.child(3) != nil && self.host.activeToken == self.child(3)?.id
         }, check: { self.thirdIdentity = self.child(3)!.identity })
         step("localized Close and lazy page", action: { self.click("Закрыть") }, ready: {
-            self.child(3) == nil && self.list!.rows.count == 2 && self.host.activeToken == self.child(2)?.id
+            self.child(3) == nil && self.list!.rows.count == 2 && self.host.activeToken == self.main?.id
         })
         step("main after predecessor selection", action: { self.goMain() }, ready: { self.host.activeToken == self.main?.id && self.table != nil })
         step("select retained open page", action: { self.nativeSelect(0) }, ready: { self.list?.selectedRow == 0 })
         step("final active page", action: { self.click("Открыть") }, ready: {
             self.host.activeToken == self.child(2)?.id
         }, check: {
-            self.expected = Expected(rows: self.list!.rows.map(\.id), labels: self.list!.rows.map(\.text), active: self.host.activeScene!.identity, closed: self.thirdIdentity)
-            try! JSONEncoder().encode(self.expected!).write(to: self.root.appendingPathComponent("expected.json"))
+            self.recordExpected()
+            self.rememberLiveSession()
         })
         if osBackground { return }
-        step("native deactivation notification writes single USER", action: {
+        step("native deactivation saves without unloading", action: {
             NotificationCenter.default.post(name: UIApplication.willResignActiveNotification,
                                             object: UIApplication.shared)
-        }, ready: {
-            self.host.lastModelExitCode() == 0 && self.host.scenes.isEmpty
-        }, check: { require(self.userFiles().count == 1, "background boundary did not persist") })
-        step("native activation notification resumes RAM profile", action: {
-            NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification,
+            NotificationCenter.default.post(name: UIApplication.didEnterBackgroundNotification,
                                             object: UIApplication.shared)
         }, ready: {
-            self.host.activeScene != nil && self.list?.rows.count == 2
+            self.host.lastBackgroundSaveExitCode() == 0 && self.savedUser() != nil
         }, check: {
-            require(self.host.activeScene!.identity == self.expected!.active, "foreground lost active identity")
-            require(self.list!.rows.map(\.id) == self.expected!.rows, "foreground lost holder identity")
-            require(self.list!.rows.map(\.text) == self.expected!.labels, "foreground lost localization/closed state")
-            require(self.child(3) == nil, "foreground loaded closed child")
-            self.snapshot("foreground-restored")
+            self.requireSameLiveSession()
+            require(self.userFiles().count == 1, "deactivation did not persist exactly one USER")
+            self.firstSavedUser = self.savedUser()!
+            self.snapshot("inactive-retained")
+        })
+        step("activation retains bridge and presenters", action: {
+            NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification,
+                                            object: UIApplication.shared)
+        }, ready: { self.host.activeScene != nil }, check: {
+            self.requireSameLiveSession()
+            require(self.list!.rows.map(\.id) == self.expected!.rows, "activation lost holder identity")
+            require(self.list!.rows.map(\.text) == self.expected!.labels, "activation lost locale/closed state")
+            require(self.child(3) == nil, "activation loaded a closed child")
+            self.snapshot("foreground-retained")
+        })
+        step("rapid lifecycle saves later accepted navigation", action: {
+            // Queue a model command immediately before saving, without waiting
+            // for its publication. Repeated lifecycle notifications must not
+            // lose this work or create a new model/UI session.
+            self.host.selectPage(self.main!.id)
+            NotificationCenter.default.post(name: UIApplication.willResignActiveNotification,
+                                            object: UIApplication.shared)
+            NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification,
+                                            object: UIApplication.shared)
+            NotificationCenter.default.post(name: UIApplication.willResignActiveNotification,
+                                            object: UIApplication.shared)
+            NotificationCenter.default.post(name: UIApplication.didEnterBackgroundNotification,
+                                            object: UIApplication.shared)
+        }, ready: {
+            self.host.lastBackgroundSaveExitCode() == 0 &&
+                self.host.activeToken == self.main?.id && self.savedUser() != self.firstSavedUser
+        }, check: {
+            self.requireSameLiveSession(activeUnchanged: false)
+            self.recordExpected()
+            require(self.userFiles().count == 1, "repeated save created another USER file")
+        })
+        step("reactivation continues the same live session", action: {
+            NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification,
+                                            object: UIApplication.shared)
+        }, ready: { self.table != nil }, check: {
+            self.requireSameLiveSession(activeUnchanged: false)
         })
     }
+    func waitForOsReactivation() {
+        osObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willResignActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.observedOsDeactivation = true }
+        try! Data("READY".utf8).write(to: root.appendingPathComponent("ready-os-background"))
+        print("IOS_OS_BACKGROUND_READY \(index)"); fflush(stdout)
+        deadline = Date().addingTimeInterval(180)
+        pollOsReactivation()
+    }
+    func pollOsReactivation() {
+        if observedOsDeactivation && UIApplication.shared.applicationState == .active &&
+            host.lastBackgroundSaveExitCode() == 0 {
+            requireSameLiveSession()
+            require(userFiles().count == 1, "OS deactivation did not write a single USER")
+            firstSavedUser = savedUser()!
+            snapshot("os-foreground-retained")
+            // Real reactivation must accept further model work. The external
+            // runner performs a second OS deactivation after this publishes.
+            host.selectPage(main!.id)
+            deadline = Date().addingTimeInterval(30)
+            pollOsContinuation()
+            return
+        }
+        require(Date() < deadline, "OS fixture never reactivated with saved live session")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { self.pollOsReactivation() }
+    }
+    func pollOsContinuation() {
+        if host.activeToken == main?.id && table != nil {
+            requireSameLiveSession(activeUnchanged: false)
+            require(savedUser() == firstSavedUser, "foreground navigation unexpectedly wrote disk USER")
+            recordExpected()
+            let result: [String: Any] = ["status": "PASS", "pid": ProcessInfo.processInfo.processIdentifier,
+                                       "same_live_session": true]
+            try! JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted])
+                .write(to: root.appendingPathComponent("result-os-resume.json"))
+            try! Data("READY".utf8).write(to: root.appendingPathComponent("ready-os-second-background"))
+            print("IOS_OS_LIVE_RESUME_PASS"); fflush(stdout)
+            return
+        }
+        require(Date() < deadline, "OS reactivation did not accept further navigation")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { self.pollOsContinuation() }
+    }
+
     func begin() {
         if index == steps.count {
             if osBackground && !cold {
                 require(UIApplication.shared.applicationState == .active, "OS fixture must be active before background")
                 require(userFiles().isEmpty, "OS fixture saved before the native lifecycle transition")
-                try! Data("READY".utf8).write(to: root.appendingPathComponent("ready-os-background"))
-                print("IOS_OS_BACKGROUND_READY \(index)"); fflush(stdout)
-                // Stay alive. The external runner causes an actual OS app
-                // switch, observes the resulting USER and terminates this
-                // process before checking a separate cold launch.
+                waitForOsReactivation()
                 return
             }
             let result: [String: Any] = ["status": "PASS", "checkpoints": index, "cold": cold]

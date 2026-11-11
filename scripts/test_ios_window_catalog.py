@@ -29,8 +29,10 @@ def check_os_background(device, evidence, stamp):
         bundle, "data", capture_output=True, timeout=60).stdout.strip())
     source = container / "Documents/WindowCatalogAcceptance" / run_id
     print("Running embedded OS-deactivation seed", flush=True)
-    run("xcrun", "simctl", "launch", device, bundle,
-        "--run-id", run_id, "--os-background", timeout=300)
+    launched = run("xcrun", "simctl", "launch", device, bundle,
+        "--run-id", run_id, "--os-background", capture_output=True, timeout=300).stdout
+    print(launched.strip(), flush=True)
+    seed_pid = int(launched.strip().rsplit(":", 1)[1])
     wait_for(lambda: (source / "ready-os-background").exists(),
              "OS fixture never reached the active seeded state")
     profile = source / "profile"
@@ -44,11 +46,29 @@ def check_os_background(device, evidence, stamp):
     time.sleep(0.25)
     assert saved == user.read_bytes(), "OS save did not finish"
     assert list(profile.rglob("*")) == [user], "OS profile is not one USER file"
+    print("PASS actual OS deactivation: one USER; live process retained", flush=True)
+    activated = run("xcrun", "simctl", "launch", device, bundle,
+        capture_output=True, timeout=300).stdout
+    print(activated.strip(), flush=True)
+    assert int(activated.strip().rsplit(":", 1)[1]) == seed_pid, "OS activation replaced the process"
+    wait_for(lambda: (source / "ready-os-second-background").exists(),
+             "OS activation did not retain presenters and accept further work")
+    resume = json.loads((source / "result-os-resume.json").read_text())
+    assert resume["status"] == "PASS" and resume["same_live_session"] and resume["pid"] == seed_pid, resume
+    assert user.read_bytes() == saved, "Foreground command performed unexpected disk save"
+    run("xcrun", "simctl", "launch", device, "com.apple.Preferences", timeout=300)
+    wait_for(lambda: user.read_bytes() != saved,
+             "Second OS deactivation did not save the later accepted command")
+    second_saved = user.read_bytes()
+    assert second_saved, "Second OS save produced an empty USER"
+    time.sleep(0.25)
+    assert user.read_bytes() == second_saved, "Second OS save did not finish"
+    assert list(profile.rglob("*")) == [user], "Repeated OS saves created additional profile files"
     run("xcrun", "simctl", "terminate", device, bundle, timeout=60)
-    print("PASS actual OS deactivation: one USER; process terminated", flush=True)
+    print("PASS actual OS activation: same process, bridge and presenters; later work saved", flush=True)
     target = evidence / "os-lifecycle"
     target.mkdir()
-    (target / "saved-user-sha256.txt").write_text(hashlib.sha256(saved).hexdigest() + "\n")
+    (target / "saved-user-sha256.txt").write_text(hashlib.sha256(second_saved).hexdigest() + "\n")
     with (target / "cold.log").open("w") as output:
         run("xcrun", "simctl", "launch", "--console", device, bundle,
             "--run-id", run_id, "--cold", stdout=output,

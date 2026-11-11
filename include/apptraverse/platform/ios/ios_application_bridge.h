@@ -33,6 +33,8 @@ struct IosApplicationBridgeCallbacks {
   std::function<bool(ae::Obj&, ae::Obj&, ModelObjectProxy&,
                      std::function<void()>)>
       close_desktop_window;
+  // Required by requestBackgroundSave; runs on the continuing model session's
+  // thread/Domain behind already accepted work. It must preserve the live graph.
   std::function<int(ae::Domain& domain)> persist_model;
 };
 

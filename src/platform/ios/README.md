@@ -16,16 +16,18 @@ identity. UIKit selection and activation recognizers do not compete with SwiftUI
 row gestures. Runtime tokens and view adapters are never persistent model fields.
 
 The host observes native UIApplication deactivation, background and activation
-notifications independently of the SwiftUI view. Deactivation starts an orderly
-model-session shutdown early enough for the app-switcher path. One UIKit
-background task covers draining accepted commands, the persist hook writing one
-USER file, and joining the model thread. Repeated lifecycle notifications do not
-start another session or background task. Activation creates a fresh runtime/UI
-bridge against the application-owned RAM profile after the old session has
-joined. This is a session shutdown/resume, not a checkpoint written on every
-click. A suspended app need not receive a termination callback; forced process
-termination cannot guarantee new I/O. The application decides fresh Debug
-process startup versus embedded cold USER loading.
+notifications independently of the SwiftUI view. Deactivation queues the
+application's `persist_model` callback behind already accepted model work.
+It uses the continuing model thread and Domain; neither the runtime, mirror,
+presenters nor view adapters are torn down. One UIKit background task covers
+pending saves. Background after the same deactivation is coalesced; a new
+active-to-inactive transition queues another save after newer accepted work.
+Activation continues the same live session and UI. Save completion has its own
+status, separate from model exit. Explicit `requestStop` retains the normal
+drain/save/join/teardown path. No per-click flush, UI-mirror persistence or new
+checkpoint format is introduced. A suspended app need not receive a termination
+callback; forced process termination cannot guarantee new I/O. The application
+decides fresh Debug process startup versus embedded cold USER loading.
 
 Queued button intents resolve their model target when executed. An already
 unloaded child Close control is skipped as a real lifecycle disappearance;
