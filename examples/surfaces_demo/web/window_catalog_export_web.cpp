@@ -37,7 +37,6 @@ int main(int argc, char** argv) {
     return 2;
   }
 
-  apptraverse::EnsureObjectRegistration();
   apptraverse::EnsureWebWindowCatalogGraphRegistration();
 
   std::filesystem::path const export_dir =

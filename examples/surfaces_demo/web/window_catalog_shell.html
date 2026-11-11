@@ -21,7 +21,7 @@
       margin: 0 auto;
       background: #fff;
     }
-    /* Pager header: title + page indicator + prev/next + save. */
+    /* Pager header: title + page indicator + prev/next + application Close. */
     #pager-bar {
       display: flex;
       align-items: center;
@@ -84,14 +84,6 @@
       touch-action: manipulation;
     }
     .apptraverse-push-button:disabled { opacity: 0.55; }
-    /* Child page Close button: bottom-left of the page, touch sized. */
-    #catalog-mount .catalog-page:not(.catalog-page-main) .apptraverse-push-button {
-      left: 12px !important;
-      top: auto !important;
-      bottom: 12px;
-      width: 140px !important;
-      height: 48px !important;
-    }
     .apptraverse-list {
       box-sizing: border-box;
       border: 1px solid #ccc;
@@ -127,7 +119,7 @@
       <div id="page-title">Loading…</div>
       <div id="page-indicator"></div>
       <button id="next-page" type="button" aria-label="Next page">&#9654;</button>
-      <button id="save-button" type="button">Save</button>
+      <button id="shutdown-button" type="button">Close application</button>
     </div>
     <div id="catalog-mount"></div>
     <div id="page-dots"></div>
@@ -138,11 +130,12 @@
     // Shell side of the WindowCatalog web port. Native state lives in the
     // model; this object only reflects the pager (ring ids + active id pushed
     // from native after each publication) and forwards user input to the
-    // exported bridge functions (swipe, page click, viewport, save).
+    // exported bridge functions (swipe, page click, viewport, shutdown).
     var AtCatalog = (function() {
       var pageIds = [];
       var activeId = 0;
       var SWIPE_MIN_PX = 60;
+      var reportViewport = function() {};
 
       function el(id) { return document.getElementById(id); }
       function mount() { return el('catalog-mount'); }
@@ -161,10 +154,9 @@
           var on = Number(pages[i].dataset.windowId) === activeId;
           pages[i].classList.toggle('page-active', on);
         }
-        var index = Math.max(0, pageIds.indexOf(activeId));
+        var index = pageIds.indexOf(activeId);
         var active = pageEl(activeId);
-        el('page-title').textContent =
-            (active && active.dataset.apptraverseWindowTitle) || '';
+        el('page-title').textContent = active.dataset.apptraverseWindowTitle;
         el('page-indicator').textContent =
             pageIds.length ? (index + 1) + ' / ' + pageIds.length : '';
         var multi = pageIds.length > 1;
@@ -187,8 +179,6 @@
 
       function showPage(id) {
         if (id === activeId) { return; }
-        activeId = id;
-        render();
         var fn = bridge('ApptraverseWindowCatalogMobilePageShown');
         if (fn) { fn(id >>> 0); }
       }
@@ -198,15 +188,15 @@
         if (fn && pageIds.length > 1) { fn(delta); }
       }
 
-      function save() {
-        var fn = bridge('ApptraverseWindowCatalogRequestSave');
+      function shutdown() {
+        var fn = bridge('ApptraverseWindowCatalogRequestShutdown');
         if (fn) { fn(); }
       }
 
       function installInput() {
         el('prev-page').addEventListener('click', function() { swipe(-1); });
         el('next-page').addEventListener('click', function() { swipe(1); });
-        el('save-button').addEventListener('click', save);
+        el('shutdown-button').addEventListener('click', shutdown);
 
         // Swipe: horizontal drag on the page area. Taps still reach list rows
         // and buttons because only drags past the threshold are consumed.
@@ -241,34 +231,37 @@
           var fn = bridge('ApptraverseWindowCatalogViewportChanged');
           if (!fn) { return; }
           var r = m.getBoundingClientRect();
-          fn(Math.round(r.width), Math.round(r.height));
+          var width = Math.round(r.width), height = Math.round(r.height);
+          fn(width, height);
+          var active = pageEl(activeId);
+          if (active && !active.classList.contains('catalog-page-main')) {
+            bridge('ApptraverseWindowCatalogChildViewportChanged')(activeId, width, height);
+          }
         };
         if (typeof ResizeObserver !== 'undefined') {
           new ResizeObserver(report).observe(m);
         } else {
           window.addEventListener('resize', report);
         }
+        reportViewport = report;
         report();
 
-        // Persist the USER profile when the page goes to background.
-        document.addEventListener('visibilitychange', function() {
-          if (document.visibilityState === 'hidden') { save(); }
-        });
-        window.addEventListener('pagehide', save);
       }
 
       return {
         setPages: function(csv, active) {
           pageIds = csv ? csv.split(',').map(Number) : [];
+          var changed = activeId !== (active >>> 0);
           activeId = active >>> 0;
           render();
+          if (changed) reportViewport();
         },
         setStatus: function(text) { el('status').textContent = text; },
         setInputBlocked: function(blocked) {
           mount().inert = blocked;
-          ['prev-page', 'next-page', 'save-button'].forEach(function(id) {
+          ['prev-page', 'next-page', 'shutdown-button'].forEach(function(id) {
             el(id).disabled = blocked ||
-                (id !== 'save-button' && pageIds.length <= 1);
+                (id !== 'shutdown-button' && pageIds.length <= 1);
           });
         },
         shutdownDone: function(ok) {
@@ -279,6 +272,8 @@
     })();
 
     var Module = {
+      arguments: ['--state-dir', new URLSearchParams(location.search).get('state-dir') ||
+                    '/persistent/window_catalog_web_state'],
       print: function(text) { console.log(text); },
       printErr: function(text) { console.error(text); },
       preRun: [function() {

@@ -28,6 +28,8 @@ When a defect appears during porting, fix the **architectural cause** in the rig
 
 Current work: autonomously complete WindowCatalog ports in order Linux GTK through WSL, Android, then WebAssembly, preserving the verified Windows/headless behavior and the shared application template. The user authorized all three ports, builds/tests and commit/push without continuation questions. macOS/iOS are being ported independently on a MacBook in a different branch: do not modify or merge that work. CI and other example applications remain excluded. Maximization support is explicitly deferred; do not implement it as part of these ports.
 
+Acceptance checkpoint (2026-11-10): these three ports are implemented and tested within the scopes recorded in `docs/validation/window-catalog-{linux,android,web}-port-2026-11-10.md`. Preserve the documented WSLg position limitation, Android onStop and Web explicit-shutdown persistence boundaries, and the Windows interactive-foreground test precondition. ARM64/devices, other browsers, Release packaging and deferred maximization are not implied follow-up tasks.
+
 ## Active plan (P0–P6)
 
 - **Order:** Linux WindowCatalog acceptance, then Android, then WebAssembly; preserve Windows/headless regression coverage. [PLAN §P0–P6](docs/versioning/PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6) retains the long-term roadmap; its old other-platform NEXT entries and **U5.2–U6**, **9D–9H** are not active instructions.

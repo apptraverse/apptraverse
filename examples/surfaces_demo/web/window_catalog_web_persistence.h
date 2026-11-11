@@ -3,16 +3,15 @@
 
 #include "aether-objects/obj/domain.h"
 
-#include "apptraverse/directory_domain_storage.h"
+#include <filesystem>
+#include "aether-objects/domain_storage/ram_domain_storage.h"
 
 #include "window_catalog_model.h"
 
 namespace apptraverse {
 
 int PersistWindowCatalogEmbeddedUserOverlay(WindowCatalog& catalog,
-                                            DirectoryDomainStorage& user_storage);
-int PersistWindowCatalogEmbeddedUserOverlayFromDomain(
-    ae::Domain& domain, DirectoryDomainStorage& user_storage);
+    ae::RamDomainStorage const& user_storage, std::filesystem::path const& profile);
 
 }  // namespace apptraverse
 

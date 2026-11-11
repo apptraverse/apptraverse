@@ -5,7 +5,7 @@
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
 
-#include "apptraverse/directory_domain_storage.h"
+#include "apptraverse/single_file_user_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/embedded_distilled_domain.h"
@@ -48,32 +48,21 @@ std::filesystem::path TestDir(char const* name) {
 }
 
 void ShutdownSaveCatalog(WindowCatalog& catalog,
-                         DirectoryDomainStorage& user_storage) {
-  user_storage.BeginSaveSession();
+                         ae::RamDomainStorage const& user_storage,
+                         std::filesystem::path const& profile) {
   SaveWindowCatalogPersistentSnapshot(catalog);
-  CHECK(!user_storage.SaveSessionHadFailure());
-}
-
-bool UserDirectoryHasObjectBody(std::filesystem::path const& user_root,
-                                ae::ObjId object_id) {
-  auto const obj_dir = user_root / std::to_string(object_id.id());
-  if (!std::filesystem::exists(obj_dir)) {
-    return false;
-  }
-  for (auto const& entry : std::filesystem::directory_iterator(obj_dir)) {
-    if (entry.is_directory()) {
-      return true;
-    }
-  }
-  return false;
+  CHECK(SaveUserStorageFile(user_storage, profile));
+  CHECK(std::filesystem::file_size(profile / "user.bin") > 0);
+  CHECK(std::distance(std::filesystem::directory_iterator(profile),
+                      std::filesystem::directory_iterator{}) == 1);
 }
 
 void ExpectNoLocalizationSupplyBodiesInUser(
     WindowCatalog const& catalog, OverlayDomainStorage const& overlay,
-    std::filesystem::path const& user_root) {
-  for (ae::ObjId const& id : CollectWindowCatalogSupplyConstantIds(catalog)) {
+    ae::RamDomainStorage const& user) {
+  for (auto const& id : CollectWindowCatalogSupplyConstantIds(catalog)) {
     CHECK(overlay.IsSupplyConstant(id));
-    CHECK(!UserDirectoryHasObjectBody(user_root, id));
+    CHECK(user.state.count(id) == 0);
   }
 }
 
@@ -112,7 +101,7 @@ void TestWebEmbeddedBackingUserColdLoadWithoutNormalize() {
   ae::RamDomainStorage::ObjClassData const backing_snapshot = backing.state;
 
   auto const user_dir = TestDir("window_catalog_web_embedded_session");
-  DirectoryDomainStorage user_storage{user_dir};
+  ae::RamDomainStorage user_storage;
   OverlayDomainStorage overlay{
       user_storage, backing,
       EmbeddedSupplyConstantIdSet(
@@ -135,14 +124,19 @@ void TestWebEmbeddedBackingUserColdLoadWithoutNormalize() {
     holder0_id = AsHolder(catalog->persisted.list->rows[0])->obj_id;
     holder1_id = AsHolder(catalog->persisted.list->rows[1])->obj_id;
     open_window_id = AsHolder(catalog->persisted.list->rows[1])->window.id();
-    ShutdownSaveCatalog(*catalog, user_storage);
-    ExpectNoLocalizationSupplyBodiesInUser(*catalog, overlay, user_dir);
+    CHECK(std::filesystem::is_empty(user_dir));
+    ShutdownSaveCatalog(*catalog, user_storage, user_dir);
+    ExpectNoLocalizationSupplyBodiesInUser(*catalog, overlay, user_storage);
     CHECK(backing.state == backing_snapshot);
     catalog.Reset();
   }
 
   {
-    ae::Domain cold_domain{overlay};
+    ae::RamDomainStorage cold_user;
+    CHECK(LoadUserStorageFile(cold_user, user_dir));
+    OverlayDomainStorage cold_overlay{cold_user, backing,
+        EmbeddedSupplyConstantIdSet(embedded_distilled::window_catalog_web::kEmbeddedGraph)};
+    ae::Domain cold_domain{cold_overlay};
     auto catalog = LoadApplication<WindowCatalog>(cold_domain, kCatalogId);
     ExpectEmbeddedBackingIntegrityAfterLoad(*catalog);
     catalog->persisted.list.Load();
@@ -164,7 +158,7 @@ void TestWebEmbeddedBackingUserColdLoadWithoutNormalize() {
     catalog->AddWindow();
     catalog->persisted.list.Load();
     CHECK(catalog->persisted.list->rows.size() == 3);
-    ShutdownSaveCatalog(*catalog, user_storage);
+    ShutdownSaveCatalog(*catalog, cold_user, user_dir);
     CHECK(backing.state == backing_snapshot);
   }
 }
@@ -173,8 +167,6 @@ void TestWebEmbeddedBackingUserColdLoadWithoutNormalize() {
 }  // namespace apptraverse::test
 
 int main() {
-  apptraverse::EnsureObjectRegistration();
-  apptraverse::EnsureWindowCatalogModelRegistration();
   apptraverse::EnsureWebWindowCatalogGraphRegistration();
   apptraverse::test::TestWebEmbeddedBackingUserColdLoadWithoutNormalize();
   std::cout << "window_catalog_web_embedded_session_test OK\n";

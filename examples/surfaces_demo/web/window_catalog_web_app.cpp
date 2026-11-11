@@ -16,7 +16,7 @@
 #include "window_catalog_web_persistence.h"
 
 #include "apptraverse/application_model_session.h"
-#include "apptraverse/directory_domain_storage.h"
+#include "apptraverse/single_file_user_storage.h"
 #include "apptraverse/embedded_application_model_session.h"
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/noninteractive_crt.h"
@@ -68,12 +68,6 @@ void EnsureBrowserEnvironment() {
   }
 }
 
-bool UserProfilePresent(std::filesystem::path const& state_dir) {
-  return std::filesystem::exists(state_dir) &&
-         !std::filesystem::is_empty(state_dir);
-}
-
-bool g_saving = false;
 int g_last_viewport_w = 0;
 int g_last_viewport_h = 0;
 
@@ -84,10 +78,6 @@ void FinishHostTeardownTrampoline(void* arg) {
 }  // namespace
 
 extern "C" {
-
-EMSCRIPTEN_KEEPALIVE void ApptraverseWindowCatalogRequestSave() {
-  WebWindowCatalogApp::Instance().RequestSave();
-}
 
 EMSCRIPTEN_KEEPALIVE void ApptraverseWindowCatalogRequestShutdown() {
   WebWindowCatalogApp::Instance().RequestShutdown();
@@ -107,6 +97,11 @@ EMSCRIPTEN_KEEPALIVE void ApptraverseWindowCatalogViewportChanged(int width,
   WebWindowCatalogApp::Instance().ViewportChanged(width, height);
 }
 
+EMSCRIPTEN_KEEPALIVE void ApptraverseWindowCatalogChildViewportChanged(
+    unsigned window_id, int width, int height) {
+  WebWindowCatalogApp::Instance().ChildViewportChanged(window_id, width, height);
+}
+
 }  // extern "C"
 
 WebWindowCatalogApp& WebWindowCatalogApp::Instance() {
@@ -115,7 +110,6 @@ WebWindowCatalogApp& WebWindowCatalogApp::Instance() {
 }
 
 void WebWindowCatalogApp::Start(std::filesystem::path state_dir) {
-  EnsureObjectRegistration();
   EnsureWebWindowCatalogGraphRegistration();
   EnsureBrowserEnvironment();
   SetStatus("Loading…");
@@ -127,15 +121,21 @@ void WebWindowCatalogApp::Start(std::filesystem::path state_dir) {
     host.mount = ApptraverseCatalogGetMountElement();
   };
   callbacks.run_model = [this](ApplicationPublishedCallback on_published) -> int {
-    if (!user_storage_) {
-      user_storage_ = std::make_unique<DirectoryDomainStorage>(state_dir_);
-    }
-    bool const user_profile_present = UserProfilePresent(state_dir_);
-    if (user_profile_present) {
+#if defined(APPTRAVERSE_WEB_CATALOG_FRESH_USER)
+    state_dir_ /= "debug-run-" + std::to_string(ae::ObjId::GenerateUnique().id());
+    state_dir_ /= "user";
+#endif
+    ae::RamDomainStorage user_storage;
+#if !defined(APPTRAVERSE_WEB_CATALOG_FRESH_USER)
+    if (!LoadUserStorageFile(user_storage, state_dir_)) return 1;
+    if (!user_storage.state.empty()) {
       EM_ASM({ console.log('WINDOW_CATALOG_LOADED_FROM_PROFILE'); });
     } else {
       EM_ASM({ console.log('WINDOW_CATALOG_LOADED_FROM_EMBEDDED_BACKING'); });
     }
+#else
+    EM_ASM({ console.log('WINDOW_CATALOG_DEBUG_FRESH_USER'); });
+#endif
 
     ApplicationModelSessionHooks<WindowCatalog> hooks;
     hooks.prepare = PrepareWindowCatalogForRun;
@@ -143,46 +143,25 @@ void WebWindowCatalogApp::Start(std::filesystem::path state_dir) {
       catalog.pending_focus_window = {};
       catalog.pending_mobile_active_window = {};
     };
-    hooks.persist = [this](WindowCatalog& catalog) -> int {
-      return PersistWindowCatalogEmbeddedUserOverlay(catalog, *user_storage_);
+    hooks.persist = [this, &user_storage](WindowCatalog& catalog) -> int {
+      return PersistWindowCatalogEmbeddedUserOverlay(catalog, user_storage, state_dir_);
     };
 
     int const session_result = RunEmbeddedApplicationModelSession(
-        *user_storage_, embedded_distilled::window_catalog_web::kEmbeddedGraph,
+        user_storage, embedded_distilled::window_catalog_web::kEmbeddedGraph,
         runtime_, std::move(on_published), hooks);
-    user_storage_.reset();
     return session_result;
   };
   callbacks.request_stop = [this] { runtime_.RequestStop(); };
   callbacks.after_initial = [this](ae::Obj& root) {
     EM_ASM({
-      AtCatalog.setStatus('');
+      AtCatalog.setStatus("");
       console.log('WINDOW_CATALOG_INITIAL_RENDER_OK');
     });
     PublishMobilePages(root);
     ViewportChanged(g_last_viewport_w, g_last_viewport_h);
   };
   callbacks.after_incremental = [this](ae::Obj& root) { PublishMobilePages(root); };
-  callbacks.persist_model = [this](ae::Domain& domain) -> int {
-    return PersistWindowCatalogEmbeddedUserOverlayFromDomain(domain,
-                                                             *user_storage_);
-  };
-  callbacks.on_save_started = [] {
-    g_saving = true;
-    SetStatus("Saving…");
-  };
-  callbacks.on_save_succeeded = [this] {
-    g_saving = false;
-    SetStatus("Saved");
-    EM_ASM({ console.log('WINDOW_CATALOG_IDBFS_SAVED'); });
-    ViewportChanged(g_last_viewport_w, g_last_viewport_h);
-  };
-  callbacks.on_save_failed = [this] {
-    g_saving = false;
-    SetStatus("Save failed");
-    EM_ASM({ console.error('WINDOW_CATALOG_SAVE_FAILED'); });
-    ViewportChanged(g_last_viewport_w, g_last_viewport_h);
-  };
   callbacks.set_ui_input_blocked = SetUiInputBlocked;
   callbacks.on_shutdown_stopping = [] {
     SetStatus("Stopping…");
@@ -211,12 +190,6 @@ void WebWindowCatalogApp::FinishTeardown(bool shutdown_succeeded) {
          shutdown_succeeded ? 1 : 0);
 }
 
-void WebWindowCatalogApp::RequestSave() {
-  if (host_) {
-    host_->RequestSave();
-  }
-}
-
 void WebWindowCatalogApp::RequestShutdown() {
   if (host_) {
     host_->RequestShutdown();
@@ -224,7 +197,7 @@ void WebWindowCatalogApp::RequestShutdown() {
 }
 
 void WebWindowCatalogApp::MobileSwipe(int delta) {
-  if (!host_ || g_saving || !host_->ui_session() ||
+  if (!host_ || !host_->ui_session() ||
       host_->lifecycle() != web::WebApplicationHostLifecycle::kRunning) {
     return;
   }
@@ -233,7 +206,7 @@ void WebWindowCatalogApp::MobileSwipe(int delta) {
 }
 
 void WebWindowCatalogApp::MobilePageShown(unsigned window_obj_id) {
-  if (!host_ || g_saving || !host_->ui_session() ||
+  if (!host_ || !host_->ui_session() ||
       host_->lifecycle() != web::WebApplicationHostLifecycle::kRunning) {
     return;
   }
@@ -248,7 +221,7 @@ void WebWindowCatalogApp::ViewportChanged(int width, int height) {
   if (width <= 0 || height <= 0) {
     return;
   }
-  if (!host_ || g_saving || !host_->ui_session() ||
+  if (!host_ || !host_->ui_session() ||
       host_->lifecycle() != web::WebApplicationHostLifecycle::kRunning) {
     return;
   }
@@ -262,6 +235,15 @@ void WebWindowCatalogApp::ViewportChanged(int width, int height) {
       CatalogRootId(), &WindowCatalog::SubmitMainClientViewportFromUi,
       static_cast<std::int32_t>(width), static_cast<std::int32_t>(height),
       static_cast<std::int32_t>(160));
+}
+
+void WebWindowCatalogApp::ChildViewportChanged(unsigned window_id, int width, int height) {
+  if (width <= 0 || height <= 0 || !host_ || !host_->ui_session() ||
+      host_->lifecycle() != web::WebApplicationHostLifecycle::kRunning) return;
+  host_->model_proxy().Invoke(CatalogRootId(),
+      &WindowCatalog::SubmitHolderChildWindowClientSizeFromUi,
+      window_id, static_cast<std::int32_t>(width),
+      static_cast<std::int32_t>(height), static_cast<std::int32_t>(160));
 }
 
 void WebWindowCatalogApp::PublishMobilePages(ae::Obj& application_root) {

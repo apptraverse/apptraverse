@@ -1,197 +1,49 @@
 #include "window_catalog_graph_web.h"
-
-#if defined(APPTRAVERSE_WEB_CATALOG_DOM_TAGGING)
-#include <emscripten.h>
-#include <emscripten/em_js.h>
-#endif
-
-#include "window_catalog_graph_builder.h"
+#include "window_catalog_presenters_web.h"
 #include "window_catalog_ids.h"
-#include "window_catalog_list_presenter_mixin.h"
-#include "window_catalog_model.h"
 #include "apptraverse/model_object_proxy.h"
-#include "apptraverse/object_macros.h"
-#include "apptraverse/platform/web/web_ui_list_presenter.h"
-#include "apptraverse/platform/web/web_ui_push_button_presenter.h"
-#include "apptraverse/platform/web/web_ui_window_presenter.h"
-#include "apptraverse/ui/ui_presenters.h"
+#include <emscripten/em_js.h>
 
 namespace apptraverse::example::surfaces {
 namespace {
-
-#if defined(APPTRAVERSE_WEB_CATALOG_DOM_TAGGING)
-// Tags the presenter's DOM window element with the model window ObjId so the
-// shell pager can map ring ids to pages.
 EM_JS(void, ApptraverseCatalogTagWindowElement,
       (emscripten::EM_VAL client_element, unsigned window_id, int is_main), {
-        var client = Emval.toValue(client_element);
-        var win = client ? client.parentNode : null;
-        if (!win) {
-          return;
-        }
-        win.dataset.windowId = String(window_id);
-        win.classList.add('catalog-page');
-        if (is_main) {
-          win.classList.add('catalog-page-main');
-        }
-      });
-#endif
+  var win = Emval.toValue(client_element).parentNode;
+  // Wasm i32 crosses the JS boundary as signed; ObjId remains uint32.
+  win.dataset.windowId = String(window_id >>> 0);
+  win.classList.add('catalog-page');
+  if (is_main) win.classList.add('catalog-page-main');
+});
+}
 
-}  // namespace
-
-// Desktop window presenter for catalog pages (main + children). Pagination is
-// shell-driven (see window_catalog_shell.html); this only exposes the window id.
-class WebCatalogWindowPresenter : public ui::web::WebDesktopWindowPresenter {
-  APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::example::surfaces::WebCatalogWindowPresenter",
-      WebCatalogWindowPresenter, ui::web::WebDesktopWindowPresenter, 0)
-
- protected:
-  WebCatalogWindowPresenter() = default;
-
- public:
-  explicit WebCatalogWindowPresenter(ae::ObjProp prop)
-      : WebDesktopWindowPresenter{prop} {}
-
-  template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_);
-  }
-
-  template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_);
-  }
-
-  void OnLoad() override {
-    WebDesktopWindowPresenter::OnLoad();
-#if defined(APPTRAVERSE_WEB_CATALOG_DOM_TAGGING)
-    ae::ObjId const window_id = desktop_window().id();
-    bool const is_main =
-        window_id.id() ==
-        window_catalog_demo::ToObjId(window_catalog_demo::ObjId::MainWindow);
-    ApptraverseCatalogTagWindowElement(ClientMountHandle(), window_id.id(),
-                                       is_main ? 1 : 0);
-#endif
-  }
-};
-
-class CatalogDesktopWindowPresenter
-    : public WindowCatalogDesktopPresenterMixin<WebCatalogWindowPresenter> {
-  APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::example::surfaces::CatalogDesktopWindowPresenter",
-      CatalogDesktopWindowPresenter, WebCatalogWindowPresenter, 0)
-
- protected:
-  CatalogDesktopWindowPresenter() = default;
-
- public:
-  explicit CatalogDesktopWindowPresenter(ae::ObjProp prop)
-      : WindowCatalogDesktopPresenterMixin{prop} {}
-
-  template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, catalog);
-  }
-
-  template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, catalog);
-  }
-};
-
-class WebCatalogListContainerPresenter
-    : public WindowCatalogListPresenterMixin<ui::web::WebListContainerPresenter> {
-  APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::example::surfaces::WebCatalogListContainerPresenter",
-      WebCatalogListContainerPresenter, ui::web::WebListContainerPresenter, 0)
-
- protected:
-  WebCatalogListContainerPresenter() = default;
-
- public:
-  explicit WebCatalogListContainerPresenter(ae::ObjProp prop)
-      : WindowCatalogListPresenterMixin{prop} {}
-
-  template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, catalog);
-  }
-
-  template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, catalog);
-  }
-
-  void SubmitListRowSelectionChangedFromUi(std::size_t row_index) override {
-    model_proxy->Invoke(catalog->obj_id, &WindowCatalog::SubmitSelectionFromUi,
-                        row_index);
-  }
-
-  void SubmitListRowActivatedFromUi(std::size_t row_index) override {
-    model_proxy->Invoke(catalog->obj_id, &WindowCatalog::OpenRow, row_index);
-  }
-};
-
+void WebCatalogWindowPresenter::OnLoad() {
+  WebDesktopWindowPresenter::OnLoad();
+  auto const id = desktop_window().id();
+  ApptraverseCatalogTagWindowElement(ClientMountHandle(), id.id(),
+      id.id() == window_catalog_demo::ToObjId(window_catalog_demo::ObjId::MainWindow));
+}
+void WebCatalogListContainerPresenter::SubmitListRowSelectionChangedFromUi(std::size_t index) {
+  auto const id = RowIdAtUiIndex(index);
+  if (!id) return;
+  model_proxy->Invoke(catalog->obj_id, &WindowCatalog::SubmitSelectionByIdFromUi, *id);
+}
+void WebCatalogListContainerPresenter::SubmitListRowActivatedFromUi(std::size_t index) {
+  auto const id = RowIdAtUiIndex(index);
+  if (!id) return;
+  model_proxy->Invoke(catalog->obj_id, &WindowCatalog::OpenHolderByIdFromUi, *id);
+}
 APPTRAVERSE_REGISTER(WebCatalogWindowPresenter);
 APPTRAVERSE_REGISTER(CatalogDesktopWindowPresenter);
 APPTRAVERSE_REGISTER(WebCatalogListContainerPresenter);
-
 }  // namespace apptraverse::example::surfaces
 
 namespace apptraverse {
-
-WindowCatalog::ptr BuildWebWindowCatalogGraph(ae::Domain& domain) {
-  ui::EnsureUiPresenterRegistration();
-  ui::web::EnsureWebUiPresenterRegistration();
-
-  WindowCatalogPresenterFactory factory;
-  factory.create_window = [](ae::Domain& build_domain, ae::ObjId presenter_id,
-                             WindowCatalog::ptr const& catalog)
-      -> ui::UiDesktopWindowPresenter::ptr {
-    if (presenter_id.id() ==
-        window_catalog_demo::ToObjId(
-            window_catalog_demo::ObjId::MainWindowPresenter)) {
-      return example::surfaces::WebCatalogWindowPresenter::ptr::Create(
-          ae::CreateWith{build_domain}.with_id(presenter_id));
-    }
-    example::surfaces::CatalogDesktopWindowPresenter::ptr presenter =
-        example::surfaces::CatalogDesktopWindowPresenter::ptr::Create(
-            ae::CreateWith{build_domain}.with_id(presenter_id));
-    presenter->catalog = catalog;
-    return presenter;
-  };
-  factory.create_list =
-      [](ae::Domain& build_domain, ae::ObjId presenter_id,
-         WindowCatalog::ptr const& catalog) {
-        example::surfaces::WebCatalogListContainerPresenter::ptr presenter =
-            example::surfaces::WebCatalogListContainerPresenter::ptr::Create(
-                ae::CreateWith{build_domain}.with_id(presenter_id));
-        presenter->catalog = catalog;
-        return presenter;
-      };
-  factory.create_button = [](ae::Domain& build_domain, ae::ObjId presenter_id) {
-    return ui::web::WebPushButtonPresenter::ptr::Create(
-        presenter_id.is_valid()
-            ? ae::CreateWith{build_domain}.with_id(presenter_id)
-            : ae::CreateWith{build_domain});
-  };
-
-  // Same mobile pager model as Android: main page + one page per open child
-  // window, Close button in the window prefab graph.
-  WindowCatalogGraphOptions options;
-  options.mobile_pager = true;
-  options.mobile_close_in_prefab = true;
-  return BuildWindowCatalogGraph(domain, factory, options);
-}
-
 void EnsureWebWindowCatalogGraphRegistration() {
+  EnsureCoreObjectRegistration();
   EnsureWindowCatalogModelRegistration();
-  ui::EnsureUiPresenterRegistration();
   ui::web::EnsureWebUiPresenterRegistration();
   (void)&example::surfaces::g_apptraverse_registrar_WebCatalogWindowPresenter;
-  (void)&example::surfaces::
-      g_apptraverse_registrar_WebCatalogListContainerPresenter;
+  (void)&example::surfaces::g_apptraverse_registrar_CatalogDesktopWindowPresenter;
+  (void)&example::surfaces::g_apptraverse_registrar_WebCatalogListContainerPresenter;
 }
-
 }  // namespace apptraverse
