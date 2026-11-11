@@ -274,6 +274,14 @@ class Node : public ae::Obj {
 
   void Commit(Event::ptr event) { CommitImpl(std::move(event)); }
 
+  // Dispatch historical insertion through the most-derived NodeFor<T> so its
+  // native application layers participate in replay. The caller must validate
+  // Event::TargetClassId before using an external Event. Speculative insertion
+  // is for disposable scratch copies: failed replay can partially modify state.
+  bool TryInsertJournalEvent(EventRecord record) {
+    return TryInsertJournalEventImpl(std::move(record));
+  }
+
   // Rebuild materialized state from base and replay the journal.
   // Note: Speculative replay is intended for disposable scratch copies only.
   // If historical replay fails, the scratch object is left partially modified
@@ -577,6 +585,12 @@ class Node : public ae::Obj {
   virtual void CommitImpl(Event::ptr event) {
     (void)event;
     assert(false && "Concrete Node must inherit through NodeFor");
+  }
+
+  virtual bool TryInsertJournalEventImpl(EventRecord record) {
+    (void)record;
+    assert(false && "Concrete Node must inherit through NodeFor");
+    return false;
   }
 
   virtual void CompactJournalImpl(std::uint64_t now_us) {

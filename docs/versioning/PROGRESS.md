@@ -1,5 +1,21 @@
 # AppTraverse — прогресс версионирования поставок
 
+## SharedNode live memory delivery, ACK/retry and restart — 2026-11-11 — PASS
+
+Continued `feature/shared-node-native-memory` from `7d1732b`. Added native
+InitialState/Event/ACK messages and a two-live-replica runtime with persisted
+per-peer frozen packets, paced retry, exact initial coverage, save-before-ACK,
+duplicate suppression and saved confirmation state. Native new-only import
+preserves known live/cold dependencies; historical insertion dispatches through
+the most-derived NodeFor serializer after isolated trial replay.
+
+**6/6 SharedNode/native CTest entries and 9/9 targeted headless regressions
+passed** on MSVC x64 Debug. Live cases cover initial/Event/ACK loss, duplicates,
+reverse order, early Event, Offline pacing, wrong ACK, two Nodes, and actual
+App/Room destruction plus restore around initial delivery and steady-state
+pending/ACK. The cold ACK oracle detects an intentionally premature ACK mutation;
+that mutation was reverted. [Validation and exact boundaries](../validation/shared-node-live-memory-2026-11-11.md).
+
 ## SharedNode native serialization and memory foundation — 2026-11-11 — PASS
 
 User-authorized separate branch `feature/shared-node-native-memory` starts from

@@ -10,15 +10,16 @@
 
 namespace apptraverse {
 
-// Native object layers, not a second encoding of object fields. This is the
-// initial serialization primitive; packet routing, ACKs and compatibility
-// messages will wrap it in the next synchronization slice.
+// Native object layers, not a second encoding of object fields.
+// SharedSyncMessage wraps this table with routing and delivery metadata.
 struct SharedGraphSnapshot {
   ae::ObjId root_id;
   ae::RamDomainStorage::ObjClassData layers;
 
   AE_REFLECT_MEMBERS(root_id, layers)
 };
+
+bool CaptureSharedGraph(ae::Obj const& root, SharedGraphSnapshot& snapshot);
 
 // Captures a closed NetworkShared graph using DomainGraph and BinaryArchive.
 // LocalPtr edges are omitted. The returned bytes are frozen and independent
@@ -31,6 +32,24 @@ bool SerializeSharedGraph(ae::Obj const& root,
 // can load these native layers with an ordinary NetworkShared DomainGraph.
 bool DeserializeSharedGraph(std::vector<std::uint8_t> const& bytes,
                             SharedGraphSnapshot& snapshot);
+
+// Validate native class chains, deserialize all layers in a disposable Domain,
+// and check that serialized references stay within the packet's closed graph.
+// expected_root_base_class_id == 0 accepts any registered root class.
+bool ValidateSharedGraphSnapshot(
+    SharedGraphSnapshot const& snapshot,
+    std::uint32_t expected_root_base_class_id = 0);
+
+// Preserve native object identities. Known loaded/cold objects are reused and
+// their layers are NEVER replaced with potentially stale packet state. All
+// class/closure checks precede writes; only absent objects are installed.
+// The single-computer slice assumes native IDs identify the same logical object
+// across replicas. An unrelated ID with a different class is rejected; this is
+// not a namespace/remapping scheme for independently colliding equal-class IDs.
+bool ImportSharedGraphNewObjects(SharedGraphSnapshot const& snapshot,
+                                 ae::Domain& domain,
+                                 ae::IDomainStorage& storage,
+                                 ae::Ptr<ae::Obj>& out_root);
 
 }  // namespace apptraverse
 

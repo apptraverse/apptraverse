@@ -32,6 +32,11 @@ class NodeFor : public BaseNode {
     Node::CommitInto(static_cast<ConcreteNode&>(*this), std::move(event));
   }
 
+  bool TryInsertJournalEventImpl(EventRecord record) override {
+    return Node::TryInsertEvent(static_cast<ConcreteNode&>(*this),
+                                std::move(record));
+  }
+
   void CompactJournalImpl(std::uint64_t now_us) override {
     Node::CompactJournalInto(static_cast<ConcreteNode&>(*this), now_us);
   }

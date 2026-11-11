@@ -140,6 +140,7 @@ target_compile_features(apptraverse PUBLIC cxx_std_20)
 add_library(apptraverse_shared_node STATIC EXCLUDE_FROM_ALL
   src/shared_node.cpp
   src/shared_graph.cpp
+  src/shared_sync.cpp
   src/memory_link.cpp
 )
 target_link_libraries(apptraverse_shared_node PUBLIC apptraverse)

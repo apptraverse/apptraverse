@@ -8,6 +8,9 @@ tests. `feature/shared-node-native-memory` owns this opt-in extension; its
 contract and remaining stages are in [SharedNode.md](docs/architecture/SharedNode.md).
 This authorization supersedes the older SharedNode removal/deferment below
 for this extension. Existing WindowCatalog/backend boundaries still apply.
+The follow-up authorizes ACK/retry and two live memory replicas, including
+loss/duplicate/out-of-order and restart checks; current evidence is in
+[live-memory validation](docs/validation/shared-node-live-memory-2026-11-11.md).
 
 - **Never** add an AeroAdmin dependency or copy AeroAdmin sources.
 - Windows is the first platform; the common model must stay cross-platform (no HWND, Win32 paths, or Win32 keycodes in `src/common/`).
