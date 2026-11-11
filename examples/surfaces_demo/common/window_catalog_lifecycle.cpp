@@ -49,9 +49,6 @@ int WindowCatalogModelSession::Run(
       [this](ModelObjectProxy::ModelWork work) {
         runtime.Post(std::move(work));
       });
-  EnsureCoreObjectRegistration();
-  EnsureWindowCatalogGraphRegistration();
-
   ApplicationModelSessionHooks<WindowCatalog> hooks;
   hooks.before_incremental = [this](WindowCatalog& catalog) {
     pending_focus_for_ui = catalog.pending_focus_window.is_valid()

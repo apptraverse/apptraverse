@@ -47,7 +47,6 @@
 
 namespace apptraverse::test {
 namespace {
-
 void TerminateProcessHandle(PROCESS_INFORMATION& pi) {
   if (pi.hProcess == nullptr) {
     return;
@@ -499,9 +498,6 @@ void ProbeProfileListRows(
     std::filesystem::path const& state_dir, std::size_t expected_rows,
     std::vector<ae::ObjId>* out_holder_ids = nullptr,
     std::vector<ae::ObjId> const* expected_holder_prefix = nullptr) {
-  EnsureObjectRegistration();
-  EnsureWindowCatalogModelRegistration();
-  EnsureWindowCatalogGraphRegistration();
   ProfileGraphStorage storage{state_dir};
   ae::Domain domain{storage.overlay};
   auto catalog = LoadApplication<WindowCatalog>(
@@ -690,13 +686,7 @@ void ExpectFatalLoadOnly(ChildRunResult const& result, char const* needle) {
   CHECK(CountNeedle(result.stderr_text, needle) >= 1);
 }
 
-void RegisterCatalogTypes() {
-  EnsureObjectRegistration();
-  EnsureWindowCatalogGraphRegistration();
-}
-
 void ExpectUserOnlyMissingRootLayer(std::filesystem::path const& user_dir) {
-  RegisterCatalogTypes();
   ae::RamDomainStorage user; auto const user_profile = user_dir;
   CHECK(apptraverse::LoadUserStorageFile(user, user_profile));
   ae::DomainQuery const query{
@@ -709,7 +699,6 @@ void ExpectUserOnlyMissingRootLayer(std::filesystem::path const& user_dir) {
 void ExpectEmbeddedOverlayUserTombstone(
     std::filesystem::path const& user_dir, ae::ObjId object_id,
     std::uint32_t class_id, char const* probe_name) {
-  RegisterCatalogTypes();
   ae::RamDomainStorage user_only; auto const user_only_profile = user_dir;
   CHECK(apptraverse::LoadUserStorageFile(user_only, user_only_profile));
   ae::DomainQuery const query{object_id, class_id, 0};
@@ -735,7 +724,6 @@ void ExpectEmbeddedOverlayUserTombstone(
 }
 
 void WriteProfileMissingPresenterObject(std::filesystem::path const& state_dir) {
-  RegisterCatalogTypes();
   ae::RamDomainStorage storage; auto const storage_profile = state_dir;
   CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   storage.Remove(CatalogMainWindowPresenterObjId());
@@ -743,7 +731,6 @@ void WriteProfileMissingPresenterObject(std::filesystem::path const& state_dir) 
 }
 
 void WriteProfileMissingListObject(std::filesystem::path const& state_dir) {
-  RegisterCatalogTypes();
   ae::RamDomainStorage storage; auto const storage_profile = state_dir;
   CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   storage.Remove(CatalogListObjId());
@@ -751,14 +738,12 @@ void WriteProfileMissingListObject(std::filesystem::path const& state_dir) {
 }
 
 void AssertListObjectAbsent(std::filesystem::path const& state_dir) {
-  RegisterCatalogTypes();
   ae::RamDomainStorage storage; auto const storage_profile = state_dir;
   CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   CHECK(storage.Enumerate(CatalogListObjId()).empty());
 }
 
 ae::ObjId LoadCatalogLocaleObjId(std::filesystem::path const& state_dir) {
-  RegisterCatalogTypes();
   ProfileGraphStorage storage{state_dir};
   ae::Domain domain{storage.overlay};
   WindowCatalog::ptr loaded =
@@ -781,14 +766,12 @@ ae::ObjId WriteProfileMissingLocaleObject(
 
 void AssertLocaleObjectAbsent(std::filesystem::path const& state_dir,
                               ae::ObjId locale_id) {
-  RegisterCatalogTypes();
   ae::RamDomainStorage storage; auto const storage_profile = state_dir;
   CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   CHECK(storage.Enumerate(locale_id).empty());
 }
 
 ae::ObjId LoadAddButtonPresenterObjId(std::filesystem::path const& state_dir) {
-  RegisterCatalogTypes();
   ProfileGraphStorage storage{state_dir};
   ae::Domain domain{storage.overlay};
   WindowCatalog::ptr loaded =
@@ -811,14 +794,12 @@ ae::ObjId WriteProfileMissingAddButtonPresenterObject(
 
 void AssertPresenterObjectAbsent(std::filesystem::path const& state_dir,
                                  ae::ObjId presenter_id) {
-  RegisterCatalogTypes();
   ae::RamDomainStorage storage; auto const storage_profile = state_dir;
   CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   CHECK(storage.Enumerate(presenter_id).empty());
 }
 
 ae::ObjId LoadAddButtonObjId(std::filesystem::path const& state_dir) {
-  RegisterCatalogTypes();
   ProfileGraphStorage storage{state_dir};
   ae::Domain domain{storage.overlay};
   WindowCatalog::ptr loaded =
@@ -855,7 +836,6 @@ void RunRequiredChromeButtonNegativeTests(
 }
 
 ae::ObjId LoadLabelAddObjId(std::filesystem::path const& state_dir) {
-  RegisterCatalogTypes();
   ProfileGraphStorage storage{state_dir};
   ae::Domain domain{storage.overlay};
   WindowCatalog::ptr loaded =
@@ -1280,7 +1260,6 @@ std::filesystem::path SelfTestExe() {
 
 void DiagnoseUnsupportedSchemaOverlayFallback(
     std::filesystem::path const& user_dir) {
-  RegisterCatalogTypes();
   ae::DomainQuery const v0{CatalogRootObjId(), WindowCatalog::kClassId, 0};
   ae::RamDomainStorage user; auto const user_profile = user_dir;
   CHECK(apptraverse::LoadUserStorageFile(user, user_profile));
@@ -1601,8 +1580,8 @@ void RunAcceptanceAndRequiredMainWindowNegatives() {
 }  // namespace apptraverse::test
 
 int main(int argc, char** argv) {
+  apptraverse::EnsureWindowCatalogGraphRegistration();
   if (argc >= 4 && std::strcmp(argv[1], "--user-only-load-probe") == 0) {
-    apptraverse::test::RegisterCatalogTypes();
     ae::RamDomainStorage user; auto const user_profile = argv[3];
     if (!apptraverse::LoadUserStorageFile(user, user_profile)) return 2;
     ae::RamDomainStorage supply;

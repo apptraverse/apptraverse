@@ -18,10 +18,10 @@
 #include "embedded_distilled_minimal_app_supply.h"
 #include "minimal_app_controls.h"
 #include "minimal_application.h"
+#include "minimal_app_registration.h"
 
 namespace apptraverse::example::minimal {
 namespace {
-
 #define CHECK(cond)                                                          \
   do {                                                                       \
     if (!(cond)) {                                                           \
@@ -175,10 +175,7 @@ void TestUserOverlayPersistence() {
 }  // namespace apptraverse::example::minimal
 
 int main() {
-  apptraverse::EnsureObjectRegistration();
-  apptraverse::ui::EnsureUiPresenterRegistration();
-  apptraverse::ui::windows::EnsureWinUiPresenterRegistration();
-  apptraverse::example::minimal::EnsureMinimalApplicationRegistration();
+  apptraverse::example::minimal::RegisterMinimalApplicationTypes();
   apptraverse::example::minimal::TestEmbeddedDescriptor();
   apptraverse::example::minimal::TestColdLoadFromEmbeddedBacking();
   apptraverse::example::minimal::TestUserOverlayPersistence();

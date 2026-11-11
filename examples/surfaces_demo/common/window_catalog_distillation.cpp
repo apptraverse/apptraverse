@@ -18,8 +18,6 @@ namespace apptraverse {
 
 WindowCatalogInitialSupply DistillWindowCatalog(
     std::filesystem::path const& output_directory) {
-  EnsureObjectRegistration();
-  EnsureWindowCatalogGraphRegistration();
   WindowCatalogInitialSupply supply;
   // Never overwrite a previous development run or a user's existing profile.
   for (;;) {

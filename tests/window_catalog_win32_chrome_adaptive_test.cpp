@@ -26,7 +26,6 @@ int main() { return 0; }
 
 namespace apptraverse::test {
 namespace {
-
 #define CHECK(cond)                                                          \
   do {                                                                       \
     if (!(cond)) {                                                           \
@@ -123,8 +122,6 @@ struct Harness {
             window_catalog_demo::ObjId::CatalogListPresenter)},
         main_window_id{window_catalog_demo::ToObjId(
             window_catalog_demo::ObjId::MainWindow)} {
-    EnsureObjectRegistration();
-    EnsureWindowCatalogGraphRegistration();
     main_native_frame_queue.BindPostWork(
         [this](ModelObjectProxy::ModelWork work) {
           model_work.push_back(std::move(work));
@@ -240,8 +237,6 @@ void TestPrepareBindsQueueBeforeNativeOnLoad() {
   ModelObjectProxy model_proxy{[&](ModelObjectProxy::ModelWork work) {
     model_work.push_back(std::move(work));
   }};
-  EnsureObjectRegistration();
-  EnsureWindowCatalogGraphRegistration();
   queue.BindPostWork([&](ModelObjectProxy::ModelWork work) {
     model_work.push_back(std::move(work));
   });
@@ -336,7 +331,7 @@ void TestNativeAdaptiveChromeResizePath() {
 }  // namespace apptraverse::test
 
 int main() {
-  apptraverse::EnableNoninteractiveCrt();
+  apptraverse::EnsureWindowCatalogGraphRegistration();
   apptraverse::test::TestPrepareBindsQueueBeforeNativeOnLoad();
   apptraverse::test::TestBurstResizeWithoutPerStepPump();
   apptraverse::test::TestNativeAdaptiveChromeResizePath();

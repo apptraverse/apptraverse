@@ -4,8 +4,6 @@
 #include "minimal_app_prepare.h"
 #include "apptraverse/application_model_session.h"
 #include "apptraverse/single_file_user_storage.h"
-#include "apptraverse/object_macros.h"
-#include "apptraverse/platform/windows/win_ui_presenters.h"
 #if defined(APPTRAVERSE_MINIMAL_APP_DEBUG_BOOTSTRAP)
 #include "minimal_app_distillation.h"
 #include "apptraverse/directory_domain_storage.h"
@@ -19,10 +17,6 @@
 namespace apptraverse::example::minimal {
 int RunMinimalApplicationModel(std::filesystem::path const& requested_state_dir,
     ApplicationModelRuntime& runtime, ApplicationPublishedCallback on_published) {
-  EnsureCoreObjectRegistration();
-  ui::EnsureUiControlRegistration();
-  ui::windows::EnsureWinControlPresenterRegistration();
-  EnsureMinimalApplicationRegistration();
   auto state_dir = requested_state_dir;
   ae::RamDomainStorage user;
 #if defined(APPTRAVERSE_MINIMAL_APP_DEBUG_BOOTSTRAP)

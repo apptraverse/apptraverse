@@ -1,4 +1,10 @@
 # AppTraverse — прогресс версионирования поставок
+## One Windows application registration entry point — 2026-11-10 — PASS
+
+WindowCatalog and MinimalApp each register their complete runtime schema once from main, before normal startup or Debug distillation. Duplicate registration in model sessions, distillation, the catalog builder and Windows test helpers was removed. Tests now cold-load through the same entry point as the applications. Internal library anchors and other-platform entry points remain compatible.
+
+**82/82 Debug**, **17/17 targeted MinSizeRel** tests pass, including four binary contracts rejecting full registration modules, unused factories and distillation. Sizes are unchanged: catalog **684,544 B**, MinimalApp **622,592 B**; imports remain KERNEL32/USER32 only. [Implementation, call paths and validation](../validation/windows-registration-entry-points-2026-11-10.md).
+
 ## Windows static release runtime and size — 2026-11-10 — PASS
 
 Release configurations now select the static MSVC CRT for the application and dependencies; Debug retains its existing CRT. Windows runtime registration and archive members exclude unused standalone presenters, mobile Close factory, initial graph builders and distillation/directory-persistence code. Full library registration entry points remain available.

@@ -4,9 +4,6 @@
 
 namespace apptraverse {
 WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
-  ui::EnsureUiControlRegistration();
-  ui::windows::EnsureWinControlPresenterRegistration();
-
   WindowCatalogPresenterFactory factory;
   factory.create_window =
       [](ae::Domain& build_domain, ae::ObjId presenter_id,

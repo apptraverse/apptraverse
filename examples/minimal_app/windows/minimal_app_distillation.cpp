@@ -5,15 +5,9 @@
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/distilled_domain_export.h"
-#include "apptraverse/object_macros.h"
-#include "apptraverse/platform/windows/win_ui_presenters.h"
 
 namespace apptraverse::example::minimal {
 std::filesystem::path DistillMinimalApplication(std::filesystem::path const& output_directory) {
-  EnsureCoreObjectRegistration();
-  ui::EnsureUiControlRegistration();
-  ui::windows::EnsureWinControlPresenterRegistration();
-  EnsureMinimalApplicationRegistration();
   auto const backing_directory = output_directory /
       ("initial-" + std::to_string(ae::ObjId::GenerateUnique().id()));
   DirectoryDomainStorage storage{backing_directory};

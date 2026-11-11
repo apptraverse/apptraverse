@@ -28,7 +28,6 @@
 
 namespace apptraverse::test {
 namespace {
-
 #define CHECK(cond)                                                          \
   do {                                                                       \
     if (!(cond)) {                                                           \
@@ -392,7 +391,6 @@ void RunSessionIsolation() {
 }  // namespace apptraverse::test
 
 int main() {
-  apptraverse::EnsureObjectRegistration();
   apptraverse::EnsureWindowCatalogGraphRegistration();
   apptraverse::test::RunBoundaryScenario();
   apptraverse::test::RunExistingUserNoWriteUntilBoundary();

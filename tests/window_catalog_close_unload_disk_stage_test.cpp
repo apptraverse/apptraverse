@@ -28,7 +28,6 @@
 
 namespace apptraverse::test {
 namespace {
-
 #define CHECK(cond)                                                          \
   do {                                                                       \
     if (!(cond)) {                                                           \
@@ -250,7 +249,6 @@ void TestPublicationPipelineCloseOnDisk(bool burst_resize) {
 }  // namespace apptraverse::test
 
 int main() {
-  apptraverse::EnsureObjectRegistration();
   apptraverse::EnsureWindowCatalogGraphRegistration();
   apptraverse::test::TestModelOnlyCloseStorage(false);
   apptraverse::test::TestModelOnlyCloseStorage(true);

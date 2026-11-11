@@ -23,6 +23,7 @@
 #include "apptraverse/ui/ui_window_presenter.h"
 
 #include "window_catalog_lifecycle.h"
+#include "window_catalog_graph.h"
 #include "window_catalog_model.h"
 #include "window_catalog_main_native_frame_queue.h"
 #include "window_catalog_main_native_frame_wiring.h"
@@ -181,7 +182,7 @@ apptraverse::ui::windows::WinDesktopWindowPresenter& FindChildWindowPresenter(
 
 int main(int argc, char** argv) {
   FreeConsole();
-  apptraverse::EnableNoninteractiveCrt();
+  apptraverse::EnsureWindowCatalogGraphRegistration();
 
   std::filesystem::path state_dir = DefaultStateDir();
   for (int i = 1; i < argc; ++i) {

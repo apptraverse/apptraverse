@@ -31,7 +31,6 @@
 
 namespace apptraverse::test {
 namespace {
-
 #define CHECK(cond)                                                          \
   do {                                                                       \
     if (!(cond)) {                                                           \
@@ -89,9 +88,6 @@ void TestCoalescedQueuePostsSingleModelWork() {
 }
 
 void TestIndependentSessionsApplyDistinctFrames() {
-  EnsureObjectRegistration();
-  EnsureWindowCatalogGraphRegistration();
-
   ae::RamDomainStorage storage_a;
   ae::RamDomainStorage storage_b;
   ae::Domain domain_a{storage_a};
@@ -137,8 +133,6 @@ void TestIndependentSessionsApplyDistinctFrames() {
 }
 
 void TestCoalescedDrainAppliesFrameAndViewportTogether() {
-  EnsureObjectRegistration();
-  EnsureWindowCatalogGraphRegistration();
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto catalog = BuildWindowCatalogGraph(domain);
@@ -163,9 +157,6 @@ void TestCoalescedDrainAppliesFrameAndViewportTogether() {
 }
 
 void TestShutdownResizePersistAndColdLoad() {
-  EnsureObjectRegistration();
-  EnsureWindowCatalogGraphRegistration();
-
   auto const& graph = embedded_distilled::window_catalog::kEmbeddedGraph;
   ae::ObjId const catalog_id{graph.root_object_id};
   ae::ObjId const main_window_id{window_catalog_demo::ToObjId(
@@ -269,7 +260,7 @@ void TestShutdownResizePersistAndColdLoad() {
 }  // namespace apptraverse::test
 
 int main() {
-  apptraverse::EnableNoninteractiveCrt();
+  apptraverse::EnsureWindowCatalogGraphRegistration();
   apptraverse::test::TestIndependentSessionsApplyDistinctFrames();
   apptraverse::test::TestCoalescedQueuePostsSingleModelWork();
   apptraverse::test::TestCoalescedDrainAppliesFrameAndViewportTogether();

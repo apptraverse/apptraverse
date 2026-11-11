@@ -13,6 +13,7 @@
 
 #include "minimal_app_desktop_close.h"
 #include "minimal_app_lifecycle.h"
+#include "minimal_app_registration.h"
 #if defined(APPTRAVERSE_MINIMAL_APP_DEBUG_BOOTSTRAP)
 #include "minimal_app_distillation.h"
 #endif
@@ -34,7 +35,7 @@ std::filesystem::path DefaultStateDir() {
 
 int main(int argc, char** argv) {
   FreeConsole();
-  apptraverse::EnableNoninteractiveCrt();
+  apptraverse::example::minimal::RegisterMinimalApplicationTypes();
 
   std::filesystem::path state_dir = DefaultStateDir();
   for (int i = 1; i < argc; ++i) {

@@ -123,6 +123,7 @@ def runtime_only_violations(report, map_text):
         'minimal_app_distillation.cpp.obj', 'minimal_app_graph.cpp.obj',
         'minimal_app_graph_builder.cpp.obj', 'minimal_app_bootstrap.cpp.obj',
         'ui_list_row_presenter_registration.cpp.obj', 'win_window_registration.cpp.obj',
+        'object_registration.cpp.obj', 'window_catalog_registration.cpp.obj',
         'window_catalog_close_button.cpp.obj',
     )
     for obj in forbidden_objects:

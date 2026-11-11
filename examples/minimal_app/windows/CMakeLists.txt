@@ -1,3 +1,9 @@
+# Shared by both application variants and their cold-load acceptance tests.
+# Keep this runtime registration library independent of the graph builder.
+add_library(minimal_app_windows STATIC minimal_app_registration.cpp)
+target_link_libraries(minimal_app_windows PUBLIC minimal_app_common apptraverse_ui_windows)
+target_include_directories(minimal_app_windows PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
 set(_minimal_app_win_sources minimal_app_main.cpp minimal_app_model_session.cpp)
 set(_minimal_embed_dir "${CMAKE_CURRENT_BINARY_DIR}/generated_distilled")
 set(_minimal_embed_header "${_minimal_embed_dir}/embedded_distilled_minimal_app_supply.h")
@@ -32,9 +38,7 @@ foreach(_minimal_demo win32_minimal_app win32_minimal_app_load_only)
     add_dependencies(${_minimal_demo} apptraverse_minimal_app_embedded_supply)
   endif()
   target_link_libraries(${_minimal_demo} PRIVATE
-    minimal_app_common
-    apptraverse
-    apptraverse_ui_windows
+    minimal_app_windows
     user32
     gdi32
   )

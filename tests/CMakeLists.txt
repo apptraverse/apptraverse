@@ -1573,7 +1573,7 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
   add_executable(apptraverse_minimal_app_embedded_export_test
     minimal_app_embedded_export_test.cpp)
   target_link_libraries(apptraverse_minimal_app_embedded_export_test PRIVATE
-    minimal_app_common apptraverse apptraverse_ui_windows)
+    minimal_app_windows)
   target_include_directories(apptraverse_minimal_app_embedded_export_test PRIVATE
     ${CMAKE_SOURCE_DIR}/examples/minimal_app/common
     ${CMAKE_SOURCE_DIR}/examples/minimal_app/windows)
@@ -1734,7 +1734,7 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
     LABELS "window_catalog")
 
   apptraverse_add_test(apptraverse_minimal_app_win32_acceptance_test
-    minimal_app_win32_acceptance_test.cpp minimal_app_common)
+    minimal_app_win32_acceptance_test.cpp minimal_app_windows)
   target_compile_definitions(apptraverse_minimal_app_win32_acceptance_test PRIVATE
     APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL
     "$<$<CONFIG:Debug>:APPTRAVERSE_TEST_DEBUG_BOOTSTRAP>")

@@ -33,7 +33,6 @@
 
 namespace apptraverse::test {
 namespace {
-
 #define CHECK(cond)                                                          \
   do {                                                                       \
     if (!(cond)) {                                                           \
@@ -162,10 +161,6 @@ ui::UiDesktopWindowPresenter::ptr LoadCatalogWindowPresenter(
 }
 
 void TestCatalogReflectionTopologyAndInitialPublication() {
-  EnsureObjectRegistration();
-  EnsureWindowCatalogModelRegistration();
-  EnsureWindowCatalogGraphRegistration();
-
   ae::RamDomainStorage model_storage;
   ae::Domain model_domain{model_storage};
   auto catalog = BuildWindowCatalogGraph(model_domain);
@@ -263,10 +258,6 @@ void TestCatalogReflectionTopologyAndInitialPublication() {
 }
 
 void TestCatalogAddWindowViaPresentedWindowPrefab() {
-  EnsureObjectRegistration();
-  EnsureWindowCatalogModelRegistration();
-  EnsureWindowCatalogGraphRegistration();
-
   ae::ObjId const catalog_id{
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
   auto const dir = TestDir("apptraverse_window_catalog_prefab_clone");
@@ -398,10 +389,6 @@ void TestCatalogAddWindowViaPresentedWindowPrefab() {
 }
 
 void TestCatalogHolderOpenCloseAndMonotonicNumbers() {
-  EnsureObjectRegistration();
-  EnsureWindowCatalogModelRegistration();
-  EnsureWindowCatalogGraphRegistration();
-
   ae::RamDomainStorage ram_storage;
   ae::Domain domain{ram_storage};
   auto catalog = BuildWindowCatalogGraph(domain);
@@ -530,10 +517,6 @@ std::string ReadInactiveUtf8(ui::UiLocalizationString& localized,
 }
 
 void TestCatalogLocalizationUtf8Persisted() {
-  EnsureObjectRegistration();
-  EnsureWindowCatalogModelRegistration();
-  EnsureWindowCatalogGraphRegistration();
-
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto catalog = BuildWindowCatalogGraph(domain);
@@ -590,10 +573,6 @@ void TestCatalogLocalizationUtf8Persisted() {
 }
 
 void TestCatalogRuntimeSavePreservesOpenWindowLoadedState() {
-  EnsureObjectRegistration();
-  EnsureWindowCatalogModelRegistration();
-  EnsureWindowCatalogGraphRegistration();
-
   auto const dir = TestDir("apptraverse_window_catalog_runtime_save");
   ae::ObjId const catalog_id{
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
@@ -742,10 +721,6 @@ void TestCatalogRuntimeSavePreservesOpenWindowLoadedState() {
 }
 
 void TestCatalogSaveAfterLanguageToggleAndChildClose() {
-  EnsureObjectRegistration();
-  EnsureWindowCatalogModelRegistration();
-  EnsureWindowCatalogGraphRegistration();
-
   auto const dir = TestDir("apptraverse_window_catalog_save_lang_close");
   ae::ObjId const catalog_id{
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
@@ -779,10 +754,6 @@ void TestCatalogSaveAfterLanguageToggleAndChildClose() {
 }
 
 void TestOpenLoadedWindowSetsPendingFocusRequest() {
-  EnsureObjectRegistration();
-  EnsureWindowCatalogModelRegistration();
-  EnsureWindowCatalogGraphRegistration();
-
   ae::RamDomainStorage model_storage;
   ae::Domain model_domain{model_storage};
   auto catalog = BuildWindowCatalogGraph(model_domain);
@@ -796,10 +767,6 @@ void TestOpenLoadedWindowSetsPendingFocusRequest() {
 }
 
 void TestCatalogWindowFrameSurvivesCloseReload() {
-  EnsureObjectRegistration();
-  EnsureWindowCatalogModelRegistration();
-  EnsureWindowCatalogGraphRegistration();
-
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto catalog = BuildWindowCatalogGraph(domain);
@@ -952,10 +919,6 @@ void CheckLiveCatalogChromeLinks(WindowCatalog const& catalog,
 }
 
 void TestWindowCatalogOpenCloseEventJournalPersistence() {
-  EnsureObjectRegistration();
-  EnsureWindowCatalogModelRegistration();
-  EnsureWindowCatalogGraphRegistration();
-
   ae::RamDomainStorage ram_storage;
   ae::Domain ram_domain{ram_storage};
   auto catalog = BuildWindowCatalogGraph(ram_domain);
@@ -1434,10 +1397,6 @@ void AssertCatalogChromeButtonDistilledReplay(
 }
 
 void TestWindowCatalogChromeButtonDistilledBaseReplay() {
-  EnsureObjectRegistration();
-  EnsureWindowCatalogModelRegistration();
-  EnsureWindowCatalogGraphRegistration();
-
   using window_catalog_demo::ObjId;
   using window_catalog_demo::ToObjId;
 
@@ -1544,10 +1503,6 @@ void TestWindowCatalogChromeButtonDistilledBaseReplay() {
 }
 
 void TestManyHoldersClosedGraphsAbsentFromDomain() {
-  EnsureObjectRegistration();
-  EnsureWindowCatalogModelRegistration();
-  EnsureWindowCatalogGraphRegistration();
-
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto catalog = BuildWindowCatalogGraph(domain);
@@ -1573,10 +1528,6 @@ void TestManyHoldersClosedGraphsAbsentFromDomain() {
 }
 
 void TestCatalogPresentedWindowDistilledBaseReplay() {
-  EnsureObjectRegistration();
-  EnsureWindowCatalogModelRegistration();
-  EnsureWindowCatalogGraphRegistration();
-
   using window_catalog_demo::ObjId;
   using window_catalog_demo::ToObjId;
 
@@ -1657,10 +1608,6 @@ void TestCatalogPresentedWindowDistilledBaseReplay() {
 }
 
 void TestCatalogPresentedWindowGraph() {
-  EnsureObjectRegistration();
-  EnsureWindowCatalogModelRegistration();
-  EnsureWindowCatalogGraphRegistration();
-
   using window_catalog_demo::ObjId;
   using window_catalog_demo::ToObjId;
 
@@ -1772,10 +1719,6 @@ std::vector<ae::ObjId::Type> DesktopZOrderRawIds(
 }
 
 void TestCatalogDesktopZOrderPersistence() {
-  EnsureObjectRegistration();
-  EnsureWindowCatalogModelRegistration();
-  EnsureWindowCatalogGraphRegistration();
-
   ae::ObjId const catalog_id{
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
   auto const dir = TestDir("apptraverse_window_catalog_desktop_z_order");
@@ -1847,10 +1790,6 @@ void TestCatalogDesktopZOrderPersistence() {
 }
 
 void TestCatalogRepeatedOpenKeepsPresenterIdentity() {
-  EnsureObjectRegistration();
-  EnsureWindowCatalogModelRegistration();
-  EnsureWindowCatalogGraphRegistration();
-
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto catalog = BuildWindowCatalogGraph(domain);
@@ -1866,10 +1805,6 @@ void TestCatalogRepeatedOpenKeepsPresenterIdentity() {
 }
 
 void TestCatalogUnloadedSelectedPtrOpenDeleteAndApplyIndex() {
-  EnsureObjectRegistration();
-  EnsureWindowCatalogModelRegistration();
-  EnsureWindowCatalogGraphRegistration();
-
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto catalog = BuildWindowCatalogGraph(domain);
@@ -1906,10 +1841,6 @@ void TestCatalogUnloadedSelectedPtrOpenDeleteAndApplyIndex() {
 }
 
 void TestCatalogDeleteUnloadedWindowDoesNotLoad() {
-  EnsureObjectRegistration();
-  EnsureWindowCatalogModelRegistration();
-  EnsureWindowCatalogGraphRegistration();
-
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto catalog = BuildWindowCatalogGraph(domain);
@@ -1950,10 +1881,6 @@ void ExpectPresentedTitleContract(ui::UiWindowPresenter const& presenter,
 }
 
 void TestPresentedWindowTitleUsesPresenterVirtualContract() {
-  EnsureObjectRegistration();
-  EnsureWindowCatalogModelRegistration();
-  EnsureWindowCatalogGraphRegistration();
-
   auto const dir = TestDir("window_catalog_presented_title_contract");
   ae::ObjId const catalog_id{
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
@@ -2038,10 +1965,6 @@ void TestPresentedWindowTitleUsesPresenterVirtualContract() {
 }
 
 void TestLiveReachableNodesCoverOpenCatalogWindow() {
-  EnsureObjectRegistration();
-  EnsureWindowCatalogModelRegistration();
-  EnsureWindowCatalogGraphRegistration();
-
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto catalog = BuildWindowCatalogGraph(domain);
@@ -2070,6 +1993,7 @@ void TestLiveReachableNodesCoverOpenCatalogWindow() {
 }  // namespace apptraverse::test
 
 int main() {
+  apptraverse::EnsureWindowCatalogGraphRegistration();
   apptraverse::test::TestCatalogPresentedWindowDistilledBaseReplay();
   apptraverse::test::TestCatalogPresentedWindowGraph();
   apptraverse::test::TestCatalogRepeatedOpenKeepsPresenterIdentity();

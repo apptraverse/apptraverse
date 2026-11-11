@@ -250,3 +250,11 @@ No identified Windows/headless item from this audit remains open. The previously
 - WindowCatalog: 684,544 bytes (668.5 KiB); MinimalApp: 622,592 bytes (608 KiB). Pruning saves 24.5/18 KiB after static CRT integration. Static CRT is the reason for the net increase over the dynamic-runtime baseline.
 - Validation: 82/82 Debug CTests and 17/17 targeted MinSizeRel CTests PASS, including native interaction/save/restart of the shipped applications. No clean build, user profile, dependency mutation or other-platform build.
 - Full size attribution, A/B controls, temporary-directory correction and linker retry evidence: [validation report](validation/windows-static-runtime-size-2026-11-10.md).
+
+## One Windows application registration entry point — 2026-11-10 — complete
+
+- WindowCatalog: EnsureWindowCatalogGraphRegistration; MinimalApp: RegisterMinimalApplicationTypes. Each is called once from main before mode selection, including Debug --distill-only and load-only consumers.
+- Removed duplicate core/UI/model registration from sessions, distillation, the catalog builder and Windows test scenarios. Tests call the production entry point once, so extra test registration cannot mask missing application dependencies.
+- Full library APIs remain available to other consumers. Release binary gates now also prohibit the two broad registration modules, while preserving static runtime and excluding distillation/unneeded concrete factories.
+- PASS: 82/82 Debug CTests, 17/17 targeted MinSizeRel CTests, both Debug supply generations. MinSizeRel sizes unchanged at 684,544 / 622,592 bytes; only KERNEL32/USER32 imports.
+- [Detailed implementation and evidence](validation/windows-registration-entry-points-2026-11-10.md).

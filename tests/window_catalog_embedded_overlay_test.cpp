@@ -26,7 +26,6 @@
 
 namespace apptraverse::test {
 namespace {
-
 #define CHECK(cond)                                                          \
   do {                                                                       \
     if (!(cond)) {                                                           \
@@ -393,9 +392,7 @@ void TestEmbeddedModelSessionRoundTrip() {
 }  // namespace apptraverse::test
 
 int main() {
-  apptraverse::EnsureObjectRegistration();
   apptraverse::EnsureWindowCatalogGraphRegistration();
-  apptraverse::EnsureWindowCatalogModelRegistration();
   apptraverse::test::TestColdLoadEmptyUserFromEmbeddedBacking();
   apptraverse::test::TestUserOverlayPersistsAddWindow();
   apptraverse::test::TestEmbeddedModelSessionRoundTrip();

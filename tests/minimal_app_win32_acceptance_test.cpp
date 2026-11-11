@@ -31,6 +31,7 @@
 #include "minimal_app_persistence.h"
 #include "minimal_app_prepare.h"
 #include "minimal_application.h"
+#include "minimal_app_registration.h"
 
 #if defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
 #include "embedded_distilled_minimal_app_supply.h"
@@ -38,7 +39,6 @@
 
 namespace apptraverse::test {
 namespace {
-
 #define CHECK(cond)                                                          \
   do {                                                                       \
     if (!(cond)) {                                                           \
@@ -252,13 +252,6 @@ void ExpectFatalLoadOnly(ChildRunResult const& result, char const* needle) {
   CHECK(CountNeedle(result.stderr_text, needle) >= 1);
 }
 
-void RegisterMinimalAppTypes() {
-  EnsureObjectRegistration();
-  ui::EnsureUiPresenterRegistration();
-  ui::windows::EnsureWinUiPresenterRegistration();
-  example::minimal::EnsureMinimalApplicationRegistration();
-}
-
 struct ProfileDomain {
 #if defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
   ae::RamDomainStorage backing;
@@ -297,7 +290,6 @@ struct ProfileDomain {
 };
 
 void WriteProfileMissingMainWindow(std::filesystem::path const& state_dir) {
-  RegisterMinimalAppTypes();
   ProfileDomain profile{state_dir};
   ae::Domain& domain = profile.domain;
   example::minimal::MinimalApplication::ptr loaded =
@@ -323,7 +315,6 @@ void WriteProfileMissingMainWindow(std::filesystem::path const& state_dir) {
 }
 
 void AssertMainWindowRefAbsent(std::filesystem::path const& state_dir) {
-  RegisterMinimalAppTypes();
   ProfileDomain profile{state_dir};
   ae::Domain& domain = profile.domain;
   example::minimal::MinimalApplication::ptr loaded =
@@ -334,7 +325,6 @@ void AssertMainWindowRefAbsent(std::filesystem::path const& state_dir) {
 }
 
 void WriteProfileMissingPresenter(std::filesystem::path const& state_dir) {
-  RegisterMinimalAppTypes();
   ProfileDomain profile{state_dir};
   ae::Domain& domain = profile.domain;
   example::minimal::MinimalApplication::ptr loaded =
@@ -350,7 +340,6 @@ void WriteProfileMissingPresenter(std::filesystem::path const& state_dir) {
 }
 
 void WriteProfileMissingPresenterObject(std::filesystem::path const& state_dir) {
-  RegisterMinimalAppTypes();
   ae::RamDomainStorage user_storage; auto const user_storage_profile = state_dir;
   CHECK(apptraverse::LoadUserStorageFile(user_storage, user_storage_profile));
   user_storage.Remove(example::minimal::MinimalPresenterId());
@@ -602,11 +591,6 @@ void CloseGracefully(HWND main, PROCESS_INFORMATION& pi) {
 void ProbePersistedGraph(std::filesystem::path const& state_dir,
                          Frame const& expected_frame,
                          char const* expected_title_utf8 = "Minimal App") {
-  EnsureObjectRegistration();
-  ui::EnsureUiPresenterRegistration();
-  ui::windows::EnsureWinUiPresenterRegistration();
-  example::minimal::EnsureMinimalApplicationRegistration();
-
   ProfileDomain profile{state_dir};
   auto application = LoadApplication<example::minimal::MinimalApplication>(
       profile.domain, example::minimal::MinimalApplicationRootId());
@@ -654,7 +638,6 @@ void ProbePersistedGraph(std::filesystem::path const& state_dir,
 void ProbePersistedEmbeddedUserState(std::filesystem::path const& state_dir,
                                      int expected_selection,
                                      char const* expected_title_utf8) {
-  RegisterMinimalAppTypes();
   ProfileDomain profile{state_dir};
   example::minimal::MinimalApplication::ptr loaded =
       LoadApplication<example::minimal::MinimalApplication>(
@@ -674,7 +657,6 @@ void ProbePersistedEmbeddedUserState(std::filesystem::path const& state_dir,
 void ProbePersistedEmbeddedUserCommitReady(
     std::filesystem::path const& state_dir, int expected_selection,
     char const* expected_title_utf8, int commit_selection) {
-  RegisterMinimalAppTypes();
   ProfileDomain profile{state_dir};
   example::minimal::MinimalApplication::ptr loaded =
       LoadApplication<example::minimal::MinimalApplication>(
@@ -922,6 +904,7 @@ void RunAcceptanceAndRequiredGraphNegatives() {
 }  // namespace apptraverse::test
 
 int main() {
+  apptraverse::example::minimal::RegisterMinimalApplicationTypes();
   apptraverse::test::RunAcceptanceAndRequiredGraphNegatives();
   std::cout << "minimal_app_win32_acceptance_test OK\n";
   return 0;
