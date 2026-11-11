@@ -59,16 +59,6 @@ bool LoadWindowCloseButton(CatalogWindow& window) {
   return true;
 }
 
-// Points the window-owned Close button graph at this window: close_button ->
-// {catalog, window}, close_button_presenter -> window presenter.
-bool WireWindowCloseButton(WindowCatalog& catalog, CatalogWindow& window) {
-  if (!LoadWindowCloseButton(window)) { return false; }
-  window.close_button->catalog = WindowCatalog::ptr::MakeFromThis(&catalog);
-  window.close_button->window = CatalogWindow::ptr::MakeFromThis(&window);
-  window.close_button_presenter->window_presenter = Presented(window).presenter;
-  return true;
-}
-
 void MarkWindowCloseButtonUnloadedByDefault(CatalogWindow& window) {
   window.close_button.SetFlags(SetUnloadedDefault(window.close_button.flags()));
   window.close_button_presenter.SetFlags(
@@ -653,8 +643,8 @@ void WindowCatalog::AddWindow() {
   holder->window.SetFlags(SetUnloadedDefault(holder->window.flags()));
   Presented(*window_body).presenter.SetFlags(
       SetUnloadedDefault(Presented(*window_body).presenter.flags()));
-  // Wire the cloned Close graph before its first presentation.
-  if (WireWindowCloseButton(*this, *window_body)) {
+  // Clone preserves the supplied internal and external Close graph links.
+  if (LoadWindowCloseButton(*window_body)) {
     MarkWindowCloseButtonUnloadedByDefault(*window_body);
   }
   BindLiveWindowNotifiers(*this, *window_body);

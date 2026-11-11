@@ -2994,3 +2994,21 @@ link attempt exposed existing missing registration/presenter implementation
 dependencies; its compile passed but executable link did not. No unrelated
 registration/CI/domain/prefab fixes were made.
 See [follow-up evidence and remaining findings](../validation/canon-conformance-2026-11-10.md#follow-up-remove-permanent-runtime-tracing--2026-11-10).
+
+## WindowCatalog-only canon completion — 2026-11-10
+
+User scope: Windows Catalog, its headless tests and shared dependencies; no CI
+or other-example repair. Based on `3fb125c`, completed the Close prefab catalog
+link and removed post-Clone business-link repair. Added direct Clone/cold-load
+coverage. Fixed ancestor class-factory selection via the recorded 27th Æther
+patch, preserving local shadowing and rejecting unknown ancestor classes before
+object activation. Moved three test-only queue-binding helpers out of production.
+
+Both new regressions failed on the baseline, then passed with the fixes.
+Offline full patch chain **27/27 PASS**; effective dependency matches verified
+source (normalized line endings). Incremental Windows Debug build PASS; final
+focused suite **18/18 PASS**, **101.63 s**, including Catalog native acceptance
+and the 5×4 Close diagnostic. No MinSizeRel, device or other application builds.
+No further concrete canon violations were found in the reviewed active Windows
+Catalog paths. CI and legacy examples remain excluded, not fixed.
+See [full scope, fixes, failures and verification evidence](../validation/window-catalog-canon-2026-11-10.md).

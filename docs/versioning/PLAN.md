@@ -1,5 +1,7 @@
 # AppTraverse — план архитектуры версионирования состояния и поставок
 
+**Текущее ограничение пользователя (2026-11-10):** работаем только с Windows-демкой каталога окон, её headless-тестами и используемой общей библиотекой. CI и остальные примеры не исправляем. Существующие замечания к ним остаются отложенными, а не считаются закрытыми.
+
 **Статус документа:** roadmap и исторический журнал планирования. Нормативный контракт — [канон от 10 ноября 2026](../architecture/AppTraverse_Architecture_RU.md). Текущая ветка — `feature/domain-hierarchy-cloning`; область работы — Windows WindowCatalog/MinimalApp, общая библиотека и headless. Старые NEXT для iOS/Linux и семиплатформенная последовательность ниже не являются разрешением продолжать эти работы. Текущие отклонения и доказательства — [аудит канона](../validation/canon-conformance-2026-11-10.md).
 
 **Историческая рабочая ветка (код + docs):** **`integration/unified-application`** — объединение Object Core и Windows Application ([merge **`4848402`**](https://github.com/apptraverse/apptraverse/commit/4848402) ← `integration/serialization-surfaces` + `integration/application-versioning`). Исходные ветки — **исторические baseline**, не параллельная разработка.

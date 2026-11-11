@@ -1,0 +1,48 @@
+--- a/src/aether-objects/obj/domain.cpp
++++ b/src/aether-objects/obj/domain.cpp
+@@ -242,16 +242,16 @@
+ 
+ std::vector<std::uint32_t> Domain::KnownStoredClasses(ObjId id) {
+   auto classes = storage_->Enumerate(id);
++  // A local stored definition shadows ancestors even if none of its classes
++  // are registered in this executable. Only an absent definition falls back.
++  if (classes.empty()) {
++    return parent_domain_ != nullptr ? parent_domain_->KnownStoredClasses(id)
++                                     : std::vector<std::uint32_t>{};
++  }
+   classes.erase(
+       std::remove_if(std::begin(classes), std::end(classes),
+                      [this](auto const& c) { return !IsExisting(c); }),
+       std::end(classes));
+-  if (classes.empty()) {
+-    if (parent_domain_ != nullptr) {
+-      return parent_domain_->KnownStoredClasses(id);
+-    }
+-    return {};
+-  }
+   std::sort(std::begin(classes), std::end(classes),
+             [this](auto left, auto right) {
+               if (left == right) {
+@@ -269,17 +269,16 @@
+ }
+ 
+ Factory* Domain::GetMostRelatedFactory(ObjId id) {
+-  Domain const* storage_domain = this;
++  auto const enumerated = storage_->Enumerate(id);
++  if (enumerated.empty()) {
++    return parent_domain_ != nullptr ? parent_domain_->GetMostRelatedFactory(id)
++                                     : nullptr;
++  }
+   auto classes = KnownStoredClasses(id);
+-  if (classes.empty() && parent_domain_ != nullptr) {
+-    storage_domain = parent_domain_;
+-    classes = parent_domain_->KnownStoredClasses(id);
+-  }
+   if (classes.empty()) {
+     return nullptr;
+   }
+ 
+-  auto const enumerated = storage_domain->storage_->Enumerate(id);
+ #ifndef NDEBUG
+   auto class_names = std::vector<std::string_view>{};
+   class_names.reserve(enumerated.size());

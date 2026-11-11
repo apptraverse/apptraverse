@@ -5,6 +5,7 @@
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/obj_id.h"
 #include "aether-objects/obj/obj_ptr.h"
+#include "aether-objects/obj/registry.h"
 
 #include "apptraverse/object_macros.h"
 
@@ -225,6 +226,77 @@ void TestColdLocalStorageShadowsLiveParent() {
   }
 }
 
+
+void TestUnknownAncestorClassRejected(bool through_grandparent) {
+  ae::ObjId const id{801u};
+  constexpr std::uint32_t kUnknownDerivedClass = 0xC1D00003u;
+  ae::RamDomainStorage grandparent_storage, parent_storage, child_storage;
+  ae::Domain grandparent{grandparent_storage};
+  ae::Domain parent{parent_storage};
+  ae::Domain child{child_storage};
+  parent.set_parent_domain(&grandparent);
+  child.set_parent_domain(&parent);
+  ae::Domain& source = through_grandparent ? grandparent : parent;
+  ae::RamDomainStorage& source_storage =
+      through_grandparent ? grandparent_storage : parent_storage;
+  if (ae::Registry::GetRegistry().FindFactory(kUnknownDerivedClass)) {
+    Fail("unknown ancestor class fixture must be unregistered");
+  }
+  auto stored = HydrationOwner::ptr::Create(ae::CreateWith{source}.with_id(id));
+  stored->value = 17;
+  auto save = ae::DomainGraph{&source}.SaveRoot(stored.Load(), id);
+  if (save.IsErr()) { Fail("save unknown ancestor class fixture"); }
+  stored.Reset();
+  auto const known_layer = source_storage.state.at(id).value()
+                               .at(HydrationOwner::kClassId).at(0);
+  // A newer executable could have stored an additional derived-class layer.
+  // The current executable knows the base, but must not activate that base alone.
+  source_storage.SaveData(ae::DomainQuery{id, kUnknownDerivedClass, 0},
+                         ae::ObjectData{known_layer});
+  ae::Ptr<ae::Obj> loaded;
+  auto load = ae::DomainGraph{&child}.LoadRoot(id, loaded);
+  if (!load.IsErr() || loaded || child.FindLocal(id)) {
+    Fail(through_grandparent ? "reject unknown grandparent class before activation"
+                            : "reject unknown parent class before activation");
+  }
+
+  // A complete local object shadows the ancestor's incompatible definition.
+  auto local = HydrationOwner::ptr::Create(ae::CreateWith{child}.with_id(id));
+  local->value = 29;
+  auto local_save = ae::DomainGraph{&child}.SaveRoot(local.Load(), id);
+  if (local_save.IsErr()) { Fail("save local known-class override"); }
+  local.Reset();
+  auto reloaded = local.Load();
+  if (!reloaded || reloaded->value != 29 || reloaded->domain != &child) {
+    Fail("known local classes shadow unknown ancestor classes");
+  }
+}
+
+void TestUnknownLocalClassDoesNotFallBackToAncestor() {
+  ae::ObjId const id{802u};
+  constexpr std::uint32_t kUnknownLocalClass = 0xC1D00004u;
+  ae::RamDomainStorage parent_storage, child_storage;
+  ae::Domain parent{parent_storage}, child{child_storage};
+  child.set_parent_domain(&parent);
+  if (ae::Registry::GetRegistry().FindFactory(kUnknownLocalClass)) {
+    Fail("unknown local class fixture must be unregistered");
+  }
+  auto ancestor = HydrationOwner::ptr::Create(ae::CreateWith{parent}.with_id(id));
+  ancestor->value = 17;
+  auto save = ae::DomainGraph{&parent}.SaveRoot(ancestor.Load(), id);
+  if (save.IsErr()) { Fail("save known ancestor class fixture"); }
+  ancestor.Reset();
+  auto const known_layer = parent_storage.state.at(id).value()
+                               .at(HydrationOwner::kClassId).at(0);
+  child_storage.SaveData(ae::DomainQuery{id, kUnknownLocalClass, 0},
+                        ae::ObjectData{known_layer});
+  ae::Ptr<ae::Obj> loaded;
+  auto load = ae::DomainGraph{&child}.LoadRoot(id, loaded);
+  if (!load.IsErr() || loaded || child.FindLocal(id)) {
+    Fail("unknown local definition must not fall back to ancestor");
+  }
+}
+
 int RunHierarchyTests() {
   using apptraverse::test::HierarchyLeaf;
 
@@ -313,6 +385,9 @@ int RunHierarchyTests() {
 
   TestScopedLayerHydration();
   TestAncestorLayerLookup();
+  TestUnknownAncestorClassRejected(false);
+  TestUnknownAncestorClassRejected(true);
+  TestUnknownLocalClassDoesNotFallBackToAncestor();
   TestColdLocalStorageShadowsLiveParent();
   std::cout << "aether_domain_hierarchy_test OK\n";
   return 0;

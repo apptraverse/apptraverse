@@ -9,6 +9,7 @@ int main() { return 0; }
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
+#include "aether-objects/obj/registry.h"
 
 #include "apptraverse/application_ui_session.h"
 #include "apptraverse/model_object_proxy.h"
@@ -17,6 +18,7 @@ int main() { return 0; }
 #include "apptraverse/platform/windows/win_ui_frame.h"
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "window_catalog_graph.h"
+#include "window_catalog_presenters.h"
 #include "window_catalog_chrome_layout.h"
 #include "window_catalog_ids.h"
 #include "window_catalog_prepare.h"
@@ -34,6 +36,97 @@ namespace {
       std::exit(1);                                                          \
     }                                                                        \
   } while (false)
+
+// Fixture teardown and binding assertions are test-only; production only wires
+// presenters to the session queue before native activation.
+void UnwireWindowCatalogMainNativeFrameQueue(ae::Obj& gui_root) {
+  ae::Domain* const domain = gui_root.domain;
+  if (domain == nullptr) {
+    return;
+  }
+  std::vector<ae::Obj*> objects;
+  CollectLiveReachableObjects(gui_root, objects);
+  auto& registry = ae::Registry::GetRegistry();
+  for (ae::Obj* obj : objects) {
+    if (registry.GenerationDistance(
+            example::surfaces::CatalogDesktopWindowPresenter::kClassId,
+            obj->GetClassId()) < 0) {
+      continue;
+    }
+    static_cast<example::surfaces::CatalogDesktopWindowPresenter*>(obj)
+        ->DetachSessionMainNativeFrameQueue();
+  }
+}
+
+bool WindowCatalogMainNativeFrameQueuePrepareBinding(
+    ae::Obj& gui_root, ae::ObjId main_presenter_id,
+    WindowCatalogMainNativeFrameQueue& queue, bool require_presentation_pending) {
+  ae::Domain* const domain = gui_root.domain;
+  if (domain == nullptr || !main_presenter_id.is_valid()) {
+    return false;
+  }
+  auto held = domain->Find(main_presenter_id);
+  if (!held) {
+    return false;
+  }
+  ae::Obj* const domain_presenter = &*held;
+  auto& catalog = static_cast<WindowCatalog&>(gui_root);
+  ae::ObjId const catalog_obj_id = gui_root.obj_id;
+  ae::ObjId const main_window_id = catalog.persisted.main_window.id();
+  std::vector<ae::Obj*> objects;
+  CollectLiveReachableObjects(gui_root, objects);
+  auto& registry = ae::Registry::GetRegistry();
+  ae::Obj* reachable_presenter = nullptr;
+  for (ae::Obj* obj : objects) {
+    if (registry.GenerationDistance(
+            example::surfaces::CatalogDesktopWindowPresenter::kClassId,
+            obj->GetClassId()) < 0) {
+      continue;
+    }
+    auto* presenter =
+        static_cast<example::surfaces::CatalogDesktopWindowPresenter*>(obj);
+    if (presenter->window.id() != main_window_id) {
+      continue;
+    }
+    reachable_presenter = obj;
+    break;
+  }
+  if (reachable_presenter == nullptr || reachable_presenter != domain_presenter) {
+    return false;
+  }
+  auto& catalog_presenter =
+      static_cast<example::surfaces::CatalogDesktopWindowPresenter&>(*held);
+  if (catalog_presenter.SessionMainNativeFrameQueue() != &queue) {
+    return false;
+  }
+  if (require_presentation_pending && catalog_presenter.presentation_loaded) {
+    return false;
+  }
+  return true;
+}
+
+bool WindowCatalogMainNativeFrameQueueAttached(ae::Obj& gui_root) {
+  auto& catalog = static_cast<WindowCatalog&>(gui_root);
+  ae::ObjId const catalog_obj_id = gui_root.obj_id;
+  ae::ObjId const main_window_id = catalog.persisted.main_window.id();
+  std::vector<ae::Obj*> objects;
+  CollectLiveReachableObjects(gui_root, objects);
+  auto& registry = ae::Registry::GetRegistry();
+  for (ae::Obj* obj : objects) {
+    if (registry.GenerationDistance(
+            example::surfaces::CatalogDesktopWindowPresenter::kClassId,
+            obj->GetClassId()) < 0) {
+      continue;
+    }
+    auto* presenter =
+        static_cast<example::surfaces::CatalogDesktopWindowPresenter*>(obj);
+    if (presenter->window.id() != main_window_id) {
+      continue;
+    }
+    return presenter->SessionMainNativeFrameQueue() != nullptr;
+  }
+  return false;
+}
 
 constexpr std::uint32_t kListControlId = 5001;
 constexpr std::uint32_t kAddControlId = 5002;

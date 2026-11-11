@@ -19,6 +19,7 @@
 #include "apptraverse/presenter.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/object_macros.h"
+#include "apptraverse/object_clone.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_presented_window.h"
 #include "apptraverse/ui/ui_presenters.h"
@@ -934,6 +935,92 @@ void TestHeadlessCatalogChromeE2e() {
   CHECK(!cold->persisted.window_prefab.is_loaded());
 }
 
+void TestCompleteClosePrefabDirectClone() {
+  using window_catalog_demo::ObjId;
+  using window_catalog_demo::ToObjId;
+
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  WindowCatalogGraphOptions options;
+  options.mobile_close_in_prefab = true;
+  auto catalog = BuildHeadlessWindowCatalogGraph(domain, options);
+  FinalizeDistilledGraph(*catalog);
+
+  CatalogWindow::ptr copy;
+  ae::ObjId const close_button_id{ToObjId(ObjId::WindowPrefabCloseButton)};
+  ae::ObjId const close_presenter_id{
+      ToObjId(ObjId::WindowPrefabCloseButtonPresenter)};
+  {
+    // Use the same cold prefab child-domain boundary as AddWindow, without
+    // calling AddWindow or any application-side link repair.
+    ae::Domain prefab_domain{storage};
+    prefab_domain.set_parent_domain(&domain);
+    ae::DomainGraph loader{&prefab_domain};
+    ae::Ptr<ae::Obj> source_root;
+    auto const loaded = loader.LoadRoot(kWindowPrefabId, source_root);
+    CHECK(loaded.IsOk());
+    CHECK(source_root);
+    auto& prefab = static_cast<CatalogWindow&>(*source_root);
+    prefab.close_button.Load();
+    prefab.close_button_presenter.Load();
+    CHECK(prefab.close_button->catalog.is_valid());
+    // Source loading may materialize stored ancestor layers locally. Clone must
+    // preserve their external identity and bind them to the target instance.
+    CHECK(prefab.close_button->catalog.id() == catalog.id());
+    CHECK(prefab.close_button->window.Load().get() == &prefab);
+    CHECK(prefab.close_button_presenter->button.Load().get() ==
+          prefab.close_button.Load().get());
+    CHECK(prefab.close_button_presenter->window_presenter.Load().get() ==
+          CatalogWindowPresented(prefab).presenter.Load().get());
+
+    CloneOptions clone_options;
+    clone_options.stable_origin = kWindowPrefabId;
+    clone_options.stable_prefab_ids = {
+        kWindowPrefabId, kWindowPrefabPresenterId, close_button_id,
+        close_presenter_id};
+    auto cloned = CloneCanonicalRoot(prefab_domain, prefab, domain, clone_options);
+    CHECK(cloned);
+    auto* copied = static_cast<CatalogWindow*>(cloned.root.Load().get());
+    copy = CatalogWindow::ptr::MakeFromThis(copied);
+    CHECK(copy.id() != kWindowPrefabId);
+    CHECK(copy->close_button.id() != close_button_id);
+    CHECK(copy->close_button_presenter.id() != close_presenter_id);
+    CHECK(CatalogWindowPresented(*copy).presenter.id() !=
+          kWindowPrefabPresenterId);
+  }
+
+  // All internal edges and ownership survive destruction of the source domain.
+  // The external catalog remains the exact same instance, not another copy.
+  auto check_links = [](CatalogWindow& window, WindowCatalog& expected_catalog) {
+    window.close_button.Load();
+    window.close_button_presenter.Load();
+    auto const button = window.close_button.Load();
+    auto const presenter = window.close_button_presenter.Load();
+    CHECK(window.domain == expected_catalog.domain);
+    CHECK(button->domain == expected_catalog.domain);
+    CHECK(presenter->domain == expected_catalog.domain);
+    CHECK(button->window.Load().get() == &window);
+    CHECK(button->catalog.Load().get() == &expected_catalog);
+    CHECK(presenter->button.Load().get() == button.get());
+    CHECK(presenter->window_presenter.Load().get() ==
+          CatalogWindowPresented(window).presenter.Load().get());
+    CHECK(button->label.Load().get() ==
+          expected_catalog.persisted.texts.label_close.Load().get());
+  };
+  check_links(*copy, *catalog);
+  CHECK(catalog->persisted.list->rows.empty());
+
+  auto const saved = ae::DomainGraph{&domain}.SaveRoot(copy.Load(), copy.id());
+  CHECK(saved.IsOk());
+  ae::Domain cold_domain{storage};
+  auto cold_catalog = LoadApplication<WindowCatalog>(cold_domain, catalog.id());
+  auto cold_copy = CatalogWindow::ptr::Declare(
+      ae::CreateWith{cold_domain}.with_id(copy.id()));
+  CHECK(cold_copy.Load());
+  check_links(*cold_copy, *cold_catalog);
+  CHECK(cold_catalog->persisted.list->rows.empty());
+}
+
 void TestMobileCloseButtonAndAdaptiveLayout() {
 
   using window_catalog_demo::ObjId;
@@ -1039,6 +1126,7 @@ int main() {
   apptraverse::test::TestHeadlessDeleteClearsSelectionIndexRam();
   apptraverse::test::TestHeadlessDeleteSelectionAbPersistAndColdLoad();
   apptraverse::test::TestHeadlessCatalogChromeE2e();
+  apptraverse::test::TestCompleteClosePrefabDirectClone();
   apptraverse::test::TestMobileCloseButtonAndAdaptiveLayout();
   std::cout << "window_catalog_headless_test OK\n";
   return 0;

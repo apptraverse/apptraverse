@@ -10,7 +10,10 @@ by this audit. Guidance and documentation were updated.
 ## Open findings
 
 Status update after the audit: C1 was resolved by the runtime-tracing removal
-iteration below. C2–C4 remain open; the original evidence is retained here.
+iteration below. C2 and C3 were subsequently reproduced and fixed in the
+[WindowCatalog-only iteration](window-catalog-canon-2026-11-10.md), with 18/18
+Debug checks passing. C4 and other-example build issues are excluded by the
+user's current scope. The original baseline evidence is retained here.
 
 ### C1 — P2: optional runtime clone tracing remains
 

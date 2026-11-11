@@ -38,8 +38,8 @@ void AppendMobileCloseButtonToWindowPrefab(
   auto close_button = CatalogCloseButton::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::WindowPrefabCloseButton)));
   close_button->BootstrapSetEnabled(true);
-  // close_button->catalog stays unset in the prefab graph; AddWindow wires it
-  // (and window) for every cloned holder window.
+  // The catalog is an external parent-domain link; Clone keeps it shared.
+  close_button->catalog = WindowCatalog::ptr::MakeFromThis(&catalog);
   close_button->window = window_prefab;
   close_button->label = catalog.persisted.texts.label_close;
   InitializeRuntimeNode(*close_button, catalog);
