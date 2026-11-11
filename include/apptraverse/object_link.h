@@ -161,6 +161,18 @@ struct Serializer<BinaryArchive<DomainBuffer>,
   }
 
   SeriResult Deseri(Archive& archive, Meta<Link> meta) const {
+    if constexpr (Scope == apptraverse::LinkScope::kLocal) {
+      auto* const graph = archive.buffer().domain_graph;
+      if (graph != nullptr &&
+          graph->serialization_scope ==
+              ae::GraphSerializationScope::NetworkShared) {
+        // The empty network slot describes no sender-local state. Consume it
+        // without replacing this replica's existing local edge. A fresh shell
+        // naturally keeps its default empty edge.
+        ae::ObjPtr<T> empty;
+        return archive.Load(Meta{empty});
+      }
+    }
     return archive.Load(Meta{meta.value.as_obj_ptr()});
   }
 };

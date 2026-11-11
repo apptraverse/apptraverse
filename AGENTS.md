@@ -1,5 +1,14 @@
 # Agent rules (apptraverse — unified worktree)
 
+## SharedNode task — 2026-11-11
+
+The user explicitly authorized new SharedNode implementation in a separate
+branch from main, beginning with native serialization and headless memory
+tests. `feature/shared-node-native-memory` owns this opt-in extension; its
+contract and remaining stages are in [SharedNode.md](docs/architecture/SharedNode.md).
+This authorization supersedes the older SharedNode removal/deferment below
+for this extension. Existing WindowCatalog/backend boundaries still apply.
+
 - **Never** add an AeroAdmin dependency or copy AeroAdmin sources.
 - Windows is the first platform; the common model must stay cross-platform (no HWND, Win32 paths, or Win32 keycodes in `src/common/`).
 - Model first: `surfaces_demo` / WindowCatalog semantics — model thread → publication → UI mirror → presenters; GUI → `ModelObjectProxy` → model Events.

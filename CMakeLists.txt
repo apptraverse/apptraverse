@@ -134,6 +134,16 @@ target_include_directories(apptraverse PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/includ
 target_link_libraries(apptraverse PUBLIC
   aether::objects aether::miscpp apptraverse_compile_policy)
 target_compile_features(apptraverse PUBLIC cxx_std_20)
+
+# SharedNode is an explicitly linked headless extension. Existing application
+# registrations and native hosts do not acquire replication/runtime objects.
+add_library(apptraverse_shared_node STATIC EXCLUDE_FROM_ALL
+  src/shared_node.cpp
+  src/shared_graph.cpp
+  src/memory_link.cpp
+)
+target_link_libraries(apptraverse_shared_node PUBLIC apptraverse)
+
 if(WIN32)
   target_compile_definitions(apptraverse PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
   add_library(apptraverse_ui_windows STATIC

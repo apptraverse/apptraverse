@@ -1,4 +1,21 @@
 # AppTraverse — прогресс версионирования поставок
+
+## SharedNode native serialization and memory foundation — 2026-11-11 — PASS
+
+User-authorized separate branch `feature/shared-node-native-memory` starts from
+main `8b592f9`. Added an explicitly linked SharedNode extension with persistent
+link Nodes, local per-peer delivery metadata, native DomainGraph/BinaryArchive
+snapshots and deterministic memory transport. Network loads preserve receiver
+LocalPtr state; historical replay preserves canonical Link identity and the
+whole local peer collection. Application Join fixtures carry participant name
+and Link UID using native serialization.
+
+**4/4 foundation tests and 9/9 targeted headless regressions passed** on MSVC x64
+Debug using exactly main's pinned 27-patch object dependency. This is the native
+serialization/memory first slice; ACK/retry, live import reconciliation,
+heartbeat, version compatibility and compaction are subsequent stages.
+[Scope, commands and evidence](../validation/shared-node-native-memory-2026-11-11.md).
+
 ## Windows/headless contract follow-up — 2026-11-10 — PASS
 
 Separated mobile catalog event registration from the Windows desktop path; removed serialized defaults from the common list presenter and contract-test model/events; removed the headless presenter's missing-window silent skip; consolidated headless registration at main. The headless mobile scenario remains enabled.

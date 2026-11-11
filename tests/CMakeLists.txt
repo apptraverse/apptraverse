@@ -1,6 +1,32 @@
 option(APPTRAVERSE_BUILD_EVOLUTION_TESTS
   "Build isolated application/state evolution fixtures and their Python matrix" ON)
 
+add_executable(apptraverse_network_local_ptr_test network_local_ptr_test.cpp)
+target_link_libraries(apptraverse_network_local_ptr_test PRIVATE apptraverse)
+add_test(NAME apptraverse_network_local_ptr_test
+  COMMAND apptraverse_network_local_ptr_test)
+
+add_executable(apptraverse_memory_link_test memory_link_test.cpp)
+target_link_libraries(apptraverse_memory_link_test PRIVATE apptraverse_shared_node)
+add_test(NAME apptraverse_memory_link_test COMMAND apptraverse_memory_link_test)
+
+add_executable(apptraverse_shared_node_memory_test shared_node_memory_test.cpp)
+target_link_libraries(apptraverse_shared_node_memory_test PRIVATE apptraverse_shared_node)
+add_test(NAME apptraverse_shared_node_memory_test
+  COMMAND apptraverse_shared_node_memory_test)
+
+set_tests_properties(apptraverse_network_local_ptr_test
+  apptraverse_memory_link_test apptraverse_shared_node_memory_test
+  PROPERTIES LABELS "shared_node;headless" TIMEOUT 60)
+
+add_custom_target(apptraverse_shared_node_headless_check
+  COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure -R
+    "^apptraverse_(network_local_ptr|memory_link|shared_node_memory|native_object_graph_serialization)_test$"
+  DEPENDS apptraverse_network_local_ptr_test apptraverse_memory_link_test
+    apptraverse_shared_node_memory_test apptraverse_native_object_graph_serialization_test
+  WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+  VERBATIM)
+
 if(MSVC AND CMAKE_SIZEOF_VOID_P EQUAL 8)
   find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
   # Exercise the declared Visual Studio Debug settings with a dependency-free
@@ -723,8 +749,6 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
   )
 endif()
 
-if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES)
-
 add_executable(apptraverse_native_object_graph_serialization_test
   native_object_graph_serialization_test.cpp
 )
@@ -737,6 +761,8 @@ add_test(
   NAME apptraverse_native_object_graph_serialization_test
   COMMAND apptraverse_native_object_graph_serialization_test
 )
+
+if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES)
 
 add_executable(apptraverse_closed_event_graph_test
   closed_event_graph_test.cpp
