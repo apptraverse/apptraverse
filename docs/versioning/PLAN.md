@@ -1,8 +1,8 @@
 # AppTraverse — план архитектуры версионирования состояния и поставок
 
-**Статус документа:** архитектурный контракт и roadmap. Это не описание уже реализованной сквозной release-модели.
+**Статус документа:** roadmap и исторический журнал планирования. Нормативный контракт — [канон от 10 ноября 2026](../architecture/AppTraverse_Architecture_RU.md). Текущая ветка — `feature/domain-hierarchy-cloning`; область работы — Windows WindowCatalog/MinimalApp, общая библиотека и headless. Старые NEXT для iOS/Linux и семиплатформенная последовательность ниже не являются разрешением продолжать эти работы. Текущие отклонения и доказательства — [аудит канона](../validation/canon-conformance-2026-11-10.md).
 
-**Рабочая ветка (код + docs):** **`integration/unified-application`** — объединение Object Core и Windows Application ([merge **`4848402`**](https://github.com/apptraverse/apptraverse/commit/4848402) ← `integration/serialization-surfaces` + `integration/application-versioning`). Исходные ветки — **исторические baseline**, не параллельная разработка.
+**Историческая рабочая ветка (код + docs):** **`integration/unified-application`** — объединение Object Core и Windows Application ([merge **`4848402`**](https://github.com/apptraverse/apptraverse/commit/4848402) ← `integration/serialization-surfaces` + `integration/application-versioning`). Исходные ветки — **исторические baseline**, не параллельная разработка.
 
 **Связанные планы:** прогресс — [PROGRESS.md](./PROGRESS.md); application merge — [application-versioning.md](../integration/application-versioning.md); WindowCatalog demo — [window_catalog_demo.md](../window_catalog_demo.md).
 
@@ -20,11 +20,11 @@
 
 ## Активный план: application template → WindowCatalog → администрирование (P0–P6, A1)
 
-**Единственная активная последовательность** на `integration/unified-application`. Очереди **U5.2–U6**, **9D–9H** как «следующий шаг» **сняты**; полезные пункты перенесены по смыслу в **P1–P6** (см. [U4 audit](../integration/unified-architecture-audit.md) — исторический срез).
+**Историческая последовательность roadmap** на `integration/unified-application`; текущий scope указан в начале документа. Очереди **U5.2–U6**, **9D–9H** как «следующий шаг» **сняты**; полезные пункты перенесены по смыслу в **P1–P6** (см. [U4 audit](../integration/unified-architecture-audit.md) — исторический срез).
 
 | Документ | Назначение |
 | --- | --- |
-| [AppTraverse_Architecture_RU.md](../architecture/AppTraverse_Architecture_RU.md) | Канон: модель, Events, mirror, persistence (срез **`8c863bc`**) |
+| [AppTraverse_Architecture_RU.md](../architecture/AppTraverse_Architecture_RU.md) | Канон: согласованные принципы **2026-11-10**; старый срез отделён от текущей приёмки |
 | **PLAN.md** (этот файл) | Порядок реализации **P0–P6** |
 | [PROGRESS.md](./PROGRESS.md) | Фактически выполненные шаги и SHA |
 

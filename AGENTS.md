@@ -6,7 +6,7 @@
 - UI mirror and presenters must not mutate persistent model directly.
 - Keep presenters thin; one logical control → one presenter responsibility where practical.
 - Persistent vs runtime separation is mandatory (HWND, transport handles are runtime-only).
-- Catalog persistence uses standard object storage (P2.d.1R), with directory/embedded BACKING+USER composition as selected by the application; no separate checkpoint sidecar. See PLAN/PROGRESS for current evidence.
+- Windows USER uses ordinary RamDomainStorage over embedded BACKING. Child Close saves only to RAM; application shutdown writes one user.bin. Normal Debug always creates a fresh graph and does not load prior USER. No separate checkpoint sidecar.
 - Prefer incremental **Debug** builds; do not clean/rebuild without cause. **No** Release by default, no fresh populate without user request.
 - Update [docs/versioning/PROGRESS.md](docs/versioning/PROGRESS.md) only after verified steps. Do not mark PASS without execution.
 - Do not merge to `main` or force-push without explicit user instruction (task may specify `--force-with-lease` on `integration/unified-application`).
@@ -26,15 +26,15 @@ When a defect appears during porting, fix the **architectural cause** in the rig
 - Keep historical PASS records with their scope; record current regressions separately.
 - Non-blocking Object Core matrices and production hardening stay **DEFERRED**.
 
-Order unchanged: template/components on seven backends → WindowCatalog on them → administration.
+Current work and acceptance: Windows applications and headless. The seven-backend roadmap remains a long-term goal, not authorization to work on other platforms.
 
 ## Active plan (P0–P6)
 
-- **Order:** [docs/versioning/PLAN.md §P0–P6](docs/versioning/PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6) — **only** active queue. **U5.2–U6**, **9D–9H** are **not** next steps.
-- **Priority:** сначала библиотечный application template и controls на семи backend (Windows, Linux, macOS, Android, iOS/iPadOS, Web, Headless), затем WindowCatalog как тонкий потребитель на всех семи; администрирование только после P3/P4. Активные P3.T/P4.C — в PLAN.
+- **Order:** follow the current user task within Windows/headless scope. [PLAN §P0–P6](docs/versioning/PLAN.md#активный-план-мультиплатформенный-windowcatalog-p0p6) retains the long-term roadmap; its old other-platform NEXT entries and **U5.2–U6**, **9D–9H** are not active instructions.
+- **Priority:** current user scope is Windows WindowCatalog/MinimalApp and headless. Preserve the common application template; other-platform acceptance, administration and the long-term P3/P4 roadmap require a separate task.
 - **Boundary:** common/backend libraries не зависят от examples/WindowCatalog; native host/controls принадлежат backend, модель/Events/prefab/composition — приложению. Независимый MinimalApp проверяет переиспользование. Не копировать SurfacesModelSession и mirror-код в новые порты.
 - **Deferred (не возвращать в активную очередь без отдельного задания):** Object Core T16/T17, полная матрица Clone/upgrade, `kSupplyConstantIds` replacement, production hardening, resource download matrices — см. PLAN §P3 DEFERRED.
-- **Canon:** [docs/architecture/AppTraverse_Architecture_RU.md](docs/architecture/AppTraverse_Architecture_RU.md) (`8c863bc` observations).
+- **Canon:** [docs/architecture/AppTraverse_Architecture_RU.md](docs/architecture/AppTraverse_Architecture_RU.md) (2026-11-10 accepted principles; historical observations are explicitly separated).
 - **SharedNode / replication / Æther network client:** **full removal** (**P1.1**), not OFF or stubs.
 - **U5.1** (`8c863bc`) shutdown-save exit code — keep; do not revert.
 - No production-hardening (corrupt checkpoint, recovery, disk-full) unless explicitly assigned.

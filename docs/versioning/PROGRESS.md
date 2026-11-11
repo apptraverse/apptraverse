@@ -2962,3 +2962,17 @@ in Debug and three consecutive MinSizeRel runs. Static runtime and distillation
 exclusion gates pass. The user subsequently authorized commit/push after the
 initial uncommitted review.
 See [implementation, intermediate failures, size evidence and limitations](../validation/node-history-template-sharing-2026-11-10.md).
+
+## Canon update and scoped source audit — 2026-11-10
+
+Updated the canon from accepted user decisions and separated historical
+observations from current Windows/headless evidence at `06efdcb`. Synchronized
+AGENTS, Cursor guidance, PLAN and the outdated Windows MinimalApp README.
+Production and test sources were not changed. Fresh focused Windows Debug
+execution: **11/11 PASS**, 35.41 s (`.artifacts/canon-audit-debug.log`).
+
+The audit remains open for optional clone tracing, post-clone business-link
+repair in the headless mobile-close prefab, unknown ancestor-class factory
+rejection (source-confirmed risk without a runtime repro), and stale CI.
+Passing existing tests does not cover the two missing boundary fixtures.
+[Detailed findings, evidence, checklist and limitations](../validation/canon-conformance-2026-11-10.md).

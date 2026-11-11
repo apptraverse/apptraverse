@@ -1,8 +1,8 @@
 # Minimal AppTraverse application template
 
-Starter Windows application with one empty native desktop window. It uses the
+Independent Windows application-template example. It uses the
 shared platform stack (`ApplicationModelRuntime`, `WinApplicationHost`,
-`ApplicationUiSession`) and contains no demo controls or business logic.
+`ApplicationUiSession`) with its own model, events and window composition.
 
 ## Build
 
@@ -20,16 +20,21 @@ win32_minimal_app.exe [--state-dir <path>]
 
 Default state directory: `minimal_app_v0_state` next to the executable.
 
-On first run (empty/missing state), the dev binary bootstraps a distilled
-object graph, then runs normally.
+Every ordinary Debug launch creates a fresh distilled graph and ignores prior
+USER state. The same Debug executable prepares embedded supply through
+`--distill-only <output-directory>`; no separate Windows exporter is needed.
+MinSizeRel uses the Debug-prepared embedded supply and restores `user.bin` when
+present. Build Debug supply before configuring/building MinSizeRel.
 
 ## Run (load-only)
 
 ```text
-win32_minimal_app_load_only.exe --state-dir <existing-profile>
+win32_minimal_app_load_only.exe --state-dir <profile>
 ```
 
-Requires an existing profile created by `win32_minimal_app`. No bootstrap.
+Loads embedded BACKING plus USER when present. A missing `user.bin` is a valid
+first launch. This explicit restore consumer also supports Debug cold-load
+tests; it is distinct from ordinary Debug fresh-graph behavior.
 
 ## Where things live
 
@@ -37,11 +42,13 @@ Requires an existing profile created by `win32_minimal_app`. No bootstrap.
 |--------|----------|
 | Application model type | `common/minimal_application.h` |
 | Initial object graph | `windows/minimal_app_graph.cpp` |
-| Model thread / persistence | `common/minimal_app_lifecycle.cpp` |
+| Model thread / persistence | `windows/minimal_app_model_session.cpp` |
 | Win32 entry + host wiring | `windows/minimal_app_main.cpp` |
 
-Persistent save uses `SavePresentedWindow`, application `Save()`, and
-`DirectoryDomainStorage::BeginSaveSession` and object-layer save at the end of the model session.
+USER uses ordinary `RamDomainStorage`. Auxiliary window Close saves its graph
+to RAM without file operations. After the model session completes, the
+application saves its persistent graph and writes one `user.bin` using the
+shared binary storage functions. There is no background or destructor flush.
 
 ## Extending
 
