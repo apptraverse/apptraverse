@@ -1535,6 +1535,11 @@ if(_window_catalog_test_library)
 endif() # native WindowCatalog graph
 
 if(TARGET surfaces_demo_window_catalog_linux)
+  apptraverse_add_test(apptraverse_linux_ui_client_mount_test
+    linux_ui_client_mount_test.cpp apptraverse_ui_linux)
+  set_tests_properties(apptraverse_linux_ui_client_mount_test PROPERTIES
+    LABELS "linux;window_catalog;gui" ENVIRONMENT "GDK_BACKEND=x11"
+    RUN_SERIAL TRUE)
   find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
   set(_linux_catalog_acceptance_sources
     window_catalog_linux_acceptance_main.cpp

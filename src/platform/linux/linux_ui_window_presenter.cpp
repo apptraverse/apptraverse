@@ -3,6 +3,7 @@
 #include <string>
 
 #include "apptraverse/platform/linux/linux_fatal.h"
+#include "apptraverse/platform/linux/linux_ui_client_mount.h"
 #include "apptraverse/platform/linux/linux_presentation_host.h"
 #include "apptraverse/ui/ui_desktop_window.h"
 #include "apptraverse/ui/ui_localization_string.h"
@@ -157,9 +158,9 @@ void LinuxDesktopWindowPresenter::OnLoad() {
   configure_handler_ = g_signal_connect(window_, "configure-event",
                                         G_CALLBACK(OnConfigure), this);
 
-  client_mount_ = gtk_fixed_new();
+  client_mount_ = CreateClientMount();
   if (client_mount_ == nullptr) {
-    FatalLinux("gtk_fixed_new");
+    FatalLinux("CreateClientMount");
   }
   gtk_container_add(GTK_CONTAINER(window_), client_mount_);
   size_allocate_handler_ =

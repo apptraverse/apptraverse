@@ -954,69 +954,27 @@ void VerifyChildCloseCold(WindowCatalog& catalog) {
 
 struct NativeGeometryPoll {
   WindowCatalog* catalog;
-  int step = 0;
   int polls = 0;
   int stable = 0;
-  FrameExpect restore{};
 };
 
 gboolean PollNativeGeometry(gpointer data) {
   auto* poll = static_cast<NativeGeometryPoll*>(data);
   if (++poll->polls > kSettlePollLimit) {
-    FailCc("fatal: native maximize/restore did not settle\n");
+    FailCc("fatal: native initial placement did not settle\n");
   }
   auto& catalog = *poll->catalog;
   auto& presenter = LinuxMainWindow(catalog);
   GtkWidget* const widget = presenter.TopLevelWindow();
   auto& window = *catalog.persisted.main_window;
   if (!gtk_widget_get_mapped(widget)) return G_SOURCE_CONTINUE;
-  auto const native_state =
-      gdk_window_get_state(gtk_widget_get_window(widget));
-  bool const maximized = (native_state & GDK_WINDOW_STATE_MAXIMIZED) != 0;
-  FrameExpect native{};
-  if (!ReadNativeFrame(presenter, native)) return G_SOURCE_CONTINUE;
-  FrameExpect const restore{window.x(), window.y(),
-                            window.restore_client_width(),
-                            window.restore_client_height()};
-  bool const live_size_matches = native.w == window.client_width() &&
-                                 native.h == window.client_height();
-  if (poll->step == 0) {
-    if (maximized || !window.HasExplicitPosition() ||
-        !CatalogWindowNativeMatchesMirror(window)) {
-      poll->stable = 0;
-      return G_SOURCE_CONTINUE;
-    }
-    if (++poll->stable < kSettleStablePolls) return G_SOURCE_CONTINUE;
-    LogMarker("WINDOW_CATALOG_LINUX_OS_PLACEMENT_EVENT_OK");
-    poll->restore = restore;
-    poll->step = 1;
-    poll->stable = 0;
-    poll->polls = 0;
-    gtk_window_maximize(GTK_WINDOW(widget));
-    return G_SOURCE_CONTINUE;
-  }
-  if (!FrameMatchesExpect(restore, poll->restore)) {
-    FailCc("fatal: maximize/restore overwrote the normal restore frame\n");
-  }
-  if (poll->step == 1) {
-    if (!maximized || !live_size_matches) {
-      poll->stable = 0;
-      return G_SOURCE_CONTINUE;
-    }
-    if (++poll->stable < kSettleStablePolls) return G_SOURCE_CONTINUE;
-    poll->step = 2;
-    poll->stable = 0;
-    poll->polls = 0;
-    gtk_window_unmaximize(GTK_WINDOW(widget));
-    return G_SOURCE_CONTINUE;
-  }
-  if (maximized || !live_size_matches ||
-      !FrameMatchesExpect(native, poll->restore)) {
+  if (!window.HasExplicitPosition() ||
+      !CatalogWindowNativeMatchesMirror(window)) {
     poll->stable = 0;
     return G_SOURCE_CONTINUE;
   }
   if (++poll->stable < kSettleStablePolls) return G_SOURCE_CONTINUE;
-  LogMarker("WINDOW_CATALOG_LINUX_MAXIMIZE_RESTORE_OK");
+  LogMarker("WINDOW_CATALOG_LINUX_OS_PLACEMENT_EVENT_OK");
   CloseMain(catalog);
   delete poll;
   return G_SOURCE_REMOVE;

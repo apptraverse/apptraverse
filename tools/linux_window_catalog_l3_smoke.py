@@ -115,10 +115,11 @@ def verify_geometry_roundtrip(saved: str, loaded: str) -> bool:
 
 
 def verify_fresh_debug(
-    fresh_exe: Path, load_only_exe: Path, timeout_s: int, env: dict[str, str]
+    fresh_exe: Path, timeout_s: int, env: dict[str, str]
 ) -> bool:
     parent = Path(tempfile.mkdtemp(prefix="apptraverse_wc_linux_debug_"))
     profiles: list[Path] = []
+    snapshots: list[tuple[bytes, int]] = []
     try:
         # Both launches receive the same parent, which already contains a USER
         # after launch one. Each fresh runner must start with zero rows.
@@ -134,15 +135,23 @@ def verify_fresh_debug(
                 print("FAIL: missing or unexpected fresh Debug profile", file=sys.stderr)
                 return False
             profile = paths[0]
-            if not (profile / "user.bin").is_file() or profile in profiles:
+            user_file = profile / "user.bin"
+            if not user_file.is_file() or profile in profiles:
                 print("FAIL: Debug reused a profile or did not save USER", file=sys.stderr)
                 return False
+            if not user_file.stat().st_size or list(profile.rglob("*")) != [user_file]:
+                print("FAIL: fresh USER must contain exactly one nonempty user.bin", file=sys.stderr)
+                return False
+            for previous, snapshot in zip(profiles, snapshots):
+                previous_user = previous / "user.bin"
+                if (previous_user.read_bytes(), previous_user.stat().st_mtime_ns) != snapshot:
+                    print("FAIL: Debug modified a previous USER", file=sys.stderr)
+                    return False
             profiles.append(profile)
-        code, out = run_phase(load_only_exe, profiles[0], "l3_cold_verify", timeout_s, env)
-        if code != 0:
-            print(out, file=sys.stderr)
-            return False
-        require_markers(out, ["WINDOW_CATALOG_LINUX_COLD_STATE_OK"] + SHUTDOWN_MARKERS)
+            snapshots.append((user_file.read_bytes(), user_file.stat().st_mtime_ns))
+        # Each fresh Debug run distills its own BACKING with new identities.
+        # Its USER cannot be paired with the unrelated build-time supply.
+        # Cold restoration is tested below using one embedded supply throughout.
         return True
     finally:
         shutil.rmtree(parent, ignore_errors=True)
@@ -164,7 +173,7 @@ def main() -> int:
     env["GDK_BACKEND"] = "x11"
 
     if args.fresh_exe is not None:
-        if not verify_fresh_debug(args.fresh_exe.resolve(), exe, args.timeout_s, env):
+        if not verify_fresh_debug(args.fresh_exe.resolve(), args.timeout_s, env):
             return 1
 
     if run_profile_phases(
@@ -172,7 +181,6 @@ def main() -> int:
         "apptraverse_wc_linux_native_geometry_",
         [("native_geometry", [
             "WINDOW_CATALOG_LINUX_OS_PLACEMENT_EVENT_OK",
-            "WINDOW_CATALOG_LINUX_MAXIMIZE_RESTORE_OK",
         ])],
         args.timeout_s,
         env,

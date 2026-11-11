@@ -1,60 +1,81 @@
 # WindowCatalog Linux port — 2026-11-10
 
-Base: `e48db8300b16b50d5ec375fa6a1b526b2f709853`, branch
-`feature/domain-hierarchy-cloning`. Scope: Linux GTK WindowCatalog through
-WSL/WSLg, its shared model/headless tests, and preservation of Windows behavior.
-Other example applications and CI are excluded.
+Base implementation: `b0c808d81b187b3fa890b0a59d25e5a7bf23c66a`, branch
+`feature/domain-hierarchy-cloning`. Scope: GTK3/X11 WindowCatalog, shared
+headless tests, and preservation of Windows behavior.
 
-## Acceptance status
+## Current acceptance
 
-**Linux build and execution are BLOCKED / NOT RUN.** Even `wsl --list`
-returns `Wsl/E_ACCESSDENIED` in the current Windows agent session. The user
-authorized WSL access; granting workspace writes and network did not change
-this result. No distribution, compiler, GTK development package or display
-availability has been verified in this session. Existing historical Linux
-PASS records do not verify this source revision.
+- Ubuntu 24.04.2 through WSL, Clang 18.1.3, GTK 3.24.41, X11 1.8.7.
+- Debug build and Debug-owned distillation: PASS. `AE_NO_DEBUG_LOG=ON`.
+- Linux selected CTest scope: **15/15 PASS, 46.16 s**. Native acceptance:
+  **43.53 s**, twelve subprocess phases. The native tests used a private
+  Xvfb/Openbox X11 display; WSLg's desktop was not modified.
+- Existing Windows incremental Debug scope: **24/24 PASS, 84.26 s**, including
+  native acceptance and the 5x4 Close diagnostic. No Windows source changes.
+- Ordinary Linux Debug application launched once on WSLg with a separate fresh
+  profile. Process survived startup and X11 exposed its `Window Catalog` window.
+  This launch is not evidence of WSLg geometry acceptance.
 
-The code is prepared for GTK3/X11 acceptance on WSLg. Native Wayland is outside
-this geometry/stacking acceptance. No Linux release build or binary-size claim.
+**Known platform limitation:** WSLg 1.0.79's own X11 window manager reports
+`(58,38)` after `gtk_window_move(90,70)` with the default gravity. The ordinary
+geometry test therefore stalls at the requested coordinates on that display.
+The same test reports `(90,70)` under Openbox. Static gravity and GTK_CSD probes
+were not adopted as fixes; no hardcoded shadow offsets were added. Exact
+WSLg desktop position round-trips remain unverified/failing, independently of
+standard Linux X11 acceptance. Native Wayland and Linux release are NOT RUN.
 
-## Port changes
+**Maximization is explicitly DEFERRED at the user's request.** The provisional
+maximize/restore fixes were reverted and the acceptance phase now checks only
+initial OS placement. No new maximization model, persistence or transition
+mechanism was added. Its observed restore-frame problem remains unfixed.
 
-- The normal Debug application owns fresh graph creation and `--distill-only`,
-  which runs before GTK initialization. It never restores previous USER.
-- `linux_window_catalog_demo_load_only` embeds the Linux supply prepared by
-  Debug and restores one `user.bin`. The common lifecycle still owns RAM USER
-  and writes the file only after application shutdown. No separate exporter.
-- One registration entry point runs before graph loading. Runtime presenter
-  registration and graph construction are separate object files.
-- The same `WindowCatalogLinuxApplication` host composition is used by the
-  executable and the test runners: native Close flushes pending frame reports,
-  queues z-order, stops/drains the model, waits for completion, and unloads UI.
-- GTK list selection/activation captures a holder ID before enqueueing the
-  command. Native geometry enters through Events/the existing main-frame queue;
-  mirror publication no longer reposts viewport changes.
-- GTK uses actual frame coordinates and client dimensions, leaves unspecified
-  initial placement to the window manager, reports screen work area to the
-  model, and distinguishes restore geometry from maximized/fullscreen live size.
-- Mandatory distilled links and native lifetime order replace old locale,
-  geometry and optional-parent fallbacks. Closed/lazy windows remain valid
-  lifecycle alternatives and are not loaded by z-order inspection.
-- Session automation moved from the application into `tests`. Production has
-  no automation argument or shutdown markers. Existing legacy demos are gated
-  by the existing legacy-examples option.
+## Corrections from actual Linux execution
 
-## Prepared Linux tests (not executed)
+1. The test incorrectly tried loading a fresh Debug USER with an unrelated
+   build-time embedded BACKING. Each fresh distillation creates new object IDs;
+   USER deliberately omits supply constants and unchanged BACKING layers.
+   Those two supplies cannot be interchanged. Fresh testing now verifies two
+   independent profiles, exactly one nonempty user.bin per profile, and that
+   the second launch leaves the first USER's bytes/timestamp untouched. Cold
+   restart acceptance uses one matching embedded supply throughout. No runtime
+   repair, copying constants into USER, migration or ID redesign was introduced.
+2. Ordinary native shrinking was blocked by GtkFixed propagating the previous
+   child layout as the top-level minimum size: requested **600x450**, actual
+   **648x488**, reproduced under Openbox without maximizing. The backend now
+   uses a GtkFixed-compatible client mount whose children do not impose the
+   window's minimum size. Model child positions and normal GTK allocation remain
+   unchanged. The focused test FAILed with stock GtkFixed and PASSed with the
+   new mount. This fix is for ordinary resizing, not maximization support.
 
-The existing shared headless, embedded-overlay, persistence-boundary,
-close-stage and frame-coalescing sources are linked to the Linux graph.
-The native runner uses the production host composition and real GTK
-button/list/window signals. It is a test executable, not automation embedded
-in the ordinary application entry point.
+## Implemented port contract
 
-The X11 smoke covers Add/Close/Reopen/Delete, stable row identity and activation,
-localization, native geometry, maximization/restore, several cold restarts,
-two fresh Debug launches into the same parent, and load-only restoration of
-the first Debug USER. It verifies that USER is unchanged at startup and during
-publications/child Close, and contains exactly one file after shutdown.
+The application uses the shared model runtime, publication/UI mirror and
+application session template. Native GTK signals route commands through model
+proxies, with stable holder IDs for list selection/activation. One application
+registration entry point anchors the graph's schemas. Graph construction and
+runtime registration occupy separate object files.
+
+Normal Debug creates a fresh graph and owns `--distill-only`; no standalone
+Linux exporter. The explicit load-only consumer embeds the Debug-produced
+supply. USER lives in RamDomainStorage: child Close saves into RAM, application
+shutdown writes exactly one user.bin. Model/Event logic remains cross-platform.
+
+The native test runner shares production `WindowCatalogLinuxApplication` host
+composition. Automation is test-only. Acceptance covers fresh profiles, initial
+OS placement, Add, row activation/identity, Close/Reopen/Delete, localization,
+ordinary move/resize, native stacking, several cold restarts, unchanged USER
+during startup/publications/child Close, and single-file shutdown persistence.
+The earlier shared nested-frame publication fix remains covered by its existing
+regression and by Windows/headless tests.
+
+## Reproduction and evidence
+
+Build directory: `build/linux-x64-ninja-clang-debug`. The first Linux configure
+reused existing dependencies from `.cpm_cache_isolated_v3` and the same verified
+patched Æther source used by Windows:
+`.artifacts/patch-chain-verification/20261110T180342637249Z/tree`.
+No clean rebuild of Windows and no fresh dependency population.
 
 Relevant targets:
 
@@ -62,68 +83,31 @@ Relevant targets:
 linux_window_catalog_demo
 linux_window_catalog_demo_load_only
 apptraverse_window_catalog_linux_acceptance_runner
-apptraverse_window_catalog_linux_fresh_runner   (Debug only)
-apptraverse_window_catalog_linux_l3_smoke       (build + native test)
+apptraverse_window_catalog_linux_fresh_runner
+apptraverse_linux_ui_client_mount_test
+apptraverse_window_catalog_linux_l3_smoke
 ```
 
-Use the existing Linux build/cache when accessible. The declared default is
-`linux-x64-ninja-clang-debug`; do not clean Windows/Linux build trees or fetch
-fresh dependencies merely to resume this work. Before native acceptance,
-inspect the installed WSL distribution, toolchain and WSLg display. The smoke
-sets `GDK_BACKEND=x11` and creates separate temporary profiles.
+Run native acceptance on a normal X11 desktop with GTK3. For a headless Linux
+host, start Xvfb plus Openbox on a private DISPLAY before CTest; Xvfb alone does
+not provide window placement/stacking. The smoke selects `GDK_BACKEND=x11`.
 
-## Executed checks so far
+```sh
+cmake --build --preset linux-x64-ninja-clang-debug --target apptraverse_window_catalog_linux_l3_smoke
+```
 
-The port exposed a shared publication defect: a programmatic frame request on
-a nested desktop window was not delivered when the runtime published the
-application root. Structural publications now include the requested window IDs
-collected from the existing serialization scratch graph, without another Save
-pass. Ordinary snapshots do not consume requests. Existing presenters apply
-their own requests; newly loaded presenters use their normal OnLoad frame.
-The persistent S0/USER and initial-publication formats are unchanged.
+Logs under `.artifacts/`:
 
-`apptraverse_nested_window_frame_publication_test` was built and run before
-the serializer fix: **FAIL**, exit 1 at the first missing nested request.
-With the fix: **PASS**. It exercises independent windows, alias references,
-latest request coalescing, root-window publication, repeated publication,
-ordinary snapshots, native/maximized reports without feedback, centered
-placement through screen Events, and a newly materialized presenter.
-Logs: `.artifacts/linux-port-nested-frame-before.log` and
-`.artifacts/linux-port-nested-frame-after.log`.
+- `linux-port-build.log`, `linux-port-tests.log`, `linux-port-tests.xml`
+- `linux-x11-acceptance.log`, `linux-x11-acceptance-before.log`, `linux-x11-frames.log`
+- `linux-client-mount-before.log`, `linux-client-mount-after.log`
+- `linux-port-windows-recheck-build.log`, `linux-port-windows-recheck-tests.log`,
+  `linux-port-windows-recheck-tests.xml`, `linux-port-windows-recheck-detail.log`
+- `linux-manual-launch.log`, `linux-manual-launch.json`
 
-- Windows incremental Debug build of the five shared Catalog targets: PASS.
-- Shared Catalog headless, close-stage, USER boundary, embedded overlay and
-  main-frame coalescing: **5/5 PASS, 18.20 seconds**, with an isolated temporary
-  directory under `.artifacts/linux-port-windows-temp`.
-- The first run using the default temporary directory failed three file-based
-  tests. The isolated repeat passed without a source change; this is recorded
-  separately from Linux acceptance.
-- Python smoke syntax compilation: PASS. This is not a native smoke result.
+Windows child Close medians (cold/burst/settled/saved): **189/208/181/131 ms**;
+Main exit medians: **48/38/48/65 ms**. These are Windows Debug measurements,
+not Linux timings.
 
-After the shared fix, the existing Windows Debug tree was incrementally rebuilt
-for both application executables and 23 test executables. The final CTest run
-was **24/24 PASS, 101.94 seconds**: the preceding 22-test Windows/headless scope
-plus the nested-frame regression and desktop geometry test. It includes native
-acceptance, frame sync/drag/publication, command routing, model/headless,
-clone/domain/history, USER boundary/single-file storage, model/UI sessions,
-chrome adaptation, configuration selection, and the **5x4 Close diagnostic**.
-No MinSizeRel build or run was performed in this iteration.
-
-Build/log evidence: `.artifacts/linux-port-windows-build.log`,
-`.artifacts/linux-port-windows-tests.log`,
-`.artifacts/linux-port-windows-tests.xml`. Configuration remained Debug,
-`AE_NO_DEBUG_LOG=ON`, with the existing verified dependency source and caches.
-No clean or dependency re-download. Independent source review found no further
-blocker in the edited Linux composition or shared request delivery; it does
-not replace Linux compilation/execution. `git diff --check`: PASS.
-
-## Remaining acceptance
-
-1. Enable a functioning WSL execution environment and inspect its existing
-   Linux build/cache and GTK3/X11 tools.
-2. Build the normal Debug application, embedded consumer, headless tests and
-   both native test runners incrementally; fix actual compile/runtime failures.
-3. Run the Linux headless and native suites, then launch the ordinary Linux
-   application once for manual inspection.
-4. Record actual Linux results and any remaining platform limitations. A
-   source review or a Windows PASS must not be presented as Linux acceptance.
+Next authorized work: Android, then WebAssembly. macOS/iOS are being developed
+independently in another branch and are not modified or merged by this task.

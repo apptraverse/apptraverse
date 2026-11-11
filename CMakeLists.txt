@@ -316,6 +316,7 @@ if(UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN AND
     src/platform/linux/linux_fatal.cpp
     src/platform/linux/linux_application_host.cpp
     src/platform/linux/linux_desktop_window_stack.cpp
+    src/platform/linux/linux_ui_client_mount.cpp
     src/platform/linux/linux_ui_window_presenter.cpp
     src/platform/linux/linux_ui_list_presenter.cpp
     src/platform/linux/linux_ui_push_button_presenter.cpp
