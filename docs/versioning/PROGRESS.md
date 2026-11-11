@@ -2951,3 +2951,14 @@ Completed points 1–4 after `46e0c2a`:
 - Native window coordinates are signed and may be negative regardless of monitor count. The headless initial-position/cold-load test now verifies (-45, -67). Catalog still uses OS placement; no monitor-number field, fullscreen behavior or automatic centering was added to the example.
 
 Validation: incremental Windows Debug, AE_NO_DEBUG_LOG=ON. Full suite **85/85 PASS** (`.artifacts/principles-four-tests.log`). Signed-position test **1/1 PASS** (`signed-position-tests.log`). After removing the last inline viewport-density default, affected Catalog suite **10/10 PASS**, including Windows acceptance and Close timing (`principles-four-final-tests.log`). Build logs use the matching names ending in `-build.log`. No production changes followed the final run. No MinSizeRel/device builds; the Android-named test is host-side headless coverage.
+
+## Shared Node history implementations — 2026-11-10 — validated
+
+Shared remap/capture/replay bodies now use Node references with typed Save
+adapters and typed rebuild scratch. Controlled MinSizeRel savings: Catalog
+**34 KiB**, MinimalApp **51.5 KiB**. Full Debug **82/82 PASS**, final targeted
+MinSizeRel **17/17 PASS**; the corrected native focus test also passes separately
+in Debug and three consecutive MinSizeRel runs. Static runtime and distillation
+exclusion gates pass. The user subsequently authorized commit/push after the
+initial uncommitted review.
+See [implementation, intermediate failures, size evidence and limitations](../validation/node-history-template-sharing-2026-11-10.md).

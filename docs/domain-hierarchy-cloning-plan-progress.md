@@ -278,3 +278,19 @@ Validation: **82/82 Debug PASS** (288.88 seconds), **17/17 targeted MinSizeRel P
 Catalog size: **681,984 B (666 KiB)**, down 2,560 B; MinimalApp unchanged at
 **622,592 B (608 KiB)**. Both import only KERNEL32/USER32. No timing improvement
 is claimed. [Changes, regression evidence, scope and logs](validation/windows-headless-contract-followup-2026-11-10.md).
+
+## Shared Node history implementations — 2026-11-10 — validated
+
+Moved historical remap, capture and replay preparation into common `Node&`
+implementations, retaining typed serialization and per-type rebuild scratch.
+The controlled MinSizeRel comparison uses the same embedded supply: Catalog
+681,984 → 647,168 B (**−34 KiB**); MinimalApp 622,592 → 569,856 B
+(**−51.5 KiB**). Freshly regenerated supply gives the same final sizes.
+
+Full Debug: **82/82 PASS**; final targeted MinSizeRel: **17/17 PASS**.
+A second-Open focus race in the native acceptance test was corrected in both
+equivalent call sites; the affected Debug test and three consecutive additional
+MinSizeRel runs pass. Static-runtime/distillation binary gates pass. No latency
+improvement is claimed. Initially kept uncommitted; the user subsequently
+authorized committing and publishing the validated work.
+[Implementation, controlled size comparison, intermediate failures and logs](validation/node-history-template-sharing-2026-11-10.md).

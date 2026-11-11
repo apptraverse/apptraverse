@@ -9,6 +9,8 @@
 #include <cstdint>
 #include <limits>
 #include <map>
+#include <optional>
+#include <set>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -28,6 +30,30 @@
 #include "apptraverse/object_clone_hydrate.inl"
 
 namespace apptraverse {
+
+class Node;
+
+namespace detail {
+
+// Preserve the layer selected by NodeFor<T>, which need not be the object's
+// most-derived class. Only the typed Save adapter depends on T.
+struct HistoricalNodeSerializer {
+  std::uint32_t class_id;
+  std::optional<ae::seri::SeriResult> (*save)(ae::DomainGraph&, Node&, ae::ObjId);
+};
+
+template <typename ConcreteNode>
+HistoricalNodeSerializer HistoricalSerializerFor();
+
+bool BuildRemappedHistoricalBaseScratch(
+    Node& owner, HistoricalNodeSerializer serializer, ae::ObjId base_id,
+    ae::RamDomainStorage const& captured_scratch,
+    ae::RamDomainStorage& remapped_out,
+    std::set<ae::ObjId>* live_reference_ids_out,
+    ae::DomainGraph::CloneSaveRemapTable* capture_leaf_remap_out,
+    std::set<ae::ObjId> const* owner_live_reference_ids);
+
+}  // namespace detail
 
 template <typename ConcreteNode>
 bool BuildRemappedHistoricalBaseScratch(
@@ -332,60 +358,14 @@ class Node : public ae::Obj {
         base.id() == obj_id) {
       return false;
     }
-    auto owner_id = obj_id;
-    auto saved_base = base;
-    auto saved_journal = journal;
-    typename ConcreteNode::RebuildOperationScratch rebuild_scratch{};
-    target.StashLocalPersistentAcrossRebuild(&rebuild_scratch);
-    ae::Ptr<ae::Obj> const base_obj = saved_base.Load();
-    if (!base_obj) {
-      obj_id = owner_id;
-      base = saved_base;
-      journal = std::move(saved_journal);
-      target.RestoreLocalPersistentAcrossRebuild(&rebuild_scratch);
-      return false;
-    }
-    auto& base_node = static_cast<ConcreteNode&>(*base_obj);
-    base_node.PrepareReachableMutableLeavesForHistoricalCapture();
-    std::set<ae::ObjId> base_live_refs;
-    base_node.CollectHistoricalCaptureLiveReferenceIds(base_live_refs);
-    ae::RamDomainStorage base_layers;
-    {
-      ae::Domain layer_domain{base_layers};
-      ae::DomainGraph save_graph{
-          &layer_domain, ae::GraphSerializationScope::HistoricalBaseSnapshot};
-      save_graph.force_materialize = true;
-      auto const save_result = save_graph.Save(base_node, owner_id);
-      if (!save_result.has_value() || !save_result->IsOk()) {
-        obj_id = owner_id;
-        base = saved_base;
-        journal = std::move(saved_journal);
-        target.RestoreLocalPersistentAcrossRebuild(&rebuild_scratch);
-        return false;
-      }
-    }
-    // Replay writes into a private copy of mutable leaves. Reusing the base's
-    // IDs would make replayed Events mutate the historical snapshot itself.
-    ae::RamDomainStorage replay_layers;
-    std::set<ae::ObjId> live_references;
-    if (!BuildRemappedHistoricalBaseScratch(
-            base_node, owner_id, base_layers, replay_layers, &live_references,
-            nullptr, &base_live_refs) ||
-        !HydrateLiveObjectFromLayerScratch(*domain, target, owner_id,
-                                           replay_layers, live_references)) {
-      obj_id = owner_id;
-      base = saved_base;
-      journal = std::move(saved_journal);
-      target.RestoreLocalPersistentAcrossRebuild(&rebuild_scratch);
-      return false;
-    }
-    obj_id = owner_id;
-    base = saved_base;
-    journal = std::move(saved_journal);
-    target.RestoreLocalPersistentAcrossRebuild(&rebuild_scratch);
-    generation_ = 1;
-    return TryReplayJournal();
+    typename ConcreteNode::RebuildOperationScratch scratch{};
+    return TryRebuildFromBaseAndReplay(
+        target, detail::HistoricalSerializerFor<ConcreteNode>(), &scratch);
   }
+
+  bool TryRebuildFromBaseAndReplay(
+      Node& target, detail::HistoricalNodeSerializer serializer,
+      void* rebuild_scratch);
 
   template <typename ConcreteNode>
   void RebuildFromBaseAndReplay(ConcreteNode& target) {
@@ -396,76 +376,11 @@ class Node : public ae::Obj {
 
   template <typename ConcreteNode>
   void CaptureBaseStateInto(ConcreteNode& target) {
-    assert(domain != nullptr);
-    assert(base.is_valid());
-    assert(base.is_loaded());
-    assert(journal.empty());
-    assert(base.id() != obj_id);
-
-    auto owner_id = obj_id;
-    auto saved_base = base;
-    auto saved_journal = journal;
-
-    // Lazy live leaves may need the previous base to reconstruct changes that
-    // compaction has removed from the journal but has not persisted yet.
-    target.PrepareReachableMutableLeavesForHistoricalCapture();
-    base = Node::ptr{};
-    journal.clear();
-    std::set<ae::ObjId> owner_live_refs;
-    target.CollectHistoricalCaptureLiveReferenceIds(owner_live_refs);
-
-    ae::RamDomainStorage scratch;
-    ae::Domain scratch_domain{scratch};
-    ae::DomainGraph save_graph{
-        &scratch_domain,
-        ae::GraphSerializationScope::HistoricalBaseSnapshot};
-    save_graph.force_materialize = true;
-    bool const owner_marked =
-        save_graph.cycle_detector.Add(ConcreteNode::kClassId, owner_id);
-    assert(owner_marked);
-    (void)owner_marked;
-    auto const capture_save = save_graph.Save(target, saved_base.id());
-    if (!capture_save.has_value() || !capture_save->IsOk()) {
-      obj_id = owner_id;
-      base = saved_base;
-      journal = std::move(saved_journal);
-      std::fprintf(stderr, "Historical capture failed at save (owner=%lu base=%lu)\n",
-                   static_cast<unsigned long>(owner_id.id()),
-                   static_cast<unsigned long>(saved_base.id().id()));
-      std::abort();
-    }
-
-    ae::RamDomainStorage historical_layers;
-    std::set<ae::ObjId> live_references;
-    if (!BuildRemappedHistoricalBaseScratch(target, saved_base.id(), scratch,
-                                            historical_layers, &live_references,
-                                            nullptr, &owner_live_refs)) {
-      obj_id = owner_id;
-      base = saved_base;
-      journal = std::move(saved_journal);
-      std::fprintf(stderr, "Historical capture failed at remap (owner=%lu base=%lu)\n",
-                   static_cast<unsigned long>(owner_id.id()),
-                   static_cast<unsigned long>(saved_base.id().id()));
-      std::abort();
-    }
-    ae::Ptr<ae::Obj> const base_live = domain->Find(saved_base.id());
-    if (!base_live ||
-        !HydrateLiveObjectFromLayerScratch(*domain, *base_live, saved_base.id(),
-                                           historical_layers, live_references)) {
-      obj_id = owner_id;
-      base = saved_base;
-      journal = std::move(saved_journal);
-      std::fprintf(stderr, "Historical capture failed at hydrate (owner=%lu base=%lu)\n",
-                   static_cast<unsigned long>(owner_id.id()),
-                   static_cast<unsigned long>(saved_base.id().id()));
-      std::abort();
-    }
-
-    obj_id = owner_id;
-    base = saved_base;
-    journal = std::move(saved_journal);
-    history_base_recaptured_ = true;
+    CaptureBaseStateInto(target, detail::HistoricalSerializerFor<ConcreteNode>());
   }
+
+  void CaptureBaseStateInto(Node& target,
+                            detail::HistoricalNodeSerializer serializer);
 
   // Longest collapsible prefix: records that neither count nor age retention
   // needs. Empty when compaction is blocked or retention is unlimited.

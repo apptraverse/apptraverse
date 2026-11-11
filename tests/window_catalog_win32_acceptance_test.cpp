@@ -927,6 +927,19 @@ bool CatalogChildHasForeground(HWND hwnd) {
   return hwnd != nullptr && IsWindow(hwnd) && GetForegroundWindow() == hwnd;
 }
 
+void OpenExistingCatalogWindowAndWaitForFocus(HWND main, HWND child) {
+  // Open is asynchronous. Observing the child's existing focus would not
+  // acknowledge this command, which could then restore a later minimization.
+  SetForegroundWindow(main);
+  CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
+    return GetForegroundWindow() == main;
+  }));
+  ClickControl(main, kOpenControlId);
+  CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
+    return CatalogChildHasForeground(child);
+  }));
+}
+
 std::string Utf8FromWide(std::wstring const& text) {
   if (text.empty()) {
     return {};
@@ -1049,10 +1062,7 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
   CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
     return CatalogChildHasForeground(child1_reopened);
   }));
-  ClickControl(main, kOpenControlId);
-  CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
-    return CatalogChildHasForeground(child1_reopened);
-  }));
+  OpenExistingCatalogWindowAndWaitForFocus(main, child1_reopened);
   ExpectSameTopLevelWithTitle(pid, child1_reopened, L"Window 1",
                               "after_second_open_window1");
   CHECK(FramesNearEqual(ReadCatalogFrame(child1_reopened), saved_frame));
@@ -1192,10 +1202,7 @@ void RunLanguageAndFocusAcceptance() {
     return CatalogChildHasForeground(child2_reopened);
   }));
 
-  ClickControl(main, kOpenControlId);
-  CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
-    return CatalogChildHasForeground(child2_reopened);
-  }));
+  OpenExistingCatalogWindowAndWaitForFocus(main, child2_reopened);
 
   ShowWindow(child2_reopened, SW_MINIMIZE);
   {
