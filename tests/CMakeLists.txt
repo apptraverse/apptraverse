@@ -1784,3 +1784,6 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
     NAME apptraverse_win_ui_command_routing_test
     COMMAND apptraverse_win_ui_command_routing_test)
 endif()
+
+# Apple WindowCatalog runs the same model/proxy/mirror path as the application.
+include(${CMAKE_CURRENT_SOURCE_DIR}/macos_window_catalog_acceptance_targets.cmake)

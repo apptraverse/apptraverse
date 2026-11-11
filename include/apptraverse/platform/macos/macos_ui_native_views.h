@@ -1,6 +1,8 @@
 #ifndef APPTRAVERSE_PLATFORM_MACOS_MACOS_UI_NATIVE_VIEWS_H_
 #define APPTRAVERSE_PLATFORM_MACOS_MACOS_UI_NATIVE_VIEWS_H_
 
+#include <vector>
+
 namespace apptraverse::ui::macos {
 
 class MacDesktopWindowPresenter;
@@ -12,6 +14,10 @@ class MacUiNativeViews {
   virtual void LoadDesktopWindow(MacDesktopWindowPresenter& presenter) = 0;
   virtual void SyncDesktopWindow(MacDesktopWindowPresenter& presenter) = 0;
   virtual void UnloadDesktopWindow(MacDesktopWindowPresenter& presenter) = 0;
+  virtual void ApplyRequestedDesktopFrame(MacDesktopWindowPresenter& presenter) = 0;
+  virtual void OrderDesktopWindowFront(MacDesktopWindowPresenter& presenter,
+                                      bool activate) = 0;
+  virtual std::vector<MacDesktopWindowPresenter*> DesktopZOrder() = 0;
 
   virtual void LoadPushButton(MacPushButtonPresenter& presenter) = 0;
   virtual void SyncPushButton(MacPushButtonPresenter& presenter) = 0;

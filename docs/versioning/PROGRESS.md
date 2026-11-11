@@ -3104,3 +3104,83 @@ See [full evidence and scope](../validation/window-catalog-minsizerel-2026-11-10
 - Manual browser persistence URL: `http://127.0.0.1:8785/web_window_catalog_demo_load_only.html`. Normal Debug remains fresh. Crash/no-notification termination, other browsers/devices and Release packaging are outside this proof. WSLg position and maximization limitations remain unchanged; Apple work untouched.
 - Final ordinary Android launcher check **PASS**: Back/save, real Recents removal, natural process exit and cold PID21102→22112 restored active Window1, RU and closed Window2. The current persistent APK remains installed/open. A rebuilt Debug producer had changed embedded constant IDs, so the earlier agent-created test USER was archived before preparing a matching profile; all prior user Debug-run files remain unchanged. Cross-supply upgrades remain unsupported, with no runtime repair/reset added.
 - [Implementation, test failures, exact results and evidence](../validation/window-catalog-mobile-web-lifecycle-2026-11-11.md). Canon §8/rule12 and platform READMEs now distinguish desktop shutdown from Android/Web lifecycle boundaries.
+
+## 2026-11-10 — isolated Apple branch: macOS WindowCatalog
+
+User-assigned macOS port on `feature/apple-window-catalog`, baseline `b0c808d`;
+parallel Windows/Linux/Web/Android/headless work remains on the original branch.
+Shared common production code unchanged. Native SwiftUI/AppKit catalog,
+thin presenters, native geometry/focus/Z-order, RAM USER and embedded cold-load
+consumer implemented. Debug fresh supply uses the same application's
+`--distill-only`. Fixed backend schema anchoring, native focus and actual
+SwiftUI list tag/selection behavior; verified late geometry after unload.
+
+Executed on Intel macOS 13.7.8, MacPorts clang 20.1.8 + Xcode Swift 5.9.2:
+**7/7 common tests PASS**, **2/2 native tests PASS** (final 20.09 s; three catalog
+processes, 51 checkpoints). Final visual QA confirms native selection highlight.
+No other-platform native or iOS PASS is claimed; iPhone deferred by user.
+External Computer Use service requires macOS 14.4 and cannot start on this host;
+own-window content capture works. Full scope, failures/fixes and limits:
+[macOS validation](../validation/window-catalog-macos-2026-11-10.md).
+
+## 2026-11-10 — macOS actual window-list mouse route
+
+Reproduced the user's list-click defect with real AppKit NSEvent single/double
+clicks. Replaced competing SwiftUI row gestures with one native NSTableView
+selection/doubleAction route; preserved displayed row identity and confirmed
+model selection. Added visible native text geometry and first-mouse checks.
+Final Debug/embedded/cold native+lifecycle+WindowCatalog headless: **3/3 PASS**,
+83.74 s; six common regression checks: **6/6 PASS**, 35.19 s.
+[Full native-click evidence](../validation/window-catalog-macos-native-clicks-2026-11-10.md).
+
+The corrected MinSizeRel executable is 1,199,752 B. Its earlier embedded supply
+is byte-identical; the updated output app was relaunched with the user's
+existing profile, with saved USER unchanged. Binary/launch evidence is recorded
+in the native-click report.
+
+## 2026-11-10 — iPhone WindowCatalog and mobile viewport Event
+
+User expanded this isolated Apple branch to iOS. Added the SwiftUI/UIKit catalog
+composition, two thin catalog presenters, shared model/proxy/Events/mirror,
+model mobile ring, native table/page input, localized Close and rotation.
+Background performs orderly session drain/save/join and foreground resumes
+the same RAM profile through a new runtime; Debug starts fresh once per process.
+An explicit embedded consumer supports separate cold USER startup.
+
+Common application-only S0 viewport Event keeps mobile Close layout in model
+Apply, including DPI changes, tiny viewports and queued closed-window reports.
+No core-library or persistent-field/schema migration change. Host selected
+tests **9/9 PASS** as recorded above. Both iOS products and acceptance apps
+built; iPhone 15 Pro/iOS 17.2 simulator acceptance **3/3 processes PASS**,
+47 checkpoints plus three native callback identity checks. Product Debug
+installed/launched normally; portrait/landscape captures visually checked.
+Physical iPhone/signing and other-platform native execution are NOT RUN.
+[iOS architecture and executed evidence](../validation/window-catalog-ios-2026-11-10.md).
+
+## 2026-11-11 — iOS native deactivation and persistent consumer
+
+The user's close/relaunch report exposed the installed Debug product's fresh-
+process policy and a view-owned background-only lifecycle route. Verified a
+real OS Settings transition saved the latest Debug USER before changes. Added
+host-owned native deactivation/background/activation notifications: one orderly
+drain/save/join under a background task, resume only after join. No common model,
+USER/schema changes or per-command checkpoint. Debug remains fresh and is now
+named WindowCatalog Debug; the explicit embedded consumer is WindowCatalog.
+
+Incremental iOS build **11/11 steps PASS**. Native acceptance **5/5 processes
+PASS**: original Debug/embedded/cold 21+21+5 checkpoints, plus an actual OS app
+switch, single USER, process termination and **5/5** additional cold checks.
+Latest user's supply/USER pair backed up together for persistent installation.
+Installed the explicit consumer with that exact supply and transferred the
+6,092-byte USER. Actual product OS deactivation, terminate and cold launch PASS;
+USER remained byte-identical, Window 2 and its three-page ring restored.
+[Diagnosis, lifecycle semantics and evidence](../validation/window-catalog-ios-lifecycle-2026-11-11.md).
+
+## 2026-11-11 — Merge completed Apple branch into the shared platform branch
+
+- User authorized merging `feature/apple-window-catalog` (`d55f4bf`) into `feature/domain-hierarchy-cloning` (`1aff49e`). Both histories and all five Apple commits are retained; main is outside scope.
+- Resolved independent mobile viewport implementations in favor of the existing child-owned Event/NodeFor and replay contract. Shared production model/layout/registration remains identical to the target parent. iOS now passes explicit dpi160 through the four-argument model proxy; added portable iOS portrait/landscape and tiny-viewport coverage without discarding existing replay/cold/geometry checks. All other Apple platform source is identical to its source-branch tip.
+- Incremental Windows **25/25 PASS** (24-test batch91.89s, native16.81s with main-only foreground activation); Linux **15/15 PASS46.72s**, private Xvfb/Openbox. Existing dependency caches retained; no Release builds.
+- Unchanged Android persistent artifact: six of seven cases in batch113.107s, remaining unchanged rotation/navigation case PASS13.261s on focused rerun. USER remained byte-identical; ordinary launcher restored current RU Window2. Unchanged Web functional/lifecycle/Node tests PASS; headed lifecycle16.391s. No Android/Web APK or embedded-supply replacement.
+- Merged macOS/iOS native build and execution are **NOT RUN** on this Windows/WSL host. Imported MacBook PASS evidence remains historical; a MacBook incremental/native run must validate the merged revision before claiming new Apple runtime acceptance. No toolchain limitation is disguised as PASS.
+- [Merge decisions, executed results and evidence](../validation/window-catalog-apple-merge-2026-11-11.md).

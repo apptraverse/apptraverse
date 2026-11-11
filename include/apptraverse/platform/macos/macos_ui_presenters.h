@@ -30,6 +30,13 @@ class MacDesktopWindowPresenter : public UiDesktopWindowPresenter {
   void OnLoad() override;
   void OnModelChanged() override;
   void OnUnload() override;
+  void ApplyRequestedFrameFromMirror() override;
+  void ReportNativeFrameToModel(std::int32_t x, std::int32_t y,
+                                std::int32_t client_width,
+                                std::int32_t client_height,
+                                bool updates_restore_geometry) override;
+  void ReportNativeScreenToModel(std::int32_t x, std::int32_t y,
+                                 std::int32_t width, std::int32_t height);
 };
 
 class MacPushButtonPresenter : public UiPushButtonPresenter {
@@ -87,6 +94,13 @@ class MacListContainerPresenter : public UiListContainerPresenter {
 };
 
 void EnsureMacUiPresenterRegistration();
+
+// Native presentation operations addressed by logical model-window identity.
+// They operate only on the current, activated UI graph, never historical nodes.
+void FocusMacDesktopWindow(ae::Obj& ui_root, ae::ObjId window_id);
+std::vector<std::uint32_t> CaptureMacDesktopZOrder(ae::Obj& ui_root);
+void RestoreMacDesktopZOrder(ae::Obj& ui_root,
+                            std::vector<std::uint32_t> const& top_to_bottom);
 
 }  // namespace apptraverse::ui::macos
 

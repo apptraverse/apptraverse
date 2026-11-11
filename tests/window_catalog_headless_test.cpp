@@ -1196,6 +1196,28 @@ void TestMobileCloseButtonAndAdaptiveLayout() {
   auto const history_size = window.journal.size();
   catalog->SubmitHolderChildWindowClientSizeFromUi(window.obj_id.id(), 2400, 1080, 160);
   CHECK(window.journal.size() == history_size);
+
+  // iOS reports points at dpi160 through the same member-pointer proxy route.
+  // Keep this call explicit: C++ default arguments do not cross Invoke.
+  ModelObjectProxy ios_proxy{[&](ModelObjectProxy::ModelWork work) {
+    work(*catalog->domain);
+  }};
+  for (auto const& size : {std::pair{393, 759}, std::pair{759, 393}}) {
+    ios_proxy.Invoke(catalog.id(),
+        &WindowCatalog::SubmitHolderChildWindowClientSizeFromUi,
+        window.obj_id.id(), std::int32_t{size.first},
+        std::int32_t{size.second}, std::int32_t{160});
+    check_child_layout(size.first, size.second, 160);
+    CHECK(window.close_button_presenter->layout_height == 48);
+  }
+  catalog->SubmitHolderChildWindowClientSizeFromUi(window.obj_id.id(), 40, 60, 480);
+  check_child_layout(40, 60, 480);
+  auto const& tiny_close = *window.close_button_presenter;
+  CHECK(tiny_close.layout_width > 0 && tiny_close.layout_height > 0);
+  CHECK(tiny_close.layout_x >= 0 && tiny_close.layout_y >= 0);
+  CHECK(tiny_close.layout_x + tiny_close.layout_width <= 40);
+  CHECK(tiny_close.layout_y + tiny_close.layout_height <= 60);
+
   catalog->SubmitHolderChildWindowClientSizeFromUi(window.obj_id.id(), 1080, 2400, 480);
   CHECK(window.TryReplayFromBase());
   check_child_layout(1080, 2400, 480);
