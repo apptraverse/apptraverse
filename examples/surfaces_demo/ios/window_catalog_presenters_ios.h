@@ -10,7 +10,7 @@ class IosCatalogWindowPresenter
     : public WindowCatalogDesktopPresenterMixin<
           ui::ios::IosDesktopWindowPresenter> {
   APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::example::surfaces::IosCatalogWindowPresenter",
+      "apptraverse::example::surfaces::CatalogDesktopWindowPresenter",
       IosCatalogWindowPresenter, ui::ios::IosDesktopWindowPresenter, 0)
  protected:
   IosCatalogWindowPresenter() = default;
@@ -26,7 +26,7 @@ class IosCatalogWindowPresenter
 class IosCatalogListPresenter
     : public WindowCatalogListPresenterMixin<ui::ios::IosListContainerPresenter> {
   APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::example::surfaces::IosCatalogListPresenter",
+      "apptraverse::example::surfaces::CatalogListContainerPresenter",
       IosCatalogListPresenter, ui::ios::IosListContainerPresenter, 0)
  protected:
   IosCatalogListPresenter() = default;

@@ -67,7 +67,6 @@ void ExpectNoLocalizationSupplyBodiesInUser(
 }
 
 void ExpectEmbeddedBackingIntegrityAfterLoad(WindowCatalog const& catalog) {
-  CHECK(catalog.persisted.mobile_pager);
   CHECK(catalog.persisted.texts.label_close.is_valid());
   CHECK(catalog.persisted.main_window.is_valid());
   CHECK(catalog.persisted.list.is_valid());
@@ -117,8 +116,10 @@ void TestWebEmbeddedBackingUserColdLoadWithoutNormalize() {
     auto catalog = LoadApplication<WindowCatalog>(domain, kCatalogId);
     CHECK(std::filesystem::is_empty(user_dir));
     ExpectEmbeddedBackingIntegrityAfterLoad(*catalog);
+    CHECK(!catalog->persisted.mobile_pager);
     catalog_base_id = catalog->base.id();
-    PrepareWindowCatalogForRun(*catalog);
+    PrepareWindowCatalogForPagedRun(*catalog);
+    CHECK(catalog->persisted.mobile_pager);
     MutateCatalogSession(*catalog);
     catalog->persisted.list.Load();
     holder0_id = AsHolder(catalog->persisted.list->rows[0])->obj_id;
@@ -154,7 +155,8 @@ void TestWebEmbeddedBackingUserColdLoadWithoutNormalize() {
     CHECK(ResolveWindowCatalogHolderListRowText(
               *AsHolder(catalog->persisted.list->rows[0]), *catalog, 0) ==
           "Window 1 (Closed)");
-    PrepareWindowCatalogForRun(*catalog);
+    PrepareWindowCatalogForPagedRun(*catalog);
+    CHECK(catalog->persisted.mobile_pager);
     catalog->AddWindow();
     catalog->persisted.list.Load();
     CHECK(catalog->persisted.list->rows.size() == 3);

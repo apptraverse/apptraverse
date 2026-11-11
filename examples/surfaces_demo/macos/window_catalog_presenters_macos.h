@@ -52,8 +52,10 @@ class CatalogDesktopWindowPresenter
           x, y, client_width, client_height, updates_restore_geometry);
       return;
     }
-    ui::macos::MacDesktopWindowPresenter::ReportNativeFrameToModel(
-        x, y, client_width, client_height, updates_restore_geometry);
+    this->model_proxy->Invoke(
+        catalog.id(), &WindowCatalog::SubmitHolderChildWindowFrameFromUi,
+        this->window.id().id(), x, y, client_width, client_height,
+        updates_restore_geometry);
   }
 };
 

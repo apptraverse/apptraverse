@@ -12,7 +12,7 @@ int RunWindowCatalogAndroidModel(WindowCatalogAndroidEmbeddedProfile& profile,
                                  ApplicationModelRuntime& runtime,
                                  ApplicationPublishedCallback on_published) {
   ApplicationModelSessionHooks<apptraverse::WindowCatalog> hooks;
-  hooks.prepare = PrepareWindowCatalogForRun;
+  hooks.prepare = PrepareWindowCatalogForPagedRun;
   hooks.persist = [&profile](apptraverse::WindowCatalog& catalog) {
     return PersistWindowCatalogEmbeddedUserOverlayFromDomain(*catalog.domain,
                                                              profile);

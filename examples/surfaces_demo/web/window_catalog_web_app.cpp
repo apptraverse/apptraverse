@@ -141,7 +141,7 @@ void WebWindowCatalogApp::Start(std::filesystem::path state_dir) {
 #endif
 
     ApplicationModelSessionHooks<WindowCatalog> hooks;
-    hooks.prepare = PrepareWindowCatalogForRun;
+    hooks.prepare = PrepareWindowCatalogForPagedRun;
     hooks.before_incremental = [](WindowCatalog& catalog) {
       catalog.pending_focus_window = {};
       catalog.pending_mobile_active_window = {};

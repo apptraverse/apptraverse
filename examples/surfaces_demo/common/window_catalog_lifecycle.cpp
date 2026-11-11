@@ -95,7 +95,7 @@ int WindowCatalogModelSession::Run(
   }
   ae::RamDomainStorage user_storage;
   OverlayDomainStorage overlay{user_storage, backing, initial.constant_ids};
-  hooks.prepare = PrepareWindowCatalogForRun;
+  hooks.prepare = PrepareWindowCatalogForDesktopRun;
   hooks.persist = [&user_storage, state_dir = state_dir](WindowCatalog& catalog) -> int {
     SaveWindowCatalogPersistentSnapshot(catalog);
     if (!SaveUserStorageFile(user_storage, state_dir)) {
@@ -113,7 +113,7 @@ int WindowCatalogModelSession::Run(
     return 1;
   }
   hooks.prepare = [](WindowCatalog& catalog) {
-    PrepareWindowCatalogForRun(catalog);
+    PrepareWindowCatalogForDesktopRun(catalog);
   };
   hooks.persist = [&user_storage, state_dir = state_dir](WindowCatalog& catalog) -> int {
     SaveWindowCatalogPersistentSnapshot(catalog);
@@ -137,7 +137,7 @@ int WindowCatalogModelSession::Run(
     SaveDistilledRoot(*bootstrap_catalog);
   }
 #endif
-  hooks.prepare = PrepareWindowCatalogForRun;
+  hooks.prepare = PrepareWindowCatalogForDesktopRun;
   hooks.persist = [&user_storage, state_dir = state_dir](WindowCatalog& catalog) -> int {
     SaveWindowCatalogPersistentSnapshot(catalog);
     return SaveUserStorageFile(user_storage, state_dir) ? 0 : 1;

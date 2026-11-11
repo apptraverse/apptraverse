@@ -45,6 +45,34 @@ namespace {
     }                                                                        \
   } while (false)
 
+void TestIndependentSuppliesHaveStableIdentitiesAndBytes() {
+  ae::RamDomainStorage first;
+  ae::RamDomainStorage second;
+  {
+    ae::Domain domain{first};
+    auto catalog = BuildHeadlessWindowCatalogGraph(domain);
+    FinalizeDistilledGraph(*catalog);
+    SaveDistilledRoot(*catalog);
+    CHECK(domain.GenerateObjectId().id() >= 10000);
+  }
+  for (int i = 0; i < 37; ++i) {
+    (void)ae::ObjId::GenerateUnique();
+  }
+  {
+    ae::Domain domain{second};
+    auto catalog = BuildHeadlessWindowCatalogGraph(domain);
+    FinalizeDistilledGraph(*catalog);
+    SaveDistilledRoot(*catalog);
+  }
+  CHECK(!first.state.empty());
+  CHECK(first.state == second.state);
+  CHECK(first.object_scopes == second.object_scopes);
+  for (auto const& [id, layers] : first.state) {
+    CHECK(id.id() < 10000);
+    CHECK(layers.has_value());
+  }
+}
+
 void ShutdownSaveCatalog(WindowCatalog& catalog,
                          DirectoryDomainStorage& storage) {
   storage.BeginSaveSession();
@@ -1295,8 +1323,242 @@ void TestMobileCloseButtonAndAdaptiveLayout() {
 }  // namespace
 }  // namespace apptraverse::test
 
+namespace apptraverse::test {
+void TestQueuedCloseClicksRespectWindowLifetime() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto catalog = BuildHeadlessWindowCatalogGraph(domain);
+  FinalizeDistilledGraph(*catalog);
+  PrepareWindowCatalogForDesktopRun(*catalog);
+  catalog->AddWindow();
+  auto* holder = AsHolder(catalog->persisted.list->rows[0]);
+  auto const id = holder->window.id();
+  auto const button_id = holder->window->close_button.id();
+  std::deque<ModelObjectProxy::ModelWork> work;
+  ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork item) {
+    work.push_back(std::move(item));
+  }};
+  auto run_one = [&] {
+    CHECK(!work.empty());
+    auto item = std::move(work.front());
+    work.pop_front();
+    item(domain);
+  };
+  auto queue_click = [&] {
+    auto& presenter = *holder->window->close_button_presenter;
+    presenter.model_proxy = &proxy;
+    presenter.NotifyClickedFromUi();
+  };
+  queue_click();
+  queue_click();
+  CHECK(work.size() == 2);
+  run_one();
+  CHECK(!catalog->IsHolderWindowOpen(*holder));
+  CHECK(!domain.Find(id));
+  CHECK(!domain.Find(button_id));
+  auto const closed_generation = catalog->Generation();
+  run_one();
+  CHECK(catalog->Generation() == closed_generation);
+  CHECK(!domain.Find(id));
+
+  catalog->OpenHolderWindow(*holder);
+  holder->window->close_button->MaterializeEnabled(false);
+  queue_click();
+  CHECK(work.empty());
+  holder->window->close_button->MaterializeEnabled(true);
+  queue_click();
+  holder->window->close_button->MaterializeEnabled(false);
+  run_one();  // The model also checks the current enabled state.
+  CHECK(catalog->IsHolderWindowOpen(*holder));
+  holder->window->close_button->MaterializeEnabled(true);
+
+  ae::Ptr<CatalogWindow> retained = holder->window.Load();
+  queue_click();
+  queue_click();
+  run_one();
+  CHECK(domain.Find(id));
+  CHECK(!catalog->IsHolderWindowOpen(*holder));
+  auto const retained_generation = catalog->Generation();
+  run_one();
+  CHECK(catalog->Generation() == retained_generation);
+  CHECK(!holder->window.is_loaded());
+  retained = {};
+  CHECK(!domain.Find(id));
+
+  catalog->OpenHolderWindow(*holder);
+  queue_click();
+  catalog->SelectHolder(WindowHolder::ptr::MakeFromThis(holder));
+  catalog->DeleteSelected();
+  run_one();
+  CHECK(catalog->persisted.list->rows.empty());
+  CHECK(!domain.Find(id));
+  CHECK(work.empty());
+}
+
+void TestQueuedNativeReportsRespectWindowMembership() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto catalog = BuildHeadlessWindowCatalogGraph(domain);
+  FinalizeDistilledGraph(*catalog);
+  PrepareWindowCatalogForDesktopRun(*catalog);
+  catalog->AddWindow();
+  auto* holder = AsHolder(catalog->persisted.list->rows[0]);
+  auto const id = holder->window.id();
+  std::deque<ModelObjectProxy::ModelWork> work;
+  ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork item) {
+    work.push_back(std::move(item));
+  }};
+  auto drain = [&] {
+    while (!work.empty()) {
+      auto item = std::move(work.front());
+      work.pop_front();
+      item(domain);
+    }
+  };
+  auto report = [&](std::int32_t x) {
+    proxy.Invoke(catalog.id(), &WindowCatalog::SubmitHolderChildWindowFrameFromUi,
+        id.id(), x, std::int32_t{-110}, std::int32_t{660}, std::int32_t{420}, true);
+    proxy.Invoke(catalog.id(), &WindowCatalog::SubmitWindowScreenFromUi,
+        id.id(), std::int32_t{-1920}, std::int32_t{-200},
+        std::int32_t{1920}, std::int32_t{1080});
+  };
+  report(-800);
+  drain();
+  CHECK(holder->window->x() == -800);
+  CHECK(holder->window->y() == -110);
+  CHECK(holder->window->restore_client_width() == 660);
+  CHECK(holder->window->close_button_presenter->layout_y ==
+        ComputeWindowCatalogChildCloseLayout(660, 420, 160).y);
+
+  ae::Ptr<CatalogWindow> retained = holder->window.Load();
+  report(999);
+  catalog->UserCloseWindow(id);
+  CHECK(!holder->window.is_loaded());
+  CHECK(domain.Find(id));  // Mere object existence is not a live-window check.
+  drain();
+  CHECK(retained->x() == -800);
+  CHECK(retained->y() == -110);
+  CHECK(!holder->window.is_loaded());
+  retained = {};
+  CHECK(!domain.Find(id));
+  report(1000);
+  drain();
+  CHECK(!domain.Find(id));
+  CHECK(!holder->window.is_loaded());
+
+  // Reading a closed window's saved state must not make stale UI events live.
+  holder->window.Load();
+  CHECK(holder->window.is_loaded());
+  CHECK(!catalog->IsHolderWindowOpen(*holder));
+  report(1002);
+  proxy.Invoke(catalog.id(), &WindowCatalog::SubmitHolderChildWindowClientSizeFromUi,
+      id.id(), std::int32_t{900}, std::int32_t{700}, std::int32_t{160});
+  drain();
+  CHECK(holder->window->x() == -800);
+  CHECK(holder->window->y() == -110);
+  CHECK(holder->window->client_width() == 660);
+  CHECK(holder->window->client_height() == 420);
+  CHECK(!catalog->IsHolderWindowOpen(*holder));
+  holder->window.Reset();
+
+  catalog->OpenHolderWindow(*holder);
+  report(1001);
+  catalog->SelectHolder(WindowHolder::ptr::MakeFromThis(holder));
+  catalog->DeleteSelected();
+  drain();
+  CHECK(catalog->persisted.list->rows.empty());
+  CHECK(!domain.Find(id));
+
+  // The main window uses the same stable screen route but is not a list row.
+  auto const main_id = catalog->persisted.main_window.id();
+  proxy.Invoke(catalog.id(), &WindowCatalog::SubmitWindowScreenFromUi,
+      main_id.id(), std::int32_t{-1920}, std::int32_t{0},
+      std::int32_t{3840}, std::int32_t{1080});
+  drain();
+  CHECK(catalog->persisted.main_window.is_loaded());
+}
+
+void TestPresentationEnvironmentPreservesPortableState() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  WindowCatalogGraphOptions options;
+  options.mobile_close_in_prefab = true;
+  auto catalog = BuildHeadlessWindowCatalogGraph(domain, options);
+  FinalizeDistilledGraph(*catalog);
+  PrepareWindowCatalogForDesktopRun(*catalog);
+  catalog->AddWindow();
+  auto* first = AsHolder(catalog->persisted.list->rows[0]);
+  first->window->RequestFrame(-310, -90, 720, 460);
+  auto const first_id = first->window.id();
+  catalog->AddWindow();
+  auto* second = AsHolder(catalog->persisted.list->rows[1]);
+  catalog->UserCloseWindow(second->window.id());
+  CHECK(!second->window.is_loaded());
+
+  PrepareWindowCatalogForPagedRun(*catalog);
+  catalog->SetMobileActiveWindow(first->window);
+  catalog->SubmitHolderChildWindowClientSizeFromUi(first_id.id(), 1080, 2400, 480);
+  CHECK(first->window->client_width() == 1080);
+  CHECK(first->window->restore_client_width() == 720);
+  CHECK(first->window->x() == -310);
+  SaveWindowCatalogPersistentSnapshot(*catalog);
+
+  ae::Domain cold_domain{storage};
+  auto cold = LoadApplication<WindowCatalog>(cold_domain, catalog.id());
+  PrepareWindowCatalogForDesktopRun(*cold);
+  CHECK(!cold->persisted.mobile_pager);
+  CHECK(cold->persisted.mobile_active_window.id() == first_id);
+  auto* cold_first = AsHolder(cold->persisted.list->rows[0]);
+  auto* cold_second = AsHolder(cold->persisted.list->rows[1]);
+  CHECK(cold_first->window.id() == first_id);
+  CHECK(cold_first->window->x() == -310);
+  CHECK(cold_first->window->y() == -90);
+  CHECK(cold_first->window->restore_client_width() == 720);
+  CHECK(cold_first->window->restore_client_height() == 460);
+  CHECK(!cold_second->window.is_loaded());
+  // Native desktop client measurement reflows the shared Close graph without
+  // destroying the saved restore geometry or activating a closed window.
+  cold->SubmitHolderChildWindowClientSizeFromUi(first_id.id(), 720, 460, 160);
+  CHECK(cold_first->window->client_width() == 720);
+  auto const layout = ComputeWindowCatalogChildCloseLayout(720, 460, 160);
+  CHECK(cold_first->window->close_button_presenter->layout_y == layout.y);
+  CHECK(!cold_second->window.is_loaded());
+  PrepareWindowCatalogForPagedRun(*cold);
+  CHECK(cold->ResolveMobileActiveWindow().id() == first_id);
+  cold->OpenHolderWindow(*cold_second);
+  CHECK(cold_second->window->close_button->window.id() == cold_second->window.id());
+  cold->SetMobileActiveWindow(cold_first->window);
+  PrepareWindowCatalogForDesktopRun(*cold);
+  cold->SetDesktopZOrderFromObjIds({first_id.id(), cold->persisted.main_window.id().id()});
+  cold->UserCloseWindow(first_id);
+  CHECK(!cold_first->window.is_loaded());
+  CHECK(!cold_domain.Find(first_id));
+  CHECK(cold->persisted.mobile_active_window.id() == cold->persisted.main_window.id());
+  CHECK(cold->persisted.desktop_z_order.size() == 1);
+  SaveWindowCatalogPersistentSnapshot(*cold);
+  ae::Domain returned_domain{storage};
+  auto returned = LoadApplication<WindowCatalog>(returned_domain, cold.id());
+  PrepareWindowCatalogForPagedRun(*returned);
+  CHECK(!AsHolder(returned->persisted.list->rows[0])->window.is_loaded());
+  CHECK(returned->ResolveMobileActiveWindow().id() == returned->persisted.main_window.id());
+  auto* returned_second = AsHolder(returned->persisted.list->rows[1]);
+  auto const second_id = returned_second->window.id();
+  returned->SetMobileActiveWindow(returned_second->window);
+  PrepareWindowCatalogForDesktopRun(*returned);
+  returned->SelectHolder(WindowHolder::ptr::MakeFromThis(returned_second));
+  returned->DeleteSelected();
+  CHECK(returned->persisted.list->rows.size() == 1);
+  CHECK(!returned_domain.Find(second_id));
+  CHECK(returned->persisted.mobile_active_window.id() == returned->persisted.main_window.id());
+}
+}  // namespace apptraverse::test
+
 int main() {
   apptraverse::EnsureHeadlessWindowCatalogGraphRegistration();
+  apptraverse::test::TestQueuedCloseClicksRespectWindowLifetime();
+  apptraverse::test::TestQueuedNativeReportsRespectWindowMembership();
+  apptraverse::test::TestPresentationEnvironmentPreservesPortableState();
+  apptraverse::test::TestIndependentSuppliesHaveStableIdentitiesAndBytes();
   apptraverse::test::TestAddedHolderReplayPreservesInitialLinks();
   apptraverse::test::TestMobileRingLoadsLazyListAndSkipsClosedWindows();
   apptraverse::test::TestQueuedCatalogActionsKeepRowIdentity();

@@ -8,6 +8,7 @@ APPTRAVERSE_REGISTER(SetWindowCatalogSelectionEvent);
 APPTRAVERSE_REGISTER(SetWindowCatalogOpenEvent);
 APPTRAVERSE_REGISTER(SetWindowCatalogDesktopZOrderEvent);
 APPTRAVERSE_REGISTER(SetWindowCatalogMainClientViewportEvent);
+APPTRAVERSE_REGISTER(SetWindowCatalogPresentationModeEvent);
 
 void TouchWindowCatalogEventsRegistration() {
   (void)&g_apptraverse_registrar_AddWindowCatalogEntryEvent;
@@ -16,6 +17,7 @@ void TouchWindowCatalogEventsRegistration() {
   (void)&g_apptraverse_registrar_SetWindowCatalogOpenEvent;
   (void)&g_apptraverse_registrar_SetWindowCatalogDesktopZOrderEvent;
   (void)&g_apptraverse_registrar_SetWindowCatalogMainClientViewportEvent;
+  (void)&g_apptraverse_registrar_SetWindowCatalogPresentationModeEvent;
 }
 
 }  // namespace apptraverse

@@ -5,13 +5,14 @@
 
 #include <gtk/gtk.h>
 
+#include "apptraverse/ui/ui_native_presenter_schema.h"
 #include "apptraverse/ui/ui_presenters.h"
 
 namespace apptraverse::ui::linux {
 
 class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
   APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::ui::linux::LinuxDesktopWindowPresenter",
+      ::apptraverse::ui::native_schema::kWindow,
       LinuxDesktopWindowPresenter, UiDesktopWindowPresenter, 0)
 
  protected:

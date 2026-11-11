@@ -75,6 +75,24 @@ void BindLiveWindowNotifiers(WindowCatalog& catalog, CatalogWindow& window) {
   }
 }
 
+void ForgetWindowPresentationState(WindowCatalog& catalog, ae::ObjId window_id) {
+  if (catalog.pending_focus_window.id() == window_id) {
+    catalog.pending_focus_window = {};
+  }
+  if (catalog.pending_mobile_active_window.id() == window_id) {
+    catalog.pending_mobile_active_window = {};
+  }
+  auto& order = catalog.persisted.desktop_z_order;
+  order.erase(std::remove_if(order.begin(), order.end(),
+      [window_id](auto const& window) { return window.id() == window_id; }),
+      order.end());
+  if (catalog.persisted.mobile_active_window.id() == window_id) {
+    catalog.persisted.mobile_active_window = catalog.persisted.main_window;
+    catalog.persisted.mobile_active_window.SetFlags(kLazyPrefabLinkFlags);
+    catalog.persisted.mobile_active_window.Reset();
+  }
+}
+
 
 void SaveWindowCatalogPersistentSnapshotImpl(WindowCatalog& catalog) {
   if (catalog.persisted.main_window.is_loaded()) {
@@ -129,6 +147,7 @@ void WindowCatalog::Apply(RemoveWindowCatalogEntryEvent const& event) {
                                  return row.id() == target_id;
                                });
   assert(it != rows.end());
+  ForgetWindowPresentationState(*this, static_cast<WindowHolder&>(**it).window.id());
   rows.erase(it);
   if (persisted.selected.is_valid() && persisted.selected.id() == target_id) {
     persisted.selected = {};
@@ -198,6 +217,9 @@ void WindowCatalog::Apply(SetWindowCatalogMobileActiveEvent const& event) {
   } else {
     persisted.mobile_active_window = event.window;
   }
+  // Selection retains identity, not a second owner of a window's live graph.
+  persisted.mobile_active_window.SetFlags(kLazyPrefabLinkFlags);
+  persisted.mobile_active_window.Reset();
   NoteMaterializedChange();
 }
 namespace {
@@ -217,6 +239,21 @@ void ApplyButtonChromeRect(Presenter::ptr& presenter,
 }
 
 }  // namespace
+
+void WindowCatalog::Apply(SetWindowCatalogPresentationModeEvent const& event) {
+  persisted.mobile_pager = event.paged;
+  // Keep the active page and desktop placement as independent user state.
+  // A different presentation environment does not discard either of them.
+  NoteMaterializedChange();
+}
+
+void WindowCatalog::SubmitPresentationMode(bool paged) {
+  if (persisted.mobile_pager == paged) return;
+  auto event = SetWindowCatalogPresentationModeEvent::ptr::Create(
+      ae::CreateWith{*domain});
+  event->paged = paged;
+  Commit(std::move(event));
+}
 
 void WindowCatalog::Apply(SetWindowCatalogMainClientViewportEvent const& event) {
   if (event.width <= 0 || event.height <= 0) {
@@ -297,6 +334,9 @@ void WindowCatalog::SetMobileActiveWindow(CatalogWindow::ptr window) {
   auto event = SetWindowCatalogMobileActiveEvent::ptr::Create(
       ae::CreateWith{*domain});
   event->window = std::move(window);
+  // History must not keep a once-selected window materialized after Close.
+  event->window.SetFlags(kLazyPrefabLinkFlags);
+  event->window.Reset();
   Commit(std::move(event));
   pending_mobile_active_window = ResolveMobileActiveWindow();
 }
@@ -420,6 +460,7 @@ void WindowCatalog::Apply(SetWindowCatalogOpenEvent const& event) {
     holder->window.SetFlags(OpenObjFlags(holder->window.flags()));
   } else {
     holder->window.SetFlags(SetUnloadedDefault(holder->window.flags()));
+    ForgetWindowPresentationState(*this, holder->window.id());
   }
   NoteMaterializedChange();
 }

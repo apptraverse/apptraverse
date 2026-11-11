@@ -109,7 +109,7 @@ def inspect(exe, map_path):
                 linked_objects=linked_objects), map_text
 
 
-def runtime_only_violations(report, map_text):
+def runtime_only_violations(report, map_text, portable_window_catalog=False):
     errors = []
     for dll in report['imports']:
         if re.search(r'(msvcp|msvcr|vcruntime|ucrtbase|api-ms-win-crt|aether|apptraverse)',
@@ -124,9 +124,10 @@ def runtime_only_violations(report, map_text):
         'minimal_app_graph_builder.cpp.obj', 'minimal_app_bootstrap.cpp.obj',
         'ui_list_row_presenter_registration.cpp.obj', 'win_window_registration.cpp.obj',
         'object_registration.cpp.obj', 'window_catalog_registration.cpp.obj',
-        'window_catalog_mobile_events_registration.cpp.obj',
-        'window_catalog_close_button.cpp.obj',
     )
+    if not portable_window_catalog:
+        forbidden_objects += ('window_catalog_mobile_events_registration.cpp.obj',
+                              'window_catalog_close_button.cpp.obj')
     for obj in forbidden_objects:
         if obj in map_text:
             errors.append('Unexpected linked object: ' + obj)
@@ -136,9 +137,18 @@ def runtime_only_violations(report, map_text):
                  'DistillWindowCatalog@', 'BootstrapMinimalApplicationProfileIfAbsent@'):
         if name in map_text:
             errors.append('Distillation symbol in runtime: ' + name)
-    for cls in ('UiListRowPresenter', 'WinWindowPresenter', 'CatalogCloseButton',
-                'SetWindowCatalogMobileActiveEvent'):
+    for cls in ('UiListRowPresenter', 'WinWindowPresenter'):
         if 'g_apptraverse_registrar_' + cls + '@' in map_text:
+            errors.append('Unused concrete factory: ' + cls)
+    # Portable catalog USER includes the Close graph and page selection history
+    # even when the consumer displays desktop windows. These are runtime schema,
+    # not distillation. Other applications retain their narrower contract.
+    for cls in ('CatalogCloseButton', 'SetWindowCatalogMobileActiveEvent',
+                'SetWindowCatalogPresentationModeEvent'):
+        present = 'g_apptraverse_registrar_' + cls + '@' in map_text
+        if portable_window_catalog and not present:
+            errors.append('Missing portable catalog factory: ' + cls)
+        elif not portable_window_catalog and present:
             errors.append('Unused concrete factory: ' + cls)
     return errors
 
@@ -150,9 +160,12 @@ def main():
     parser.add_argument('--json', type=Path)
     parser.add_argument('--runtime-only', action='store_true',
                         help='Check Windows catalog/minimal static-runtime consumers')
+    parser.add_argument('--portable-window-catalog', action='store_true',
+                        help='Require the shared desktop/paged WindowCatalog runtime schema')
     args = parser.parse_args()
     report, map_text = inspect(args.exe, args.map or args.exe.with_suffix('.map'))
-    errors = runtime_only_violations(report, map_text) if args.runtime_only else []
+    errors = runtime_only_violations(report, map_text, args.portable_window_catalog) \
+        if args.runtime_only else []
     report['violations'] = errors
     if args.json:
         args.json.write_text(json.dumps(report, indent=2), encoding='utf-8')

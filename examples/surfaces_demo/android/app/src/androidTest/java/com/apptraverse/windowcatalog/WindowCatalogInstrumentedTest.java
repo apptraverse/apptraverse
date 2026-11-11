@@ -183,9 +183,26 @@ public final class WindowCatalogInstrumentedTest {
     waitChild();
     assertTrue(device.wait(Until.gone(By.text("Loading")), 10_000));
     assertEquals(originalPid, device.executeShellCommand("pidof " + PACKAGE + ":demo").trim());
+    waitForCatalogInputFocus();
     swipe(1);
     waitCatalog();
     waitText("Window 1");
+  }
+
+  private void waitForCatalogInputFocus() throws Exception {
+    // Accessibility can expose the new Activity before InputDispatcher focuses
+    // its window. Injecting then queues DOWN until it is already a long press.
+    long deadline = SystemClock.uptimeMillis() + 30_000;
+    String focusedWindows = "";
+    do {
+      String input = device.executeShellCommand("dumpsys input");
+      int start = input.indexOf("  FocusedWindows:");
+      int end = input.indexOf("  FocusRequests:", start);
+      focusedWindows = start >= 0 && end > start ? input.substring(start, end) : "<unavailable>";
+      if (focusedWindows.contains(PACKAGE + "/" + PACKAGE + ".MainActivity")) return;
+      SystemClock.sleep(25);
+    } while (SystemClock.uptimeMillis() < deadline);
+    assertTrue("Catalog window did not acquire input focus: " + focusedWindows, false);
   }
 
   @Test public void backThenRecentTaskDismissColdRestartHonorsBuildPolicy() throws Exception {

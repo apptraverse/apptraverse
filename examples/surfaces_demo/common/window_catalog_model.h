@@ -159,6 +159,7 @@ class SetWindowCatalogDesktopZOrderEvent;
 class SetWindowCatalogMobileActiveEvent;
 
 class SetWindowCatalogMainClientViewportEvent;
+class SetWindowCatalogPresentationModeEvent;
 
 struct WindowCatalogTexts {
 
@@ -322,6 +323,10 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
   void Apply(SetWindowCatalogMainClientViewportEvent const& event);
 
+  void Apply(SetWindowCatalogPresentationModeEvent const& event);
+  // The host reports its environment before the first UI publication.
+  void SubmitPresentationMode(bool paged);
+
   // Presenter -> model: main window client size changed. No-op when unchanged.
   void SubmitMainClientViewportFromUi(std::int32_t width, std::int32_t height,
                                       std::int32_t density_dpi = 160);
@@ -330,6 +335,14 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
                                                std::int32_t width,
                                                std::int32_t height,
                                                std::int32_t density_dpi = 160);
+
+  // Native reports address the surviving catalog. Their child can close or
+  // leave the catalog while the UI callback is queued on the model thread.
+  void SubmitHolderChildWindowFrameFromUi(std::uint32_t window_obj_id,
+      std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height,
+      bool updates_restore_geometry);
+  void SubmitWindowScreenFromUi(std::uint32_t window_obj_id,
+      std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height);
 
   void SetDesktopZOrderFromObjIds(std::vector<std::uint32_t> ordered_ids);
 
@@ -357,6 +370,8 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   void OpenHolderByIdFromUi(ae::ObjId holder_id);
 
   void DeleteSelected();
+
+  void NotifyChildCloseButtonFromUi(std::uint32_t window_obj_id);
 
   void UserCloseWindow(ae::ObjId window_obj_id);
 
@@ -554,6 +569,20 @@ class SetWindowCatalogMobileActiveEvent
   CatalogWindow::ptr window;
 };
 
+class SetWindowCatalogPresentationModeEvent
+    : public EventFor<WindowCatalog, SetWindowCatalogPresentationModeEvent> {
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::example::surfaces::SetWindowCatalogPresentationModeEvent",
+      SetWindowCatalogPresentationModeEvent, Event, 0)
+ protected:
+  SetWindowCatalogPresentationModeEvent() = default;
+ public:
+  explicit SetWindowCatalogPresentationModeEvent(ae::ObjProp prop)
+      : EventFor{prop} {}
+  AE_OBJECT_REFLECT(AE_MMBR(paged))
+  bool paged;
+};
+
 class SetWindowCatalogMainClientViewportEvent
     : public EventFor<WindowCatalog, SetWindowCatalogMainClientViewportEvent> {
   APPTRAVERSE_NAMED_OBJECT(
@@ -627,6 +656,7 @@ class CatalogCloseButton : public ui::UiPushButton {
   WindowCatalog::ptr catalog;
   CatalogWindow::ptr window;
 
+  void QueueClickFromUi(ModelObjectProxy& proxy) const override;
   void HandlePushButtonClicked() override;
 };
 

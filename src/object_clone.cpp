@@ -246,7 +246,7 @@ ae::ObjId AllocateCloneObjId(ae::ObjId::Type source_root,
                              std::set<ae::ObjId> const& boundary_ids,
                              CloneRemap const& remap, ae::Domain& target) {
   for (int attempt = 0; attempt < 64; ++attempt) {
-    ae::ObjId const candidate = ae::ObjId::GenerateUnique();
+    ae::ObjId const candidate = target.GenerateObjectId();
     if (!RemapIdReserved(candidate.id(), source_root, copy_set, boundary_ids,
                          remap, target)) {
       return candidate;
@@ -686,7 +686,7 @@ ae::ObjId AllocateCloneObjIdForHistorical(
     CloneRemap const& remap, ae::Domain& target) {
   std::set<ae::ObjId> const empty_boundary;
   for (int attempt = 0; attempt < 64; ++attempt) {
-    ae::ObjId const candidate = ae::ObjId::GenerateUnique();
+    ae::ObjId const candidate = target.GenerateObjectId();
     if (candidate.id() == 0u || candidate.id() == source_root) {
       continue;
     }
@@ -739,8 +739,8 @@ CloneCanonicalResult CloneCanonicalRoot(ae::Domain& source, ae::Obj& source_root
   }
 
   CloneRemap remap;
-  ae::ObjId new_root_id =
-      options.new_root_id.value_or(ae::ObjId::GenerateUnique());
+  ae::ObjId new_root_id = options.new_root_id.has_value()
+      ? *options.new_root_id : target.GenerateObjectId();
   if (!new_root_id.is_valid()) {
     return Fail(CloneError::kObjIdConflict);
   }

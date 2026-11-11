@@ -151,6 +151,20 @@ endif()
 add_executable(apptraverse_window_catalog_web_embedded_session_test
   ${CMAKE_SOURCE_DIR}/tests/window_catalog_web_embedded_session_test.cpp
   "${_catalog_web_supply}")
+add_executable(apptraverse_window_catalog_web_portable_user_fixture
+  ${CMAKE_SOURCE_DIR}/tests/window_catalog_portable_user_fixture.cpp
+  "${_catalog_web_supply}")
+add_dependencies(apptraverse_window_catalog_web_portable_user_fixture
+  apptraverse_window_catalog_web_supply)
+target_include_directories(apptraverse_window_catalog_web_portable_user_fixture PRIVATE
+  "${_catalog_web_supply_dir}")
+target_link_libraries(apptraverse_window_catalog_web_portable_user_fixture PRIVATE
+  surfaces_demo_window_catalog_web)
+target_compile_definitions(apptraverse_window_catalog_web_portable_user_fixture PRIVATE
+  APPTRAVERSE_PORTABLE_PLATFORM="web")
+target_link_options(apptraverse_window_catalog_web_portable_user_fixture PRIVATE
+  -sENVIRONMENT=node -sNODERAWFS=1 -sEXIT_RUNTIME=1 -sINITIAL_MEMORY=134217728 --bind)
+set_target_properties(apptraverse_window_catalog_web_portable_user_fixture PROPERTIES SUFFIX ".js")
 add_dependencies(apptraverse_window_catalog_web_embedded_session_test apptraverse_window_catalog_web_supply)
 target_include_directories(apptraverse_window_catalog_web_embedded_session_test PRIVATE
   "${_catalog_web_supply_dir}")

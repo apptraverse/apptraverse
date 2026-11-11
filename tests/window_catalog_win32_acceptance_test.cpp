@@ -297,6 +297,12 @@ std::vector<HWND> TopLevelWindowsForPid(DWORD pid) {
 void ClickControl(HWND parent, std::uint32_t control_id) {
   HWND const child = GetDlgItem(parent, static_cast<int>(control_id));
   CHECK(child != nullptr);
+  // A real click activates its window before dispatching the command. Establish
+  // that precondition explicitly; synthetic WM_COMMAND does not activate it.
+  SetForegroundWindow(parent);
+  CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
+    return GetForegroundWindow() == parent;
+  }));
   SendMessageW(parent, WM_COMMAND,
                MAKEWPARAM(control_id, BN_CLICKED),
                reinterpret_cast<LPARAM>(child));

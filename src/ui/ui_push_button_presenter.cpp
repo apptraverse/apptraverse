@@ -13,7 +13,7 @@ void UiPushButtonPresenter::NotifyClickedFromUi() {
   if (!button->enabled()) {
     return;
   }
-  model_proxy->Invoke(button->obj_id, &UiPushButton::NotifyClicked);
+  button->QueueClickFromUi(*model_proxy);
 }
 
 void UiPushButtonPresenter::SimulateClickForTest() {

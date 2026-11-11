@@ -20,14 +20,14 @@ struct WindowCatalogPresenterFactory {
   std::function<ui::UiListContainerPresenter::ptr(
       ae::Domain&, ae::ObjId, WindowCatalog::ptr const&)>
       create_list;
-  // Invalid ObjId -> generated id; valid -> stable id (prefab Close presenter).
+  // The initial graph supplies stable presenter identities on every platform.
   std::function<ui::UiPushButtonPresenter::ptr(ae::Domain&, ae::ObjId)>
       create_button;
 };
 
 struct WindowCatalogGraphOptions {
   bool mobile_pager = false;
-  bool mobile_close_in_prefab = false;
+  bool mobile_close_in_prefab = true;
 };
 
 WindowCatalog::ptr BuildWindowCatalogGraph(

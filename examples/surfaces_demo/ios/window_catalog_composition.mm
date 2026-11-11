@@ -56,7 +56,7 @@ struct CatalogProfile {
     }
     apptraverse::OverlayDomainStorage storage{user, backing, constants};
     apptraverse::ApplicationModelSessionHooks<apptraverse::WindowCatalog> hooks;
-    hooks.prepare = apptraverse::PrepareWindowCatalogForRun;
+    hooks.prepare = apptraverse::PrepareWindowCatalogForPagedRun;
     hooks.before_incremental = [](apptraverse::WindowCatalog& catalog) {
       catalog.pending_focus_window = {};
       catalog.pending_mobile_active_window = {};

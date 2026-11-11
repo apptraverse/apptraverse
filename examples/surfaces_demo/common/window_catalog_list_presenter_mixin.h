@@ -49,6 +49,13 @@ class WindowCatalogDesktopPresenterMixin : public BaseDesktopPresenter {
 
   WindowCatalog::ptr catalog;
 
+  void SubmitScreenFromNative(std::int32_t x, std::int32_t y,
+                              std::int32_t width, std::int32_t height) override {
+    this->model_proxy->Invoke(
+        catalog.id(), &WindowCatalog::SubmitWindowScreenFromUi,
+        this->window.id().id(), x, y, width, height);
+  }
+
   void AttachSessionMainNativeFrameQueue(
       ::apptraverse::WindowCatalogMainNativeFrameQueue* queue,
       ae::ObjId catalog_obj_id, ae::ObjId catalog_main_window_id) {

@@ -152,3 +152,17 @@ set_target_properties(apptraverse_window_catalog_jni PROPERTIES
   CXX_VISIBILITY_PRESET hidden
   VISIBILITY_INLINES_HIDDEN ON
 )
+
+# An actual target-ABI consumer for cross-platform USER interchange acceptance.
+add_executable(apptraverse_window_catalog_android_portable_user_fixture
+  ${APPTRAVERSE_ROOT}/tests/window_catalog_portable_user_fixture.cpp)
+add_dependencies(apptraverse_window_catalog_android_portable_user_fixture
+  window_catalog_android_supply)
+target_include_directories(apptraverse_window_catalog_android_portable_user_fixture PRIVATE
+  ${CMAKE_CURRENT_BINARY_DIR}/generated
+  ${APPTRAVERSE_ROOT}/examples/surfaces_demo/android
+  ${APPTRAVERSE_ROOT}/examples/surfaces_demo/common)
+target_compile_definitions(apptraverse_window_catalog_android_portable_user_fixture PRIVATE
+  APPTRAVERSE_PORTABLE_ANDROID APPTRAVERSE_PORTABLE_PLATFORM="android")
+target_link_libraries(apptraverse_window_catalog_android_portable_user_fixture PRIVATE
+  window_catalog_android log)

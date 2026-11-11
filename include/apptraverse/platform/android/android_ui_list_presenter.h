@@ -3,6 +3,7 @@
 
 #include <cstdint>
 
+#include "apptraverse/ui/ui_native_presenter_schema.h"
 #include "apptraverse/ui/ui_presenters.h"
 
 namespace apptraverse::ui::android {
@@ -12,7 +13,7 @@ struct AndroidPresentationHost;
 
 class AndroidListContainerPresenter : public UiListContainerPresenter {
   APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::ui::android::AndroidListContainerPresenter",
+      ::apptraverse::ui::native_schema::kList,
       AndroidListContainerPresenter, UiListContainerPresenter, 0)
 
  protected:

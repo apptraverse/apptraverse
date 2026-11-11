@@ -8,30 +8,17 @@
 
 namespace apptraverse::example::surfaces {
 
-class WebCatalogWindowPresenter : public ui::web::WebDesktopWindowPresenter {
-  APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::example::surfaces::WebCatalogWindowPresenter",
-      WebCatalogWindowPresenter, ui::web::WebDesktopWindowPresenter, 0)
- protected:
-  WebCatalogWindowPresenter() = default;
- public:
-  explicit WebCatalogWindowPresenter(ae::ObjProp prop)
-      : WebDesktopWindowPresenter{prop} {}
-  template <typename Dnv> void Load(ae::Version<0>, Dnv& dnv) { dnv(base_); }
-  template <typename Dnv> void Save(ae::Version<0>, Dnv& dnv) const { dnv(base_); }
-  void OnLoad() override;
-};
-
 class CatalogDesktopWindowPresenter
-    : public WindowCatalogDesktopPresenterMixin<WebCatalogWindowPresenter> {
+    : public WindowCatalogDesktopPresenterMixin<ui::web::WebDesktopWindowPresenter> {
   APPTRAVERSE_NAMED_OBJECT(
       "apptraverse::example::surfaces::CatalogDesktopWindowPresenter",
-      CatalogDesktopWindowPresenter, WebCatalogWindowPresenter, 0)
+      CatalogDesktopWindowPresenter, ui::web::WebDesktopWindowPresenter, 0)
  protected:
   CatalogDesktopWindowPresenter() = default;
  public:
   explicit CatalogDesktopWindowPresenter(ae::ObjProp prop)
       : WindowCatalogDesktopPresenterMixin{prop} {}
+  void OnLoad() override;
   template <typename Dnv> void Load(ae::Version<0>, Dnv& dnv) { dnv(base_, catalog); }
   template <typename Dnv> void Save(ae::Version<0>, Dnv& dnv) const { dnv(base_, catalog); }
 };
@@ -39,7 +26,7 @@ class CatalogDesktopWindowPresenter
 class WebCatalogListContainerPresenter
     : public WindowCatalogListPresenterMixin<ui::web::WebListContainerPresenter> {
   APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::example::surfaces::WebCatalogListContainerPresenter",
+      "apptraverse::example::surfaces::CatalogListContainerPresenter",
       WebCatalogListContainerPresenter, ui::web::WebListContainerPresenter, 0)
  protected:
   WebCatalogListContainerPresenter() = default;

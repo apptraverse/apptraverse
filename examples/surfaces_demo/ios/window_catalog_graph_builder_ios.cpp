@@ -27,7 +27,6 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
             : ae::CreateWith{build_domain});
   };
   WindowCatalogGraphOptions options;
-  options.mobile_pager = true;
   options.mobile_close_in_prefab = true;
   return BuildWindowCatalogGraph(domain, factory, options);
 }

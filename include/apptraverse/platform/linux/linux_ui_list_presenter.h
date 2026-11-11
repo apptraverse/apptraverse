@@ -6,13 +6,14 @@
 
 #include <gtk/gtk.h>
 
+#include "apptraverse/ui/ui_native_presenter_schema.h"
 #include "apptraverse/ui/ui_presenters.h"
 
 namespace apptraverse::ui::linux {
 
 class LinuxListContainerPresenter : public UiListContainerPresenter {
   APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::ui::linux::LinuxListContainerPresenter",
+      ::apptraverse::ui::native_schema::kList,
       LinuxListContainerPresenter, UiListContainerPresenter, 0)
 
  protected:

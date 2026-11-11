@@ -37,6 +37,8 @@ set(APPTRAVERSE_AETHER_OBJECTS_PATCH_NAMES
   domain-local-storage-precedence-v1
   scoped-object-reference-visitor-v1
   domain-ancestor-factory-v1
+  domain-scoped-object-id-sequence-v1
+  ptr-releasing-edge-v1
 )
 set(APPTRAVERSE_AETHER_OBJECTS_PATCHES)
 foreach(patch_name IN LISTS APPTRAVERSE_AETHER_OBJECTS_PATCH_NAMES)

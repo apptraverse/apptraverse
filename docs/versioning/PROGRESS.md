@@ -1,4 +1,38 @@
 # AppTraverse — прогресс версионирования поставок
+## Portable WindowCatalog USER — 2026-11-11 — PASS
+
+Branch `feature/cross-platform-user-state`, based on `main` at `8b592f9`.
+The same `user.bin` now transfers between independently built Windows, Linux,
+Android and Web consumers of the matching schema/supply revision. Common native
+presenter role schemas and domain-scoped initial IDs produce identical BACKING
+data (247 layers, 60 scopes). No conversion, migration or runtime graph repair.
+
+The shared model remains `UiWindow -> UiPresentedWindow -> UiDesktopWindow ->
+CatalogWindow`; desktop restoration survives paged presentation. Host mode is
+reported by a model event. Close/Delete clear cross-mode selection references.
+Native inputs target the surviving catalog when their child may already be
+closed. Separate regressions cover retained/materialized closed windows and
+duplicate queued Close. A pure `ae::Ptr` reproducer confirms the releasing-edge
+collector fix; the allocator and collector changes are AppTraverse patches 28/29
+on the unchanged upstream pin, not a separate Æther publication.
+
+Final acceptance: **52/52** four-platform seed/transfer/edit/return processes,
+**32/32** unchanged read-only USER hashes (actual remote Android bytes included),
+**40/40 Windows Debug**, **16/16 Linux**, **7/7 Android instrumentation**, and Web
+functional/embedded/headed lifecycle PASS. Actual native/browser transfers and
+cold restarts passed; Windows verified the files returned by Android and Web.
+Android and Windows GUI tests retain their assertions and now state the actual
+input-focus prerequisites. The original Android APK and USER were preserved.
+
+WindowCatalog's portable Close/mobile factories are now required runtime schema;
+the binary checker still excludes distillation and unrelated factories. This
+supersedes the older catalog-specific mobile-factory exclusion below. No new
+Release/MinSizeRel, ARM-device or Apple runtime result is claimed. Older
+experimental profiles are not migrated; `main` is unchanged by this task.
+
+[Final validation and evidence](../validation/window-catalog-portable-user-2026-11-11.md)
+· [Completed plan and progress](../cross-platform-user-state-plan-progress.md).
+
 ## Windows/headless contract follow-up — 2026-11-10 — PASS
 
 Separated mobile catalog event registration from the Windows desktop path; removed serialized defaults from the common list presenter and contract-test model/events; removed the headless presenter's missing-window silent skip; consolidated headless registration at main. The headless mobile scenario remains enabled.

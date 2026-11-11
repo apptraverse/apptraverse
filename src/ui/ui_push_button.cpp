@@ -1,6 +1,12 @@
 #include "apptraverse/ui/ui_push_button.h"
 
+#include "apptraverse/model_object_proxy.h"
+
 namespace apptraverse::ui {
+
+void UiPushButton::QueueClickFromUi(ModelObjectProxy& proxy) const {
+  proxy.Invoke(obj_id, &UiPushButton::NotifyClicked);
+}
 
 void UiPushButton::NotifyClicked() {
   if (!enabled()) {

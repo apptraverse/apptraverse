@@ -6,34 +6,6 @@
 #include "apptraverse/platform/android/android_ui_list_presenter.h"
 
 namespace apptraverse::example::surfaces {
-// Main catalog presenter identity; all layouts use model viewport pixels.
-class AndroidCatalogMainWindowPresenter
-    : public ui::android::AndroidDesktopWindowPresenter {
-  APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::example::surfaces::AndroidCatalogMainWindowPresenter",
-      AndroidCatalogMainWindowPresenter,
-      ui::android::AndroidDesktopWindowPresenter, 0)
-
- protected:
-  AndroidCatalogMainWindowPresenter() = default;
-
- public:
-  explicit AndroidCatalogMainWindowPresenter(ae::ObjProp prop)
-      : AndroidDesktopWindowPresenter{prop} {}
-
-  template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_);
-  }
-
-  template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_);
-  }
-
-};
-
-
 class CatalogDesktopWindowPresenter
     : public WindowCatalogDesktopPresenterMixin<
           ui::android::AndroidDesktopWindowPresenter> {
@@ -64,7 +36,7 @@ class AndroidCatalogListContainerPresenter
     : public WindowCatalogListPresenterMixin<
           ui::android::AndroidListContainerPresenter> {
   APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::example::surfaces::AndroidCatalogListContainerPresenter",
+      "apptraverse::example::surfaces::CatalogListContainerPresenter",
       AndroidCatalogListContainerPresenter,
       ui::android::AndroidListContainerPresenter, 0)
 

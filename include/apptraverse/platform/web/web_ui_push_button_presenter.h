@@ -3,6 +3,7 @@
 
 #include <emscripten/val.h>
 
+#include "apptraverse/ui/ui_native_presenter_schema.h"
 #include "apptraverse/ui/ui_push_button_presenter.h"
 
 namespace apptraverse::ui::web {
@@ -10,7 +11,7 @@ namespace apptraverse::ui::web {
 struct WebPushButtonDomRefs;
 
 class WebPushButtonPresenter : public UiPushButtonPresenter {
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::web::WebPushButtonPresenter",
+  APPTRAVERSE_NAMED_OBJECT(::apptraverse::ui::native_schema::kPushButton,
                            WebPushButtonPresenter, UiPushButtonPresenter, 0)
 
  protected:

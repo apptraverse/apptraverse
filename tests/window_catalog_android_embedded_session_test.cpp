@@ -111,11 +111,12 @@ void TestAndroidEmbeddedBackingUserColdLoadWithoutNormalize() {
     ae::Domain domain{overlay};
     auto catalog = LoadApplication<WindowCatalog>(domain, kCatalogId);
     CHECK(std::filesystem::is_empty(user_dir));
-    CHECK(catalog->persisted.mobile_pager);
+    CHECK(!catalog->persisted.mobile_pager);
     CHECK(catalog->persisted.texts.label_close.is_valid());
     catalog_base_id = catalog->base.id();
     CHECK(catalog_base_id.is_valid());
-    PrepareWindowCatalogForRun(*catalog);
+    PrepareWindowCatalogForPagedRun(*catalog);
+    CHECK(catalog->persisted.mobile_pager);
     MutateCatalogSession(*catalog);
     catalog->persisted.list.Load();
     holder0_id = AsHolder(catalog->persisted.list->rows[0])->obj_id;
@@ -156,7 +157,8 @@ void TestAndroidEmbeddedBackingUserColdLoadWithoutNormalize() {
     CHECK(ResolveWindowCatalogHolderListRowText(
               *AsHolder(catalog->persisted.list->rows[0]), *catalog, 0) ==
           "Window 1 (Closed)");
-    PrepareWindowCatalogForRun(*catalog);
+    PrepareWindowCatalogForPagedRun(*catalog);
+    CHECK(catalog->persisted.mobile_pager);
     catalog->AddWindow();
     catalog->persisted.list.Load();
     CHECK(catalog->persisted.list->rows.size() == 3);

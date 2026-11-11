@@ -3,6 +3,7 @@
 
 #include <cstdint>
 
+#include "apptraverse/ui/ui_native_presenter_schema.h"
 #include "apptraverse/ui/ui_push_button_presenter.h"
 
 namespace apptraverse::ui::android {
@@ -12,7 +13,7 @@ struct AndroidPresentationHost;
 
 class AndroidPushButtonPresenter : public UiPushButtonPresenter {
   APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::ui::android::AndroidPushButtonPresenter",
+      ::apptraverse::ui::native_schema::kPushButton,
       AndroidPushButtonPresenter, UiPushButtonPresenter, 0)
 
  protected:
@@ -24,14 +25,12 @@ class AndroidPushButtonPresenter : public UiPushButtonPresenter {
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
-    dnv(base_, button, window_presenter, layout_x, layout_y, layout_width,
-        layout_height, control_id);
+    dnv(base_);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
-    dnv(base_, button, window_presenter, layout_x, layout_y, layout_width,
-        layout_height, control_id);
+    dnv(base_);
   }
 
   void OnLoad() override;

@@ -3,6 +3,9 @@ option(APPTRAVERSE_BUILD_EVOLUTION_TESTS
 
 if(MSVC AND CMAKE_SIZEOF_VOID_P EQUAL 8)
   find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
+  add_test(NAME apptraverse_windows_binary_contract_policy_test
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_CURRENT_SOURCE_DIR}/windows_binary_contract_policy_test.py")
   # Exercise the declared Visual Studio Debug settings with a dependency-free
   # multi-config probe using the compiler/Ninja from this existing build.
   if(TARGET win32_window_catalog_demo AND CMAKE_GENERATOR MATCHES "^Ninja")
@@ -21,12 +24,16 @@ if(MSVC AND CMAKE_SIZEOF_VOID_P EQUAL 8)
   foreach(_runtime_app win32_window_catalog_demo win32_window_catalog_demo_load_only
                        win32_minimal_app win32_minimal_app_load_only)
     if(TARGET ${_runtime_app})
+      set(_portable_catalog_contract)
+      if(_runtime_app MATCHES "^win32_window_catalog_demo")
+        set(_portable_catalog_contract --portable-window-catalog)
+      endif()
       add_test(NAME ${_runtime_app}_binary_contract
         COMMAND "${Python3_EXECUTABLE}"
           "${PROJECT_SOURCE_DIR}/scripts/inspect_windows_binary.py"
           "$<TARGET_FILE:${_runtime_app}>"
           --map "$<TARGET_FILE_DIR:${_runtime_app}>/$<TARGET_FILE_BASE_NAME:${_runtime_app}>.map"
-          --runtime-only
+          --runtime-only ${_portable_catalog_contract}
         CONFIGURATIONS Release MinSizeRel RelWithDebInfo)
       set_tests_properties(${_runtime_app}_binary_contract PROPERTIES
         LABELS "windows;binary_contract")
@@ -1386,6 +1393,13 @@ add_test(
   COMMAND apptraverse_aether_domain_hierarchy_test
 )
 
+add_executable(apptraverse_aether_ptr_releasing_edge_test
+  aether_ptr_releasing_edge_test.cpp)
+target_link_libraries(apptraverse_aether_ptr_releasing_edge_test PRIVATE
+  apptraverse)
+add_test(NAME apptraverse_aether_ptr_releasing_edge_test
+  COMMAND apptraverse_aether_ptr_releasing_edge_test)
+
 add_test(
   NAME apptraverse_object_origin_disk_roundtrip_test
   COMMAND ${CMAKE_COMMAND}
@@ -1512,6 +1526,23 @@ elseif(TARGET surfaces_demo_window_catalog_linux)
 endif()
 
 if(_window_catalog_test_library)
+  add_executable(apptraverse_window_catalog_portable_user_fixture
+    window_catalog_portable_user_fixture.cpp)
+  target_link_libraries(apptraverse_window_catalog_portable_user_fixture PRIVATE
+    ${_window_catalog_test_library})
+  target_include_directories(apptraverse_window_catalog_portable_user_fixture PRIVATE
+    ${APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR}
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common)
+  add_dependencies(apptraverse_window_catalog_portable_user_fixture
+    apptraverse_window_catalog_embedded_supply)
+  if(WIN32)
+    target_compile_definitions(apptraverse_window_catalog_portable_user_fixture PRIVATE
+      APPTRAVERSE_PORTABLE_PLATFORM="windows")
+    target_compile_options(apptraverse_window_catalog_portable_user_fixture PRIVATE /utf-8)
+  else()
+    target_compile_definitions(apptraverse_window_catalog_portable_user_fixture PRIVATE
+      APPTRAVERSE_PORTABLE_PLATFORM="linux")
+  endif()
   foreach(_test window_catalog_close_unload_disk_stage
                 window_catalog_user_persistence_boundary
                 window_catalog_embedded_overlay
@@ -1684,6 +1715,21 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
     COMMAND apptraverse_window_catalog_android_embedded_session_test)
   set_tests_properties(apptraverse_window_catalog_android_embedded_session_test
     PROPERTIES LABELS "window_catalog;android_embedded")
+  add_executable(apptraverse_window_catalog_android_portable_user_fixture
+    window_catalog_portable_user_fixture.cpp
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/android/window_catalog_graph_android.cpp
+    "${_android_headless_supply}")
+  target_link_libraries(apptraverse_window_catalog_android_portable_user_fixture PRIVATE
+    surfaces_demo_window_catalog_common apptraverse apptraverse_ui_android_presenters)
+  target_include_directories(apptraverse_window_catalog_android_portable_user_fixture PRIVATE
+    "${_android_headless_supply_dir}"
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/android
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common)
+  target_compile_definitions(apptraverse_window_catalog_android_portable_user_fixture PRIVATE
+    APPTRAVERSE_PORTABLE_ANDROID APPTRAVERSE_PORTABLE_PLATFORM="android-host")
+  if(MSVC)
+    target_compile_options(apptraverse_window_catalog_android_portable_user_fixture PRIVATE /utf-8)
+  endif()
 endif()
 
 apptraverse_add_test(apptraverse_application_model_runtime_test

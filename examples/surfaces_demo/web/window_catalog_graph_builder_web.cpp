@@ -10,12 +10,6 @@ WindowCatalog::ptr BuildWebWindowCatalogGraph(ae::Domain& domain) {
   factory.create_window = [](ae::Domain& build_domain, ae::ObjId presenter_id,
                              WindowCatalog::ptr const& catalog)
       -> ui::UiDesktopWindowPresenter::ptr {
-    if (presenter_id.id() ==
-        window_catalog_demo::ToObjId(
-            window_catalog_demo::ObjId::MainWindowPresenter)) {
-      return example::surfaces::WebCatalogWindowPresenter::ptr::Create(
-          ae::CreateWith{build_domain}.with_id(presenter_id));
-    }
     example::surfaces::CatalogDesktopWindowPresenter::ptr presenter =
         example::surfaces::CatalogDesktopWindowPresenter::ptr::Create(
             ae::CreateWith{build_domain}.with_id(presenter_id));
@@ -38,10 +32,9 @@ WindowCatalog::ptr BuildWebWindowCatalogGraph(ae::Domain& domain) {
             : ae::CreateWith{build_domain});
   };
 
-  // Same mobile pager model as Android: main page + one page per open child
-  // window, Close button in the window prefab graph.
+  // The portable initial graph is identical to the desktop supply. The host
+  // reports paged presentation through the model at session startup.
   WindowCatalogGraphOptions options;
-  options.mobile_pager = true;
   options.mobile_close_in_prefab = true;
   return BuildWindowCatalogGraph(domain, factory, options);
 }

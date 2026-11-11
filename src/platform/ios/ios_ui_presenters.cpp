@@ -36,18 +36,6 @@ void IosDesktopWindowPresenter::OnUnload() {
   NativeViews(*this).UnloadDesktopWindow(*this);
 }
 
-void IosPushButtonPresenter::NotifyClickedFromUi() {
-  if (!button->enabled()) return;
-  ae::ObjId const id = button.id();
-  model_proxy->EnqueueModelWork([id](ae::Domain& domain) {
-    // A second native tap may already be queued when the first tap closes and
-    // unloads this control. Discard the stale intent without reviving its graph.
-    auto object = domain.Find(id);
-    if (!object) return;
-    object.as<UiPushButton>()->NotifyClicked();
-  });
-}
-
 void IosPushButtonPresenter::OnLoad() {
   NativeViews(*this).LoadPushButton(*this);
 }

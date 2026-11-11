@@ -297,6 +297,42 @@ void TestUnknownLocalClassDoesNotFallBackToAncestor() {
   }
 }
 
+void TestDomainScopedObjectIdAllocation() {
+  ae::RamDomainStorage storage;
+  ae::Domain root{storage};
+  ae::Domain child{storage};
+  child.set_parent_domain(&root);
+  ae::Domain unrelated{storage};
+  {
+    ae::Domain::ObjectIdSequence ids{root, ae::ObjId{1000}, ae::ObjId{1099}};
+    auto explicit_id = HierarchyLeaf::ptr::Create(
+        ae::CreateWith{root}.with_id(ae::ObjId{2}));
+    auto declared_id = HierarchyLeaf::ptr::Declare(
+        ae::CreateWith{root}.with_id(ae::ObjId{3}));
+    auto first = HierarchyLeaf::ptr::Create(ae::CreateWith{root});
+    auto inherited = HierarchyLeaf::ptr::Create(ae::CreateWith{child});
+    if (first.id() != ae::ObjId{1000} || inherited.id() != ae::ObjId{1001}) {
+      Fail("explicit identities must not consume scoped allocation; child inherits");
+    }
+    if (unrelated.GenerateObjectId().id() < 10000) {
+      Fail("unrelated domain must keep runtime allocator");
+    }
+    [&child] {
+      ae::Domain::ObjectIdSequence nested{child, ae::ObjId{2000}, ae::ObjId{2099}};
+      if (child.GenerateObjectId() != ae::ObjId{2000}) {
+        Fail("nested child allocation policy");
+      }
+      return;  // An early function exit still restores the inherited policy.
+    }();
+    if (child.GenerateObjectId() != ae::ObjId{1002}) {
+      Fail("early return restores inherited allocation policy");
+    }
+  }
+  if (root.GenerateObjectId().id() < 10000 || child.GenerateObjectId().id() < 10000) {
+    Fail("supply allocation must not leak into runtime");
+  }
+}
+
 int RunHierarchyTests() {
   using apptraverse::test::HierarchyLeaf;
 
@@ -384,6 +420,7 @@ int RunHierarchyTests() {
   }
 
   TestScopedLayerHydration();
+  TestDomainScopedObjectIdAllocation();
   TestAncestorLayerLookup();
   TestUnknownAncestorClassRejected(false);
   TestUnknownAncestorClassRejected(true);
