@@ -50,6 +50,21 @@ class MacNativeViews final
   void UnloadDesktopWindow(MacDesktopWindowPresenter& presenter) override {
     [owner_.delegate bridge:owner_ unloadWindow:Token(presenter)];
   }
+  void ApplyRequestedDesktopFrame(MacDesktopWindowPresenter& presenter) override {
+    [owner_.delegate bridge:owner_ applyWindowFrame:Token(presenter)];
+  }
+  void OrderDesktopWindowFront(MacDesktopWindowPresenter& presenter,
+                              bool activate) override {
+    [owner_.delegate bridge:owner_ orderWindowFront:Token(presenter)
+                   activate:activate];
+  }
+  std::vector<MacDesktopWindowPresenter*> DesktopZOrder() override {
+    std::vector<MacDesktopWindowPresenter*> result;
+    for (NSNumber* token in [owner_.delegate orderedWindowTokens]) {
+      result.push_back(&FromToken<MacDesktopWindowPresenter>(token.unsignedLongLongValue));
+    }
+    return result;
+  }
   void LoadPushButton(MacPushButtonPresenter& presenter) override {
     [owner_.delegate bridge:owner_ loadButton:Token(presenter)];
   }
@@ -80,7 +95,8 @@ class MacNativeViews final
                             x:(double)x
                             y:(double)y
                         width:(double)width
-                       height:(double)height;
+                       height:(double)height
+                  hasPosition:(BOOL)hasPosition;
 @end
 
 @implementation ATMacWindowState
@@ -88,9 +104,11 @@ class MacNativeViews final
                             x:(double)x
                             y:(double)y
                         width:(double)width
-                       height:(double)height {
+                       height:(double)height
+                  hasPosition:(BOOL)hasPosition {
   if ((self = [super init])) {
     _title = title;
+    _hasExplicitPosition = hasPosition;
     _x = x;
     _y = y;
     _width = width;
@@ -178,12 +196,14 @@ class MacNativeViews final
 
 @interface ATMacApplicationBridge () {
   apptraverse::ui::macos::MacApplicationBridgeCallbacks _callbacks;
-  apptraverse::ApplicationModelRuntime _runtime;
+  apptraverse::ApplicationModelRuntime _ownedRuntime;
+  apptraverse::ApplicationModelRuntime* _runtime;
   std::unique_ptr<apptraverse::ModelObjectProxy> _proxy;
   std::unique_ptr<MacNativeViews> _nativeViews;
   std::unique_ptr<apptraverse::ApplicationUiSession> _uiSession;
   std::thread _modelThread;
   int _modelExitStatus;
+  bool _stopping;
 }
 @property(nonatomic, weak, readwrite)
     id<ATMacApplicationBridgeDelegate> delegate;
@@ -201,8 +221,10 @@ class MacNativeViews final
                          delegate:(id<ATMacApplicationBridgeDelegate>)delegate {
   if ((self = [super init])) {
     _callbacks = std::move(callbacks);
+    _runtime = _callbacks.runtime ? _callbacks.runtime : &_ownedRuntime;
     _delegate = delegate;
     _modelExitStatus = 1;
+    _stopping = false;
   }
   return self;
 }
@@ -210,12 +232,12 @@ class MacNativeViews final
 - (void)start {
   _proxy = std::make_unique<apptraverse::ModelObjectProxy>(
       [self](apptraverse::ModelObjectProxy::ModelWork work) {
-        _runtime.Post(std::move(work));
+        _runtime->Post(std::move(work));
       });
   _nativeViews = std::make_unique<MacNativeViews>(self);
   _modelThread = std::thread([self] {
     _modelExitStatus = _callbacks.run_model(
-        _runtime, [self](apptraverse::ApplicationPublicationKind kind) {
+        *_runtime, [self](apptraverse::ApplicationPublicationKind kind) {
           dispatch_async(dispatch_get_main_queue(), ^{
             [self
                 consumePublication:
@@ -232,14 +254,20 @@ class MacNativeViews final
 
 - (void)consumePublication:(ATMacPublicationKind)kind {
   std::vector<std::uint8_t> publication =
-      _runtime.TakePublishedCopyForUiApply();
+      _runtime->TakePublishedCopyForUiApply(
+          kind == ATMacPublicationKindInitial
+              ? apptraverse::TakePublishedSidecarCallback{}
+              : _callbacks.take_incremental_sidecar);
   if (kind == ATMacPublicationKindInitial) {
     _uiSession = std::make_unique<apptraverse::ApplicationUiSession>(
-        publication, _nativeViews.get(), *_proxy);
+        publication, _nativeViews.get(), *_proxy,
+        _callbacks.prepare_ui_presenters);
+    if (_callbacks.after_initial) _callbacks.after_initial(_uiSession->root());
   } else {
     _uiSession->ApplyStructural(publication);
+    if (_callbacks.after_incremental) _callbacks.after_incremental(_uiSession->root());
   }
-  _runtime.NotifyPublicationConsumed();
+  _runtime->NotifyPublicationConsumed();
 }
 
 - (ATMacWindowState*)windowState:(uint64_t)token {
@@ -251,8 +279,9 @@ class MacNativeViews final
       initWithTitle:title
                   x:desktop->x()
                   y:desktop->y()
-              width:desktop->client_width()
-             height:desktop->client_height()];
+              width:desktop->restore_client_width()
+             height:desktop->restore_client_height()
+        hasPosition:desktop->HasExplicitPosition()];
 }
 
 - (ATMacButtonState*)buttonState:(uint64_t)token {
@@ -299,41 +328,71 @@ class MacNativeViews final
 }
 
 - (void)clickButton:(uint64_t)token {
+  if (_stopping) return;
   FromToken<MacPushButtonPresenter>(token).NotifyClickedFromUi();
 }
 
 - (void)selectListRow:(NSInteger)row token:(uint64_t)token {
+  if (_stopping) return;
   FromToken<MacListContainerPresenter>(token)
       .SubmitListRowSelectionChangedFromUi(static_cast<std::size_t>(row));
+}
+
+- (void)activateListRow:(NSInteger)row token:(uint64_t)token {
+  if (_stopping) return;
+  FromToken<MacListContainerPresenter>(token)
+      .SubmitListRowActivatedFromUi(static_cast<std::size_t>(row));
 }
 
 - (void)submitWindowX:(double)x
                     y:(double)y
                 width:(double)width
                height:(double)height
-                token:(uint64_t)token {
-  FromToken<MacDesktopWindowPresenter>(token).SubmitFrameFromNative(
+                token:(uint64_t)token
+       updatesRestore:(BOOL)updatesRestore {
+  if (_stopping) return;
+  FromToken<MacDesktopWindowPresenter>(token).ReportNativeFrameToModel(
+      static_cast<std::int32_t>(x), static_cast<std::int32_t>(y),
+      static_cast<std::int32_t>(width), static_cast<std::int32_t>(height),
+      updatesRestore);
+}
+
+- (void)submitScreenX:(double)x y:(double)y width:(double)width
+               height:(double)height token:(uint64_t)token {
+  if (_stopping) return;
+  FromToken<MacDesktopWindowPresenter>(token).ReportNativeScreenToModel(
       static_cast<std::int32_t>(x), static_cast<std::int32_t>(y),
       static_cast<std::int32_t>(width), static_cast<std::int32_t>(height));
 }
 
 - (BOOL)requestCloseWindow:(uint64_t)token {
+  if (_stopping) return YES;
   auto& presenter = FromToken<MacDesktopWindowPresenter>(token);
-  return _callbacks.close_desktop_window(
+  bool const stops_application = _callbacks.close_desktop_window(
       _uiSession->root(), *presenter.window, *_proxy,
-      [self] { _runtime.RequestStop(); });
+      [self] { _runtime->RequestStop(); });
+  _stopping = stops_application;
+  return stops_application;
 }
 
 - (void)requestStop {
-  _runtime.RequestStop();
+  if (_stopping) return;
+  _stopping = true;
+  if (_callbacks.on_application_quit && _uiSession) {
+    _callbacks.on_application_quit(_uiSession->root(), *_proxy,
+                                  [self] { _runtime->RequestStop(); });
+  } else {
+    _runtime->RequestStop();
+  }
 }
 
-- (void)finishTeardown {
+- (NSInteger)finishTeardown {
   _modelThread.join();
   _uiSession.reset();
   _nativeViews.reset();
   _proxy.reset();
   self.delegate = nil;
+  return _modelExitStatus;
 }
 
 @end

@@ -8,21 +8,23 @@ struct MacControlFrame: Equatable {
     var width: Double
     var height: Double
 
-    var cgRect: CGRect {
-        CGRect(x: x, y: y, width: width, height: height)
-    }
+    var cgRect: CGRect { CGRect(x: x, y: y, width: width, height: height) }
 }
 
 protocol MacUiCommandSink: AnyObject {
     func clickButton(_ token: UInt64)
     func selectListRow(_ row: Int, token: UInt64)
-    func submitWindowFrame(_ frame: CGRect, token: UInt64)
+    func activateListRow(_ row: Int, token: UInt64)
+    func submitWindowFrame(_ frame: CGRect, token: UInt64,
+                           updatesRestore: Bool)
 }
 
 extension ATMacApplicationBridge: MacUiCommandSink {
-    func submitWindowFrame(_ frame: CGRect, token: UInt64) {
+    func submitWindowFrame(_ frame: CGRect, token: UInt64,
+                           updatesRestore: Bool) {
         submitWindowX(frame.origin.x, y: frame.origin.y,
-                      width: frame.width, height: frame.height, token: token)
+                      width: frame.width, height: frame.height, token: token,
+                      updatesRestore: updatesRestore)
     }
 }
 
@@ -46,12 +48,11 @@ final class MacButtonAdapter: ObservableObject, Identifiable {
     }
 
     func click() {
+        guard enabled else { return }
         commandSink?.clickButton(id)
     }
 
-    func disconnect() {
-        commandSink = nil
-    }
+    func disconnect() { commandSink = nil }
 }
 
 struct MacListRowSnapshot: Identifiable, Equatable {
@@ -72,9 +73,7 @@ final class MacListAdapter: ObservableObject, Identifiable {
     }
 
     func sync(_ state: ATMacListState) {
-        rows = state.rows.map {
-            MacListRowSnapshot(id: $0.identity, text: $0.text)
-        }
+        rows = state.rows.map { MacListRowSnapshot(id: $0.identity, text: $0.text) }
         selectedRow = state.selectedRow >= 0 ? state.selectedRow : nil
         frame = MacControlFrame(x: state.x, y: state.y,
                                 width: state.width, height: state.height)
@@ -88,17 +87,39 @@ final class MacListAdapter: ObservableObject, Identifiable {
     }
 
     var selection: Binding<Int?> {
-        Binding(
-            get: { self.selectedRow },
-            set: { value in
-                if let row = value {
-                    self.commandSink?.selectListRow(row, token: self.id)
-                }
-            })
+        Binding(get: { self.selectedRow }, set: { value in
+            if let row = value {
+                self.commandSink?.selectListRow(row, token: self.id)
+            }
+        })
     }
 
-    func disconnect() {
-        commandSink = nil
+    func activate(_ row: Int) { commandSink?.activateListRow(row, token: id) }
+    func disconnect() { commandSink = nil }
+}
+
+// Coordinates in the model use the primary screen's upper-left origin. AppKit
+// uses a bottom-left origin, while window sizes in the model are client sizes.
+enum MacDesktopCoordinates {
+    static var primaryTop: CGFloat { NSScreen.screens[0].frame.maxY }
+
+    static func modelFrame(of window: NSWindow) -> CGRect {
+        let content = window.contentRect(forFrameRect: window.frame)
+        return CGRect(x: window.frame.minX, y: primaryTop - window.frame.maxY,
+                      width: content.width, height: content.height)
+    }
+
+    static func nativeFrame(_ model: CGRect, window: NSWindow) -> CGRect {
+        let outer = window.frameRect(forContentRect:
+            CGRect(origin: .zero, size: model.size))
+        return CGRect(x: model.minX, y: primaryTop - model.minY - outer.height,
+                      width: outer.width, height: outer.height)
+    }
+
+    static func modelWorkArea(_ screen: NSScreen) -> CGRect {
+        let area = screen.visibleFrame
+        return CGRect(x: area.minX, y: primaryTop - area.maxY,
+                      width: area.width, height: area.height)
     }
 }
 
@@ -115,37 +136,55 @@ final class MacWindowAdapter: ObservableObject, Identifiable {
          delegate: NSWindowDelegate) {
         id = token
         self.commandSink = commandSink
-        window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+        window = NSWindow(contentRect: .zero,
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false)
+            backing: .buffered, defer: false)
         window.delegate = delegate
         window.isReleasedWhenClosed = false
-        window.contentView =
-            NSHostingView(rootView: MacWindowContent(adapter: self))
+        window.contentView = NSHostingView(rootView: MacWindowContent(adapter: self))
     }
 
     func sync(_ state: ATMacWindowState) {
         title = state.title
         window.title = state.title
-        let frame = NSRect(x: state.x, y: state.y,
+    }
+
+    func applyFrame(_ state: ATMacWindowState) {
+        guard !window.inLiveResize else { return }
+        let model = CGRect(x: state.x, y: state.y,
                            width: state.width, height: state.height)
-        if window.contentLayoutRect.size != frame.size ||
-            window.frame.origin != frame.origin {
+        let requested = MacDesktopCoordinates.nativeFrame(model, window: window)
+        if window.frame != requested {
             applyingMirrorFrame = true
-            window.setContentSize(frame.size)
-            window.setFrameOrigin(frame.origin)
+            window.setFrame(requested, display: true)
             applyingMirrorFrame = false
+            // AppKit may constrain a requested frame. Report the actual native
+            // result as an Event; reflected reports do not request another move.
+            reportFrame()
         }
     }
 
-    func reportFrame() {
+    func initialFrame(_ state: ATMacWindowState) {
+        applyingMirrorFrame = true
+        window.setContentSize(NSSize(width: state.width, height: state.height))
+        if state.hasExplicitPosition {
+            let model = CGRect(x: state.x, y: state.y,
+                               width: state.width, height: state.height)
+            window.setFrame(MacDesktopCoordinates.nativeFrame(model, window: window),
+                            display: false)
+        } else {
+            // AppKit chooses the cascade; the resulting frame is reported to
+            // the model, which owns subsequent placement decisions.
+            window.cascadeTopLeft(from: .zero)
+        }
+        applyingMirrorFrame = false
+    }
+
+    func reportFrame(updatesRestore: Bool = true) {
         guard !applyingMirrorFrame else { return }
-        let content = window.contentLayoutRect
-        commandSink?.submitWindowFrame(
-            CGRect(x: window.frame.origin.x, y: window.frame.origin.y,
-                   width: content.width, height: content.height), token: id)
+        commandSink?.submitWindowFrame(MacDesktopCoordinates.modelFrame(of: window),
+            token: id, updatesRestore: updatesRestore && !window.isZoomed &&
+                !window.styleMask.contains(.fullScreen) && !window.isMiniaturized)
     }
 
     func disconnect() {
@@ -157,15 +196,34 @@ final class MacWindowAdapter: ObservableObject, Identifiable {
     }
 }
 
+private struct MacCatalogButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundColor(isEnabled ? .primary : .gray)
+            .background(configuration.isPressed
+                ? Color(nsColor: .selectedControlColor)
+                : Color(white: 0.94))
+            .overlay(Rectangle().strokeBorder(Color(white: 0.55), lineWidth: 1))
+    }
+}
+
 private struct MacButtonControl: View {
     @ObservedObject var adapter: MacButtonAdapter
 
     var body: some View {
-        Button(adapter.title) { adapter.click() }
-            .disabled(!adapter.enabled)
-            .frame(width: adapter.frame.width, height: adapter.frame.height)
-            .position(x: adapter.frame.x + adapter.frame.width / 2,
-                      y: adapter.frame.y + adapter.frame.height / 2)
+        Button(action: { adapter.click() }) {
+            Text(adapter.title)
+                .font(.system(size: 12))
+                .frame(width: adapter.frame.width, height: adapter.frame.height)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(MacCatalogButtonStyle())
+        .disabled(!adapter.enabled)
+        .accessibilityIdentifier("button-\(adapter.id)")
+        .position(x: adapter.frame.x + adapter.frame.width / 2,
+                  y: adapter.frame.y + adapter.frame.height / 2)
     }
 }
 
@@ -174,11 +232,21 @@ private struct MacListControl: View {
 
     var body: some View {
         List(selection: adapter.selection) {
-            ForEach(Array(adapter.rows.enumerated()),
-                    id: \.element.id) { row in
-                Text(row.element.text).tag(Optional(row.offset))
+            ForEach(Array(adapter.rows.enumerated()), id: \.element.id) { row in
+                Text(row.element.text)
+                    .font(.system(size: 12))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .tag(row.offset)
+                    .onTapGesture(count: 2) { adapter.activate(row.offset) }
+                    .listRowInsets(EdgeInsets(top: 0, leading: 4,
+                                             bottom: 0, trailing: 4))
             }
         }
+        .listStyle(.plain)
+        .environment(\.defaultMinListRowHeight, 20)
+        .overlay(Rectangle().strokeBorder(Color(white: 0.55), lineWidth: 1))
+        .accessibilityIdentifier("list-\(adapter.id)")
         .frame(width: adapter.frame.width, height: adapter.frame.height)
         .position(x: adapter.frame.x + adapter.frame.width / 2,
                   y: adapter.frame.y + adapter.frame.height / 2)
@@ -190,36 +258,53 @@ private struct MacWindowContent: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
+            Color.white
             ForEach(adapter.buttons) { MacButtonControl(adapter: $0) }
             ForEach(adapter.lists) { MacListControl(adapter: $0) }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity,
-               alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .preferredColorScheme(.light)
     }
 }
 
 public final class MacApplicationHost: NSObject,
     NSApplicationDelegate, NSWindowDelegate, ATMacApplicationBridgeDelegate {
-    private let bridgeFactory:
-        (ATMacApplicationBridgeDelegate) -> ATMacApplicationBridge
-    private var bridge: ATMacApplicationBridge!
-    private var windows: [UInt64: MacWindowAdapter] = [:]
-    private var buttons: [UInt64: MacButtonAdapter] = [:]
-    private var lists: [UInt64: MacListAdapter] = [:]
+    private let bridgeFactory: (ATMacApplicationBridgeDelegate) -> ATMacApplicationBridge
+    var bridge: ATMacApplicationBridge!
+    var windows: [UInt64: MacWindowAdapter] = [:]
+    var buttons: [UInt64: MacButtonAdapter] = [:]
+    var lists: [UInt64: MacListAdapter] = [:]
     private var terminating = false
     private var modelFinished = false
+    private var exitStatus: Int32 = 1
 
     public init(bridgeFactory: @escaping
         (ATMacApplicationBridgeDelegate) -> ATMacApplicationBridge) {
         self.bridgeFactory = bridgeFactory
     }
 
-    public func run() {
+    @discardableResult public func run() -> Int32 {
         let application = NSApplication.shared
         application.delegate = self
         application.setActivationPolicy(.regular)
+        installMenu()
         application.run()
         withExtendedLifetime(self) {}
+        return exitStatus
+    }
+
+    private func installMenu() {
+        let menu = NSMenu()
+        let item = NSMenuItem()
+        let applicationMenu = NSMenu()
+        applicationMenu.addItem(withTitle: "Close Window",
+            action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        applicationMenu.addItem(.separator())
+        applicationMenu.addItem(withTitle: "Quit AppTraverse",
+            action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        item.submenu = applicationMenu
+        menu.addItem(item)
+        NSApp.mainMenu = menu
     }
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
@@ -229,107 +314,127 @@ public final class MacApplicationHost: NSObject,
 
     public func applicationShouldTerminate(_ sender: NSApplication)
         -> NSApplication.TerminateReply {
-        if modelFinished {
-            return .terminateNow
-        }
-        if !terminating {
-            terminating = true
-            bridge.requestStop()
-        }
+        requestStop()
         return .terminateCancel
     }
 
+    public func requestStop() {
+        guard !modelFinished && !terminating else { return }
+        // Queue final native reports before the runtime stop barrier.
+        for adapter in windows.values { adapter.reportFrame() }
+        terminating = true
+        bridge.requestStop()
+    }
+
     public func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard !terminating else { return false }
         let adapter = windows.values.first { $0.window === sender }!
-        if bridge.requestCloseWindow(adapter.id) {
-            terminating = true
-        }
+        // Closing the root may end the whole session: enqueue every final
+        // native frame before the application callback requests its stop.
+        for window in windows.values { window.reportFrame() }
+        if bridge.requestCloseWindow(adapter.id) { terminating = true }
         return false
     }
 
     public func windowDidMove(_ notification: Notification) {
+        guard !terminating else { return }
         adapter(for: notification)?.reportFrame()
     }
-
     public func windowDidResize(_ notification: Notification) {
+        guard !terminating else { return }
+        guard let adapter = adapter(for: notification) else { return }
+        adapter.reportFrame(updatesRestore: !adapter.window.inLiveResize)
+    }
+    public func windowDidEndLiveResize(_ notification: Notification) {
+        guard !terminating else { return }
         adapter(for: notification)?.reportFrame()
     }
+    public func windowDidChangeScreen(_ notification: Notification) {
+        guard !terminating else { return }
+        guard let adapter = adapter(for: notification),
+              let screen = adapter.window.screen else { return }
+        reportScreen(screen, token: adapter.id)
+    }
 
-    public func bridge(_ bridge: ATMacApplicationBridge,
-                       loadWindow token: UInt64) {
-        let adapter = MacWindowAdapter(token: token, commandSink: bridge,
-                                       delegate: self)
+    private func reportScreen(_ screen: NSScreen, token: UInt64) {
+        let area = MacDesktopCoordinates.modelWorkArea(screen)
+        bridge.submitScreenX(area.minX, y: area.minY, width: area.width,
+                              height: area.height, token: token)
+    }
+
+    public func bridge(_ bridge: ATMacApplicationBridge, loadWindow token: UInt64) {
+        let adapter = MacWindowAdapter(token: token, commandSink: bridge, delegate: self)
         windows[token] = adapter
-        adapter.sync(bridge.windowState(token))
+        let state = bridge.windowState(token)
+        adapter.sync(state)
+        adapter.initialFrame(state)
         adapter.window.makeKeyAndOrderFront(nil)
+        adapter.reportFrame()
+        reportScreen(adapter.window.screen!, token: token)
         NSApp.activate(ignoringOtherApps: true)
     }
-
-    public func bridge(_ bridge: ATMacApplicationBridge,
-                       syncWindow token: UInt64) {
+    public func bridge(_ bridge: ATMacApplicationBridge, syncWindow token: UInt64) {
         windows[token]!.sync(bridge.windowState(token))
     }
-
-    public func bridge(_ bridge: ATMacApplicationBridge,
-                       unloadWindow token: UInt64) {
-        let adapter = windows.removeValue(forKey: token)!
-        adapter.disconnect()
+    public func bridge(_ bridge: ATMacApplicationBridge, applyWindowFrame token: UInt64) {
+        windows[token]!.applyFrame(bridge.windowState(token))
     }
-
     public func bridge(_ bridge: ATMacApplicationBridge,
-                       loadButton token: UInt64) {
+                       orderWindowFront token: UInt64, activate: Bool) {
+        let window = windows[token]!.window
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        if activate {
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+        } else { window.orderFront(nil) }
+    }
+    public func orderedWindowTokens() -> [NSNumber] {
+        NSApp.orderedWindows.compactMap { window in
+            windows.values.first { $0.window === window }.map { NSNumber(value: $0.id) }
+        }
+    }
+    public func bridge(_ bridge: ATMacApplicationBridge, unloadWindow token: UInt64) {
+        windows.removeValue(forKey: token)!.disconnect()
+    }
+    public func bridge(_ bridge: ATMacApplicationBridge, loadButton token: UInt64) {
         let state = bridge.buttonState(token)
         let adapter = MacButtonAdapter(token: token, commandSink: bridge)
         adapter.sync(state)
         buttons[token] = adapter
-        let window = windows[state.parentToken]!
-        window.buttons.append(adapter)
+        windows[state.parentToken]!.buttons.append(adapter)
     }
-
-    public func bridge(_ bridge: ATMacApplicationBridge,
-                       syncButton token: UInt64) {
+    public func bridge(_ bridge: ATMacApplicationBridge, syncButton token: UInt64) {
         buttons[token]!.sync(bridge.buttonState(token))
     }
-
-    public func bridge(_ bridge: ATMacApplicationBridge,
-                       unloadButton token: UInt64) {
+    public func bridge(_ bridge: ATMacApplicationBridge, unloadButton token: UInt64) {
         let adapter = buttons.removeValue(forKey: token)!
         adapter.disconnect()
-        for window in windows.values {
-            window.buttons.removeAll { $0 === adapter }
-        }
+        for window in windows.values { window.buttons.removeAll { $0 === adapter } }
     }
-
-    public func bridge(_ bridge: ATMacApplicationBridge,
-                       loadList token: UInt64) {
+    public func bridge(_ bridge: ATMacApplicationBridge, loadList token: UInt64) {
         let state = bridge.listState(token)
         let adapter = MacListAdapter(token: token, commandSink: bridge)
         adapter.sync(state)
         lists[token] = adapter
-        let window = windows[state.parentToken]!
-        window.lists.append(adapter)
+        windows[state.parentToken]!.lists.append(adapter)
     }
-
-    public func bridge(_ bridge: ATMacApplicationBridge,
-                       syncList token: UInt64) {
+    public func bridge(_ bridge: ATMacApplicationBridge, syncList token: UInt64) {
         lists[token]!.sync(bridge.listState(token))
     }
-
-    public func bridge(_ bridge: ATMacApplicationBridge,
-                       unloadList token: UInt64) {
+    public func bridge(_ bridge: ATMacApplicationBridge, unloadList token: UInt64) {
         let adapter = lists.removeValue(forKey: token)!
         adapter.disconnect()
-        for window in windows.values {
-            window.lists.removeAll { $0 === adapter }
-        }
+        for window in windows.values { window.lists.removeAll { $0 === adapter } }
     }
-
     public func bridgeModelDidFinish(_ bridge: ATMacApplicationBridge) {
-        bridge.finishTeardown()
+        exitStatus = Int32(bridge.finishTeardown())
         modelFinished = true
-        if terminating {
-            NSApp.terminate(nil)
-        }
+        NSApp.stop(nil)
+        // Wake the AppKit event pump so Run returns the model's exit status.
+        let event = NSEvent.otherEvent(with: .applicationDefined,
+            location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: 0, context: nil, subtype: 0, data1: 0, data2: 0)!
+        NSApp.postEvent(event, atStart: true)
     }
 
     private func adapter(for notification: Notification) -> MacWindowAdapter? {

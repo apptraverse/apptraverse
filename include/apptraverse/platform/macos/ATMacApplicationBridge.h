@@ -28,11 +28,17 @@ typedef NS_ENUM(NSInteger, ATMacPublicationKind) {
     syncList:(uint64_t)token;
 - (void)bridge:(ATMacApplicationBridge*)bridge
     unloadList:(uint64_t)token;
+- (void)bridge:(ATMacApplicationBridge*)bridge
+    applyWindowFrame:(uint64_t)token;
+- (void)bridge:(ATMacApplicationBridge*)bridge
+    orderWindowFront:(uint64_t)token activate:(BOOL)activate;
+- (NSArray<NSNumber*>*)orderedWindowTokens;
 - (void)bridgeModelDidFinish:(ATMacApplicationBridge*)bridge;
 @end
 
 @interface ATMacWindowState : NSObject
 @property(nonatomic, readonly) NSString* title;
+@property(nonatomic, readonly) BOOL hasExplicitPosition;
 @property(nonatomic, readonly) double x;
 @property(nonatomic, readonly) double y;
 @property(nonatomic, readonly) double width;
@@ -75,14 +81,18 @@ typedef NS_ENUM(NSInteger, ATMacPublicationKind) {
 - (ATMacListState*)listState:(uint64_t)token;
 - (void)clickButton:(uint64_t)token;
 - (void)selectListRow:(NSInteger)row token:(uint64_t)token;
+- (void)activateListRow:(NSInteger)row token:(uint64_t)token;
 - (void)submitWindowX:(double)x
                     y:(double)y
                 width:(double)width
                height:(double)height
-                token:(uint64_t)token;
+                token:(uint64_t)token
+      updatesRestore:(BOOL)updatesRestore;
+- (void)submitScreenX:(double)x y:(double)y width:(double)width
+               height:(double)height token:(uint64_t)token;
 - (BOOL)requestCloseWindow:(uint64_t)token;
 - (void)requestStop;
-- (void)finishTeardown;
+- (NSInteger)finishTeardown;
 @end
 
 NS_ASSUME_NONNULL_END

@@ -3062,3 +3062,21 @@ See [full evidence and scope](../validation/window-catalog-minsizerel-2026-11-10
 - **Linux configure/build/native/headless execution: BLOCKED / NOT RUN.** `wsl --list` returns `Wsl/E_ACCESSDENIED` in this Windows agent session even after the user authorized WSL and filesystem/network access. No claim about installed distro/toolchain/GTK or a running Linux application. Linux smoke is prepared for GTK3/X11 on WSLg, using test-only runners sharing production host composition; native Wayland and Linux release acceptance are outside this iteration.
 - Full evidence, new target names and exact remaining acceptance: [Linux port report](../validation/window-catalog-linux-port-2026-11-10.md). Logs: `.artifacts/linux-port-windows-build.log`, `.artifacts/linux-port-windows-tests.log`, `.artifacts/linux-port-windows-tests.xml`, `.artifacts/linux-port-nested-frame-before.log`, `.artifacts/linux-port-nested-frame-after.log`.
 - Next: resume with a functioning WSL agent environment, inspect/reuse its existing build/cache, compile the Linux application/runners, run shared and GTK cold-restart tests, then launch the ordinary Linux executable once. This checkpoint publishes prepared code and Windows evidence; it is not Linux acceptance or readiness to merge to main.
+
+## 2026-11-10 — isolated Apple branch: macOS WindowCatalog
+
+User-assigned macOS port on `feature/apple-window-catalog`, baseline `b0c808d`;
+parallel Windows/Linux/Web/Android/headless work remains on the original branch.
+Shared common production code unchanged. Native SwiftUI/AppKit catalog,
+thin presenters, native geometry/focus/Z-order, RAM USER and embedded cold-load
+consumer implemented. Debug fresh supply uses the same application's
+`--distill-only`. Fixed backend schema anchoring, native focus and actual
+SwiftUI list tag/selection behavior; verified late geometry after unload.
+
+Executed on Intel macOS 13.7.8, MacPorts clang 20.1.8 + Xcode Swift 5.9.2:
+**7/7 common tests PASS**, **2/2 native tests PASS** (final 20.09 s; three catalog
+processes, 51 checkpoints). Final visual QA confirms native selection highlight.
+No other-platform native or iOS PASS is claimed; iPhone deferred by user.
+External Computer Use service requires macOS 14.4 and cannot start on this host;
+own-window content capture works. Full scope, failures/fixes and limits:
+[macOS validation](../validation/window-catalog-macos-2026-11-10.md).

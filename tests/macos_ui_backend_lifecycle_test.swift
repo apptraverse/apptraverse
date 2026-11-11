@@ -22,7 +22,11 @@ private final class CommandSink: MacUiCommandSink {
         selections.append((token, row))
     }
 
-    func submitWindowFrame(_ frame: CGRect, token: UInt64) {
+    func activateListRow(_ row: Int, token: UInt64) {
+        selections.append((token, row))
+    }
+
+    func submitWindowFrame(_ frame: CGRect, token: UInt64, updatesRestore: Bool) {
         frames.append((token, frame))
     }
 }
@@ -36,6 +40,7 @@ private enum MacUiBackendLifecycleTest {
         testDetachedControlCallbacks()
         testWindowHostingCycleRelease()
         testStableListRowIdentity()
+        testNativeCoordinateRoundTrip()
     }
 
     private static func testDetachedControlCallbacks() {
@@ -49,6 +54,7 @@ private enum MacUiBackendLifecycleTest {
 
         oldButton.click()
         oldSelection.wrappedValue = 1
+        oldList.activate(1)
         require(sink.buttonClicks.isEmpty,
                 "Detached button callback reached the command sink")
         require(sink.selections.isEmpty,
@@ -56,6 +62,7 @@ private enum MacUiBackendLifecycleTest {
 
         let newButton = MacButtonAdapter(token: 21, commandSink: sink)
         let newList = MacListAdapter(token: 22, commandSink: sink)
+        newButton.enabled = true
         newButton.click()
         newList.selection.wrappedValue = 0
         require(sink.buttonClicks == [21],
@@ -105,4 +112,24 @@ private enum MacUiBackendLifecycleTest {
                 sink.selections[0].row == 0,
                 "Selection did not use Row B's current index")
     }
+
+    private static func testNativeCoordinateRoundTrip() {
+        let sink = CommandSink()
+        let delegate = WindowDelegate()
+        let adapter = MacWindowAdapter(token: 51, commandSink: sink,
+                                       delegate: delegate)
+        let expected = CGRect(x: -120, y: 80, width: 410, height: 290)
+        adapter.applyingMirrorFrame = true
+        adapter.window.setFrame(MacDesktopCoordinates.nativeFrame(
+            expected, window: adapter.window), display: false)
+        adapter.applyingMirrorFrame = false
+        let actual = MacDesktopCoordinates.modelFrame(of: adapter.window)
+        require(actual == expected,
+                "Native conversion lost signed position or client dimensions")
+        adapter.reportFrame()
+        require(sink.frames.count == 1 && sink.frames[0].frame == expected,
+                "Native frame callback did not report model coordinates")
+        adapter.disconnect()
+    }
+
 }
