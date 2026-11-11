@@ -229,6 +229,7 @@ void WindowCatalog::Apply(SetWindowCatalogMainClientViewportEvent const& event) 
       dpi == persisted.main_client_viewport.density_dpi) {
     return;
   }
+  bool const density_changed = persisted.main_client_viewport.density_dpi != dpi;
   persisted.main_client_viewport.width = event.width;
   persisted.main_client_viewport.height = event.height;
   persisted.main_client_viewport.density_dpi = dpi;
@@ -250,6 +251,13 @@ void WindowCatalog::Apply(SetWindowCatalogMainClientViewportEvent const& event) 
                         layout.delete_button);
   ApplyButtonChromeRect(persisted.presenters.language_button_presenter,
                         layout.language);
+  if (persisted.mobile_pager && density_changed) {
+    for (auto const& window : BuildMobileRing()) {
+      if (window.id() == persisted.main_window.id()) continue;
+      window->ApplyMobileClientViewport(window->client_width(),
+                                         window->client_height(), dpi);
+    }
+  }
   NoteMaterializedChange();
 }
 
@@ -273,6 +281,39 @@ void WindowCatalog::SubmitMainClientViewportFromUi(std::int32_t width,
   Commit(std::move(event));
 }
 
+void CatalogWindow::ApplyMobileClientViewport(std::int32_t width,
+                                               std::int32_t height,
+                                               std::int32_t density_dpi) {
+  SetClientSizeInternal(width, height);
+  // Native mobile viewports are observations. The application model owns the
+  // responsive layout of the optional prefab Close control.
+  if (!close_button.is_valid()) return;
+  close_button_presenter.Load();
+  auto const scale_dp = [density_dpi](std::int32_t dp) {
+    return static_cast<std::int32_t>(
+        (static_cast<std::int64_t>(dp) * density_dpi + 80) / 160);
+  };
+  std::int32_t const margin = scale_dp(12);
+  std::int32_t const margin_x = std::min(margin, (width - 1) / 2);
+  std::int32_t const margin_y = std::min(margin, (height - 1) / 2);
+  std::int32_t const button_height =
+      std::min(std::max(1, scale_dp(48)), height - 2 * margin_y);
+  close_button_presenter->layout_x = margin_x;
+  close_button_presenter->layout_y = height - margin_y - button_height;
+  close_button_presenter->layout_width = width - 2 * margin_x;
+  close_button_presenter->layout_height = button_height;
+}
+
+void WindowCatalog::Apply(SetWindowCatalogChildClientViewportEvent const& event) {
+  WindowHolder* holder = FindHolderForWindow(event.window.id());
+  // A queued native viewport can arrive after Close/Delete. Do not materialize
+  // a lazy window merely to update a page that is no longer presented.
+  if (holder == nullptr || !holder->window.is_loaded()) return;
+  holder->window->ApplyMobileClientViewport(
+      event.width, event.height, persisted.main_client_viewport.density_dpi);
+  NoteMaterializedChange();
+}
+
 void WindowCatalog::SubmitHolderChildWindowClientSizeFromUi(
     std::uint32_t window_obj_id, std::int32_t width, std::int32_t height) {
   if (width <= 0 || height <= 0) {
@@ -290,7 +331,16 @@ void WindowCatalog::SubmitHolderChildWindowClientSizeFromUi(
     return;
   }
   WindowHolder* holder = FindHolderForWindow(window->obj_id);
-  if (holder == nullptr) {
+  if (holder == nullptr || !holder->window.is_loaded()) {
+    return;
+  }
+  if (persisted.mobile_pager) {
+    auto event = SetWindowCatalogChildClientViewportEvent::ptr::Create(
+        ae::CreateWith{*domain});
+    event->window = holder->window;
+    event->width = width;
+    event->height = height;
+    Commit(std::move(event));
     return;
   }
   std::int32_t const offset =

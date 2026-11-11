@@ -45,6 +45,7 @@ class WindowCatalog;
 class WindowHolder;
 
 class CatalogWindow;
+class SetWindowCatalogChildClientViewportEvent;
 
 class CatalogWindow : public ui::UiDesktopWindow {
 
@@ -82,6 +83,11 @@ class CatalogWindow : public ui::UiDesktopWindow {
   ae::ObjPtr<example::surfaces::CatalogCloseButton> close_button;
 
   ui::UiPushButtonPresenter::ptr close_button_presenter;
+
+ private:
+  friend class WindowCatalog;
+  void ApplyMobileClientViewport(std::int32_t width, std::int32_t height,
+                                 std::int32_t density_dpi);
 
 };
 
@@ -298,6 +304,7 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   void Apply(SetWindowCatalogMobileActiveEvent const& event);
 
   void Apply(SetWindowCatalogMainClientViewportEvent const& event);
+  void Apply(SetWindowCatalogChildClientViewportEvent const& event);
 
   // Presenter -> model: main window client size changed. No-op when unchanged.
   void SubmitMainClientViewportFromUi(std::int32_t width, std::int32_t height,
@@ -548,6 +555,22 @@ class SetWindowCatalogMainClientViewportEvent
   std::int32_t width;
   std::int32_t height;
   std::int32_t density_dpi;
+};
+
+class SetWindowCatalogChildClientViewportEvent
+    : public EventFor<WindowCatalog, SetWindowCatalogChildClientViewportEvent> {
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::example::surfaces::SetWindowCatalogChildClientViewportEvent",
+      SetWindowCatalogChildClientViewportEvent, Event, 0)
+ protected:
+  SetWindowCatalogChildClientViewportEvent() = default;
+ public:
+  explicit SetWindowCatalogChildClientViewportEvent(ae::ObjProp prop)
+      : EventFor{prop} {}
+  AE_OBJECT_REFLECT(AE_MMBR(window), AE_MMBR(width), AE_MMBR(height))
+  CatalogWindow::ptr window;
+  std::int32_t width;
+  std::int32_t height;
 };
 
 class SetWindowCatalogSelectionEvent

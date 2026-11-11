@@ -1154,17 +1154,63 @@ void TestMobileCloseButtonAndAdaptiveLayout() {
   CHECK(window.close_button->label.id() ==
         catalog->persisted.texts.label_close.id());
 
-  // Close and reopen using the saved Close graph, without repairing its links.
+  auto expect_child_layout = [](CatalogWindow const& child,
+                                std::int32_t width, std::int32_t height) {
+    CHECK(child.client_width() == width);
+    CHECK(child.client_height() == height);
+    auto const& close = *child.close_button_presenter;
+    CHECK(close.layout_x == 12);
+    CHECK(close.layout_y == height - 60);
+    CHECK(close.layout_width == width - 24);
+    CHECK(close.layout_height == 48);
+    CHECK(close.layout_x + close.layout_width <= width);
+    CHECK(close.layout_y + close.layout_height <= height);
+  };
   ae::ObjId const window_id = window.obj_id;
+  catalog->SubmitHolderChildWindowClientSizeFromUi(window_id.id(), 393, 759);
+  expect_child_layout(window, 393, 759);
+  catalog->SubmitHolderChildWindowClientSizeFromUi(window_id.id(), 759, 393);
+  expect_child_layout(window, 759, 393);
+  // Android observations are native pixels, while iOS points use dpi160.
+  // Density changes must keep the model-owned Close target at 48dp even when
+  // the current child's pixel size does not change.
+  catalog->SubmitMainClientViewportFromUi(786, 1518, 320);
+  catalog->SubmitHolderChildWindowClientSizeFromUi(window_id.id(), 786, 1518);
+  CHECK(window.close_button_presenter->layout_x == 24);
+  CHECK(window.close_button_presenter->layout_y == 1398);
+  CHECK(window.close_button_presenter->layout_width == 738);
+  CHECK(window.close_button_presenter->layout_height == 96);
+  catalog->SubmitMainClientViewportFromUi(786, 1518, 480);
+  CHECK(window.close_button_presenter->layout_x == 36);
+  CHECK(window.close_button_presenter->layout_y == 1338);
+  CHECK(window.close_button_presenter->layout_width == 714);
+  CHECK(window.close_button_presenter->layout_height == 144);
+  catalog->SubmitHolderChildWindowClientSizeFromUi(window_id.id(), 40, 60);
+  auto const& tiny_close = *window.close_button_presenter;
+  CHECK(tiny_close.layout_width > 0 && tiny_close.layout_height > 0);
+  CHECK(tiny_close.layout_x >= 0 && tiny_close.layout_y >= 0);
+  CHECK(tiny_close.layout_x + tiny_close.layout_width <= 40);
+  CHECK(tiny_close.layout_y + tiny_close.layout_height <= 60);
+  catalog->SubmitMainClientViewportFromUi(759, 393, 160);
+  catalog->SubmitHolderChildWindowClientSizeFromUi(window_id.id(), 759, 393);
+  expect_child_layout(window, 759, 393);
+
+  // Close and reopen using the saved Close graph, without repairing its links.
   window.close_button->HandlePushButtonClicked();
   CHECK(!holder->window.is_loaded());
   CHECK(!catalog->IsHolderWindowOpen(*holder));
+  // A late native measurement cannot activate a closed/lazy page.
+  catalog->SubmitHolderChildWindowClientSizeFromUi(window_id.id(), 360, 800);
+  CHECK(!holder->window.is_loaded());
   catalog->OpenHolderWindow(*holder);
   CHECK(holder->window.is_loaded());
   CHECK(holder->window.id() == window_id);
   CHECK(holder->window->close_button.is_loaded());
   CHECK(holder->window->close_button->window.id() == window_id);
   CHECK(holder->window->close_button->catalog.id() == catalog->obj_id);
+  expect_child_layout(*holder->window, 759, 393);
+  catalog->SubmitHolderChildWindowClientSizeFromUi(window_id.id(), 393, 759);
+  expect_child_layout(*holder->window, 393, 759);
 
   SaveWindowCatalogPersistentSnapshot(*catalog);
   ae::Domain cold_domain{storage};
@@ -1172,6 +1218,7 @@ void TestMobileCloseButtonAndAdaptiveLayout() {
   PrepareWindowCatalogForRun(*cold);
   auto* cold_holder = AsHolder(cold->persisted.list->rows[0]);
   auto& cold_window = *cold_holder->window;
+  expect_child_layout(cold_window, 393, 759);
   CHECK(cold_window.close_button->window.id() == window_id);
   CHECK(cold_window.close_button->catalog.id() == cold.id());
   CHECK(cold_window.close_button->catalog.domain() == &cold_domain);
