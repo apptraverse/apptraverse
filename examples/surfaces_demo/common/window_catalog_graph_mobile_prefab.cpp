@@ -1,4 +1,5 @@
 #include "window_catalog_graph_builder.h"
+#include "window_catalog_chrome_layout.h"
 
 #include "window_catalog_ids.h"
 #include "window_catalog_model.h"
@@ -8,15 +9,6 @@
 #include "apptraverse/ui/ui_presented_window.h"
 
 namespace apptraverse {
-namespace {
-
-// Model-space chrome for the child window Close control: full width minus
-// margins, >=48dp row height at mdpi (Android scales X/Y from prefab client
-// size; a short fixed height was crushed to ~28px after ScaleControlLayout).
-constexpr std::int32_t kCloseButtonHeightMdpi = 48;
-constexpr std::int32_t kCloseMarginMdpi = 12;
-}  // namespace
-
 // Builds the Close button graph and attaches it to the prefab window body
 // (CatalogWindow::close_button / close_button_presenter). The button objects
 // are persisted as part of the prefab graph save done by the builder.
@@ -29,10 +21,8 @@ void AppendMobileCloseButtonToWindowPrefab(
   using window_catalog_demo::ObjId;
   using window_catalog_demo::ToObjId;
 
-  std::int32_t const kCloseH = kCloseButtonHeightMdpi;
-  std::int32_t const kCloseMargin = kCloseMarginMdpi;
-  std::int32_t const kCloseW = kWindowCatalogPrefabClientWidth - 2 * kCloseMargin;
-  std::int32_t const kCloseY = prefab_client_height - kCloseH - kCloseMargin;
+  auto const layout = ComputeWindowCatalogChildCloseLayout(
+      kWindowCatalogPrefabClientWidth, prefab_client_height);
   constexpr std::uint32_t kCloseControlId = 5006;
 
   auto close_button = CatalogCloseButton::ptr::Create(
@@ -48,10 +38,10 @@ void AppendMobileCloseButtonToWindowPrefab(
       domain, ae::ObjId{ToObjId(ObjId::WindowPrefabCloseButtonPresenter)});
   close_presenter->button = close_button;
   close_presenter->window_presenter = window_prefab_presenter;
-  close_presenter->layout_x = kCloseMargin;
-  close_presenter->layout_y = kCloseY;
-  close_presenter->layout_width = kCloseW;
-  close_presenter->layout_height = kCloseH;
+  close_presenter->layout_x = layout.x;
+  close_presenter->layout_y = layout.y;
+  close_presenter->layout_width = layout.width;
+  close_presenter->layout_height = layout.height;
   close_presenter->control_id = kCloseControlId;
 
   CatalogWindow::ptr prefab_ref = window_prefab;

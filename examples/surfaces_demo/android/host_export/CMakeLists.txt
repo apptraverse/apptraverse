@@ -1,6 +1,7 @@
 add_executable(apptraverse_export_window_catalog_distilled_graph_android
   window_catalog_export_android.cpp
   ../window_catalog_graph_android.cpp
+  ../window_catalog_graph_builder_android.cpp
 )
 target_link_libraries(apptraverse_export_window_catalog_distilled_graph_android PRIVATE
   surfaces_demo_window_catalog_common

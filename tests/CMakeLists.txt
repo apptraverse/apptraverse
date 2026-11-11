@@ -1650,7 +1650,8 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
 
   set(_android_wc_embedded_test_sources
     window_catalog_android_embedded_session_test.cpp
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/android/window_catalog_graph_android.cpp)
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/android/window_catalog_graph_android.cpp
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/android/window_catalog_graph_builder_android.cpp)
   add_executable(apptraverse_window_catalog_android_embedded_session_test
     ${_android_wc_embedded_test_sources})
   target_link_libraries(apptraverse_window_catalog_android_embedded_session_test PRIVATE

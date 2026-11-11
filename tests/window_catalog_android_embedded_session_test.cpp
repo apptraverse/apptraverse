@@ -5,7 +5,7 @@
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
 
-#include "apptraverse/directory_domain_storage.h"
+#include "apptraverse/single_file_user_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/embedded_distilled_domain.h"
 #include "apptraverse/overlay_domain_storage.h"
@@ -46,33 +46,26 @@ std::filesystem::path TestDir(char const* name) {
   return dir;
 }
 
-void ShutdownSaveCatalog(WindowCatalog& catalog,
-                         DirectoryDomainStorage& user_storage) {
-  user_storage.BeginSaveSession();
+void SaveCatalogAtBackgroundBoundary(WindowCatalog& catalog,
+                                     ae::RamDomainStorage& user,
+                                     std::filesystem::path const& user_dir) {
   SaveWindowCatalogPersistentSnapshot(catalog);
-  CHECK(!user_storage.SaveSessionHadFailure());
-}
-
-bool UserDirectoryHasObjectBody(std::filesystem::path const& user_root,
-                                ae::ObjId object_id) {
-  auto const obj_dir = user_root / std::to_string(object_id.id());
-  if (!std::filesystem::exists(obj_dir)) {
-    return false;
+  CHECK(SaveUserStorageFile(user, user_dir));
+  CHECK(std::filesystem::is_regular_file(user_dir / "user.bin"));
+  std::size_t files = 0;
+  for (auto const& entry : std::filesystem::recursive_directory_iterator(user_dir)) {
+    CHECK(entry.is_regular_file());
+    ++files;
   }
-  for (auto const& entry : std::filesystem::directory_iterator(obj_dir)) {
-    if (entry.is_directory()) {
-      return true;
-    }
-  }
-  return false;
+  CHECK(files == 1);
 }
 
 void ExpectNoLocalizationSupplyBodiesInUser(
     WindowCatalog const& catalog, OverlayDomainStorage const& overlay,
-    std::filesystem::path const& user_root) {
+    ae::RamDomainStorage const& user) {
   for (ae::ObjId const& id : CollectWindowCatalogSupplyConstantIds(catalog)) {
     CHECK(overlay.IsSupplyConstant(id));
-    CHECK(!UserDirectoryHasObjectBody(user_root, id));
+    CHECK(user.state.count(id) == 0);
   }
 }
 
@@ -103,7 +96,7 @@ void TestAndroidEmbeddedBackingUserColdLoadWithoutNormalize() {
 
   auto const user_dir =
       TestDir("window_catalog_android_embedded_session");
-  DirectoryDomainStorage user_storage{user_dir};
+  ae::RamDomainStorage user_storage;
   OverlayDomainStorage overlay{
       user_storage, backing,
       EmbeddedSupplyConstantIdSet(
@@ -128,14 +121,25 @@ void TestAndroidEmbeddedBackingUserColdLoadWithoutNormalize() {
     holder0_id = AsHolder(catalog->persisted.list->rows[0])->obj_id;
     holder1_id = AsHolder(catalog->persisted.list->rows[1])->obj_id;
     open_window_id = AsHolder(catalog->persisted.list->rows[1])->window.id();
-    ShutdownSaveCatalog(*catalog, user_storage);
-    ExpectNoLocalizationSupplyBodiesInUser(*catalog, overlay, user_dir);
+    CHECK(std::filesystem::is_empty(user_dir));
+    SaveCatalogAtBackgroundBoundary(*catalog, user_storage, user_dir);
+    ExpectNoLocalizationSupplyBodiesInUser(*catalog, overlay, user_storage);
     CHECK(backing.state == backing_snapshot);
     catalog.Reset();
   }
 
   {
-    ae::Domain cold_domain{overlay};
+    // The second model has no objects or in-memory USER bytes from the first.
+    ae::RamDomainStorage cold_user;
+    CHECK(LoadUserStorageFile(cold_user, user_dir));
+    ae::RamDomainStorage cold_backing;
+    InstallEmbeddedDistilledBacking(
+        cold_backing, embedded_distilled::window_catalog::kEmbeddedGraph);
+    OverlayDomainStorage cold_overlay{
+        cold_user, cold_backing,
+        EmbeddedSupplyConstantIdSet(
+            embedded_distilled::window_catalog::kEmbeddedGraph)};
+    ae::Domain cold_domain{cold_overlay};
     auto catalog = LoadApplication<WindowCatalog>(cold_domain, kCatalogId);
     CHECK(catalog->persisted.mobile_pager);
     catalog->persisted.list.Load();
@@ -156,7 +160,7 @@ void TestAndroidEmbeddedBackingUserColdLoadWithoutNormalize() {
     catalog->AddWindow();
     catalog->persisted.list.Load();
     CHECK(catalog->persisted.list->rows.size() == 3);
-    ShutdownSaveCatalog(*catalog, user_storage);
+    SaveCatalogAtBackgroundBoundary(*catalog, cold_user, user_dir);
     CHECK(backing.state == backing_snapshot);
   }
 }
@@ -165,8 +169,6 @@ void TestAndroidEmbeddedBackingUserColdLoadWithoutNormalize() {
 }  // namespace apptraverse::test
 
 int main() {
-  apptraverse::EnsureObjectRegistration();
-  apptraverse::EnsureWindowCatalogModelRegistration();
   apptraverse::EnsureWindowCatalogAndroidGraphRegistration();
   apptraverse::test::TestAndroidEmbeddedBackingUserColdLoadWithoutNormalize();
   std::cout << "window_catalog_android_embedded_session_test OK\n";

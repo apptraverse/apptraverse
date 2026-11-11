@@ -31,7 +31,7 @@ public final class WindowCatalogApplication extends Application
     }
     runtimeHandle = NativeRuntime.nativeCreate(filesDir, stateSubdir, uiBridge);
     if (runtimeHandle == 0L) {
-      Log.e(TAG, "Native runtime create failed");
+      throw new IllegalStateException("Native runtime create failed");
     }
   }
 
@@ -57,27 +57,9 @@ public final class WindowCatalogApplication extends Application
     NativeRuntime.nativeStartModel(runtimeHandle);
   }
 
-  public void requestBackgroundSave() {
-    if (runtimeHandle != 0L) {
-      NativeRuntime.nativeRequestBackgroundSave(runtimeHandle);
-    }
-  }
-
   public void flushPendingBackgroundSaves() {
     if (runtimeHandle != 0L) {
       NativeRuntime.nativeFlushPendingBackgroundSaves(runtimeHandle);
-    }
-  }
-
-  public void mobilePageShown(long windowObjId) {
-    if (runtimeHandle != 0L) {
-      NativeRuntime.nativeMobilePageShown(runtimeHandle, windowObjId);
-    }
-  }
-
-  public void mainViewportChanged() {
-    if (runtimeHandle != 0L) {
-      NativeRuntime.nativeMainViewportChanged(runtimeHandle);
     }
   }
 

@@ -23,9 +23,26 @@ public final class AppTraverseAndroidUi {
     activity.setTitle(title);
   }
 
-  public static FrameLayout createClientMount(ViewGroup contentRoot) {
+  private static final class ClientMount extends FrameLayout {
+    private long nativePresenter;
+
+    ClientMount(Context context, long presenter) {
+      super(context);
+      nativePresenter = presenter;
+    }
+
+    @Override protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
+      super.onSizeChanged(width, height, oldWidth, oldHeight);
+      if (nativePresenter != 0 && width > 0 && height > 0) {
+        nativeOnWindowClientSize(nativePresenter, width, height,
+            getResources().getDisplayMetrics().densityDpi);
+      }
+    }
+  }
+
+  public static FrameLayout createClientMount(ViewGroup contentRoot, long nativePresenter) {
     Context context = contentRoot.getContext();
-    FrameLayout client = new FrameLayout(context);
+    FrameLayout client = new ClientMount(context, nativePresenter);
     client.setLayoutParams(new ViewGroup.LayoutParams(
         ViewGroup.LayoutParams.MATCH_PARENT,
         ViewGroup.LayoutParams.MATCH_PARENT));
@@ -35,6 +52,7 @@ public final class AppTraverseAndroidUi {
 
   /** Detaches the presenter-owned client mount; the host content root stays. */
   public static void releaseClientMount(FrameLayout client) {
+    ((ClientMount) client).nativePresenter = 0;
     detachFromParent(client);
   }
 
@@ -68,11 +86,7 @@ public final class AppTraverseAndroidUi {
 
   public static void updatePushButtonLayout(Button button, int x, int y, int width,
       int height) {
-    ViewGroup.LayoutParams params = button.getLayoutParams();
-    if (!(params instanceof FrameLayout.LayoutParams)) {
-      return;
-    }
-    FrameLayout.LayoutParams frame = (FrameLayout.LayoutParams) params;
+    FrameLayout.LayoutParams frame = (FrameLayout.LayoutParams) button.getLayoutParams();
     frame.leftMargin = x;
     frame.topMargin = y;
     frame.width = width;
@@ -82,11 +96,7 @@ public final class AppTraverseAndroidUi {
 
   public static void updateListContainerLayout(LinearLayout list, int x, int y,
       int width, int height) {
-    ViewGroup.LayoutParams params = list.getLayoutParams();
-    if (!(params instanceof FrameLayout.LayoutParams)) {
-      return;
-    }
-    FrameLayout.LayoutParams frame = (FrameLayout.LayoutParams) params;
+    FrameLayout.LayoutParams frame = (FrameLayout.LayoutParams) list.getLayoutParams();
     frame.leftMargin = x;
     frame.topMargin = y;
     frame.width = width;
@@ -218,4 +228,7 @@ public final class AppTraverseAndroidUi {
   private static native void nativeOnPushButtonClick(long nativePresenter);
 
   private static native void nativeOnListSelection(long nativePresenter, int rowIndex);
+
+  private static native void nativeOnWindowClientSize(long nativePresenter,
+      int width, int height, int densityDpi);
 }

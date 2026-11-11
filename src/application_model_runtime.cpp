@@ -1,7 +1,6 @@
 #include "apptraverse/application_model_runtime.h"
 
 
-#include <chrono>
 #include <condition_variable>
 #include <optional>
 
@@ -23,25 +22,26 @@ void ApplicationModelRuntime::Post(ModelWork work) {
 }
 
 void ApplicationModelRuntime::SyncPost(ModelWork work) {
+  std::mutex done_mu;
+  std::condition_variable done_cv;
+  bool ran = false;
   {
     std::lock_guard<std::mutex> lock{mu_};
     if (stop_) {
       return;
     }
-  }
-  std::mutex done_mu;
-  std::condition_variable done_cv;
-  bool ran = false;
-  Post([&](ae::Domain& domain) {
-    work(domain);
-    {
-      std::lock_guard<std::mutex> lock{done_mu};
+    // Acceptance and stop must share one lock. Once accepted, Run drains this
+    // work even after RequestStop; its caller must wait for actual completion.
+    pending_work_.push_back([&, work = std::move(work)](ae::Domain& domain) {
+      work(domain);
+      std::lock_guard<std::mutex> done_lock{done_mu};
       ran = true;
-    }
-    done_cv.notify_all();
-  });
+      done_cv.notify_one();
+    });
+  }
+  cv_.notify_all();
   std::unique_lock<std::mutex> lock{done_mu};
-  done_cv.wait_for(lock, std::chrono::seconds(30), [&] { return ran; });
+  done_cv.wait(lock, [&] { return ran; });
 }
 
 void ApplicationModelRuntime::RequestStop() {

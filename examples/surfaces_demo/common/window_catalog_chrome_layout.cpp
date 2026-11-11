@@ -28,6 +28,17 @@ WindowCatalogChromeRect MakeRect(std::int32_t x, std::int32_t y,
 
 }  // namespace
 
+WindowCatalogChromeRect ComputeWindowCatalogChildCloseLayout(
+    std::int32_t client_w, std::int32_t client_h, std::int32_t density_dpi) {
+  auto const w = AtLeastOne(client_w);
+  auto const h = AtLeastOne(client_h);
+  auto const margin = std::min(
+      {DpToModelPx(kMarginDp, density_dpi), (w - 1) / 2, (h - 1) / 2});
+  auto const button_h = std::min(DpToModelPx(kButtonMinHeightDp, density_dpi),
+                                  h - 2 * margin);
+  return MakeRect(margin, h - margin - button_h, w - 2 * margin, button_h);
+}
+
 WindowCatalogMainChromeLayout ComputeWindowCatalogMainChromeLayout(
     std::int32_t client_w, std::int32_t client_h, std::int32_t density_dpi) {
   std::int32_t const w = AtLeastOne(client_w);

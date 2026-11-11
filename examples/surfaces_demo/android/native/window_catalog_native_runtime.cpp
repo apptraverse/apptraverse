@@ -20,18 +20,12 @@ ui::UiPresentedWindow& Presented(CatalogWindow& window) {
 
 ui::android::AndroidDesktopWindowPresenter* AndroidPresenterForWindow(
     CatalogWindow& window) {
-  if (!Presented(window).presenter.is_loaded()) {
-    return nullptr;
-  }
   return &static_cast<ui::android::AndroidDesktopWindowPresenter&>(
       *Presented(window).presenter.operator->());
 }
 
 void SetMountVisible(ui::android::AndroidPresentationHost& host,
                      jobject mount, bool visible) {
-  if (mount == nullptr) {
-    return;
-  }
   JNIEnv* env = ui::android::RequireUiThreadEnv(host);
   jclass view_class = env->FindClass("android/view/View");
   jmethodID set_visibility =
@@ -59,9 +53,6 @@ void SetActivityTitle(ui::android::AndroidPresentationHost& host,
 
 std::string ResolveWindowTitle(CatalogWindow& window) {
   auto& presented = Presented(window);
-  if (!presented.presenter.is_loaded() || !presented.presenter->title.is_valid()) {
-    return {};
-  }
   int const language = presented.presenter->locale->language_index();
   return presented.presenter->ResolvePresentedWindowTitle(language);
 }
@@ -78,7 +69,24 @@ WindowCatalogNativeRuntime::WindowCatalogNativeRuntime(
     : state_dir_{std::move(state_dir)},
       ui_bridge_{std::move(ui_bridge)},
       android_ui_bridge_{std::move(android_ui_bridge)},
-      profile_{state_dir_} {}
+      profile_{state_dir_} {
+  presentation_host_.on_window_client_size =
+      [this](ui::android::AndroidDesktopWindowPresenter& presenter,
+             std::int32_t width, std::int32_t height, std::int32_t dpi) {
+        ae::ObjId const catalog_id{
+            window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
+        ae::ObjId const main_id{
+            window_catalog_demo::ToObjId(window_catalog_demo::ObjId::MainWindow)};
+        if (presenter.window.id() == main_id) {
+          host_->model_proxy().Invoke(catalog_id,
+              &WindowCatalog::SubmitMainClientViewportFromUi, width, height, dpi);
+        } else {
+          host_->model_proxy().Invoke(catalog_id,
+              &WindowCatalog::SubmitHolderChildWindowClientSizeFromUi,
+              presenter.window.id().id(), width, height, dpi);
+        }
+      };
+}
 
 WindowCatalogNativeRuntime::~WindowCatalogNativeRuntime() {
   if (host_) {
@@ -97,24 +105,26 @@ void WindowCatalogNativeRuntime::SetPresentationRoot(JNIEnv* env,
     };
     callbacks.after_initial = [this](ae::Obj& root) {
       SyncMobilePagerChrome(CatalogRoot(root));
-      ReportMainViewport();
       PublishMobilePages();
       apptraverse::android::LogInfo("WINDOW_CATALOG_INITIAL_RENDER_OK");
     };
     callbacks.after_incremental = [this](ae::Obj& root) {
       SyncMobilePagerChrome(CatalogRoot(root));
-      ReportMainViewport();
       PublishMobilePages();
     };
     callbacks.persist_model = [this](ae::Domain& domain) -> int {
       return PersistWindowCatalogEmbeddedUserOverlayFromDomain(domain,
-                                                               profile_.user);
+                                                               profile_);
     };
     host_ = std::make_unique<android::AndroidApplicationHost>(
         runtime_, presentation_host_, std::move(android_ui_bridge_),
         std::move(callbacks));
   }
   host_->SetPresentationRoot(env, activity, content_root);
+  if (host_->ui_session()) {
+    SyncMobilePagerChrome(CatalogRoot(host_->ui_session()->root()));
+    PublishMobilePages();
+  }
 }
 
 void WindowCatalogNativeRuntime::StartModelThread() {
@@ -126,58 +136,10 @@ void WindowCatalogNativeRuntime::ConsumePublication(int kind) {
                                        : ApplicationPublicationKind::Incremental);
 }
 
-void WindowCatalogNativeRuntime::RequestBackgroundSave() {
-  host_->RequestBackgroundSave();
-}
-
 void WindowCatalogNativeRuntime::FlushPendingBackgroundSaves() {
   if (host_) {
     host_->FlushPendingBackgroundSaves();
   }
-}
-
-void WindowCatalogNativeRuntime::SyncChildWindowClientMount(
-    CatalogWindow& window) {
-  if (!host_ || !host_->ui_session()) {
-    return;
-  }
-  auto* presenter = AndroidPresenterForWindow(window);
-  if (presenter == nullptr) {
-    return;
-  }
-  jobject const mount = presentation_host_.ClientMount(*presenter);
-  if (mount == nullptr) {
-    return;
-  }
-  JNIEnv* env = ui::android::RequireUiThreadEnv(presentation_host_);
-  ui::android::ViewContentSize const size =
-      ui::android::ReadViewContentSize(env, mount);
-  if (size.width <= 0 || size.height <= 0) {
-    return;
-  }
-  if (size.width == window.client_width() &&
-      size.height == window.client_height()) {
-    return;
-  }
-  ae::ObjId const catalog_id{
-      window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
-  host_->model_proxy().Invoke(
-      catalog_id, &apptraverse::WindowCatalog::SubmitHolderChildWindowClientSizeFromUi,
-      static_cast<std::uint32_t>(window.obj_id.id()), size.width, size.height);
-}
-
-void WindowCatalogNativeRuntime::MobilePageShown(std::uint32_t window_obj_id) {
-  if (reported_active_for_ui_.is_valid() &&
-      reported_active_for_ui_.id() == window_obj_id) {
-    return;
-  }
-  ae::ObjId const catalog_id{
-      window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
-  host_->model_proxy().Invoke(
-      catalog_id, &apptraverse::WindowCatalog::SubmitMobileActiveFromUi,
-      ae::ObjId{window_obj_id});
-  reported_active_for_ui_ = ae::ObjId{window_obj_id};
-  RequestBackgroundSave();
 }
 
 void WindowCatalogNativeRuntime::MobileSwipe(int delta) {
@@ -187,66 +149,18 @@ void WindowCatalogNativeRuntime::MobileSwipe(int delta) {
       catalog_id, &apptraverse::WindowCatalog::SubmitMobileSwipeFromUi, delta);
 }
 
-void WindowCatalogNativeRuntime::ReportMainViewport() {
-  if (!host_ || !host_->ui_session()) {
-    return;
-  }
-  apptraverse::WindowCatalog& catalog = CatalogRoot(host_->ui_session()->root());
-  if (!catalog.persisted.main_window.is_valid() ||
-      !catalog.persisted.main_window.is_loaded()) {
-    return;
-  }
-  auto* presenter = AndroidPresenterForWindow(*catalog.persisted.main_window);
-  if (presenter == nullptr) {
-    return;
-  }
-  jobject const mount = presentation_host_.ClientMount(*presenter);
-  if (mount == nullptr) {
-    return;
-  }
-  JNIEnv* env = ui::android::RequireUiThreadEnv(presentation_host_);
-  ui::android::ViewContentSize const size =
-      ui::android::ReadViewContentSize(env, mount);
-  std::int32_t dpi = ui::android::ReadActivityDensityDpi(env, presentation_host_.activity);
-  if (dpi <= 0) {
-    dpi = 160;
-  }
-  if (size.width <= 0 || size.height <= 0) {
-    return;
-  }
-  if (size.width == catalog.persisted.main_client_viewport.width &&
-      size.height == catalog.persisted.main_client_viewport.height &&
-      dpi == catalog.persisted.main_client_viewport.density_dpi) {
-    return;
-  }
-  ae::ObjId const catalog_id{
-      window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
-  host_->model_proxy().Invoke(
-      catalog_id, &apptraverse::WindowCatalog::SubmitMainClientViewportFromUi,
-      size.width, size.height, dpi);
-}
-
 void WindowCatalogNativeRuntime::SyncMobilePagerChrome(
     apptraverse::WindowCatalog& catalog) {
-  if (!catalog.persisted.mobile_pager || !host_->ui_session()) {
-    return;
-  }
   CatalogWindow::ptr active = catalog.ResolveMobileActiveWindow();
   ae::ObjId const active_id = active.id();
 
   auto sync_one = [&](CatalogWindow::ptr const& window_ref, bool show) {
-    if (!window_ref.is_valid() || !window_ref.is_loaded()) {
+    if (!window_ref.is_loaded()) {
       return;
     }
     auto* presenter = AndroidPresenterForWindow(*window_ref);
-    if (presenter == nullptr) {
-      return;
-    }
     SetMountVisible(presentation_host_,
                     presentation_host_.ClientMount(*presenter), show);
-    if (show && window_ref.id() != catalog.persisted.main_window.id()) {
-      SyncChildWindowClientMount(*window_ref.Load());
-    }
   };
 
   sync_one(catalog.persisted.main_window,
@@ -255,9 +169,6 @@ void WindowCatalogNativeRuntime::SyncMobilePagerChrome(
   for (auto const& row : catalog.persisted.list->rows) {
     row.Load();
     auto* holder = static_cast<WindowHolder*>(&*row);
-    if (!holder->window.is_valid()) {
-      continue;
-    }
     bool const show =
         holder->window.is_loaded() && holder->window.id() == active_id;
     sync_one(holder->window, show);
@@ -271,13 +182,7 @@ void WindowCatalogNativeRuntime::SyncMobilePagerChrome(
 }
 
 void WindowCatalogNativeRuntime::PublishMobilePages() {
-  if (!host_->ui_session()) {
-    return;
-  }
   apptraverse::WindowCatalog& catalog = CatalogRoot(host_->ui_session()->root());
-  if (!catalog.persisted.mobile_pager) {
-    return;
-  }
   std::vector<CatalogWindow::ptr> const ring = catalog.BuildMobileRing();
   std::vector<std::int64_t> ids;
   ids.reserve(ring.size());
@@ -286,7 +191,6 @@ void WindowCatalogNativeRuntime::PublishMobilePages() {
   }
   CatalogWindow::ptr active = catalog.ResolveMobileActiveWindow();
   std::int64_t const active_id = static_cast<std::int64_t>(active.id().id());
-  reported_active_for_ui_ = active.id();
   ui_bridge_.PostMobilePages(ids, active_id);
 }
 

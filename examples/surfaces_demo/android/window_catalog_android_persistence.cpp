@@ -5,11 +5,12 @@
 #include "window_catalog_prepare.h"
 
 #include "apptraverse/noninteractive_crt.h"
+#include "apptraverse/single_file_user_storage.h"
 
 namespace apptraverse::example::surfaces {
 
 int PersistWindowCatalogEmbeddedUserOverlayFromDomain(
-    ae::Domain& domain, DirectoryDomainStorage& user_storage) {
+    ae::Domain& domain, WindowCatalogAndroidEmbeddedProfile& profile) {
   ae::ObjId const catalog_id{
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
   ae::Ptr<ae::Obj> const held = domain.Find(catalog_id);
@@ -18,9 +19,8 @@ int PersistWindowCatalogEmbeddedUserOverlayFromDomain(
     return 1;
   }
   auto& catalog = static_cast<apptraverse::WindowCatalog&>(*held);
-  user_storage.BeginSaveSession();
   SaveWindowCatalogPersistentSnapshot(catalog);
-  if (user_storage.SaveSessionHadFailure()) {
+  if (!SaveUserStorageFile(profile.user, profile.state_dir)) {
     WriteFatalStderr("fatal: WindowCatalog Android checkpoint save failed\n");
     return 1;
   }

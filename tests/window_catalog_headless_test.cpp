@@ -1154,17 +1154,67 @@ void TestMobileCloseButtonAndAdaptiveLayout() {
   CHECK(window.close_button->label.id() ==
         catalog->persisted.texts.label_close.id());
 
+  // Native viewport reports must change model-space Close layout, not rely on
+  // a platform presenter scaling the original 480px prefab rectangle.
+  auto const original_x = window.x();
+  auto const original_y = window.y();
+  auto const original_restore_w = window.restore_client_width();
+  auto const original_restore_h = window.restore_client_height();
+  catalog->SubmitHolderChildWindowClientSizeFromUi(window.obj_id.id(), 360, 800);
+  CHECK(window.close_button_presenter->layout_x == 12);
+  CHECK(window.close_button_presenter->layout_y == 740);
+  CHECK(window.close_button_presenter->layout_width == 336);
+  CHECK(window.close_button_presenter->layout_height == 48);
+  auto check_child_layout = [&](std::int32_t width, std::int32_t height,
+                                std::int32_t dpi) {
+    CHECK(window.client_width() == width);
+    CHECK(window.client_height() == height);
+    auto const rect = ComputeWindowCatalogChildCloseLayout(width, height, dpi);
+    CHECK(window.close_button_presenter->layout_x == rect.x);
+    CHECK(window.close_button_presenter->layout_y == rect.y);
+    CHECK(window.close_button_presenter->layout_width == rect.width);
+    CHECK(window.close_button_presenter->layout_height == rect.height);
+    CHECK(window.x() == original_x);
+    CHECK(window.y() == original_y);
+    CHECK(window.restore_client_width() == original_restore_w);
+    CHECK(window.restore_client_height() == original_restore_h);
+    CHECK(!window.TakeFrameRequestPendingPublication());
+  };
+  check_child_layout(360, 800, 160);
+  catalog->SubmitHolderChildWindowClientSizeFromUi(window.obj_id.id(), 1080, 2400, 480);
+  check_child_layout(1080, 2400, 480);
+  CHECK(window.close_button_presenter->layout_width == 1008);
+  CHECK(window.close_button_presenter->layout_height == 144);
+  CHECK(window.close_button_presenter->layout_y == 2220);
+  catalog->SubmitHolderChildWindowClientSizeFromUi(window.obj_id.id(), 2400, 1080, 480);
+  check_child_layout(2400, 1080, 480);
+  CHECK(window.close_button_presenter->layout_y == 900);
+  // Density changes matter even when viewport dimensions do not change.
+  catalog->SubmitHolderChildWindowClientSizeFromUi(window.obj_id.id(), 2400, 1080, 160);
+  check_child_layout(2400, 1080, 160);
+  CHECK(window.close_button_presenter->layout_height == 48);
+  auto const history_size = window.journal.size();
+  catalog->SubmitHolderChildWindowClientSizeFromUi(window.obj_id.id(), 2400, 1080, 160);
+  CHECK(window.journal.size() == history_size);
+  catalog->SubmitHolderChildWindowClientSizeFromUi(window.obj_id.id(), 1080, 2400, 480);
+  CHECK(window.TryReplayFromBase());
+  check_child_layout(1080, 2400, 480);
+
   // Close and reopen using the saved Close graph, without repairing its links.
   ae::ObjId const window_id = window.obj_id;
   window.close_button->HandlePushButtonClicked();
   CHECK(!holder->window.is_loaded());
   CHECK(!catalog->IsHolderWindowOpen(*holder));
+  catalog->SubmitHolderChildWindowClientSizeFromUi(window_id.id(), 800, 600, 160);
+  CHECK(!holder->window.is_loaded());
   catalog->OpenHolderWindow(*holder);
   CHECK(holder->window.is_loaded());
   CHECK(holder->window.id() == window_id);
   CHECK(holder->window->close_button.is_loaded());
   CHECK(holder->window->close_button->window.id() == window_id);
   CHECK(holder->window->close_button->catalog.id() == catalog->obj_id);
+  CHECK(holder->window->client_width() == 1080);
+  CHECK(holder->window->close_button_presenter->layout_height == 144);
 
   SaveWindowCatalogPersistentSnapshot(*catalog);
   ae::Domain cold_domain{storage};
@@ -1178,6 +1228,12 @@ void TestMobileCloseButtonAndAdaptiveLayout() {
   CHECK(cold_window.close_button_presenter->button.id() == cold_window.close_button.id());
   CHECK(cold_window.close_button_presenter->window_presenter.id() ==
         CatalogWindowPresented(cold_window).presenter.id());
+  CHECK(cold_window.client_width() == 1080);
+  CHECK(cold_window.client_height() == 2400);
+  CHECK(cold_window.close_button_presenter->layout_x == 36);
+  CHECK(cold_window.close_button_presenter->layout_y == 2220);
+  CHECK(cold_window.close_button_presenter->layout_width == 1008);
+  CHECK(cold_window.close_button_presenter->layout_height == 144);
   cold_window.close_button->HandlePushButtonClicked();
   CHECK(!cold_holder->window.is_loaded());
   CHECK(catalog->IsHolderWindowOpen(*holder));

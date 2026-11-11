@@ -35,6 +35,8 @@ class AndroidUiBridge {
 
 AndroidUiBridge MakeAndroidUiBridge(JNIEnv* env, jobject ui_bridge);
 
+bool RegisterAndroidUiNativeMethods(JNIEnv* env);
+
 }  // namespace apptraverse::android
 
 #endif  // APPTRAVERSE_PLATFORM_ANDROID_ANDROID_UI_BRIDGE_H_

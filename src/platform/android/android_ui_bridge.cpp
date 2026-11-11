@@ -1,8 +1,37 @@
 #include "apptraverse/platform/android/android_ui_bridge.h"
 
 #include "android_log.h"
+#include "apptraverse/platform/android/android_ui_list_presenter.h"
+#include "apptraverse/platform/android/android_ui_push_button_presenter.h"
+#include "apptraverse/platform/android/android_ui_window_presenter.h"
 
 namespace apptraverse::android {
+
+namespace {
+void OnPushButton(JNIEnv*, jclass, jlong presenter) {
+  ui::android::NotifyAndroidPushButtonClickedFromJava(presenter);
+}
+void OnListSelection(JNIEnv*, jclass, jlong presenter, jint row) {
+  ui::android::NotifyAndroidListSelectionFromJava(presenter, row);
+}
+void OnWindowClientSize(JNIEnv*, jclass, jlong presenter,
+                        jint width, jint height, jint dpi) {
+  ui::android::NotifyAndroidWindowClientSizeFromJava(presenter, width, height, dpi);
+}
+}  // namespace
+
+bool RegisterAndroidUiNativeMethods(JNIEnv* env) {
+  jclass cls = env->FindClass("com/apptraverse/ui/android/AppTraverseAndroidUi");
+  if (cls == nullptr) return false;
+  JNINativeMethod const methods[] = {
+      {"nativeOnPushButtonClick", "(J)V", reinterpret_cast<void*>(&OnPushButton)},
+      {"nativeOnListSelection", "(JI)V", reinterpret_cast<void*>(&OnListSelection)},
+      {"nativeOnWindowClientSize", "(JIII)V", reinterpret_cast<void*>(&OnWindowClientSize)},
+  };
+  jint const result = env->RegisterNatives(cls, methods, 3);
+  env->DeleteLocalRef(cls);
+  return result == JNI_OK;
+}
 
 AndroidUiBridge::AndroidUiBridge(JavaVM* vm, jobject global_object,
                                  jclass global_class,

@@ -178,11 +178,11 @@ void AndroidApplicationHost::ConsumePublication(ApplicationPublicationKind kind)
 }
 
 void AndroidApplicationHost::JoinModelThreadForRelease() {
-  FlushPendingBackgroundSaves();
   if (!model_thread_joinable_) {
     ui_session_.reset();
     return;
   }
+  FlushPendingBackgroundSaves();
   {
     std::lock_guard<std::mutex> lock{model_start_mu_};
     model_teardown_requested_ = true;
@@ -211,7 +211,7 @@ void AndroidApplicationHost::JoinModelThreadForRelease() {
 }
 
 void AndroidApplicationHost::FlushPendingBackgroundSaves() {
-  if (!callbacks_.persist_model) {
+  if (!model_thread_joinable_ || !callbacks_.persist_model) {
     return;
   }
   // Run after any already-queued model work (Invoke, etc.) on the model thread.

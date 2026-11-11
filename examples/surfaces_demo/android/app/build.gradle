@@ -4,6 +4,7 @@ plugins {
 
 def compileSdkVersion = (project.findProperty("apptraverse.compileSdk") ?: "34") as Integer
 def cmakeVersion = project.findProperty("apptraverse.cmakeVersion") ?: "4.1.2"
+def cmakeInitialCache = project.findProperty("apptraverse.cmakeInitialCache")
 def abiFilterList = ((project.findProperty("apptraverse.abiFilters") ?: "x86_64") as String)
     .split(",")
     .collect { it.trim() }
@@ -22,6 +23,8 @@ android {
     versionCode 1
     versionName "0.1.0"
     testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    testInstrumentationRunnerArguments debugFresh:
+        ((project.findProperty("apptraverse.testBuildType") ?: "debug") != "debugLoadOnly").toString()
 
     ndk {
       abiFilters.addAll(abiFilterList)
@@ -31,6 +34,9 @@ android {
       cmake {
         arguments "-DANDROID_STL=c++_static",
                   "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
+        if (cmakeInitialCache) {
+          arguments "-DAPPTRAVERSE_CMAKE_INITIAL_CACHE=${cmakeInitialCache}"
+        }
         targets "apptraverse_window_catalog_jni"
       }
     }
@@ -47,7 +53,10 @@ android {
     main {
       java.srcDirs += ["../../../../src/platform/android/java"]
     }
+    debugLoadOnly.manifest.srcFile "src/debug/AndroidManifest.xml"
   }
+
+  testBuildType project.findProperty("apptraverse.testBuildType") ?: "debug"
 
   compileOptions {
     sourceCompatibility JavaVersion.VERSION_17
@@ -70,6 +79,12 @@ android {
     debug {
       debuggable true
       jniDebuggable true
+      externalNativeBuild.cmake.arguments "-DAPPTRAVERSE_WINDOW_CATALOG_DEBUG_FRESH=ON"
+    }
+    debugLoadOnly {
+      initWith debug
+      matchingFallbacks = ["debug"]
+      externalNativeBuild.cmake.arguments "-DAPPTRAVERSE_WINDOW_CATALOG_DEBUG_FRESH=OFF"
     }
     release {
       minifyEnabled false

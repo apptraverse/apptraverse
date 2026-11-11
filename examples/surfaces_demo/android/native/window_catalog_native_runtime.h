@@ -29,18 +29,12 @@ class WindowCatalogNativeRuntime {
   void SetPresentationRoot(JNIEnv* env, jobject activity, jobject content_root);
   void StartModelThread();
   void ConsumePublication(int kind);
-  void RequestBackgroundSave();
   void FlushPendingBackgroundSaves();
-  void MobilePageShown(std::uint32_t window_obj_id);
   void MobileSwipe(int delta);
-  // UI thread: measure the main window client mount and post the viewport to
-  // the model when it differs from the catalog's current viewport.
-  void ReportMainViewport();
 
  private:
   void PublishMobilePages();
   void SyncMobilePagerChrome(apptraverse::WindowCatalog& catalog);
-  void SyncChildWindowClientMount(CatalogWindow& window);
 
   std::filesystem::path state_dir_;
   android::WindowCatalogUiBridge ui_bridge_;
@@ -49,7 +43,6 @@ class WindowCatalogNativeRuntime {
   ApplicationModelRuntime runtime_;
   ui::android::AndroidPresentationHost presentation_host_;
   std::unique_ptr<android::AndroidApplicationHost> host_;
-  ae::ObjId reported_active_for_ui_{};
 };
 
 }  // namespace apptraverse::example::surfaces

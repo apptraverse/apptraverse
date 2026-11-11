@@ -2,6 +2,8 @@
 #define APPTRAVERSE_PLATFORM_ANDROID_ANDROID_PRESENTATION_HOST_H_
 
 #include <jni.h>
+#include <cstdint>
+#include <functional>
 
 #include "apptraverse/platform/android/android_ui_native_views.h"
 
@@ -14,6 +16,9 @@ struct AndroidPresentationHost final : AndroidUiNativeViews {
   JavaVM* vm{nullptr};
   jobject activity{nullptr};
   jobject content_root{nullptr};
+
+  std::function<void(AndroidDesktopWindowPresenter&, std::int32_t,
+                     std::int32_t, std::int32_t)> on_window_client_size;
 
   void* presenter_host() { return static_cast<AndroidUiNativeViews*>(this); }
 

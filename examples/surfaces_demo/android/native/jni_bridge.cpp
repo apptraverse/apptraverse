@@ -30,9 +30,6 @@ WindowCatalogNativeRuntime* FromHandle(jlong handle) {
 
 jlong NativeCreate(JNIEnv* env, jclass, jstring files_dir, jstring state_subdir,
                  jobject ui_bridge) {
-  EnsureObjectRegistration();
-  ui::EnsureUiPresenterRegistration();
-  ui::android::EnsureAndroidUiPresenterRegistration();
   EnsureWindowCatalogAndroidGraphRegistration();
 
   auto wc_bridge = android::MakeWindowCatalogUiBridge(env, ui_bridge);
@@ -66,24 +63,12 @@ void NativeConsumePublication(JNIEnv*, jclass, jlong handle, jint kind) {
   FromHandle(handle)->ConsumePublication(static_cast<int>(kind));
 }
 
-void NativeRequestBackgroundSave(JNIEnv*, jclass, jlong handle) {
-  FromHandle(handle)->RequestBackgroundSave();
-}
-
 void NativeFlushPendingBackgroundSaves(JNIEnv*, jclass, jlong handle) {
   FromHandle(handle)->FlushPendingBackgroundSaves();
 }
 
-void NativeMobilePageShown(JNIEnv*, jclass, jlong handle, jlong window_id) {
-  FromHandle(handle)->MobilePageShown(static_cast<std::uint32_t>(window_id));
-}
-
 void NativeMobileSwipe(JNIEnv*, jclass, jlong handle, jint delta) {
   FromHandle(handle)->MobileSwipe(static_cast<int>(delta));
-}
-
-void NativeMainViewportChanged(JNIEnv*, jclass, jlong handle) {
-  FromHandle(handle)->ReportMainViewport();
 }
 
 void NativeDestroy(JNIEnv*, jclass, jlong handle) { delete FromHandle(handle); }
@@ -97,35 +82,10 @@ JNINativeMethod const kNativeMethods[] = {
     {"nativeStartModel", "(J)V", reinterpret_cast<void*>(&NativeStartModel)},
     {"nativeConsumePublication", "(JI)V",
      reinterpret_cast<void*>(&NativeConsumePublication)},
-    {"nativeRequestBackgroundSave", "(J)V",
-     reinterpret_cast<void*>(&NativeRequestBackgroundSave)},
     {"nativeFlushPendingBackgroundSaves", "(J)V",
      reinterpret_cast<void*>(&NativeFlushPendingBackgroundSaves)},
-    {"nativeMobilePageShown", "(JJ)V",
-     reinterpret_cast<void*>(&NativeMobilePageShown)},
     {"nativeMobileSwipe", "(JI)V", reinterpret_cast<void*>(&NativeMobileSwipe)},
-    {"nativeMainViewportChanged", "(J)V",
-     reinterpret_cast<void*>(&NativeMainViewportChanged)},
     {"nativeDestroy", "(J)V", reinterpret_cast<void*>(&NativeDestroy)},
-};
-
-constexpr char const kAndroidUiClass[] =
-    "com/apptraverse/ui/android/AppTraverseAndroidUi";
-
-void NativeOnPushButtonClick(JNIEnv*, jclass, jlong native_presenter) {
-  ui::android::NotifyAndroidPushButtonClickedFromJava(native_presenter);
-}
-
-void NativeOnListSelection(JNIEnv*, jclass, jlong native_presenter,
-                           jint row_index) {
-  ui::android::NotifyAndroidListSelectionFromJava(native_presenter, row_index);
-}
-
-JNINativeMethod const kUiMethods[] = {
-    {"nativeOnPushButtonClick", "(J)V",
-     reinterpret_cast<void*>(&NativeOnPushButtonClick)},
-    {"nativeOnListSelection", "(JI)V",
-     reinterpret_cast<void*>(&NativeOnListSelection)},
 };
 
 bool RegisterNatives(JNIEnv* env, char const* class_name,
@@ -155,10 +115,8 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
     return JNI_ERR;
   }
 
-  using apptraverse::example::surfaces::kAndroidUiClass;
   using apptraverse::example::surfaces::kNativeMethods;
   using apptraverse::example::surfaces::kNativeRuntimeClass;
-  using apptraverse::example::surfaces::kUiMethods;
   using apptraverse::example::surfaces::RegisterNatives;
 
   if (!RegisterNatives(
@@ -168,9 +126,7 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
         "JNI_OnLoad: NativeRuntime RegisterNatives failed");
     return JNI_ERR;
   }
-  if (!RegisterNatives(
-          env, kAndroidUiClass, kUiMethods,
-          static_cast<jint>(sizeof(kUiMethods) / sizeof(kUiMethods[0])))) {
+  if (!apptraverse::android::RegisterAndroidUiNativeMethods(env)) {
     apptraverse::android::LogError(
         "JNI_OnLoad: AppTraverseAndroidUi RegisterNatives failed");
     return JNI_ERR;

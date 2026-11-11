@@ -2,6 +2,11 @@ cmake_minimum_required(VERSION 3.25)
 
 project(apptraverse_window_catalog_native LANGUAGES C CXX)
 
+if(APPTRAVERSE_CMAKE_INITIAL_CACHE)
+  include("${APPTRAVERSE_CMAKE_INITIAL_CACHE}")
+endif()
+option(APPTRAVERSE_WINDOW_CATALOG_DEBUG_FRESH "Start a fresh development USER" OFF)
+
 if(NOT ANDROID)
   message(FATAL_ERROR
     "WindowCatalog Android native build requires ANDROID")
@@ -33,15 +38,20 @@ add_subdirectory(${APPTRAVERSE_ROOT} ${CMAKE_CURRENT_BINARY_DIR}/apptraverse)
 # host build tracks builder sources and rewrites the header when the graph changes
 # (same pattern as examples/minimal_app/android/native).
 set(_wc_supply_header
-  "${CMAKE_CURRENT_LIST_DIR}/../generated/embedded_distilled_window_catalog_android_supply.h")
-file(MAKE_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/../generated")
+  "${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_distilled_window_catalog_android_supply.h")
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
 # Short path: nested MSVC link paths must stay under MAX_PATH on Windows.
-set(_wc_host_export_dir "${APPTRAVERSE_ROOT}/b/wc-ahe/${ANDROID_ABI}")
+# Keep the incremental host build stable across Gradle native configurations.
+# Export once to its own directory, then copy into each NDK configuration.
+set(_wc_host_export_dir "${APPTRAVERSE_ROOT}/b/wc-ahe/${ANDROID_ABI}-${APPTRAVERSE_WINDOW_CATALOG_DEBUG_FRESH}")
+set(_wc_host_supply_header
+  "${_wc_host_export_dir}/generated/embedded_distilled_window_catalog_android_supply.h")
+file(MAKE_DIRECTORY "${_wc_host_export_dir}/generated")
 set(_wc_host_export_args
   -DBUILD_TESTING=OFF
   -DAPPTRAVERSE_BUILD_LINUX_GUI=OFF
   -DAPPTRAVERSE_BUILD_EXAMPLES=ON
-  "-DAPPTRAVERSE_ANDROID_WINDOW_CATALOG_SUPPLY_HEADER=${_wc_supply_header}")
+  "-DAPPTRAVERSE_ANDROID_WINDOW_CATALOG_SUPPLY_HEADER=${_wc_host_supply_header}")
 # Visual Studio generators do not always expose standalone custom targets to
 # MSBuild the way Ninja does; match minimal_app's intent with a Ninja host build.
 if(CMAKE_HOST_WIN32)
@@ -50,8 +60,13 @@ if(CMAKE_HOST_WIN32)
   if(EXISTS "${_wc_ninja}")
     list(APPEND _wc_host_export_args "-G" "Ninja"
       "-DCMAKE_BUILD_TYPE=Debug"
+      "-DCMAKE_C_FLAGS_DEBUG=/Od /RTC1 /Z7"
+      "-DCMAKE_CXX_FLAGS_DEBUG=/Od /RTC1 /Z7"
       "-DCMAKE_MAKE_PROGRAM=${_wc_ninja}")
   endif()
+endif()
+if(APPTRAVERSE_CMAKE_INITIAL_CACHE)
+  list(APPEND _wc_host_export_args "-C" "${APPTRAVERSE_CMAKE_INITIAL_CACHE}")
 endif()
 if(CPM_SOURCE_CACHE)
   list(APPEND _wc_host_export_args "-DCPM_SOURCE_CACHE=${CPM_SOURCE_CACHE}")
@@ -61,9 +76,12 @@ if(DEFINED CPM_aether-miscpp_SOURCE)
     "-DCPM_aether-miscpp_SOURCE=${CPM_aether-miscpp_SOURCE}")
 endif()
 add_custom_command(
-  OUTPUT "${_wc_host_export_dir}/CMakeCache.txt"
+  OUTPUT "${_wc_host_export_dir}/window_catalog_supply_configured.stamp"
   COMMAND "${CMAKE_COMMAND}" -S "${APPTRAVERSE_ROOT}"
           -B "${_wc_host_export_dir}" ${_wc_host_export_args}
+  COMMAND "${CMAKE_COMMAND}" -E touch
+          "${_wc_host_export_dir}/window_catalog_supply_configured.stamp"
+  DEPENDS "${CMAKE_CURRENT_LIST_FILE}" ${APPTRAVERSE_CMAKE_INITIAL_CACHE}
   VERBATIM
   COMMENT "Configure build-host WindowCatalog Android supply exporter")
 if(CMAKE_HOST_WIN32 AND EXISTS "${_wc_ninja}")
@@ -77,7 +95,9 @@ else()
 endif()
 add_custom_target(window_catalog_android_supply
   COMMAND ${_wc_supply_build_cmd}
-  DEPENDS "${_wc_host_export_dir}/CMakeCache.txt"
+  COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+          "${_wc_host_supply_header}" "${_wc_supply_header}"
+  DEPENDS "${_wc_host_export_dir}/window_catalog_supply_configured.stamp"
   BYPRODUCTS "${_wc_supply_header}"
   VERBATIM
   COMMENT "Build-host export of the Android WindowCatalog supply")
@@ -95,13 +115,15 @@ target_include_directories(window_catalog_android PUBLIC
   ${APPTRAVERSE_ROOT}/examples/surfaces_demo/android/native
 )
 target_include_directories(window_catalog_android PRIVATE
-  ${CMAKE_CURRENT_LIST_DIR}/../generated)
+  ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_link_libraries(window_catalog_android PUBLIC
   surfaces_demo_window_catalog_common
   apptraverse_ui_android
 )
-target_compile_definitions(window_catalog_android PUBLIC
-  APPTRAVERSE_ENABLE_DISTILLATION)
+if(APPTRAVERSE_WINDOW_CATALOG_DEBUG_FRESH)
+  target_compile_definitions(window_catalog_android PRIVATE
+    APPTRAVERSE_WINDOW_CATALOG_DEBUG_FRESH)
+endif()
 
 add_library(apptraverse_window_catalog_jni SHARED
   jni_bridge.cpp
@@ -114,7 +136,7 @@ target_include_directories(apptraverse_window_catalog_jni PRIVATE
   ${APPTRAVERSE_ROOT}/examples/surfaces_demo/android
   ${APPTRAVERSE_ROOT}/examples/surfaces_demo/common
   ${APPTRAVERSE_ROOT}/src/platform/android
-  ${CMAKE_CURRENT_LIST_DIR}/../generated
+  ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
 
 target_link_libraries(apptraverse_window_catalog_jni PRIVATE

@@ -33,6 +33,10 @@ struct WindowCatalogMainChromeLayout {
 [[nodiscard]] WindowCatalogMainChromeLayout ComputeWindowCatalogMainChromeLayout(
     std::int32_t client_w, std::int32_t client_h, std::int32_t density_dpi = 160);
 
+// Mobile child chrome: one Close button at the bottom of the reported viewport.
+[[nodiscard]] WindowCatalogChromeRect ComputeWindowCatalogChildCloseLayout(
+    std::int32_t client_w, std::int32_t client_h, std::int32_t density_dpi = 160);
+
 }  // namespace apptraverse
 
 #endif  // APPTRAVERSE_WINDOW_CATALOG_CHROME_LAYOUT_H_

@@ -672,6 +672,61 @@ void TestStopDrainsAcceptedWork() {
   CHECK(executed.load() == 2);
 }
 
+void TestSyncPostCompletesAcceptedWorkDuringStop() {
+  ae::RamDomainStorage model_storage;
+  ae::Domain model_domain{model_storage};
+  auto root = RuntimeTestRoot::ptr::Create(
+      ae::CreateWith{model_domain}.with_id(kRootId));
+  InitializeRuntimeNode(*root);
+
+  ApplicationModelRuntime runtime;
+  std::atomic<int> executed{0};
+  std::atomic<bool> callback_finished{false};
+  std::promise<void> entered;
+  auto entered_future = entered.get_future();
+  std::promise<void> finish;
+  auto finish_future = finish.get_future();
+
+  runtime.Post([&](ae::Domain&) { ++executed; });
+  auto caller = std::async(std::launch::async, [&] {
+    runtime.SyncPost([&](ae::Domain& domain) {
+      CHECK(&domain == &model_domain);
+      CHECK(executed.load() == 1);
+      entered.set_value();
+      finish_future.wait();
+      ++executed;
+      callback_finished.store(true);
+    });
+    CHECK(callback_finished.load());
+  });
+  std::thread model_thread{[&] {
+    runtime.Run(model_domain, *root, [&](ApplicationPublicationKind) {
+      runtime.TakePublishedCopy();
+      runtime.NotifyPublicationConsumed();
+    });
+  }};
+
+  CHECK(entered_future.wait_for(std::chrono::seconds{5}) ==
+        std::future_status::ready);
+  runtime.Post([&](ae::Domain&) { ++executed; });
+  runtime.RequestStop();
+  runtime.Post([&](ae::Domain&) { executed += 100; });
+  CHECK(caller.wait_for(std::chrono::seconds{0}) == std::future_status::timeout);
+  finish.set_value();
+  CHECK(caller.wait_for(std::chrono::seconds{5}) == std::future_status::ready);
+  caller.get();
+  model_thread.join();
+  CHECK(executed.load() == 3);
+}
+
+void TestSyncPostRejectsAfterStopWithoutWorker() {
+  ApplicationModelRuntime runtime;
+  runtime.RequestStop();
+  bool executed = false;
+  runtime.SyncPost([&](ae::Domain&) { executed = true; });
+  CHECK(!executed);
+}
+
 void TestBeforeIncrementalSidecarAtTake() {
   ae::RamDomainStorage model_storage;
   ae::Domain model_domain{model_storage};
@@ -1268,6 +1323,8 @@ int main() {
   apptraverse::test::TestInitialAndIncrementalPublication();
   apptraverse::test::TestCoalesceAndBackpressure();
   apptraverse::test::TestStopDrainsAcceptedWork();
+  apptraverse::test::TestSyncPostCompletesAcceptedWorkDuringStop();
+  apptraverse::test::TestSyncPostRejectsAfterStopWithoutWorker();
   apptraverse::test::TestCallbackCanPostAfterPublication();
   apptraverse::test::TestBeforeIncrementalSidecarAtTake();
   apptraverse::test::TestModelSessionLoadRunPersist();

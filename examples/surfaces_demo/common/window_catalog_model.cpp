@@ -273,34 +273,6 @@ void WindowCatalog::SubmitMainClientViewportFromUi(std::int32_t width,
   Commit(std::move(event));
 }
 
-void WindowCatalog::SubmitHolderChildWindowClientSizeFromUi(
-    std::uint32_t window_obj_id, std::int32_t width, std::int32_t height) {
-  if (width <= 0 || height <= 0) {
-    return;
-  }
-  ae::ObjId const wid{window_obj_id};
-  if (!wid.is_valid() || wid == persisted.main_window.id()) {
-    return;
-  }
-  auto window = domain->Find(wid).as<CatalogWindow>();
-  if (window == nullptr) {
-    return;
-  }
-  if (window->client_width() == width && window->client_height() == height) {
-    return;
-  }
-  WindowHolder* holder = FindHolderForWindow(window->obj_id);
-  if (holder == nullptr) {
-    return;
-  }
-  std::int32_t const offset =
-      static_cast<std::int32_t>(holder->window_number > 0
-                                    ? holder->window_number - 1
-                                    : 0) *
-      28;
-  window->SubmitFrameFromNative(160 + offset, 120 + offset, width, height, false);
-}
-
 CatalogWindow::ptr WindowCatalog::ResolveMobileActiveWindow() {
   if (!persisted.mobile_pager) {
     return persisted.main_window;

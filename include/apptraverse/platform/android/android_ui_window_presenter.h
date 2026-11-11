@@ -42,6 +42,11 @@ class AndroidDesktopWindowPresenter : public UiDesktopWindowPresenter {
   AndroidDesktopWindowViewRefs* view_refs_{nullptr};
 };
 
+void NotifyAndroidWindowClientSizeFromJava(std::int64_t native_presenter,
+                                         std::int32_t width,
+                                         std::int32_t height,
+                                         std::int32_t density_dpi);
+
 }  // namespace apptraverse::ui::android
 
 #endif  // APPTRAVERSE_PLATFORM_ANDROID_ANDROID_UI_WINDOW_PRESENTER_H_

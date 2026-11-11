@@ -45,8 +45,9 @@ class WindowCatalog;
 class WindowHolder;
 
 class CatalogWindow;
+class SetCatalogChildViewportEvent;
 
-class CatalogWindow : public ui::UiDesktopWindow {
+class CatalogWindow : public NodeFor<CatalogWindow, ui::UiDesktopWindow> {
 
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::CatalogWindow",
 
@@ -58,7 +59,7 @@ class CatalogWindow : public ui::UiDesktopWindow {
 
  public:
 
-  explicit CatalogWindow(ae::ObjProp prop) : UiDesktopWindow{prop} {}
+  explicit CatalogWindow(ae::ObjProp prop) : NodeFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(close_button), AE_MMBR(close_button_presenter))
 
@@ -83,6 +84,28 @@ class CatalogWindow : public ui::UiDesktopWindow {
 
   ui::UiPushButtonPresenter::ptr close_button_presenter;
 
+  using UiDesktopWindow::Apply;
+  void Apply(SetCatalogChildViewportEvent const& event);
+
+};
+
+class SetCatalogChildViewportEvent
+    : public EventFor<CatalogWindow, SetCatalogChildViewportEvent> {
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::example::surfaces::SetCatalogChildViewportEvent",
+      SetCatalogChildViewportEvent, Event, 0)
+
+ protected:
+  SetCatalogChildViewportEvent() = default;
+
+ public:
+  explicit SetCatalogChildViewportEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(width), AE_MMBR(height), AE_MMBR(density_dpi))
+
+  std::int32_t width;
+  std::int32_t height;
+  std::int32_t density_dpi;
 };
 
 class WindowHolder : public ui::UiListRow {
@@ -305,7 +328,8 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
   void SubmitHolderChildWindowClientSizeFromUi(std::uint32_t window_obj_id,
                                                std::int32_t width,
-                                               std::int32_t height);
+                                               std::int32_t height,
+                                               std::int32_t density_dpi = 160);
 
   void SetDesktopZOrderFromObjIds(std::vector<std::uint32_t> ordered_ids);
 
