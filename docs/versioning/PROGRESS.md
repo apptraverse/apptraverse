@@ -3033,3 +3033,20 @@ The preceding audit's no-further-findings conclusion was incomplete; this
 follow-up records the additional evidence rather than treating its old test
 PASS as proof of all contracts.
 See [changes, regressions and precise verification scope](../validation/window-catalog-canon-five-fixes-2026-11-10.md).
+
+
+## WindowCatalog fresh MinSizeRel acceptance — 2026-11-10 — PASS
+
+Validated source `0417ea6` in the existing incremental MinSizeRel build without
+source fixes: **24/24 PASS**, **58.02 s**. Includes both runtime-only binary
+contracts, normal-EXE fresh/restart native acceptance, the new replay/lazy-ring/
+restore-frame regressions, headless/model/USER/Clone/history and native tests.
+Both EXEs are **645,120 B (630 KiB)**; imports only KERNEL32/USER32; forbidden
+runtime/distillation/registration/factory checks pass. The embedded supply
+matches the Debug-prepared header by SHA-256.
+
+Close diagnostic (explicit load-only EXE, 5×4): child destruction medians
+**21/45/15/18 ms**, corresponding Main exit medians **31/31/28/30 ms**. Normal
+EXE restart is a separate functional test, not those timing observations.
+No main merge, upstream Æther publication, other-example/platform or CI work.
+See [full evidence and scope](../validation/window-catalog-minsizerel-2026-11-10.md).
