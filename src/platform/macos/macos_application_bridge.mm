@@ -365,6 +365,11 @@ class MacNativeViews final
       static_cast<std::int32_t>(width), static_cast<std::int32_t>(height));
 }
 
+- (void)activateWindow:(uint64_t)token {
+  if (_stopping) return;
+  FromToken<MacDesktopWindowPresenter>(token).NotifyActivatedFromUi();
+}
+
 - (BOOL)requestCloseWindow:(uint64_t)token {
   if (_stopping) return YES;
   auto& presenter = FromToken<MacDesktopWindowPresenter>(token);

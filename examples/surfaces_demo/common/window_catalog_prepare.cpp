@@ -6,16 +6,6 @@
 
 namespace apptraverse {
 
-void PrepareWindowCatalogForDesktopRun(WindowCatalog& catalog) {
-  PrepareWindowCatalogForRun(catalog);
-  catalog.SubmitPresentationMode(false);
-}
-
-void PrepareWindowCatalogForPagedRun(WindowCatalog& catalog) {
-  PrepareWindowCatalogForRun(catalog);
-  catalog.SubmitPresentationMode(true);
-}
-
 void PrepareWindowCatalogForRun(WindowCatalog& catalog) {
   ui::LoadPresentedWindow(catalog.persisted.main_window);
   catalog.persisted.list.Load();

@@ -90,6 +90,7 @@ typedef NS_ENUM(NSInteger, ATMacPublicationKind) {
       updatesRestore:(BOOL)updatesRestore;
 - (void)submitScreenX:(double)x y:(double)y width:(double)width
                height:(double)height token:(uint64_t)token;
+- (void)activateWindow:(uint64_t)token;
 - (BOOL)requestCloseWindow:(uint64_t)token;
 - (void)requestStop;
 - (NSInteger)finishTeardown;

@@ -90,11 +90,11 @@ std::vector<std::uint32_t> CaptureCatalogDesktopZOrderTopToBottom(
 }
 
 void RestoreCatalogDesktopZOrder(WindowCatalog& catalog) {
-  if (catalog.persisted.desktop_z_order.empty()) {
+  if (catalog.persisted.window_order.empty()) {
     return;
   }
   std::vector<GtkWidget*> ordered_widgets;
-  for (auto const& window_ref : catalog.persisted.desktop_z_order) {
+  for (auto const& window_ref : catalog.persisted.window_order) {
     GtkWidget* const widget =
         GtkForCatalogWindowId(catalog, window_ref.id().id());
     if (widget != nullptr) {

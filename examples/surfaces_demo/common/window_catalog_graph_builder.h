@@ -26,7 +26,6 @@ struct WindowCatalogPresenterFactory {
 };
 
 struct WindowCatalogGraphOptions {
-  bool mobile_pager = false;
   bool mobile_close_in_prefab = true;
 };
 

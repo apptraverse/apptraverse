@@ -132,7 +132,7 @@ std::vector<HWND> HwndsForCatalogDesktopZOrder(
   }
   std::vector<HWND> ordered;
   std::unordered_set<HWND> placed;
-  for (auto const& window_ref : catalog.persisted.desktop_z_order) {
+  for (auto const& window_ref : catalog.persisted.window_order) {
     auto const it = id_to_hwnd.find(window_ref.id().id());
     if (it == id_to_hwnd.end()) {
       continue;
@@ -152,7 +152,7 @@ std::vector<HWND> HwndsForCatalogDesktopZOrder(
 }
 
 void RestoreCatalogDesktopZOrder(apptraverse::WindowCatalog& catalog) {
-  if (catalog.persisted.desktop_z_order.empty()) {
+  if (catalog.persisted.window_order.empty()) {
     return;
   }
   ApplyDesktopWindowsZOrderTopToBottom(HwndsForCatalogDesktopZOrder(catalog));
@@ -160,6 +160,9 @@ void RestoreCatalogDesktopZOrder(apptraverse::WindowCatalog& catalog) {
 
 apptraverse::ui::windows::WinDesktopWindowPresenter& FindChildWindowPresenter(
     apptraverse::WindowCatalog& catalog, ae::ObjId window_id) {
+  if (window_id == catalog.persisted.main_window.id()) {
+    return *CatalogWindowPresenter(*catalog.persisted.main_window);
+  }
   for (auto const& row : catalog.persisted.list->rows) {
     auto* holder = static_cast<apptraverse::WindowHolder*>(&*row);
     if (!holder->window.is_loaded()) {
@@ -219,7 +222,7 @@ int main(int argc, char** argv) {
           std::vector<std::uint32_t> const z_order =
               CaptureCatalogDesktopZOrderTopToBottom(catalog);
           proxy.Invoke(catalog.obj_id,
-                       &apptraverse::WindowCatalog::SetDesktopZOrderFromObjIds,
+                       &apptraverse::WindowCatalog::SetWindowOrderFromObjIds,
                        z_order);
           session.runtime.RequestStop();
           return;
@@ -239,6 +242,7 @@ int main(int argc, char** argv) {
         static_cast<apptraverse::WindowCatalog&>(application_root);
     apptraverse::ui::windows::WinDesktopWindowPresenter& presenter =
         FindChildWindowPresenter(catalog, pending_focus);
+    RestoreCatalogDesktopZOrder(catalog);
     HWND const hwnd = presenter.hwnd();
     if (IsIconic(hwnd)) {
       ShowWindow(hwnd, SW_RESTORE);
@@ -250,6 +254,8 @@ int main(int argc, char** argv) {
     auto& catalog =
         static_cast<apptraverse::WindowCatalog&>(application_root);
     RestoreCatalogDesktopZOrder(catalog);
+    auto& active = FindChildWindowPresenter(catalog, catalog.persisted.window_order.front().id());
+    SetForegroundWindow(active.hwnd());
   };
   callbacks.prepare_ui_presenters = [&session](ae::Obj& ui_root) {
     WireWindowCatalogMainNativeFrameQueue(ui_root,

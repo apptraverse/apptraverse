@@ -4,6 +4,7 @@
 #include <iostream>
 #include <map>
 #include <string>
+#include <vector>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
@@ -44,13 +45,7 @@ WindowHolder& Holder(WindowCatalog& catalog, std::size_t index) {
 }
 
 void Prepare(WindowCatalog& catalog) {
-#if defined(APPTRAVERSE_PORTABLE_ANDROID) || defined(__EMSCRIPTEN__)
-  PrepareWindowCatalogForPagedRun(catalog);
-  Require(catalog.persisted.mobile_pager, "paged target did not activate paged presentation");
-#else
-  PrepareWindowCatalogForDesktopRun(catalog);
-  Require(!catalog.persisted.mobile_pager, "desktop target retained paged presentation");
-#endif
+  PrepareWindowCatalogForRun(catalog);
 }
 
 template <typename T>
@@ -70,11 +65,11 @@ Snapshot Inspect(WindowCatalog& catalog) {
   Put(result, "row_count", catalog.persisted.list->rows.size());
   Put(result, "selection", catalog.persisted.list->selection_index);
   Put(result, "selected_id", catalog.persisted.selected.id().id());
-  Put(result, "mobile_active_id", catalog.persisted.mobile_active_window.id().id());
-  Put(result, "desktop_order_count", catalog.persisted.desktop_z_order.size());
-  for (std::size_t i = 0; i < catalog.persisted.desktop_z_order.size(); ++i) {
-    Put(result, "desktop_order." + std::to_string(i),
-        catalog.persisted.desktop_z_order[i].id().id());
+  Put(result, "active_id", catalog.ResolveActiveWindow().id().id());
+  Put(result, "window_order_count", catalog.persisted.window_order.size());
+  for (std::size_t i = 0; i < catalog.persisted.window_order.size(); ++i) {
+    Put(result, "window_order." + std::to_string(i),
+        catalog.persisted.window_order[i].id().id());
   }
   for (std::size_t i = 0; i < catalog.persisted.list->rows.size(); ++i) {
     auto& holder = Holder(catalog, i);
@@ -164,9 +159,9 @@ void Seed(WindowCatalog& catalog) {
 }
 
 void Continue(WindowCatalog& catalog) {
-  // A remembered mobile page must not keep a child alive when a desktop user
-  // closes it after transfer. The destination's subsequent Add must not reopen it.
-  ae::ObjId const previous_active = catalog.persisted.mobile_active_window.id();
+  // Active-window identity must not retain a child after Close on any host.
+  // The destination's subsequent Add must not reopen it.
+  ae::ObjId const previous_active = catalog.ResolveActiveWindow().id();
   WindowHolder* previous_active_holder = catalog.FindHolderForWindow(previous_active);
   if (previous_active_holder != nullptr) {
     catalog.CloseHolderWindow(*previous_active_holder);
@@ -181,8 +176,7 @@ void Continue(WindowCatalog& catalog) {
   Require(closed.window->presenter.is_loaded(), "reopened presenter missing");
   closed.window->SubmitFrameFromNative(-980, -95, 633, 477, true);
   catalog.CloseHolderWindow(closed);
-  // A mobile viewport changes live client size, never the desktop restore frame.
-#if defined(APPTRAVERSE_PORTABLE_ANDROID) || defined(__EMSCRIPTEN__)
+  // A viewport changes client size, never the saved free-window restore frame.
   auto& open = Holder(catalog, 0);
   auto const restore_x = open.window->x();
   auto const restore_y = open.window->y();
@@ -192,8 +186,7 @@ void Continue(WindowCatalog& catalog) {
   Require(open.window->x() == restore_x && open.window->y() == restore_y &&
           open.window->restore_client_width() == restore_w &&
           open.window->restore_client_height() == restore_h,
-          "mobile viewport overwrote desktop restore geometry");
-#endif
+          "viewport overwrote restore geometry");
   catalog.AddWindow();
   if (previous_active_holder != nullptr) {
     Require(!catalog.IsHolderWindowOpen(*previous_active_holder),
@@ -255,7 +248,16 @@ int main(int argc, char** argv) {
     row_text = row_text.substr(0, row_text.find(" ("));
     expected["selection"] = "1";
     expected["selected_id"] = expected.at("row.1.holder");
-    expected["mobile_active_id"] = expected.at("row.1.window");
+    expected["active_id"] = expected.at("row.1.window");
+    std::vector<std::string> order{expected.at("row.1.window")};
+    auto const previous_count = std::stoul(expected.at("window_order_count"));
+    for (std::size_t i = 0; i < previous_count; ++i) {
+      auto id = expected.at("window_order." + std::to_string(i));
+      if (id != order.front()) order.push_back(id);
+    }
+    expected["window_order_count"] = std::to_string(order.size());
+    for (std::size_t i = 0; i < order.size(); ++i)
+      expected["window_order." + std::to_string(i)] = order[i];
     CheckManifest(Inspect(*catalog), expected);
   } else {
     CheckManifest(Inspect(*catalog), ReadManifest(profile));

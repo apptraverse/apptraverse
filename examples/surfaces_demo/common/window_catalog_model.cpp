@@ -75,21 +75,32 @@ void BindLiveWindowNotifiers(WindowCatalog& catalog, CatalogWindow& window) {
   }
 }
 
+CatalogWindow::ptr WindowIdentity(WindowCatalog& catalog, ae::ObjId id) {
+  return CatalogWindow::ptr::Declare(
+      ae::CreateWith{*catalog.domain}.with_id(id).with_flags(kLazyPrefabLinkFlags));
+}
+
+void MoveWindowToFront(WindowCatalog& catalog, ae::ObjId window_id) {
+  auto& order = catalog.persisted.window_order;
+  order.erase(std::remove_if(order.begin(), order.end(),
+      [window_id](auto const& window) { return window.id() == window_id; }),
+      order.end());
+  order.insert(order.begin(), WindowIdentity(catalog, window_id));
+  catalog.pending_focus_window = WindowIdentity(catalog, window_id);
+}
+
 void ForgetWindowPresentationState(WindowCatalog& catalog, ae::ObjId window_id) {
   if (catalog.pending_focus_window.id() == window_id) {
     catalog.pending_focus_window = {};
   }
-  if (catalog.pending_mobile_active_window.id() == window_id) {
-    catalog.pending_mobile_active_window = {};
-  }
-  auto& order = catalog.persisted.desktop_z_order;
+  auto& order = catalog.persisted.window_order;
+  bool const was_active = !order.empty() && order.front().id() == window_id;
   order.erase(std::remove_if(order.begin(), order.end(),
       [window_id](auto const& window) { return window.id() == window_id; }),
       order.end());
-  if (catalog.persisted.mobile_active_window.id() == window_id) {
-    catalog.persisted.mobile_active_window = catalog.persisted.main_window;
-    catalog.persisted.mobile_active_window.SetFlags(kLazyPrefabLinkFlags);
-    catalog.persisted.mobile_active_window.Reset();
+  if (was_active) {
+    assert(!order.empty());  // The main window lives until application shutdown.
+    catalog.pending_focus_window = WindowIdentity(catalog, order.front().id());
   }
 }
 
@@ -207,19 +218,19 @@ WindowHolder* FindListHolderByIdentity(WindowCatalog& catalog,
 }
 }  // namespace
 
-void WindowCatalog::Apply(SetWindowCatalogDesktopZOrderEvent const& event) {
-  persisted.desktop_z_order = event.ordered;
-  NoteMaterializedChange();
-}
-void WindowCatalog::Apply(SetWindowCatalogMobileActiveEvent const& event) {
-  if (!event.window.is_valid()) {
-    persisted.mobile_active_window = persisted.main_window;
-  } else {
-    persisted.mobile_active_window = event.window;
+void WindowCatalog::Apply(SetWindowCatalogOrderEvent const& event) {
+  assert(!event.ordered.empty());
+  auto const previous_active = persisted.window_order.empty()
+      ? ae::ObjId{} : persisted.window_order.front().id();
+  persisted.window_order = event.ordered;
+  // History and order retain identity only; the holder owns the loaded graph.
+  for (auto& window : persisted.window_order) {
+    window.SetFlags(kLazyPrefabLinkFlags);
+    window.Reset();
   }
-  // Selection retains identity, not a second owner of a window's live graph.
-  persisted.mobile_active_window.SetFlags(kLazyPrefabLinkFlags);
-  persisted.mobile_active_window.Reset();
+  if (previous_active != persisted.window_order.front().id()) {
+    pending_focus_window = WindowIdentity(*this, persisted.window_order.front().id());
+  }
   NoteMaterializedChange();
 }
 namespace {
@@ -239,21 +250,6 @@ void ApplyButtonChromeRect(Presenter::ptr& presenter,
 }
 
 }  // namespace
-
-void WindowCatalog::Apply(SetWindowCatalogPresentationModeEvent const& event) {
-  persisted.mobile_pager = event.paged;
-  // Keep the active page and desktop placement as independent user state.
-  // A different presentation environment does not discard either of them.
-  NoteMaterializedChange();
-}
-
-void WindowCatalog::SubmitPresentationMode(bool paged) {
-  if (persisted.mobile_pager == paged) return;
-  auto event = SetWindowCatalogPresentationModeEvent::ptr::Create(
-      ae::CreateWith{*domain});
-  event->paged = paged;
-  Commit(std::move(event));
-}
 
 void WindowCatalog::Apply(SetWindowCatalogMainClientViewportEvent const& event) {
   if (event.width <= 0 || event.height <= 0) {
@@ -310,144 +306,99 @@ void WindowCatalog::SubmitMainClientViewportFromUi(std::int32_t width,
   Commit(std::move(event));
 }
 
-CatalogWindow::ptr WindowCatalog::ResolveMobileActiveWindow() {
-  if (!persisted.mobile_pager) {
+CatalogWindow::ptr WindowCatalog::ResolveActiveWindow() {
+  assert(!persisted.window_order.empty());
+  auto const active_id = persisted.window_order.front().id();
+  if (active_id == persisted.main_window.id()) {
     return persisted.main_window;
   }
-  if (!persisted.mobile_active_window.is_valid()) {
-    return persisted.main_window;
-  }
-  if (persisted.mobile_active_window.id() == persisted.main_window.id()) {
-    return persisted.main_window;
-  }
-  WindowHolder* holder =
-      FindHolderForWindow(persisted.mobile_active_window.id());
-  if (holder == nullptr || !holder->window.is_loaded()) {
-    return persisted.main_window;
-  }
+  auto* holder = FindHolderForWindow(active_id);
+  assert(holder != nullptr && IsHolderWindowOpen(*holder));
   return holder->window;
 }
-void WindowCatalog::SetMobileActiveWindow(CatalogWindow::ptr window) {
-  if (!persisted.mobile_pager) {
-    return;
+
+void WindowCatalog::ActivateWindow(CatalogWindow::ptr window) {
+  SubmitActiveWindowFromUi(window.id());
+  // An explicit model action (Open/Next) may need to refocus an already active
+  // window after another application took native focus. Native echo reports
+  // themselves do not request focus or publish an unchanged order.
+  if (persisted.window_order.front().id() == window.id()) {
+    pending_focus_window = WindowIdentity(*this, window.id());
+    NoteMaterializedChange();
   }
-  auto event = SetWindowCatalogMobileActiveEvent::ptr::Create(
-      ae::CreateWith{*domain});
-  event->window = std::move(window);
-  // History must not keep a once-selected window materialized after Close.
-  event->window.SetFlags(kLazyPrefabLinkFlags);
-  event->window.Reset();
-  Commit(std::move(event));
-  pending_mobile_active_window = ResolveMobileActiveWindow();
 }
-std::vector<CatalogWindow::ptr> WindowCatalog::BuildMobileRing() const {
+
+std::vector<CatalogWindow::ptr> WindowCatalog::BuildWindowNavigationRing() const {
+  // Stable catalog order, independent of activation recency. Moving the chosen
+  // window to front must not make repeated Next alternate between two windows.
   std::vector<CatalogWindow::ptr> ring;
   ring.push_back(persisted.main_window);
-  persisted.list.Load();
   for (auto const& row : persisted.list->rows) {
-    row.Load();
-    WindowHolder const* holder = AsHolder(*row);
-    if (holder->window.is_loaded()) {
+    auto const* holder = AsHolder(*row);
+    if (IsHolderWindowOpen(*holder)) {
       ring.push_back(holder->window);
     }
   }
   return ring;
 }
-CatalogWindow::ptr WindowCatalog::MobileRingPredecessor(
-    CatalogWindow const& window) const {
-  std::vector<CatalogWindow::ptr> const ring = BuildMobileRing();
-  for (std::size_t i = 0; i < ring.size(); ++i) {
-    if (ring[i].id() == window.obj_id) {
-      if (i == 0) {
-        return ring.back();
-      }
-      return ring[i - 1];
+
+void WindowCatalog::SubmitActiveWindowFromUi(ae::ObjId window_obj_id) {
+  if (window_obj_id != persisted.main_window.id()) {
+    auto* holder = FindHolderForWindow(window_obj_id);
+    if (holder == nullptr || !IsHolderWindowOpen(*holder)) {
+      return;  // A queued activation can outlive its open-window membership.
     }
   }
-  return persisted.main_window;
+  if (persisted.window_order.front().id() == window_obj_id) return;
+  std::vector<std::uint32_t> ids{window_obj_id.id()};
+  for (auto const& window : persisted.window_order) {
+    if (window.id() != window_obj_id) ids.push_back(window.id().id());
+  }
+  SetWindowOrderFromObjIds(std::move(ids));
+  // Native focus already happened. Do not replay it later over a newer native
+  // activation while this publication is travelling to the mirror.
+  pending_focus_window = {};
 }
-void WindowCatalog::SubmitMobileActiveFromUi(ae::ObjId window_obj_id) {
-  if (!persisted.mobile_pager) {
-    return;
-  }
-  ae::ObjId const main_id = persisted.main_window.id();
-  if (window_obj_id == main_id) {
-    SetMobileActiveWindow(persisted.main_window);
-    return;
-  }
-  WindowHolder* holder = FindHolderForWindow(window_obj_id);
-  if (holder == nullptr || !holder->window.is_loaded()) {
-    return;
-  }
-  SetMobileActiveWindow(holder->window);
+
+void WindowCatalog::SubmitWindowNavigationFromUi(int delta) {
+  if (delta == 0) return;
+  auto const ring = BuildWindowNavigationRing();
+  if (ring.size() <= 1) return;
+  auto const current = ResolveActiveWindow().id();
+  auto const it = std::find_if(ring.begin(), ring.end(),
+      [current](auto const& window) { return window.id() == current; });
+  assert(it != ring.end());
+  auto const index = static_cast<std::size_t>(it - ring.begin());
+  auto const next = delta > 0 ? (index + 1) % ring.size()
+                             : (index == 0 ? ring.size() - 1 : index - 1);
+  ActivateWindow(ring[next]);
 }
-void WindowCatalog::SubmitMobileSwipeFromUi(int delta) {
-  if (!persisted.mobile_pager || delta == 0) {
-    return;
-  }
-  std::vector<CatalogWindow::ptr> const ring = BuildMobileRing();
-  if (ring.size() <= 1) {
-    return;
-  }
-  CatalogWindow::ptr const current = ResolveMobileActiveWindow();
-  std::size_t index = 0;
-  for (std::size_t i = 0; i < ring.size(); ++i) {
-    if (ring[i].id() == current.id()) {
-      index = i;
-      break;
-    }
-  }
-  std::size_t next_index = index;
-  if (delta > 0) {
-    next_index = (index + 1) % ring.size();
-  } else {
-    next_index = index == 0 ? ring.size() - 1 : index - 1;
-  }
-  SetMobileActiveWindow(ring[next_index]);
-}
-void WindowCatalog::SetDesktopZOrderFromObjIds(
+
+void WindowCatalog::SetWindowOrderFromObjIds(
     std::vector<std::uint32_t> ordered_ids) {
   ae::ObjId const main_id = persisted.main_window.id();
   auto const is_open_catalog_window = [&](ae::ObjId id) {
-    if (id == main_id) {
-      return true;
-    }
-    WindowHolder* holder = FindHolderForWindow(id);
-    if (holder == nullptr) {
-      return false;
-    }
-    return holder->window.is_loaded();
+    if (id == main_id) return true;
+    auto* holder = FindHolderForWindow(id);
+    return holder != nullptr && IsHolderWindowOpen(*holder);
   };
   std::vector<CatalogWindow::ptr> ordered;
-  ordered.reserve(ordered_ids.size());
   std::unordered_set<ae::ObjId::Type> seen;
-  for (std::uint32_t const raw_id : ordered_ids) {
-    ae::ObjId const id{raw_id};
-    if (!id.is_valid() || !seen.insert(raw_id).second) {
-      continue;
+  auto const append = [&](ae::ObjId id) {
+    if (id.is_valid() && is_open_catalog_window(id) && seen.insert(id.id()).second) {
+      ordered.push_back(WindowIdentity(*this, id));
     }
-    if (!is_open_catalog_window(id)) {
-      continue;
-    }
-    ordered.push_back(CatalogWindow::ptr::Declare(
-        ae::CreateWith{*domain}
-            .with_id(id)
-            .with_flags(kLazyPrefabLinkFlags)));
+  };
+  for (auto const id : ordered_ids) append(ae::ObjId{id});
+  // Native reports can precede creation of a newly opened native window. Keep
+  // omitted open model windows, and filter stale closed/deleted native handles.
+  for (auto const& window : persisted.window_order) append(window.id());
+  if (ordered.size() == persisted.window_order.size() &&
+      std::equal(ordered.begin(), ordered.end(), persisted.window_order.begin(),
+          [](auto const& a, auto const& b) { return a.id() == b.id(); })) {
+    return;
   }
-  if (persisted.desktop_z_order.size() == ordered.size()) {
-    bool same = true;
-    for (std::size_t i = 0; i < ordered.size(); ++i) {
-      if (persisted.desktop_z_order[i].id() != ordered[i].id()) {
-        same = false;
-        break;
-      }
-    }
-    if (same) {
-      return;
-    }
-  }
-  auto event = SetWindowCatalogDesktopZOrderEvent::ptr::Create(
-      ae::CreateWith{*domain});
+  auto event = SetWindowCatalogOrderEvent::ptr::Create(ae::CreateWith{*domain});
   event->ordered = std::move(ordered);
   Commit(std::move(event));
 }
@@ -458,6 +409,7 @@ void WindowCatalog::Apply(SetWindowCatalogOpenEvent const& event) {
   }
   if (event.open) {
     holder->window.SetFlags(OpenObjFlags(holder->window.flags()));
+    MoveWindowToFront(*this, holder->window.id());
   } else {
     holder->window.SetFlags(SetUnloadedDefault(holder->window.flags()));
     ForgetWindowPresentationState(*this, holder->window.id());
@@ -555,12 +507,7 @@ bool WindowCatalog::IsHolderWindowOpen(WindowHolder const& holder) const {
 
 void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
   if (IsHolderWindowOpen(holder)) {
-    pending_focus_window = holder.window;
-    if (persisted.mobile_pager) {
-      SetMobileActiveWindow(holder.window);
-    } else {
-      NoteMaterializedChange();
-    }
+    ActivateWindow(holder.window);
     return;
   }
   ae::Domain& domain = *persisted.list->domain;
@@ -580,12 +527,6 @@ void WindowCatalog::OpenHolderWindow(WindowHolder& holder) {
   open_event->open = true;
   Commit(std::move(open_event));
   BindLiveWindowNotifiers(*this, *holder.window);
-  pending_focus_window = holder.window;
-  if (persisted.mobile_pager) {
-    SetMobileActiveWindow(holder.window);
-  } else {
-    NoteMaterializedChange();
-  }
 }
 void WindowCatalog::CloseHolderWindow(WindowHolder& holder) {
   // One-shot runtime requests must not keep a closing window alive.
@@ -593,10 +534,6 @@ void WindowCatalog::CloseHolderWindow(WindowHolder& holder) {
   if (pending_focus_window.is_valid() &&
       pending_focus_window.id() == closing_id) {
     pending_focus_window = {};
-  }
-  if (pending_mobile_active_window.is_valid() &&
-      pending_mobile_active_window.id() == closing_id) {
-    pending_mobile_active_window = {};
   }
   auto close_event = SetWindowCatalogOpenEvent::ptr::Create(
       ae::CreateWith{*domain});
@@ -684,13 +621,13 @@ void WindowCatalog::DeleteSelected() {
   }
   WindowHolder::ptr target = persisted.selected;
   target.Load();
-  if (target->window.is_loaded()) {
-    ui::UnloadPresentedWindow(target->window);
-  }
   auto remove = RemoveWindowCatalogEntryEvent::ptr::Create(
       ae::CreateWith{*domain});
   remove->holder = target;
   Commit(std::move(remove));
+  if (target->window.is_loaded()) {
+    ui::UnloadPresentedWindow(target->window);
+  }
 }
 void WindowCatalog::UserCloseWindow(ae::ObjId window_obj_id) {
   WindowHolder* holder = FindHolderForWindow(window_obj_id);
@@ -700,14 +637,7 @@ void WindowCatalog::UserCloseWindow(ae::ObjId window_obj_id) {
   if (!holder->window.is_loaded()) {
     return;
   }
-  CatalogWindow::ptr predecessor;
-  if (persisted.mobile_pager) {
-    predecessor = MobileRingPredecessor(*holder->window);
-  }
   CloseHolderWindow(*holder);
-  if (persisted.mobile_pager && predecessor.is_valid()) {
-    SetMobileActiveWindow(predecessor);
-  }
 }
 void WindowCatalog::ClearPendingFocusWindow() {
   pending_focus_window = {};

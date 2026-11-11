@@ -1,4 +1,22 @@
 # AppTraverse — прогресс версионирования поставок
+## Unified WindowCatalog order and activation — 2026-11-11 — PASS
+
+One lazy-identity `window_order` holds all open windows; index 0 is active.
+Removed model mobile mode, separate active-page state and corresponding events.
+Open/Activate/Close/Delete and stable Next/Previous navigation use common rules.
+Native activation is queued to the model, with model-side deduplication and no
+replayed native focus. Explicit Open/Activate can still request focus. Desktop
+hosts show all windows; paged hosts show index 0. GTK mapping no longer activates
+restored windows in construction order.
+
+Verified incremental Debug: Windows 8 focused + 2 native tests; Linux final
+16/16; Android 7/7; Web embedded/functional/lifecycle; four-platform matrix
+52/52 with 32 unchanged read-only USER files. Actual Windows imports of Android
+and Web USER verify native top window matches active_id, Close/reopen/restart.
+All four new supplies match. This updates prototype S0 without migration;
+old profiles preserved. Apple source updated, runtime not run; MinSizeRel not
+rebuilt. [Changes, diagnostic attempts and evidence](../validation/window-catalog-unified-window-order-2026-11-11.md).
+
 ## Presenter-owned Close control — 2026-11-11 — PASS
 
 Removed model-driven button visibility. Existing Windows/Linux/macOS catalog

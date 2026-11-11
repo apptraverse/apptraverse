@@ -8,6 +8,14 @@ Result: implementation and acceptance complete. See the
 [final validation record](validation/window-catalog-portable-user-2026-11-11.md)
 for exact scope, commands, artifacts, preservation checks and limitations.
 
+## Unified-order follow-up (2026-11-11)
+
+WindowCatalog now shares one order and active-window mechanism across hosts.
+Prototype S0 changed; the new matching supplies/USER passed the same 52-case
+matrix. See [unified-order validation](validation/window-catalog-unified-window-order-2026-11-11.md)
+for runtime coverage and preserved older profiles. Earlier mode-specific
+implementation notes below describe the preceding revision.
+
 ## Acceptance
 
 The same `user.bin` must load against each platform's independently built,

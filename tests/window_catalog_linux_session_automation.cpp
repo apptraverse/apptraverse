@@ -384,16 +384,20 @@ bool CatalogDesktopZOrderMatchesNative(WindowCatalog& catalog) {
   if (native.empty()) {
     return false;
   }
-  if (catalog.persisted.desktop_z_order.size() != native.size()) {
-    return false;
+  bool matches = catalog.persisted.window_order.size() == native.size();
+  for (std::size_t i = 0; matches && i < native.size(); ++i) {
+    matches = catalog.persisted.window_order[i].is_valid() &&
+        catalog.persisted.window_order[i].id().id() == native[i];
   }
-  for (std::size_t i = 0; i < native.size(); ++i) {
-    if (!catalog.persisted.desktop_z_order[i].is_valid() ||
-        catalog.persisted.desktop_z_order[i].id().id() != native[i]) {
-      return false;
-    }
+  if (!matches) {
+    std::cerr << "WINDOW_CATALOG_LINUX_ORDER model";
+    for (auto const& window : catalog.persisted.window_order)
+      std::cerr << ' ' << window.id().id();
+    std::cerr << " native";
+    for (auto id : native) std::cerr << ' ' << id;
+    std::cerr << '\n';
   }
-  return true;
+  return matches;
 }
 
 void ApplyGeomZCycle1Native(WindowCatalog& catalog) {

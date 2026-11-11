@@ -69,6 +69,14 @@ void LinuxDesktopWindowPresenter::ReportNativeClientFrame() {
   HandleNativeFrameChanged();
 }
 
+void LinuxDesktopWindowPresenter::OnActiveChanged(
+    GObject* object, GParamSpec*, gpointer user_data) {
+  auto* self = static_cast<LinuxDesktopWindowPresenter*>(user_data);
+  if (!self->user_close_requested_ && gtk_window_is_active(GTK_WINDOW(object))) {
+    self->NotifyActivatedFromUi();
+  }
+}
+
 gboolean LinuxDesktopWindowPresenter::OnConfigure(GtkWidget* widget,
                                                   GdkEventConfigure* event,
                                                   gpointer user_data) {
@@ -150,9 +158,14 @@ void LinuxDesktopWindowPresenter::OnLoad() {
   if (window_ == nullptr) {
     FatalLinux("gtk_window_new");
   }
+  // Mapping several restored windows must not activate them in construction
+  // order. The application presents the model-selected window after mapping.
+  gtk_window_set_focus_on_map(GTK_WINDOW(window_), FALSE);
   g_object_set_data(G_OBJECT(window_), "apptraverse_presenter", this);
   delete_handler_ = g_signal_connect(window_, "delete-event",
                                      G_CALLBACK(OnDeleteEvent), this);
+  active_handler_ = g_signal_connect(window_, "notify::is-active",
+                                      G_CALLBACK(OnActiveChanged), this);
   map_handler_ =
       g_signal_connect(window_, "map-event", G_CALLBACK(OnMapEvent), this);
   configure_handler_ = g_signal_connect(window_, "configure-event",
@@ -202,6 +215,8 @@ void LinuxDesktopWindowPresenter::DisconnectNativeFrameReports() {
 }
 
 void LinuxDesktopWindowPresenter::OnUnload() {
+  g_signal_handler_disconnect(window_, active_handler_);
+  active_handler_ = 0;
   g_signal_handler_disconnect(window_, delete_handler_);
   g_signal_handler_disconnect(window_, map_handler_);
   delete_handler_ = 0;

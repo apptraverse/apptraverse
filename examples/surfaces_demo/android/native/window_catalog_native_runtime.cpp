@@ -146,12 +146,12 @@ void WindowCatalogNativeRuntime::MobileSwipe(int delta) {
   ae::ObjId const catalog_id{
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
   host_->model_proxy().Invoke(
-      catalog_id, &apptraverse::WindowCatalog::SubmitMobileSwipeFromUi, delta);
+      catalog_id, &apptraverse::WindowCatalog::SubmitWindowNavigationFromUi, delta);
 }
 
 void WindowCatalogNativeRuntime::SyncMobilePagerChrome(
     apptraverse::WindowCatalog& catalog) {
-  CatalogWindow::ptr active = catalog.ResolveMobileActiveWindow();
+  CatalogWindow::ptr active = catalog.ResolveActiveWindow();
   ae::ObjId const active_id = active.id();
 
   auto sync_one = [&](CatalogWindow::ptr const& window_ref, bool show) {
@@ -183,13 +183,13 @@ void WindowCatalogNativeRuntime::SyncMobilePagerChrome(
 
 void WindowCatalogNativeRuntime::PublishMobilePages() {
   apptraverse::WindowCatalog& catalog = CatalogRoot(host_->ui_session()->root());
-  std::vector<CatalogWindow::ptr> const ring = catalog.BuildMobileRing();
+  std::vector<CatalogWindow::ptr> const ring = catalog.BuildWindowNavigationRing();
   std::vector<std::int64_t> ids;
   ids.reserve(ring.size());
   for (auto const& window : ring) {
     ids.push_back(static_cast<std::int64_t>(window.id().id()));
   }
-  CatalogWindow::ptr active = catalog.ResolveMobileActiveWindow();
+  CatalogWindow::ptr active = catalog.ResolveActiveWindow();
   std::int64_t const active_id = static_cast<std::int64_t>(active.id().id());
   ui_bridge_.PostMobilePages(ids, active_id);
 }

@@ -116,24 +116,21 @@ void TestWebEmbeddedBackingUserColdLoadWithoutNormalize() {
     auto catalog = LoadApplication<WindowCatalog>(domain, kCatalogId);
     CHECK(std::filesystem::is_empty(user_dir));
     ExpectEmbeddedBackingIntegrityAfterLoad(*catalog);
-    CHECK(!catalog->persisted.mobile_pager);
     catalog_base_id = catalog->base.id();
-    PrepareWindowCatalogForPagedRun(*catalog);
-    CHECK(catalog->persisted.mobile_pager);
+    PrepareWindowCatalogForRun(*catalog);
     MutateCatalogSession(*catalog);
     catalog->persisted.list.Load();
     holder0_id = AsHolder(catalog->persisted.list->rows[0])->obj_id;
     holder1_id = AsHolder(catalog->persisted.list->rows[1])->obj_id;
     open_window_id = AsHolder(catalog->persisted.list->rows[1])->window.id();
-    // The Web presenter owns the in-page Close control independently of the
-    // portable model's saved presentation mode (for example imported desktop USER).
+    // The Web presenter owns the in-page Close control for every window,
+    // independent of which window is currently active.
     auto& close = *AsHolder(catalog->persisted.list->rows[1])
                        ->window->close_button_presenter;
     CHECK(close.EnabledForPresentation());
-    PrepareWindowCatalogForDesktopRun(*catalog);
-    CHECK(!catalog->persisted.mobile_pager);
+    catalog->ActivateWindow(catalog->persisted.main_window);
     CHECK(close.EnabledForPresentation());
-    PrepareWindowCatalogForPagedRun(*catalog);
+    catalog->ActivateWindow(AsHolder(catalog->persisted.list->rows[1])->window);
     CHECK(close.EnabledForPresentation());
     CHECK(std::filesystem::is_empty(user_dir));
     ShutdownSaveCatalog(*catalog, user_storage, user_dir);
@@ -165,8 +162,7 @@ void TestWebEmbeddedBackingUserColdLoadWithoutNormalize() {
     CHECK(ResolveWindowCatalogHolderListRowText(
               *AsHolder(catalog->persisted.list->rows[0]), *catalog, 0) ==
           "Window 1 (Closed)");
-    PrepareWindowCatalogForPagedRun(*catalog);
-    CHECK(catalog->persisted.mobile_pager);
+    PrepareWindowCatalogForRun(*catalog);
     catalog->AddWindow();
     catalog->persisted.list.Load();
     CHECK(catalog->persisted.list->rows.size() == 3);

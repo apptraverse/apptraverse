@@ -7,6 +7,7 @@
 #include "aether-objects/obj/domain.h"
 
 #include "apptraverse/directory_domain_storage.h"
+#include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/application_model_runtime.h"
 #include "apptraverse/application_model_session.h"
@@ -174,18 +175,17 @@ void TestColdLoadEmptyUserFromEmbeddedBacking() {
 }
 
 // Exercise the actual desktop factory loaded from portable supply/USER.
-// A foreign paged-mode value must never select the desktop Close control.
+// Active-window changes must never select the desktop content Close control.
 void ExpectDesktopClosePolicy(WindowCatalog& catalog, CatalogWindow& window) {
   auto& close = *window.close_button_presenter;
   auto& add = *static_cast<ui::UiPushButtonPresenter*>(
       catalog.persisted.presenters.add_button_presenter.operator->());
-  PrepareWindowCatalogForDesktopRun(catalog);
+  catalog.ActivateWindow(catalog.persisted.main_window);
   CHECK(!close.EnabledForPresentation());
   CHECK(add.EnabledForPresentation());
-  PrepareWindowCatalogForPagedRun(catalog);
+  catalog.ActivateWindow(CatalogWindow::ptr::MakeFromThis(&window));
   CHECK(!close.EnabledForPresentation());
   CHECK(add.EnabledForPresentation());
-  PrepareWindowCatalogForDesktopRun(catalog);
 }
 
 void TestUserOverlayPersistsAddWindow() {
@@ -411,6 +411,7 @@ void TestEmbeddedModelSessionRoundTrip() {
 }  // namespace apptraverse::test
 
 int main() {
+  apptraverse::EnableNoninteractiveCrt();
   apptraverse::EnsureWindowCatalogGraphRegistration();
   apptraverse::test::TestColdLoadEmptyUserFromEmbeddedBacking();
   apptraverse::test::TestUserOverlayPersistsAddWindow();

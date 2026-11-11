@@ -89,6 +89,14 @@ def main() -> int:
                 wait(process, lambda: len(windows(process.pid)) == (3 if run == 0 else 4))
                 assert text(u.GetDlgItem(main_hwnd, 5002)) == "Добавить"
                 if run == 0:
+                    # Imported activity is the same order[0] on every backend.
+                    active_id = manifest['active_id']
+                    active_title = text(main_hwnd)
+                    for index in range(3):
+                        if manifest[f'row.{index}.window'] == active_id:
+                            active_title = expected[index]
+                            break
+                    wait(process, lambda: text(windows(process.pid)[0]) == active_title)
                     list_hwnd = u.GetDlgItem(main_hwnd, 5001)
                     u.SendMessageW(list_hwnd, 0x186, 1, 0)  # LB_SETCURSEL
                     u.SendMessageW(main_hwnd, 0x111, 5001 | (1 << 16), list_hwnd)

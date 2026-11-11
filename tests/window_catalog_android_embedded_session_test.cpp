@@ -111,12 +111,10 @@ void TestAndroidEmbeddedBackingUserColdLoadWithoutNormalize() {
     ae::Domain domain{overlay};
     auto catalog = LoadApplication<WindowCatalog>(domain, kCatalogId);
     CHECK(std::filesystem::is_empty(user_dir));
-    CHECK(!catalog->persisted.mobile_pager);
     CHECK(catalog->persisted.texts.label_close.is_valid());
     catalog_base_id = catalog->base.id();
     CHECK(catalog_base_id.is_valid());
-    PrepareWindowCatalogForPagedRun(*catalog);
-    CHECK(catalog->persisted.mobile_pager);
+    PrepareWindowCatalogForRun(*catalog);
     MutateCatalogSession(*catalog);
     catalog->persisted.list.Load();
     holder0_id = AsHolder(catalog->persisted.list->rows[0])->obj_id;
@@ -142,7 +140,6 @@ void TestAndroidEmbeddedBackingUserColdLoadWithoutNormalize() {
             embedded_distilled::window_catalog::kEmbeddedGraph)};
     ae::Domain cold_domain{cold_overlay};
     auto catalog = LoadApplication<WindowCatalog>(cold_domain, kCatalogId);
-    CHECK(catalog->persisted.mobile_pager);
     catalog->persisted.list.Load();
     CHECK(catalog->persisted.list->rows.size() == 2);
     CHECK(AsHolder(catalog->persisted.list->rows[0])->obj_id == holder0_id);
@@ -157,8 +154,7 @@ void TestAndroidEmbeddedBackingUserColdLoadWithoutNormalize() {
     CHECK(ResolveWindowCatalogHolderListRowText(
               *AsHolder(catalog->persisted.list->rows[0]), *catalog, 0) ==
           "Window 1 (Closed)");
-    PrepareWindowCatalogForPagedRun(*catalog);
-    CHECK(catalog->persisted.mobile_pager);
+    PrepareWindowCatalogForRun(*catalog);
     catalog->AddWindow();
     catalog->persisted.list.Load();
     CHECK(catalog->persisted.list->rows.size() == 3);
@@ -167,7 +163,7 @@ void TestAndroidEmbeddedBackingUserColdLoadWithoutNormalize() {
   }
 }
 
-void TestAndroidClosePresentationIgnoresModelMode() {
+void TestAndroidClosePresentationFollowsBackend() {
   ae::RamDomainStorage backing;
   InstallEmbeddedDistilledBacking(
       backing, embedded_distilled::window_catalog::kEmbeddedGraph);
@@ -177,14 +173,14 @@ void TestAndroidClosePresentationIgnoresModelMode() {
                          embedded_distilled::window_catalog::kEmbeddedGraph)};
   ae::Domain domain{overlay};
   auto catalog = LoadApplication<WindowCatalog>(domain, kCatalogId);
-  PrepareWindowCatalogForDesktopRun(*catalog);
+  PrepareWindowCatalogForRun(*catalog);
   catalog->AddWindow();
   auto* holder = AsHolder(catalog->persisted.list->rows[0]);
   auto const& close = *holder->window->close_button_presenter;
-  CHECK(!catalog->persisted.mobile_pager);
   CHECK(close.EnabledForPresentation());
-  PrepareWindowCatalogForPagedRun(*catalog);
-  CHECK(catalog->persisted.mobile_pager);
+  catalog->ActivateWindow(catalog->persisted.main_window);
+  CHECK(close.EnabledForPresentation());
+  catalog->ActivateWindow(holder->window);
   CHECK(close.EnabledForPresentation());
 }
 
@@ -193,7 +189,7 @@ void TestAndroidClosePresentationIgnoresModelMode() {
 
 int main() {
   apptraverse::EnsureWindowCatalogAndroidGraphRegistration();
-  apptraverse::test::TestAndroidClosePresentationIgnoresModelMode();
+  apptraverse::test::TestAndroidClosePresentationFollowsBackend();
   apptraverse::test::TestAndroidEmbeddedBackingUserColdLoadWithoutNormalize();
   std::cout << "window_catalog_android_embedded_session_test OK\n";
   return 0;

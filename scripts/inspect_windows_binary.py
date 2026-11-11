@@ -140,11 +140,10 @@ def runtime_only_violations(report, map_text, portable_window_catalog=False):
     for cls in ('UiListRowPresenter', 'WinWindowPresenter'):
         if 'g_apptraverse_registrar_' + cls + '@' in map_text:
             errors.append('Unused concrete factory: ' + cls)
-    # Portable catalog USER includes the Close graph and page selection history
+    # Portable catalog USER includes the Close graph and common window-order history
     # even when the consumer displays desktop windows. These are runtime schema,
     # not distillation. Other applications retain their narrower contract.
-    for cls in ('CatalogCloseButton', 'SetWindowCatalogMobileActiveEvent',
-                'SetWindowCatalogPresentationModeEvent'):
+    for cls in ('CatalogCloseButton', 'SetWindowCatalogOrderEvent'):
         present = 'g_apptraverse_registrar_' + cls + '@' in map_text
         if portable_window_catalog and not present:
             errors.append('Missing portable catalog factory: ' + cls)

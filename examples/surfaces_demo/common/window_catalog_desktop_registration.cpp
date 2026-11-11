@@ -5,14 +5,11 @@
 namespace apptraverse {
 void TouchWindowCatalogCoreRegistration();
 void TouchWindowCatalogEventsRegistration();
-void TouchWindowCatalogMobileEventsRegistration();
 
 void EnsureWindowCatalogDesktopModelRegistration() {
   example::surfaces::EnsureCatalogActionRegistration();
   TouchWindowCatalogCoreRegistration();
   TouchWindowCatalogEventsRegistration();
-  // Portable USER may have been written in paged presentation mode.
-  TouchWindowCatalogMobileEventsRegistration();
   example::surfaces::EnsureCatalogCloseButtonRegistration();
 }
 }  // namespace apptraverse

@@ -55,14 +55,7 @@ int WindowCatalogModelSession::Run(
                                ? catalog.pending_focus_window.id()
                                : ae::ObjId{};
     catalog.pending_focus_window = {};
-    if (catalog.persisted.mobile_pager) {
-      if (catalog.pending_mobile_active_window.is_valid()) {
-        pending_mobile_active_for_ui = catalog.pending_mobile_active_window.id();
-      } else {
-        pending_mobile_active_for_ui = catalog.ResolveMobileActiveWindow().id();
-      }
-      catalog.pending_mobile_active_window = {};
-    }
+
   };
 
 #if defined(APPTRAVERSE_WINDOW_CATALOG_DEBUG_BOOTSTRAP)
@@ -95,7 +88,7 @@ int WindowCatalogModelSession::Run(
   }
   ae::RamDomainStorage user_storage;
   OverlayDomainStorage overlay{user_storage, backing, initial.constant_ids};
-  hooks.prepare = PrepareWindowCatalogForDesktopRun;
+  hooks.prepare = PrepareWindowCatalogForRun;
   hooks.persist = [&user_storage, state_dir = state_dir](WindowCatalog& catalog) -> int {
     SaveWindowCatalogPersistentSnapshot(catalog);
     if (!SaveUserStorageFile(user_storage, state_dir)) {
@@ -113,7 +106,7 @@ int WindowCatalogModelSession::Run(
     return 1;
   }
   hooks.prepare = [](WindowCatalog& catalog) {
-    PrepareWindowCatalogForDesktopRun(catalog);
+    PrepareWindowCatalogForRun(catalog);
   };
   hooks.persist = [&user_storage, state_dir = state_dir](WindowCatalog& catalog) -> int {
     SaveWindowCatalogPersistentSnapshot(catalog);
@@ -137,7 +130,7 @@ int WindowCatalogModelSession::Run(
     SaveDistilledRoot(*bootstrap_catalog);
   }
 #endif
-  hooks.prepare = PrepareWindowCatalogForDesktopRun;
+  hooks.prepare = PrepareWindowCatalogForRun;
   hooks.persist = [&user_storage, state_dir = state_dir](WindowCatalog& catalog) -> int {
     SaveWindowCatalogPersistentSnapshot(catalog);
     return SaveUserStorageFile(user_storage, state_dir) ? 0 : 1;

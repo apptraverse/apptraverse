@@ -65,7 +65,6 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::Catalog)));
 
   catalog->persisted.next_window_number = 1;
-  catalog->persisted.mobile_pager = options.mobile_pager;
   catalog->persisted.main_client_viewport = {kMainClientWidth, kMainClientHeight, 160};
 
   auto list = CatalogListContainer::ptr::Create(
@@ -197,18 +196,14 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
 
   list->catalog = catalog;
   catalog->persisted.list = list;
-  InitializeRuntimeNode(*catalog);
-
-  catalog->persisted.desktop_z_order.push_back(catalog->persisted.main_window);
+  catalog->persisted.window_order.push_back(CatalogWindow::ptr::Declare(
+      ae::CreateWith{domain}.with_id(main_window.id()).with_flags(lazy_prefab_flags)));
 
   catalog->persisted.main_client_viewport.width = kMainClientWidth;
   catalog->persisted.main_client_viewport.height = kMainClientHeight;
   catalog->persisted.main_client_viewport.density_dpi = 160;
-  catalog->persisted.mobile_pager = options.mobile_pager;
-  if (catalog->persisted.mobile_pager) {
-    catalog->persisted.mobile_active_window = catalog->persisted.main_window;
-  }
 
+  InitializeRuntimeNode(*catalog);
   return catalog;
 }
 

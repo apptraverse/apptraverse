@@ -6,8 +6,6 @@ namespace apptraverse {
 class WindowCatalog;
 
 void PrepareWindowCatalogForRun(WindowCatalog& catalog);
-void PrepareWindowCatalogForDesktopRun(WindowCatalog& catalog);
-void PrepareWindowCatalogForPagedRun(WindowCatalog& catalog);
 
 }  // namespace apptraverse
 
