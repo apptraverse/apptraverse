@@ -9,6 +9,10 @@ bool UiPushButtonPresenter::ReadyForPresentation() const {
   return window_presenter->presentation_loaded;
 }
 
+bool UiPushButtonPresenter::EnabledForPresentation() const {
+  return button->VisibleInCurrentPresentation();
+}
+
 void UiPushButtonPresenter::NotifyClickedFromUi() {
   if (!button->enabled()) {
     return;

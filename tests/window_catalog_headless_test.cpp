@@ -1490,12 +1490,16 @@ void TestPresentationEnvironmentPreservesPortableState() {
   auto* first = AsHolder(catalog->persisted.list->rows[0]);
   first->window->RequestFrame(-310, -90, 720, 460);
   auto const first_id = first->window.id();
+  auto& close_presenter = *first->window->close_button_presenter;
+  close_presenter.window_presenter->presentation_loaded = true;
+  CHECK(!close_presenter.EnabledForPresentation());
   catalog->AddWindow();
   auto* second = AsHolder(catalog->persisted.list->rows[1]);
   catalog->UserCloseWindow(second->window.id());
   CHECK(!second->window.is_loaded());
 
   PrepareWindowCatalogForPagedRun(*catalog);
+  CHECK(close_presenter.EnabledForPresentation());
   catalog->SetMobileActiveWindow(first->window);
   catalog->SubmitHolderChildWindowClientSizeFromUi(first_id.id(), 1080, 2400, 480);
   CHECK(first->window->client_width() == 1080);
@@ -1510,6 +1514,9 @@ void TestPresentationEnvironmentPreservesPortableState() {
   CHECK(cold->persisted.mobile_active_window.id() == first_id);
   auto* cold_first = AsHolder(cold->persisted.list->rows[0]);
   auto* cold_second = AsHolder(cold->persisted.list->rows[1]);
+  auto& cold_close = *cold_first->window->close_button_presenter;
+  cold_close.window_presenter->presentation_loaded = true;
+  CHECK(!cold_close.EnabledForPresentation());
   CHECK(cold_first->window.id() == first_id);
   CHECK(cold_first->window->x() == -310);
   CHECK(cold_first->window->y() == -90);
@@ -1524,6 +1531,7 @@ void TestPresentationEnvironmentPreservesPortableState() {
   CHECK(cold_first->window->close_button_presenter->layout_y == layout.y);
   CHECK(!cold_second->window.is_loaded());
   PrepareWindowCatalogForPagedRun(*cold);
+  CHECK(cold_close.EnabledForPresentation());
   CHECK(cold->ResolveMobileActiveWindow().id() == first_id);
   cold->OpenHolderWindow(*cold_second);
   CHECK(cold_second->window->close_button->window.id() == cold_second->window.id());

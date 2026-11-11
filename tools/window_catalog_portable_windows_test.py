@@ -97,6 +97,18 @@ def main() -> int:
                     expected[1] = expected[1].split(" (")[0]
                     wait(process, lambda: rows(main_hwnd) == expected)
                     wait(process, lambda: len(windows(process.pid)) == 4)
+                    child = next(hwnd for hwnd in windows(process.pid)
+                                 if hwnd != main_hwnd and text(hwnd) == expected[1])
+                    assert not u.GetDlgItem(child, 5006), "Desktop has an in-content Close button"
+                    u.PostMessageW(child, 0x112, 0xF060, 0)  # SC_CLOSE: caption cross
+                    wait(process, lambda: len(windows(process.pid)) == 3)
+                    wait(process, lambda: rows(main_hwnd)[1] == manifest['row.1.localized_row'])
+                    u.SendMessageW(main_hwnd, 0x111, 5003, button)
+                    wait(process, lambda: len(windows(process.pid)) == 4)
+                    wait(process, lambda: rows(main_hwnd) == expected)
+                for hwnd in windows(process.pid):
+                    if hwnd != main_hwnd:
+                        assert not u.GetDlgItem(hwnd, 5006)
                 evidence.append({"run": run, "pid": process.pid, "rows": rows(main_hwnd),
                                  "titles": [text(hwnd) for hwnd in windows(process.pid)]})
                 u.PostMessageW(main_hwnd, 0x10, 0, 0)

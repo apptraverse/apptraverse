@@ -1,4 +1,17 @@
 # AppTraverse — прогресс версионирования поставок
+## Native desktop Close presentation — 2026-11-11 — PASS
+
+Desktop windows retain native caption Close and no longer create the in-content
+Close control. Paged hosts retain that button. The portable model/presenter graph
+and supply bytes are unchanged. Explicit model-driven presentation participation
+is separate from parent readiness; broken enabled graphs still fail activation.
+
+Verified incremental Debug: Windows 3 focused tests plus two real foreign-USER
+GUI close/reopen/restart cases, Linux 16/16, Android 7/7, Web embedded/functional/
+lifecycle, and the 52-process USER matrix. Apple uses the shared source path;
+Apple runtime and MinSizeRel were not run. Android's original APK and USER were
+restored unchanged. [Implementation and evidence](../validation/window-catalog-native-desktop-close-2026-11-11.md).
+
 ## Portable WindowCatalog USER — 2026-11-11 — PASS
 
 Branch `feature/cross-platform-user-state`, based on `main` at `8b592f9`.

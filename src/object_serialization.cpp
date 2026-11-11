@@ -1058,6 +1058,17 @@ void UnloadPresentersDescending(
 
 void InitializeNewPresenters(ae::Obj& gui_root, void* host,
                              ModelObjectProxy* model_proxy) {
+  std::vector<ae::Obj*> live;
+  CollectLiveReachableObjects(gui_root, live);
+  std::vector<Presenter*> disabled;
+  for (auto* object : live) {
+    auto* presenter = AsPresenter(object);
+    if (presenter && presenter->presentation_loaded &&
+        !presenter->EnabledForPresentation()) {
+      disabled.push_back(presenter);
+    }
+  }
+  UnloadPresentersDescending(std::move(disabled));
   // Multipass: child presenters may wait until a parent HWND exists.
   for (;;) {
     bool progress = false;
@@ -1070,7 +1081,7 @@ void InitializeNewPresenters(ae::Obj& gui_root, void* host,
       }
       presenter->presentation_host = host;
       presenter->model_proxy = model_proxy;
-      if (!presenter->ReadyForPresentation()) {
+      if (!presenter->EnabledForPresentation() || !presenter->ReadyForPresentation()) {
         continue;
       }
       presenter->OnLoad();
@@ -1083,7 +1094,7 @@ void InitializeNewPresenters(ae::Obj& gui_root, void* host,
     }
   }
 
-  // Every live Presenter must have native presentation after multipass.
+  // Every enabled live Presenter must have presentation after multipass.
   // Remaining not-ready means a broken graph / missing parent dependency.
   std::vector<ae::Obj*> objects;
   CollectLiveReachableObjects(gui_root, objects);
@@ -1092,7 +1103,7 @@ void InitializeNewPresenters(ae::Obj& gui_root, void* host,
     if (presenter == nullptr) {
       continue;
     }
-    if (!presenter->presentation_loaded) {
+    if (presenter->EnabledForPresentation() && !presenter->presentation_loaded) {
       char message[192];
       std::snprintf(
           message, sizeof(message),

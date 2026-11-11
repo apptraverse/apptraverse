@@ -115,6 +115,10 @@ void CatalogCloseButton::QueueClickFromUi(ModelObjectProxy& proxy) const {
                window.id().id());
 }
 
+bool CatalogCloseButton::VisibleInCurrentPresentation() const {
+  return catalog->persisted.mobile_pager;
+}
+
 void CatalogCloseButton::HandlePushButtonClicked() {
   WindowCatalog& cat = LoadedCatalog(catalog);
   cat.UserCloseWindow(window.id());

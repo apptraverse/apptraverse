@@ -40,6 +40,7 @@ class UiPushButton : public NodeFor<UiPushButton> {
 
   ae::ObjPtr<UiLocalizationString> label;
   bool enabled() const { return enabled_; }
+  virtual bool VisibleInCurrentPresentation() const { return true; }
 
   // Runtime input binding; called on the UI mirror, queues model work only.
   virtual void QueueClickFromUi(ModelObjectProxy& proxy) const;
