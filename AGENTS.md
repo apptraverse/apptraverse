@@ -31,6 +31,14 @@ verification. The next
 chat must be the simplest SharedNode demonstration, without localization or
 unrelated features; this slice connects the transport first. Current evidence
 is in [Aether validation](docs/validation/shared-node-aether-2026-11-11.md).
+The current follow-up explicitly requires the client's native presence API
+(`Client::IsLocallyOnline` / `Client::QueryPeerPresence`) and the simplest
+Windows chat demonstrating SharedNode. It supersedes the adapter probe/echo
+policy and the earlier transport-only hold on GUI work. Use an isolated pinned
+SDK checkout from the presence experiments, no application echo fallback.
+This opt-in demo has fixed English labels, one room, host admission, direct
+participant messages and private persistent profiles; unrelated UI remains out
+of scope. Profile restore is required for this replication demonstration.
 
 - **Never** add an AeroAdmin dependency or copy AeroAdmin sources.
 - Windows is the first platform; the common model must stay cross-platform (no HWND, Win32 paths, or Win32 keycodes in `src/common/`).

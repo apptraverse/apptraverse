@@ -3,12 +3,13 @@
 #include <algorithm>
 #include <cassert>
 #include <chrono>
+#include <deque>
 #include <limits>
 #include <map>
 #include <utility>
 
 #include "aether-miscpp/format/format.h"
-#include "aether-miscpp/serialization/binary_archive.h"
+#include "aether/ae_actions/query_peer_presence.h"
 #include "aether/client_messages/p2p_message_stream.h"
 #include "aether/client_messages/p2p_safe_message_stream.h"
 #include "aether/stream_api/sized_packet_gate.h"
@@ -17,24 +18,10 @@ namespace apptraverse {
 namespace {
 
 constexpr std::size_t kMaxPayload = 1024 * 1024;
-constexpr std::size_t kEnvelopeAllowance = 128;
 
 std::uint64_t AddSaturated(std::uint64_t a, std::uint64_t b) {
   return b > std::numeric_limits<std::uint64_t>::max() - a
       ? std::numeric_limits<std::uint64_t>::max() : a + b;
-}
-
-bool ValidEnvelope(AetherLinkEnvelope const& envelope, std::size_t max_payload) {
-  if (envelope.version != 1 || envelope.payload.size() > max_payload) { return false; }
-  switch (envelope.kind) {
-    case AetherLinkKind::Data:
-      return envelope.sequence == 0 && envelope.request_time_us == 0 &&
-             !envelope.payload.empty();
-    case AetherLinkKind::Probe:
-    case AetherLinkKind::Reply:
-      return envelope.sequence != 0 && envelope.payload.empty();
-  }
-  return false;
 }
 
 bool ParseUid(std::string const& text, ae::Uid& uid) {
@@ -55,102 +42,41 @@ std::string UidText(ae::Uid const& uid) { return ae::Format("{}", uid); }
 
 }  // namespace
 
-bool SerializeAetherLinkEnvelope(AetherLinkEnvelope const& envelope,
-    std::vector<std::uint8_t>& bytes, std::size_t max_payload_bytes) {
-  if (max_payload_bytes > kMaxPayload || !ValidEnvelope(envelope, max_payload_bytes)) {
-    return false;
+void AetherPresenceSnapshot::Observe(ae::Result<ae::PeerPresence, int> const& result,
+                                     std::uint64_t query_started_us) {
+  if (!result) { Forget(); return; }
+  state_ = result.value().state;
+  query_started_us_ = query_started_us;
+}
+
+void AetherPresenceSnapshot::Forget() {
+  state_ = ae::PeerPresenceState::kUnknown;
+  query_started_us_.reset();
+}
+
+LinkAvailability AetherPresenceSnapshot::Availability(bool locally_online,
+    std::uint64_t now_us, std::uint64_t ttl_us) const {
+  if (!locally_online) { return LinkAvailability::Offline; }
+  if (!query_started_us_ || now_us < *query_started_us_ ||
+      now_us - *query_started_us_ > ttl_us) { return LinkAvailability::Unknown; }
+  switch (state_) {
+    case ae::PeerPresenceState::kOnline: return LinkAvailability::Online;
+    case ae::PeerPresenceState::kOffline: return LinkAvailability::Offline;
+    case ae::PeerPresenceState::kUnknown: return LinkAvailability::Unknown;
   }
-  std::vector<std::uint8_t> output;
-  ae::seri::BinaryVectorBuffer buffer{output};
-  ae::seri::BinaryArchive archive{buffer};
-  if (archive.Save(envelope).IsErr()) { return false; }
-  bytes = std::move(output);
-  return true;
-}
-
-bool DeserializeAetherLinkEnvelope(std::vector<std::uint8_t> const& bytes,
-    AetherLinkEnvelope& envelope, std::size_t max_payload_bytes) {
-  if (max_payload_bytes > kMaxPayload || bytes.empty() ||
-      bytes.size() > max_payload_bytes + kEnvelopeAllowance) { return false; }
-  auto copy = bytes;
-  ae::seri::BinaryVectorBuffer buffer{copy};
-  ae::seri::BinaryArchive archive{buffer};
-  AetherLinkEnvelope decoded;
-  if (archive.Load(decoded).IsErr() || archive.buffer().read_position() != copy.size() ||
-      !ValidEnvelope(decoded, max_payload_bytes)) { return false; }
-  envelope = std::move(decoded);
-  return true;
-}
-
-AetherPeerPresence::AetherPeerPresence(std::uint64_t watched_at_us,
-    std::uint64_t interval_us, std::uint64_t timeout_us, std::uint64_t initial_sequence)
-    : watched_at_us_{watched_at_us}, interval_us_{interval_us},
-      timeout_us_{timeout_us}, next_probe_us_{watched_at_us}, sequence_{initial_sequence} {
-  assert(interval_us_ != 0 && timeout_us_ != 0);
-}
-
-std::optional<AetherLinkEnvelope> AetherPeerPresence::NextProbe(std::uint64_t now_us) {
-  if (now_us < watched_at_us_ || now_us < next_probe_us_ ||
-      sequence_ == std::numeric_limits<std::uint64_t>::max()) { return {}; }
-  while (!outstanding_.empty() && now_us >= outstanding_.front().second &&
-         now_us - outstanding_.front().second > timeout_us_) {
-    outstanding_.pop_front();
-  }
-  // Bound bookkeeping even when a caller chooses an unusually short cadence.
-  if (outstanding_.size() == 64) { outstanding_.pop_front(); }
-  AetherLinkEnvelope probe;
-  probe.kind = AetherLinkKind::Probe;
-  probe.sequence = ++sequence_;
-  probe.request_time_us = now_us;
-  outstanding_.emplace_back(probe.sequence, now_us);
-  next_probe_us_ = AddSaturated(now_us, interval_us_);  // No catch-up bursts.
-  return probe;
-}
-
-bool AetherPeerPresence::ObserveReply(AetherLinkEnvelope const& reply,
-                                      std::uint64_t now_us) {
-  if (reply.kind != AetherLinkKind::Reply || !ValidEnvelope(reply, 0)) { return false; }
-  auto const found = std::find(outstanding_.begin(), outstanding_.end(),
-      std::pair{reply.sequence, reply.request_time_us});
-  if (found == outstanding_.end() || now_us < reply.request_time_us ||
-      now_us - reply.request_time_us > timeout_us_) { return false; }
-  if (!latest_fresh_request_us_ || reply.request_time_us > *latest_fresh_request_us_) {
-    latest_fresh_request_us_ = reply.request_time_us;
-  }
-  outstanding_.erase(found);
-  return true;
-}
-
-LinkAvailability AetherPeerPresence::Availability(std::uint64_t now_us) const {
-  if (latest_fresh_request_us_) {
-    return now_us >= *latest_fresh_request_us_ &&
-           now_us - *latest_fresh_request_us_ <= timeout_us_
-        ? LinkAvailability::Online : LinkAvailability::Offline;
-  }
-  return now_us >= watched_at_us_ && now_us - watched_at_us_ > timeout_us_
-      ? LinkAvailability::Offline : LinkAvailability::Unknown;
-}
-
-void AetherPeerPresence::ResetOutstanding(std::uint64_t now_us) {
-  outstanding_.clear();
-  next_probe_us_ = now_us;
+  return LinkAvailability::Unknown;
 }
 
 struct AetherByteLink::Impl {
   struct Job {
-    AetherLinkKind kind;
     std::vector<std::uint8_t> wire;
     std::size_t offset{0};
   };
   struct Peer {
-    Peer(ae::Uid value, AetherLinkOptions const& options, std::uint64_t now)
-        : uid{value}, sequence_seed{static_cast<std::uint64_t>(
-              std::chrono::steady_clock::now().time_since_epoch().count())},
-          presence{now, options.probe_interval_us, options.presence_timeout_us,
-                     sequence_seed} {}
+    explicit Peer(ae::Uid value) : uid{value} {}
     ae::Uid uid;
-    std::uint64_t sequence_seed;
-    AetherPeerPresence presence;
+    AetherPresenceSnapshot presence;
+    std::uint64_t next_query_us{0};
     bool clock_started{false};
     std::uint64_t generation{0};
     std::uint64_t session_started_us{0};
@@ -179,26 +105,27 @@ struct AetherByteLink::Impl {
   Impl(ae::AeContext const& ctx, ae::Client::ptr value, AetherLinkOptions opts)
       : context{ctx}, client{std::move(value)}, options{opts} {
     assert(client.is_valid() && client.is_loaded());
-    assert(options.probe_interval_us != 0 && options.presence_timeout_us != 0 &&
-           options.recreate_interval_us != 0 && options.max_message_bytes != 0 &&
-           options.max_message_bytes <= kMaxPayload);
+    assert(options.presence_query_interval_us != 0 && options.presence_result_ttl_us != 0 &&
+           options.presence_query_timeout_us != 0 && options.recreate_interval_us != 0 &&
+           options.max_message_bytes != 0 && options.max_message_bytes <= kMaxPayload);
     endpoint = UidText(client->uid());
     port_sub = client->message_stream_manager().new_port_event().Subscribe(
-        [this](ae::P2pPortHandle& handle) {
+        [this](ae::P2pPortHandle handle) {
           if (stopped || !handle || handle.destination() == client->uid()) { return; }
           auto* peer = Get(handle.destination());
           Bind(*peer, std::move(handle));
         });
   }
   ~Impl() {
-    stopped = true; receiver = {}; port_sub.Reset(); peers.clear(); client.Reset();
+    stopped = true; receiver = {}; query_sub.Reset(); port_sub.Reset();
+    peers.clear(); client.Reset();
   }
 
   Peer* Get(ae::Uid const& uid) {
     auto const key = UidText(uid);
     auto found = peers.find(key);
     if (found == peers.end()) {
-      auto peer = std::make_unique<Peer>(uid, options, now_us);
+      auto peer = std::make_unique<Peer>(uid);
       peer->clock_started = serviced;
       found = peers.emplace(key, std::move(peer)).first;
     }
@@ -211,6 +138,62 @@ struct AetherByteLink::Impl {
     if (!peer->safe) { Bind(*peer, client->message_stream_manager().CreatePort(uid)); }
     return peer;
   }
+  LinkAvailability Availability(Peer const& peer) const {
+    return peer.presence.Availability(client->IsLocallyOnline(), now_us,
+                                      options.presence_result_ttl_us);
+  }
+  void QueryPresence() {
+    if (query_peer != nullptr) {
+      bool const timed_out = now_us >= query_started_us &&
+          now_us - query_started_us >= options.presence_query_timeout_us;
+      if (!query_done && !query_action->is_finished()) {
+        if (!timed_out) { return; }
+        if (!query_timed_out) {
+          query_peer->presence.Forget();
+          ++statistics.presence_timeouts; ++query_peer->statistics.presence_timeouts;
+          query_timed_out = true;
+        }
+        // Keep this subscription and its original start time until the action
+        // finishes or a different due UID replaces it below. Querying the same
+        // UID would return this unfinished action, not start a fresh request.
+      } else {
+        if (!query_done) {
+          query_peer->presence.Forget();
+          // The SDK has no result replay for synchronous completion.
+          ++statistics.presence_errors; ++query_peer->statistics.presence_errors;
+        }
+        // Complete emits result_event before Finish. Replacing the Client-owned
+        // action is safe here on the next Service call, outside that callback.
+        query_sub.Reset(); query_peer = nullptr; query_action = nullptr;
+      }
+    }
+    if (peers.empty() || !client->IsLocallyOnline()) { return; }
+    auto next = peers.upper_bound(last_queried);
+    if (next == peers.end()) { next = peers.begin(); }
+    for (std::size_t count = 0; count < peers.size(); ++count) {
+      auto& peer = *next->second;
+      if (&peer != query_peer && now_us >= peer.next_query_us) {
+        query_sub.Reset();
+        last_queried = next->first;
+        query_peer = &peer; query_started_us = now_us;
+        query_done = false; query_timed_out = false;
+        peer.next_query_us = AddSaturated(now_us, options.presence_query_interval_us);
+        ++statistics.presence_queries; ++peer.statistics.presence_queries;
+        // A different UID replaces/cancels the old Client-owned query.
+        query_action = &client->QueryPeerPresence(peer.uid);
+        query_sub = query_action->result_event().Subscribe([this](auto const& result) {
+          if (stopped || query_peer == nullptr) { return; }
+          query_peer->presence.Observe(result, query_started_us);
+          if (!result) {
+            ++statistics.presence_errors; ++query_peer->statistics.presence_errors;
+          }
+          query_done = true;
+        });
+        return;  // No catch-up requests or concurrent Client-owned actions.
+      }
+      if (++next == peers.end()) { next = peers.begin(); }
+    }
+  }
   void Bind(Peer& peer, ae::P2pPortHandle handle) {
     bool const replacement = peer.generation != 0;
     peer.Drop();
@@ -219,7 +202,6 @@ struct AetherByteLink::Impl {
     peer.session_started_us = now_us;
     peer.last_write_progress_us = now_us;
     peer.reset_needed = false;
-    peer.presence.ResetOutstanding(now_us);
     peer.raw = std::make_shared<ae::P2pStream>(context, client.Load(), peer.uid,
                                               std::move(handle));
     using namespace std::chrono_literals;
@@ -229,7 +211,7 @@ struct AetherByteLink::Impl {
         .max_repeat_count = 10, .wait_ack_timeout = 1500ms,
         .send_ack_timeout = 0ms, .send_repeat_timeout = 200ms};
     peer.safe = std::make_shared<ae::P2pSafeStream>(context, config, peer.raw);
-    peer.packets = std::make_unique<ae::SizedPacketGate>(context);
+    peer.packets = std::make_unique<ae::SizedPacketGate>();
     auto* const raw_peer = &peer;
     auto const generation = peer.generation;
     peer.chunk_sub = peer.safe->out_data_event().Subscribe(
@@ -243,39 +225,18 @@ struct AetherByteLink::Impl {
           if (!stopped && raw_peer->generation == generation) { Receive(*raw_peer, data); }
         });
   }
-  bool Has(Peer const& peer, AetherLinkKind kind) const {
-    return std::any_of(peer.jobs.begin(), peer.jobs.end(),
-        [kind](auto const& job) { return job.kind == kind; });
-  }
-  bool Queue(Peer& peer, AetherLinkEnvelope const& envelope) {
-    if (Has(peer, envelope.kind)) { return false; }
-    std::vector<std::uint8_t> bytes;
-    if (!SerializeAetherLinkEnvelope(envelope, bytes, options.max_message_bytes)) { return false; }
+  bool Queue(Peer& peer, std::vector<std::uint8_t> const& bytes) {
+    if (!peer.jobs.empty()) { return false; }
     auto wire = peer.packets->WriteIn(ae::DataBuffer{bytes.begin(), bytes.end()});
-    peer.jobs.push_back({envelope.kind, std::move(wire), 0});
+    peer.jobs.push_back({std::move(wire), 0});
     return true;
   }
   void Receive(Peer& peer, ae::DataBuffer const& data) {
-    AetherLinkEnvelope envelope;
-    if (!DeserializeAetherLinkEnvelope(data, envelope, options.max_message_bytes)) {
+    if (data.empty() || data.size() > options.max_message_bytes) {
       ++statistics.malformed_messages; ++peer.statistics.malformed_messages; return;
     }
-    switch (envelope.kind) {
-      case AetherLinkKind::Probe:
-        envelope.kind = AetherLinkKind::Reply;
-        (void)Queue(peer, envelope);  // At most one queued echo per peer.
-        return;
-      case AetherLinkKind::Reply:
-        if (peer.presence.ObserveReply(envelope, now_us)) {
-          ++statistics.replies_received; ++peer.statistics.replies_received;
-        } else { ++statistics.stale_replies; ++peer.statistics.stale_replies; }
-        return;
-      case AetherLinkKind::Data:
-        ++statistics.data_received;
-        ++peer.statistics.data_received;
-        if (receiver) { receiver(UidText(peer.uid), envelope.payload); }
-        return;
-    }
+    ++statistics.data_received; ++peer.statistics.data_received;
+    if (receiver) { receiver(UidText(peer.uid), data); }
   }
   void Pump(Peer& peer) {
     if (peer.terminal) {
@@ -288,28 +249,22 @@ struct AetherByteLink::Impl {
         auto& job = peer.jobs.front();
         job.offset = peer.written_end;
         if (job.offset == job.wire.size()) {
-          if (job.kind == AetherLinkKind::Data) {
-            ++statistics.data_completed; ++peer.statistics.data_completed;
-          }
+          ++statistics.data_completed; ++peer.statistics.data_completed;
           peer.jobs.pop_front();
         }
       }
     }
-    auto const expired = peer.presence.Availability(now_us) == LinkAvailability::Offline;
+    auto const availability = Availability(peer);
     auto const stalled = now_us >= peer.last_write_progress_us &&
-                         now_us - peer.last_write_progress_us >= options.presence_timeout_us;
-    if ((peer.reset_needed || (expired && stalled)) && now_us >= peer.session_started_us &&
+        now_us - peer.last_write_progress_us >= options.recreate_interval_us;
+    if ((peer.reset_needed || (availability == LinkAvailability::Offline && stalled &&
+                              !peer.jobs.empty())) && now_us >= peer.session_started_us &&
         now_us - peer.session_started_us >= options.recreate_interval_us) {
-      // Reset this collector and stream on a new SDK port. The other endpoint
-      // independently handles incoming ports/offline recovery. Business data
-      // remains in SharedNode's saved pending queue for retry.
+      // SharedNode retains the pending business message for durable retry.
       Bind(peer, client->message_stream_manager().CreatePort(peer.uid));
     }
-    if (peer.reset_needed || peer.writing || !peer.safe) { return; }
-    if (!Has(peer, AetherLinkKind::Probe)) {
-      auto probe = peer.presence.NextProbe(now_us);
-      if (probe && Queue(peer, *probe)) { ++statistics.probes_sent; ++peer.statistics.probes_sent; }
-    }
+    if (peer.reset_needed || peer.writing || !peer.safe ||
+        availability != LinkAvailability::Online) { return; }
     auto const info = peer.safe->stream_info();
     if (peer.jobs.empty() || !info.is_writable || info.max_element_size == 0) { return; }
     auto const& job = peer.jobs.front();
@@ -323,8 +278,7 @@ struct AetherByteLink::Impl {
     auto* const raw_peer = &peer;
     auto& action = peer.safe->Write(std::move(chunk));
     if (action.is_finished()) {
-      // A terminal observed before subscription has no readable status in this
-      // SDK API. Conservatively retry via the durable upper layer.
+      // The SDK provides no readable status after synchronous completion.
       peer.terminal = ae::WriteAction::Status::kFail;
       return;
     }
@@ -341,6 +295,13 @@ struct AetherByteLink::Impl {
   IByteLink::Receiver receiver;
   std::map<std::string, std::unique_ptr<Peer>> peers;
   ae::Subscription port_sub;
+  ae::Subscription query_sub;
+  Peer* query_peer{nullptr};
+  ae::QueryPeerPresence* query_action{nullptr};
+  std::string last_queried;
+  std::uint64_t query_started_us{0};
+  bool query_done{false};
+  bool query_timed_out{false};
   AetherLinkStatistics statistics;
   std::uint64_t now_us{0};
   bool serviced{false};
@@ -356,12 +317,11 @@ bool AetherByteLink::WatchPeer(std::string const& endpoint) { return impl_->Watc
 void AetherByteLink::Service(std::uint64_t now_us) {
   assert(!impl_->serviced || now_us >= impl_->now_us);
   impl_->now_us = now_us;
+  impl_->QueryPresence();
   for (auto const& [key, peer] : impl_->peers) {
     if (!peer->clock_started) {
-      peer->presence = AetherPeerPresence{now_us, impl_->options.probe_interval_us,
-                                         impl_->options.presence_timeout_us,
-                                         peer->sequence_seed};
       peer->clock_started = true; peer->session_started_us = now_us;
+      peer->last_write_progress_us = now_us;
     }
     impl_->Pump(*peer);
   }
@@ -373,23 +333,18 @@ bool AetherByteLink::Send(std::string const& destination,
   if (bytes.empty() || bytes.size() > impl_->options.max_message_bytes) { return false; }
   auto* peer = impl_->Watch(destination);
   if (peer == nullptr || peer->reset_needed ||
-      peer->presence.Availability(impl_->now_us) == LinkAvailability::Offline ||
-      !peer->safe->stream_info().is_writable || impl_->Has(*peer, AetherLinkKind::Data)) {
-    return false;
-  }
-  AetherLinkEnvelope envelope;
-  envelope.payload = bytes;
-  if (!impl_->Queue(*peer, envelope)) { return false; }
-  ++impl_->statistics.data_accepted;
-  ++peer->statistics.data_accepted;
+      impl_->Availability(*peer) != LinkAvailability::Online ||
+      !peer->safe->stream_info().is_writable || !impl_->Queue(*peer, bytes)) { return false; }
+  ++impl_->statistics.data_accepted; ++peer->statistics.data_accepted;
   return true;
 }
 LinkAvailability AetherByteLink::Availability(std::string const& destination) const {
   ae::Uid uid;
-  if (!ParseUid(destination, uid)) { return LinkAvailability::Offline; }
+  if (!ParseUid(destination, uid) || uid == impl_->client->uid() ||
+      !impl_->client->IsLocallyOnline()) { return LinkAvailability::Offline; }
   auto const found = impl_->peers.find(UidText(uid));
   return found == impl_->peers.end() ? LinkAvailability::Unknown
-      : found->second->presence.Availability(impl_->now_us);
+      : impl_->Availability(*found->second);
 }
 AetherLinkStatistics const& AetherByteLink::stats() const { return impl_->statistics; }
 AetherLinkStatistics AetherByteLink::PeerStats(std::string const& destination) const {

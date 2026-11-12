@@ -1,5 +1,26 @@
 # AppTraverse — прогресс версионирования поставок
 
+## SharedNode native Client presence and minimal Windows chat — 2026-11-11 — BUILD PASS / CLOUD BLOCKED
+
+Continued `feature/shared-node-native-memory` from `a85b1c2`. Replaced adapter
+probe/echo with `Client::IsLocallyOnline` / `QueryPeerPresence`, serialized
+queries and strict fresh Online gating. Raw SharedSync bytes use SDK framing.
+SDK pin `89244baf` is isolated and clean; no foreign SDK edits are consumed.
+Added opt-in minimal Windows chat with host invitation, participants, messages,
+native persistence, model-thread proxy commands and value-only UI views.
+
+**SDK/chat/controller build PASS; 8/8 adapter/native/memory tests and 9/9
+targeted headless regressions PASS.** Actual GUI startup/layout/error state
+was inspected. **Cloud acceptance is BLOCKED at registration:** the native API
+SDK workers never become selected and reach their registration deadline.
+An independent experiment report at SDK `a6b6a1c5` reproduces the same bootstrap
+failure; the working streaming/push line has no native Client presence API.
+The differing registration request-ID contract is documented as evidence,
+without asserting an unobserved server-side cause. No native Online/Offline,
+room admission, GUI delivery or restart PASS is claimed for this pin. The
+earlier echo-based cloud PASS below is historical. Profiles remain private.
+[Implementation, commands, evidence and blocker](../validation/shared-node-chat-native-presence-2026-11-11.md).
+
 ## SharedNode optional Aether transport and real cloud — 2026-11-11 — PASS
 
 Continued `feature/shared-node-native-memory` from `ee1c48c`. Added the opt-in

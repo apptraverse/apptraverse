@@ -303,27 +303,21 @@ existing memory check do not acquire the SDK. The separate
 `APPTRAVERSE_BUILD_AETHER_CLOUD_WORKER` option also defaults OFF and adds only
 the owned headless cloud worker, not a GUI example or an automatic network test.
 
-The SDK pin is `a5cfce84fb46c6e506e963af8f63aa01ca355b06` from
-`bench/presence-streaming-recovery`. It builds on the earlier `488383c8`
-push-compatible merge of streaming `4c1d125e` with deployed push API `5ddf5eaa`.
-The selected committed line adds allocation-free wire budgets (`99f41a9d`),
-bounded presence probes (`0e20c253`), native ping ownership/deadline recovery
-(`97f2fd53`) and route/startup observations (`a5cfce84`). The first live attempts
-against `488383c8` exposed its unbounded payload-allocation budget calculation;
-they are failures, not delivery evidence. This is not the older AppTraverse
-chat's client-timing-v2 pin. An isolated checkout is used; foreign worktree
-edits are not consumed. The consumer applies one checked Debug registration
-capture patch: a shared-pointer capture fits the SDK SmallFunction storage
-where a Debug vector capture did not. It changes no public ABI or wire format.
-The existing common object dependency and its 27-patch chain remain unchanged.
+The SDK pin is `89244bafb596509e915c8b4d3df9f30541b462d5` from the
+`bench/presence-api-1s` experiments. It exposes the native Client presence API.
+An isolated clean checkout is required; foreign worktree edits are not
+consumed. No consumer SDK patch is applied. The existing common object
+dependency and its 27-patch chain remain unchanged. The earlier transport
+pin and probe-based verification are historical and recorded separately in
+[the original validation](../validation/shared-node-aether-2026-11-11.md).
 
 `AetherByteLink` implements `IByteLink` over SDK `P2pStream` and
 `P2pSafeStream`. It sends the frozen native SharedSyncMessage bytes unchanged
-inside a reflected native transport envelope. SDK `SizedPacketGate` supplies
+without an application transport envelope. SDK `SizedPacketGate` supplies
 whole-message framing; bounded writes through P2pSafeStream fragment messages
 larger than its circular buffer. No application offset/length protocol or new
-SharedNode field codec is added. The business-message limit is 1 MiB, including
-neither the envelope nor SDK framing; larger messages are refused explicitly.
+SharedNode field codec is added. The business-message limit is 1 MiB, excluding
+SDK framing; larger messages are refused explicitly.
 
 `WatchPeer(uid)` starts observation before sending; Send can discover a valid
 new UID, and incoming SDK ports create or replace the corresponding local peer
@@ -337,34 +331,62 @@ that adapter. Bootstrap snapshots take priority over Event retries so a bounded
 transport cannot repeatedly deliver an early Event while starving its initial
 state.
 
-Presence adapts the benchmark's timestamped-echo principle; it is not an SDK
-Presence API. Per-peer probes default to one second with a five-second expiry.
-Only a reply matching an outstanding sequence and original local monotonic
-request timestamp can establish Online. A delayed buffered reply cannot extend
-freshness by its arrival time. The deployed native push ACK has no request ID
-and is not used as presence evidence. Unknown allows paced first contact;
-Offline blocks new business sends while probes continue. Local probe identity
-is distinct from journal timestamps and checkpoint progress promises.
+Presence uses `Client::IsLocallyOnline()` and `Client::QueryPeerPresence(uid)`.
+The SDK queries the peer's Personal Cloud authoritative servers. Only a fresh
+native remote Online result together with local Online permits business
+sends. Offline, Unknown, errors and expired results retain the durable retry
+obligation without sending business bytes. There is no application probe/echo
+fallback. Query start time bounds result freshness; delayed answers cannot
+extend it by their arrival time. Queries default to one-second pacing and a
+five-second TTL/deadline. The SDK owns one query action per Client, so the
+adapter serializes queries round-robin rather than replacing concurrent
+queries for different peers. SDK action subscriptions are runtime-only.
 
-At most one business message per peer is queued/in flight, with bounded control
-jobs and one native write at a time. Busy/unwritable/oversized sends return
+At most one business message per peer is queued/in flight, with one native
+write at a time. Busy/unwritable/oversized sends return
 false; SharedSyncRuntime keeps its durable obligation for retry. An already
-accepted large frame can drain while presence expires; successful chunk progress
-prevents repeated watchdog resets of that frame, but does not establish Online.
+accepted frame waits for Online before beginning each further native chunk.
+Successful chunk progress does not establish Online.
 Stalled/offline or failed writes permit bounded session recreation, resetting
 the local SDK stream and packet collector. Inbound replacement uses generation
 checks to ignore old callbacks. Recovery properties are limited to executed
-scenarios in [the Aether validation record](../validation/shared-node-aether-2026-11-11.md).
+scenarios in the corresponding validation record.
+
+## Minimal Windows chat
+
+Current cloud execution is blocked at SDK registration on the tested
+deployment; presence and GUI message exchange are not runtime-verified for
+this pin. See [the current validation](../validation/shared-node-chat-native-presence-2026-11-11.md).
+
+`APPTRAVERSE_BUILD_SHARED_NODE_CHAT=ON` requires the optional Aether link and
+builds `shared_node_chat`. The window contains the local UID, Host room,
+invitation/Join, participants with native presence, message history and
+input/Send. Fixed English labels follow the explicitly requested no-localization
+scope. Each running participant needs a distinct `--profile`; `--name` supplies
+the display name. `examples/shared_node_chat/run_demo.ps1` opens three windows.
+
+The native model contains an Application, a SharedNode Room, Participants with
+serializable link descriptors, Join Events and Text Events. A host UID plus
+native room ID is the invitation. A small reflected BinaryArchive application
+frame routes either a JoinRequest or unchanged SharedSync bytes. The host
+admits each UID once; repeated requests retain the original frozen admission.
+After admission all participants send their own Events directly to every peer.
+The runtime handles snapshot coverage, ACKs, retry, ordering and duplicate
+suppression. The chat adds no separate journal or message index.
+
+The SDK, Domain and sync runtime live on a model thread. GUI commands enter
+through `ModelObjectProxy`; the UI consumes immutable value publications.
+Native USER state and SDK identity are persisted under the private profile and
+restored on restart. Persistence completes before acknowledgment. Runtime
+transport objects never enter the shared graph. The example implements one
+room and no room merging, moderation, attachments or unrelated controls.
 
 ## Next slices
 
-1. Add the simplest chat that demonstrates SharedNode: minimal participant and
-   message presentation/input, no localization and no unrelated product features.
-   The current transport slice has no GUI.
-2. Compact identity metadata and native storage reclamation only after a
+1. Compact identity metadata and native storage reclamation only after a
    separate delayed-packet/identity contract; current checkpoints retain the
    stamp ledger and do not perform global object-store garbage collection.
-3. Different-build schema/capability compatibility and broader network fault
+2. Different-build schema/capability compatibility and broader network fault
    characterization. Dynamic topology and arbitrary
    mutable dependency graphs need their own application conflict/replay tests.
 
@@ -375,8 +397,8 @@ admission and generic merging of independently formed rooms are not implemented.
 
 Ordering remains by `timestamp_us` within the agreed single-computer scope.
 Event identity does not become a hidden ordering key. Equal-timestamp behavior
-must be settled before claiming general convergence. GUI and cross-machine
-clock ordering are outside this transport slice.
+must be settled before claiming general convergence. Cross-machine clock
+ordering remains outside the demonstrated scope.
 
 ## Headless entry point
 
