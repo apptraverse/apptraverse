@@ -110,7 +110,7 @@ struct AetherByteLink::Impl {
            options.max_message_bytes != 0 && options.max_message_bytes <= kMaxPayload);
     endpoint = UidText(client->uid());
     port_sub = client->message_stream_manager().new_port_event().Subscribe(
-        [this](ae::P2pPortHandle handle) {
+        [this](ae::P2pPortHandle& handle) {
           if (stopped || !handle || handle.destination() == client->uid()) { return; }
           auto* peer = Get(handle.destination());
           Bind(*peer, std::move(handle));
@@ -211,7 +211,7 @@ struct AetherByteLink::Impl {
         .max_repeat_count = 10, .wait_ack_timeout = 1500ms,
         .send_ack_timeout = 0ms, .send_repeat_timeout = 200ms};
     peer.safe = std::make_shared<ae::P2pSafeStream>(context, config, peer.raw);
-    peer.packets = std::make_unique<ae::SizedPacketGate>();
+    peer.packets = std::make_unique<ae::SizedPacketGate>(context);
     auto* const raw_peer = &peer;
     auto const generation = peer.generation;
     peer.chunk_sub = peer.safe->out_data_event().Subscribe(

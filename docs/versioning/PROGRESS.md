@@ -5,7 +5,10 @@
 Continued `feature/shared-node-native-memory` from `a85b1c2`. Replaced adapter
 probe/echo with `Client::IsLocallyOnline` / `QueryPeerPresence`, serialized
 queries and strict fresh Online gating. Raw SharedSync bytes use SDK framing.
-SDK pin `89244baf` is isolated and clean; no foreign SDK edits are consumed.
+Published SDK pin `fc61d36c` is isolated; the exact upstream MSVC ApiContext
+compile fix `25e8497f` is applied and checked by file hash. No foreign SDK
+edits are consumed. The branch is `feature/percentile8-policy-v1`,
+[Cursor PR #550](https://github.com/aethernetio/aether-client-cpp/pull/550).
 Added opt-in minimal Windows chat with host invitation, participants, messages,
 native persistence, model-thread proxy commands and value-only UI views.
 

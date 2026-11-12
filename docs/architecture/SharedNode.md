@@ -303,10 +303,13 @@ existing memory check do not acquire the SDK. The separate
 `APPTRAVERSE_BUILD_AETHER_CLOUD_WORKER` option also defaults OFF and adds only
 the owned headless cloud worker, not a GUI example or an automatic network test.
 
-The SDK pin is `89244bafb596509e915c8b4d3df9f30541b462d5` from the
-`bench/presence-api-1s` experiments. It exposes the native Client presence API.
-An isolated clean checkout is required; foreign worktree edits are not
-consumed. No consumer SDK patch is applied. The existing common object
+The SDK pin is `fc61d36c8e30842ca1088020e69621efaba513df` from the published
+`feature/percentile8-policy-v1` branch ([Cursor PR #550](https://github.com/aethernetio/aether-client-cpp/pull/550)).
+It exposes the native Client presence API. An isolated checkout is required;
+foreign worktree edits are not consumed. One exact upstream compile fix from
+`fix/msvc-api-context-baseline` (`25e8497f`) constructs a nonmovable ApiContext
+without an MSVC ternary move; its file hash is checked. This changes no wire
+format. The existing common object
 dependency and its 27-patch chain remain unchanged. The earlier transport
 pin and probe-based verification are historical and recorded separately in
 [the original validation](../validation/shared-node-aether-2026-11-11.md).

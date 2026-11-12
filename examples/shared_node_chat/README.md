@@ -6,8 +6,11 @@ Fixed English labels; no localization or extra chat features.
 
 Enable `APPTRAVERSE_BUILD_AETHER_LINK=ON` and
 `APPTRAVERSE_BUILD_SHARED_NODE_CHAT=ON` in an existing Debug build. The SDK must
-match the clean immutable pin in `cmake/shared_aether.cmake`; ordinary builds
-leave both options OFF. Build target `shared_node_chat`.
+match the immutable pin in `cmake/shared_aether.cmake`; its exact upstream
+MSVC compile patch is applied automatically. This is the published
+`feature/percentile8-policy-v1` branch from
+[Cursor PR #550](https://github.com/aethernetio/aether-client-cpp/pull/550).
+Ordinary builds leave both options OFF. Build target `shared_node_chat`.
 
 ```powershell
 ./examples/shared_node_chat/run_demo.ps1

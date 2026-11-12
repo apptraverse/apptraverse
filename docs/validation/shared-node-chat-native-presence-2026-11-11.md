@@ -5,12 +5,21 @@ requested the Client's online API and the simplest chat, without localization.
 
 ## Implementation
 
-- Pinned a clean isolated SDK checkout to
-  `89244bafb596509e915c8b4d3df9f30541b462d5` (`bench/presence-api-1s`). This
-  contains `Client::IsLocallyOnline()` and `Client::QueryPeerPresence()`.
-  Foreign SDK worktrees were inspected read-only. The common objects and its
-  existing 27-patch chain were retained; the old SDK-specific Debug capture
-  patch is no longer applicable and was removed.
+- Pinned an isolated SDK checkout to the published Cursor branch
+  `feature/percentile8-policy-v1`, exact commit
+  `fc61d36c8e30842ca1088020e69621efaba513df`,
+  [PR #550](https://github.com/aethernetio/aether-client-cpp/pull/550) (draft,
+  open, not merged at inspection). It contains `Client::IsLocallyOnline()`
+  and `Client::QueryPeerPresence()`. All remote heads were refreshed and
+  searched after the user pointed to a pushed branch. Foreign SDK worktrees
+  were inspected read-only. The common objects and its existing 27-patch
+  chain were retained; the old SDK Debug capture patch was removed.
+- The published SDK has an MSVC nonmovable ApiContext ternary error. Applied
+  the exact published upstream fix `25e8497f01498627b35a226c189af21fba6d0981`
+  from `fix/msvc-api-context-baseline` as a checked consumer patch. Only
+  `aether/api_protocol/make_api_call_sender.h` may differ, with expected blob
+  `94e5ab1a70e13b84b2e3a53f2f643a2fe7ce9ba4`. It changes construction for the
+  compiler, not the server protocol. SDK framing uses its native EventContext.
 - Removed application Probe/Reply and the adapter envelope. SDK
   `SizedPacketGate` frames the frozen native SharedSync bytes.
 - Only local Online plus a fresh native remote Online permits business
@@ -35,10 +44,11 @@ MSVC x64 Debug, incremental existing build, exceptions/RTTI disabled. No fresh
 dependency population, Release or other-platform validation was performed.
 
 - SDK, adapter, worker, chat and explicit native GUI controller: **build PASS**.
-- Existing seven SharedNode/native memory CTest entries: **7/7 PASS**, 10.40 s.
-- Adapter native presence mapping/freshness/error tests and 85 KiB SDK framing:
-  **1/1 PASS**, 0.09 s including CTest overhead. Old echo correlation and
-  old-SDK-only budget tests are no longer claimed for this SDK.
+- Published SDK adapter/native/memory profile: **8/8 PASS**, 17.83 s. Includes
+  the existing seven SharedNode/native memory entries, native presence
+  mapping/freshness/errors and 85 KiB framing with the SDK EventContext. Old
+  echo correlation and old-SDK-only budget tests are no longer claimed for
+  this SDK.
 - Targeted Node/clone/persistence/Application/WindowCatalog/MinimalApp
   headless regressions: **9/9 PASS**, 26.18 s.
 - Actual native window inspected through computer-use: labels, layout,
@@ -47,23 +57,27 @@ dependency population, Release or other-platform validation was performed.
 - Explicit three-window controller: **FAIL / bootstrap BLOCKED** at its
   first client-ready stage; the Host window reports
   `Aether registration failed or timed out`. Evidence:
-  `.artifacts/shared-chat-win32-native-api.log`, with unique private profiles
-  under `.artifacts/shared-chat-native-api/`. The controller reaped its owned
-  processes. Admission/Unicode/offline/restart assertions were not reached.
+  `.artifacts/shared-chat-win32-published-api.log`, with unique private profiles
+  under `.artifacts/shared-chat-published-api/`. The earlier 892 run has the
+  same failure in `.artifacts/shared-chat-win32-native-api.log`. Both
+  controllers reaped their owned processes. Admission/Unicode/offline/restart
+  assertions were not reached.
 
 ## Real-cloud blocker
 
 The explicit headless campaign used three fresh owned processes/profiles:
 
 ```powershell
-python tests/run_shared_aether_test.py --exe build/shared-node-debug/tests/apptraverse_shared_aether_worker.exe --out .artifacts/aether-native-presence-01 --deadline 480
+python tests/run_shared_aether_test.py --exe build/shared-node-debug/tests/apptraverse_shared_aether_worker.exe --out .artifacts/aether-published-presence-01 --deadline 480
 ```
 
-**FAIL / bootstrap BLOCKED:** all workers remained unselected; H exited 2 after
-the 120 s registration deadline. Controller summary records
-`H exited 2; inspect its private worker log`. No snapshot, native presence
-observation, offline recovery or checkpoint scenario began. Historical cloud
-PASS from SDK `a5cfce84` does not apply to this pin.
+**FAIL / bootstrap BLOCKED** on the published `fc61d36c` plus upstream compile
+fix: all workers remained unselected at the 120 s registration deadline.
+Controller summary records `H: registration failed or timed out`. No snapshot,
+native presence observation, offline recovery or checkpoint scenario began.
+The earlier run `.artifacts/aether-native-presence-01` on the experimental
+`89244baf` also failed registration (H exited 2). Historical cloud PASS from SDK
+`a5cfce84` does not apply to either native-API pin.
 
 Independent upstream experiment evidence was found in local SDK commit
 `a6b6a1c5`, `examples/benches/presence_api/reports/validation-20261111.txt`:

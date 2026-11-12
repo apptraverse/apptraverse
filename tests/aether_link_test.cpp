@@ -54,8 +54,13 @@ void FailedAndExpiredNativeQueriesStayUnknown() {
 // The SDK gate used by AetherByteLink preserves opaque native SharedSync bytes
 // through arbitrary chunks, including messages larger than its circular buffer.
 void SdkFramingPreservesBusinessBytesAndBoundaries() {
-  ae::SizedPacketGate sender;
-  ae::SizedPacketGate receiver;
+  auto events = std::make_unique<ae::EventSystem>();
+  struct Context {
+    ae::EventSystem* events;
+    ae::EventSystem& event_system() const { return *events; }
+  } context{events.get()};
+  ae::SizedPacketGate sender{context};
+  ae::SizedPacketGate receiver{context};
   std::vector<std::uint8_t> large(85000);
   for (std::size_t i = 0; i < large.size(); ++i) {
     large[i] = static_cast<std::uint8_t>(i % 251);
