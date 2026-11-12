@@ -1,4 +1,20 @@
 # AppTraverse — прогресс версионирования поставок
+## Telemetry main follow-up — 2026-11-12 (Windows; GUI limitation)
+
+Telemetry now follows `main`, resolved to `65eda03928030b8cc04432e2f98ba4e3242b6f27`.
+Objects is pinned to `80fbb4c`, retaining all 29 SDK-owned patches and the public
+no-exceptions/no-RTTI policy. No C++ implementation or test assertions changed.
+
+Full MSVC x64 Debug ALL build passed without source overrides. The full CTest
+batch passed **84/85** in 1142.01 seconds, including the model/persistence suite.
+Native WindowCatalog acceptance #80 failed its foreground precondition at
+`window_catalog_win32_acceptance_test.cpp:289`; a focused rerun failed the same
+check (24.85 seconds). Computer Use recovery then failed with `input_required
+did not complete within 10 MRTR rounds` and `Computer Use helper already has an
+active request`. Further UI input stopped under its recovery policy. Current
+native acceptance remains unverified; the previous 85/85 below is historical.
+Publication remains on `codex/telemetry-update`; no SDK main merge.
+
 ## Telemetry portability follow-up — 2026-11-12 — PASS (Windows Debug)
 
 Pinned Tele `a6e632d` and Objects `38a9b21`, retaining the SDK's public
