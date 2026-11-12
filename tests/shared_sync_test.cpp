@@ -71,7 +71,10 @@ class AppendSyncTextEvent : public EventFor<SyncRoom, AppendSyncTextEvent> {
   SharedNode::ptr room_reference;
 };
 
-void SyncRoom::Apply(AppendSyncTextEvent const& event) { text += event.text; }
+void SyncRoom::Apply(AppendSyncTextEvent const& event) {
+  text += event.text;
+  NoteMaterializedChange();
+}
 
 class AttachSyncRoomEvent;
 class ExpectSyncRoomEvent;
@@ -663,6 +666,35 @@ void TestLiveEventLossDuplicateAndReorderedBothDirections() {
   CHECK(pair.b->Peer(id, "H").HasDelivered(e10));
 }
 
+void TestMaterializedNotificationsSurviveReorderAndIgnoreDuplicateAck() {
+  Pair pair;
+  auto const id = pair.AddRoom();
+  pair.Bootstrap(id);
+  std::size_t h_changes = 0, b_changes = 0;
+  auto const changed = [](void* ctx, Node&) { ++*static_cast<std::size_t*>(ctx); };
+  pair.h->Room(id).BindMaterializedChangeNotifier(&h_changes, changed);
+  pair.b->Room(id).BindMaterializedChangeNotifier(&b_changes, changed);
+  auto const e20 = pair.h->Append(id, "|20", 20);
+  pair.h->Append(id, "|30", 30);
+  pair.b->Append(id, "|10", 10);
+  CHECK(h_changes == 2 && b_changes == 1);
+  pair.Service(0);
+  auto const frozen = pair.Packet(SharedSyncKind::Event, "H", e20);
+  pair.Drain(true);  // Mid-journal replay on both replicas.
+  pair.Equal(id, 3);
+  CHECK(h_changes > 2 && b_changes > 1);
+  CHECK(pair.h->Room(id).MaterializedChangeContext() == &h_changes);
+  CHECK(pair.b->Room(id).MaterializedChangeContext() == &b_changes);
+  auto const before_h = h_changes, before_b = b_changes;
+  bool const sent = pair.h->endpoint->Send("B", frozen.bytes);
+  CHECK(sent);
+  pair.Drain();  // Re-ACK already applied Event, no materialized change.
+  pair.Service(kRetry);
+  CHECK(h_changes == before_h && b_changes == before_b);
+  pair.h->Room(id).ClearMaterializedChangeNotifier();
+  pair.b->Room(id).ClearMaterializedChangeNotifier();
+}
+
 void TestLostAckAndReceiverRestart() {
   Pair pair;
   auto const id = pair.AddRoom();
@@ -880,6 +912,7 @@ int main() {
   apptraverse::test::TestInitialRestartBeforeSendAndAfterApply();
   apptraverse::test::TestLiveEventLossDuplicateAndReorderedBothDirections();
   apptraverse::test::TestLostAckAndReceiverRestart();
+  apptraverse::test::TestMaterializedNotificationsSurviveReorderAndIgnoreDuplicateAck();
   apptraverse::test::TestPendingBeforeSendAndBothSidesRestart();
   apptraverse::test::TestWrongAckOfflinePacingAndNodeIsolation();
   apptraverse::test::TestDuplicateInitialDoesNotReplaceLiveReplica();

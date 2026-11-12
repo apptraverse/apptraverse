@@ -331,8 +331,13 @@ struct Worker {
     }
     std::sort(files.begin(), files.end());
     for (auto const& path : files) {
-      std::ifstream input{path}; std::string line; std::getline(input, line); input.close();
+      std::ifstream input{path}; std::string line;
+      // A temporary Windows sharing lock is not a rejected business command.
+      // Leave the file for the next service turn; the controller has a deadline.
+      if (!std::getline(input, line)) { continue; }
+      input.close();
       bool const okay = Command(line);
+      if (!okay) { std::cerr << "Rejected controller command: " << line << '\n'; }
       AtomicText(std::filesystem::path{"acks"} / (path.stem().string() + ".json"),
                   std::string{"{\"ok\":"} + (okay ? "true}" : "false}"));
       std::error_code ec; std::filesystem::remove(path, ec);

@@ -17,7 +17,7 @@
 #include "../examples/shared_node_chat/chat_controls.h"
 
 // Explicit, network-dependent acceptance test. It controls only the three
-// processes that it launches, through the same native controls as a user.
+// processes that it launches, through the controls' native command notifications.
 namespace {
 using namespace apptraverse::chat;
 using namespace std::chrono_literals;
@@ -43,6 +43,14 @@ HWND Control(HWND window, int id) {
   auto control = GetDlgItem(window, id);
   Require(control != nullptr, "Expected chat control is missing");
   return control;
+}
+
+void Click(HWND window, int id) {
+  auto const control = Control(window, id);
+  Require(IsWindowEnabled(control), "Requested button is disabled");
+  // Cross-process BM_CLICK can be ignored by inactive windows. Dispatch the
+  // button's ordinary BN_CLICKED notification to its actual parent instead.
+  Call(window, WM_COMMAND, MAKEWPARAM(id, BN_CLICKED), reinterpret_cast<LPARAM>(control));
 }
 
 std::wstring Text(HWND control) {
@@ -192,7 +200,7 @@ void Send(Process& process, std::wstring const& message) {
   Require(IsWindowEnabled(Control(window, kInputControl)) != FALSE,
           "Chat input is disabled after joining");
   SetText(Control(window, kInputControl), message);
-  Call(Control(window, kSendControl), BM_CLICK);
+  Click(window, kSendControl);
 }
 
 std::size_t Occurrences(std::wstring const& log, std::wstring const& message) {
@@ -256,7 +264,7 @@ int wmain(int argc, wchar_t** argv) {
       for (auto& peer : peers) { if (!Ready(peer)) { return false; } }
       return true;
     });
-    Call(Control(peers[0].Window(), kHostControl), BM_CLICK);
+    Click(peers[0].Window(), kHostControl);
     std::wstring invite;
     Wait("Creating a room", [&] {
       invite = Text(Control(peers[0].Window(), kInviteControl));
@@ -265,7 +273,7 @@ int wmain(int argc, wchar_t** argv) {
     for (std::size_t index = 1; index < peers.size(); ++index) {
       auto const window = peers[index].Window();
       SetText(Control(window, kInviteControl), invite);
-      Call(Control(window, kJoinControl), BM_CLICK);
+      Click(window, kJoinControl);
     }
     Wait("Joining three participants", [&] {
       for (auto& peer : peers) {
@@ -293,18 +301,20 @@ int wmain(int argc, wchar_t** argv) {
       return ContainsMessages(peers[0], messages) && ContainsMessages(peers[1], messages);
     });
     peers[2].Start(exe);
-    Wait("Restoring the same identity and missing history", [&] {
+    Wait("Restoring SDK identity with a fresh RAM-only chat", [&] {
       auto const window = peers[2].Window();
-      return window && Text(Control(window, kUidControl)) == bob_uid &&
-          People(window).size() == 3 && ContainsMessages(peers[2], messages);
+      return window && Ready(peers[2]) && Text(Control(window, kUidControl)) == bob_uid;
     });
-    messages.push_back(prefix + L"-bob-restarted");
-    Send(peers[2], messages.back());
-    Wait("Delivering a message after restart", [&] {
-      for (auto& peer : peers) { if (!ContainsMessages(peer, messages)) { return false; } }
-      return true;
-    });
+    Require(People(peers[2].Window()).empty(), "Chat membership survived a RAM-only restart");
+    Require(Text(Control(peers[2].Window(), kMessagesControl)).empty(),
+            "Message history survived a RAM-only restart");
+    Require(!IsWindowEnabled(Control(peers[2].Window(), kInputControl)),
+            "Restarted participant unexpectedly resumed a room");
     for (auto& peer : peers) { peer.Stop(true); }
-    std::cout << "PASS: three native chat windows without presence, Unicode, pending delivery, persistent restart, clean shutdown" << std::endl;
+    for (auto const& peer : peers) {
+      Require(!std::filesystem::exists(peer.profile / L"native") &&
+              !std::filesystem::exists(peer.profile / L"root.id"), "Chat wrote a disk checkpoint");
+    }
+    std::cout << "PASS: event-driven native chat, Unicode, three peers, no disk chat state, fresh RAM restart, clean shutdown" << std::endl;
     return 0;
 }

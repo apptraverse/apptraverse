@@ -1,5 +1,9 @@
 # SharedNode delivery without presence
 
+The later [event-driven RAM chat](shared-node-chat-event-driven-2026-11-12.md)
+supersedes the demo's disk persistence/restart policy. The saved-profile
+checks below describe the earlier configuration.
+
 Follow-up: a longer two-peer [latency campaign](shared-node-chat-latency-2026-11-12.md)
 found an intermittent >30 s delivery stall. The short acceptance PASS below
 retains its executed scope and does not qualify sustained delivery reliability.

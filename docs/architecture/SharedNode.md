@@ -356,8 +356,10 @@ adapter serializes queries round-robin rather than replacing concurrent
 queries for different peers. SDK action subscriptions are runtime-only.
 
 At most one business message per peer is queued/in flight, with one native
-write at a time. Busy/unwritable/oversized sends return
-false; SharedSyncRuntime keeps its durable obligation for retry. With presence
+write at a time. Busy/oversized sends return false. An unwritable SDK stream
+keeps one frame queued so stall detection can recreate the session; it must
+not refuse every retry with an empty queue forever. SharedSyncRuntime keeps
+its durable obligation for retry. With presence
 enabled, an accepted frame waits for Online before each further native chunk.
 Successful chunk progress does not establish Online. Failed writes and stalled
 queued writes (without presence, or with observed Offline) permit bounded
@@ -371,8 +373,10 @@ scenarios in the corresponding validation record.
 The chat uses the default ACK/retry mode without availability queries. The
 previous GetClientTiming blocker applies only to the opt-in presence mode;
 its historical evidence is in [native-presence validation](../validation/shared-node-presence-streaming-2026-11-11.md).
-Current cloud and three-window chat checks pass in
-[ACK/retry validation](../validation/shared-node-ack-retry-2026-11-12.md).
+The current publication/storage contract is recorded in
+[event-driven RAM validation](../validation/shared-node-chat-event-driven-2026-11-12.md).
+Earlier saved-profile checks are in
+[historical ACK/retry validation](../validation/shared-node-ack-retry-2026-11-12.md).
 
 `APPTRAVERSE_BUILD_SHARED_NODE_CHAT=ON` requires the optional Aether link and
 builds `shared_node_chat`. The window contains the local UID, Host room,
@@ -392,8 +396,18 @@ suppression. The chat adds no separate journal or message index.
 
 The SDK, Domain and sync runtime live on a model thread. GUI commands enter
 through `ModelObjectProxy`; the UI consumes immutable value publications.
-Native USER state and SDK identity are persisted under the private profile and
-restored on restart. Persistence completes before acknowledgment. Runtime
+ChatView is published only after a materialized Node change or a status
+transition, through the existing Node notifier. A callback posts a Windows
+message; the UI consumes the view when handling it. There is no regular
+publication/refresh timer, and no presentation work for ACKs/retries/idle.
+
+The demonstration owns chat objects and receipt metadata in RAM; its
+SharedSync persistence callback accepts that in-memory transition. Chat graph
+Save/Load, disk checkpoints and automatic shutdown saves are not used. Closing
+the process loses its room/history/pending state. An embedding application
+chooses its own object-storage policy. Only SDK identity uses the private
+profile; it does not restore chat state. Previous persistent-demo validation
+is historical and is not a RAM-chat restart guarantee. Runtime
 transport objects never enter the shared graph. The example implements one
 room and no room merging, moderation, attachments or unrelated controls.
 

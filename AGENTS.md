@@ -49,6 +49,11 @@ each durable packet until its ACK, retrying at the configured timeout. Native
 presence may remain an explicit opt-in; the minimal chat shows participant
 names without Online/Offline badges. This supersedes the native-presence
 requirement above for the default demo and its cloud acceptance.
+The following correction requires event-driven chat publication/presentation:
+no periodic ChatView refresh and no UI polling timer. Use the existing Node
+materialized-change notifications. Chat state/history and pending receipts
+stay in RAM, with no chat disk Save/Load on send/receive/shutdown. This
+supersedes demo profile-restore acceptance; SDK identity storage is separate.
 
 - **Never** add an AeroAdmin dependency or copy AeroAdmin sources.
 - Windows is the first platform; the common model must stay cross-platform (no HWND, Win32 paths, or Win32 keycodes in `src/common/`).

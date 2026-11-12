@@ -19,8 +19,9 @@ Ordinary builds leave both options OFF. Build target `shared_node_chat`.
 This opens Host, Alice and Bob with separate persistent profiles under
 `.artifacts/shared-chat-demo`. Click **Host room** in one window, copy its
 **Room invite** into the other windows and click **Join**. Enter sends a
-message. Closing a window saves its profile; reopening the same profile
-restores its UID, room and message history.
+message. Chat objects, message history and pending ACKs live only in RAM.
+Closing the window ends that chat; reopening starts with an empty room/history.
+Only the SDK identity is retained in the profile.
 
 For individual processes:
 
@@ -29,7 +30,13 @@ For individual processes:
 ```
 
 Each concurrently running process requires its own profile. Keep profiles
-private: they contain SDK identity credentials and native model state.
+private: they contain SDK identity credentials.
+
+The model publishes only on materialized Node changes or status transitions.
+The Windows consumer receives `PostMessage` notifications and reads `ChatView`
+then; there is no periodic publication or UI refresh timer. ACK bookkeeping,
+retry and idle service do not cause display notifications. Saving the owning
+application's objects is its responsibility, outside this demonstration.
 
 Presence is disabled: participants show names without Online/Offline badges.
 The link sends as soon as transport capacity permits. SharedNode keeps a
@@ -40,8 +47,8 @@ does not confirm delivery. Duplicate Events are applied only once.
 The SDK's native presence support remains available through the explicit
 `AetherLinkOptions::use_presence` opt-in. The default chat makes no presence
 queries and does not wait for GetClientTiming replies.
-Real-cloud and three-window chat acceptance passed; see
-[validation and scope](../../docs/validation/shared-node-ack-retry-2026-11-12.md).
+Previous persistence-based acceptance is recorded in
+[historical validation](../../docs/validation/shared-node-ack-retry-2026-11-12.md).
 
 Explicit cloud acceptance (not part of ordinary CTest):
 
@@ -51,8 +58,9 @@ cmake --build build/shared-node-debug --target apptraverse_shared_chat_win32_tes
 ```
 
 The acceptance controller owns three processes and fresh private profiles. It
-requires actual admission, Unicode/all-peer delivery, stopped-peer catch-up
-after same-profile restart, a new message after restart and clean shutdown.
+requires actual admission, Unicode/all-peer delivery, continued use while a
+peer is stopped, a fresh RAM chat after restart, no chat disk checkpoint and
+clean shutdown. SDK UID restoration is tested separately from chat state.
 A bootstrap failure does not count as a chat PASS.
 
 Headless delivery latency, using the same production `ChatSession` in two
@@ -65,13 +73,18 @@ python tests/run_shared_chat_latency.py --exe build/shared-node-debug/examples/s
 
 This explicit network benchmark records a QPC timestamp immediately before
 `ChatSession::Send` and timestamps in the remote process. `observed_ms` ends
-when a 1 ms poll first reads the message in the published `ChatView`;
-`presented_ms` ends when a headless display consumes it on the window's
-independent 100 ms refresh cadence. The session's own 100 ms publication,
-native persistence and delivery/retry path are included. Physical button
+when a change notification wakes the consumer and it reads `ChatView`;
+`presented_ms` ends when that event-driven headless display builds its text.
+The consumer waits on a condition variable, with no presentation polling or
+periodic display cadence. Delivery, RAM apply and ACK/retry are included. Physical button
 input, sender edit conversion and actual Win32 painting are excluded.
 Use a fresh output directory. Raw samples, worker logs and phase/direction
 statistics are saved there. First messages and warmup are reported separately;
 the default measured phase is 50 messages in each direction. Normal CTest does
 not register cloud identities or run this benchmark.
-See [measured results and the intermittent delivery stall](../../docs/validation/shared-node-chat-latency-2026-11-12.md).
+The benchmark also requires zero publication notifications during three
+seconds of idle time and verifies that no chat checkpoint files were created.
+The [previous measurements](../../docs/validation/shared-node-chat-latency-2026-11-12.md)
+used the superseded polling/disk configuration and include an intermittent stall.
+Current [event-driven RAM checks and timing](../../docs/validation/shared-node-chat-event-driven-2026-11-12.md)
+are recorded separately.

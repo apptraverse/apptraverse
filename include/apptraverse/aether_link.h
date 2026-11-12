@@ -72,6 +72,7 @@ struct AetherLinkStatistics {
 // presence mode requires native local Online and a fresh remote Online result.
 // One business message per peer can be queued/in flight. Failure remains the
 // SharedSyncRuntime's durable retry obligation, rather than a second SDK queue.
+// An unwritable SDK stream retains that one frame for stall/recovery handling.
 class AetherByteLink final : public IByteLink {
  public:
   AetherByteLink(ae::AeContext const& context, ae::Client::ptr client,

@@ -5,6 +5,7 @@
 
 #include <charconv>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <cstdlib>
 #include <deque>
@@ -69,20 +70,25 @@ int main(int argc, char** argv) {
   if (!QueryPerformanceFrequency(&frequency)) { return 2; }
   Emit("{\"event\":\"clock\",\"frequency\":" + std::to_string(frequency.QuadPart) + "}");
 
-  // One real ChatSession per process, with the same SDK, persistence and
-  // publication cadence as the GUI. Only its presentation consumer is headless.
-  ChatSession session{std::filesystem::absolute(profile), name};
-  session.Start();
   std::mutex command_mutex;
+  std::condition_variable changed;
+  std::uint64_t publications = 0, consumed_publications = 0;
   std::deque<std::string> commands;
+  // Same publication notification as the GUI; no View polling or display timer.
+  ChatSession session{std::filesystem::absolute(profile), name, [&] {
+    { std::lock_guard lock{command_mutex}; ++publications; }
+    changed.notify_one();
+  }};
+  session.Start();
   std::thread input{[&] {
     for (std::string line; std::getline(std::cin, line);) {
       { std::lock_guard lock{command_mutex}; commands.push_back(line); }
+      changed.notify_one();
       if (line == "stop") { return; }
     }
-    std::lock_guard lock{command_mutex}; commands.push_back("stop");
+    { std::lock_guard lock{command_mutex}; commands.push_back("stop"); }
+    changed.notify_one();
   }};
-  auto next_display = std::chrono::steady_clock::now();
   std::string last_state, rendered;
   std::map<std::uint64_t, std::string> observed;
   std::set<std::uint64_t> presented;
@@ -90,7 +96,15 @@ int main(int argc, char** argv) {
   bool okay = true;
   while (running) {
     std::deque<std::string> pending;
-    { std::lock_guard lock{command_mutex}; pending.swap(commands); }
+    bool new_view = false;
+    std::uint64_t publication_count = 0;
+    {
+      std::unique_lock lock{command_mutex};
+      changed.wait(lock, [&] { return !commands.empty() || publications != consumed_publications; });
+      pending.swap(commands);
+      new_view = publications != consumed_publications;
+      publication_count = consumed_publications = publications;
+    }
     for (auto const& command : pending) {
       if (command == "stop") { running = false; break; }
       if (command == "host") { session.CreateRoom(); }
@@ -108,8 +122,10 @@ int main(int argc, char** argv) {
       } else { okay = false; running = false; break; }
     }
     if (!running) { break; }
+    if (!new_view) { continue; }
     auto const view = session.View();
     auto const observed_at = Ticks();
+    std::vector<std::pair<std::uint64_t, std::string>> fresh_rows;
     auto const state = "{\"event\":\"state\",\"ready\":" + std::string(view.ready ? "true" : "false") +
         ",\"in_room\":" + (view.in_room ? "true" : "false") +
         ",\"uid\":" + Quote(view.local_uid) + ",\"invite\":" + Quote(view.invite) +
@@ -125,16 +141,10 @@ int main(int argc, char** argv) {
       if (!in_view.insert(seq).second) { okay = false; running = false; break; }
       auto const [found, fresh] = observed.emplace(seq, row);
       if (found->second != row) { okay = false; running = false; break; }
-      if (fresh) {
-        Emit("{\"event\":\"observed\",\"seq\":" + std::to_string(seq) +
-             ",\"ticks\":" + std::to_string(observed_at) + ",\"message\":" +
-             Quote(row.substr(std::char_traits<char>::length(remote_prefix))) + "}");
-      }
+      if (fresh) { fresh_rows.emplace_back(seq, row); }
     }
-    auto const now = std::chrono::steady_clock::now();
-    if (now >= next_display) {
-      // Same 100 ms consumer cadence and text projection as Window::Refresh.
-      // This is a virtual display, not a measurement of WM_PAINT or pixels.
+    {
+      // Event-driven virtual display; no physical WM_PAINT/pixels measurement.
       std::string text;
       for (auto const& row : view.messages) {
         if (!text.empty()) { text += "\r\n"; }
@@ -142,12 +152,16 @@ int main(int argc, char** argv) {
       }
       rendered = std::move(text);
       auto const displayed_at = Ticks();
+      Emit("{\"event\":\"publication\",\"count\":" + std::to_string(publication_count) + "}");
+      for (auto const& [seq, row] : fresh_rows) {
+        Emit("{\"event\":\"observed\",\"seq\":" + std::to_string(seq) +
+             ",\"ticks\":" + std::to_string(observed_at) + ",\"message\":" +
+             Quote(row.substr(std::char_traits<char>::length(remote_prefix))) + "}");
+      }
       for (auto const seq : in_view) {
         if (presented.insert(seq).second) { Stamp("presented", seq, displayed_at); }
       }
-      next_display = now + 100ms;
     }
-    std::this_thread::sleep_for(1ms);
   }
   if (!okay) { Emit("{\"event\":\"error\",\"message\":\"invalid command or duplicate/corrupt message\"}"); }
   session.Stop();

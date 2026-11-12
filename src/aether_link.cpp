@@ -366,7 +366,10 @@ bool AetherByteLink::Send(std::string const& destination,
   auto* peer = impl_->Watch(destination);
   if (peer == nullptr || peer->reset_needed ||
       (impl_->options.use_presence && impl_->Availability(*peer) != LinkAvailability::Online) ||
-      !peer->safe->stream_info().is_writable || !impl_->Queue(*peer, bytes)) { return false; }
+      !impl_->Queue(*peer, bytes)) { return false; }
+  // Retain one frame even while the SDK is unwritable. Pump can then detect
+  // a stalled queued write and recreate its session; refusing before Queue
+  // leaves an empty, unwritable session outside that recovery path forever.
   ++impl_->statistics.data_accepted; ++peer->statistics.data_accepted;
   return true;
 }

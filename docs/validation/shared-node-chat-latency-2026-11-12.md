@@ -1,5 +1,10 @@
 # Host + one client: headless chat delivery latency
 
+Historical disk/polling configuration. The subsequent
+[event-driven RAM chat](shared-node-chat-event-driven-2026-11-12.md) removes
+both 100 ms presentation periods and chat disk saves; its timings have a
+different endpoint/implementation and are recorded separately.
+
 Measured on `feature/shared-node-native-memory` from `ee4698d0` on 2026-11-12.
 The benchmark builds and runs; the first campaign exposed an intermittent
 delivery stall. A second independent campaign completed all 100 samples.

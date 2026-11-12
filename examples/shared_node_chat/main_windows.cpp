@@ -24,7 +24,7 @@ namespace apptraverse::chat {
 namespace {
 using ui::windows::Utf8ToWide;
 using ui::windows::WideToUtf8;
-constexpr UINT_PTR kRefreshTimer = 1;
+constexpr UINT kViewChanged = WM_APP + 1;
 
 void Close(HANDLE handle) {
   if (!CloseHandle(handle)) {
@@ -61,7 +61,11 @@ void SetChanged(HWND control, std::wstring const& value) {
 
 struct Window {
   Window(std::filesystem::path profile, std::string name)
-      : session{std::move(profile), std::move(name)} {}
+      : session{std::move(profile), std::move(name), [this] {
+          if (!PostMessageW(hwnd, kViewChanged, 0, 0)) {
+            FatalWin32("PostMessageW chat publication", GetLastError());
+          }
+        }} {}
 
   ChatSession session;
   HWND hwnd{}, uid_label{}, uid{}, host{}, invite_label{}, invite{}, join{};
@@ -109,10 +113,6 @@ struct Window {
     status = Control(L"STATIC", L"Connecting to Aether...", SS_LEFT, kStatusControl);
     EnableWindow(host, FALSE); EnableWindow(join, FALSE);
     EnableWindow(input, FALSE); EnableWindow(send, FALSE);
-    if (!SetTimer(hwnd, kRefreshTimer, 100, nullptr)) {
-      DWORD const error = GetLastError();
-      FatalWin32("SetTimer chat publication", error);
-    }
     session.Start();
     Layout();
   }
@@ -208,10 +208,6 @@ struct Window {
   void Close() {
     if (stopping) { return; }
     stopping = true;
-    if (!KillTimer(hwnd, kRefreshTimer)) {
-      DWORD const error = GetLastError();
-      FatalWin32("KillTimer chat publication", error);
-    }
     EnableWindow(hwnd, FALSE);
     session.Stop();
     if (!DestroyWindow(hwnd)) {
@@ -241,7 +237,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
       auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
       info->ptMinTrackSize = {560, 400}; return 0;
     }
-    case WM_TIMER: if (wparam == kRefreshTimer) { window->Refresh(); } return 0;
+    case kViewChanged: window->Refresh(); return 0;
     case WM_COMMAND:
       switch (LOWORD(wparam)) {
         case kHostControl: window->session.CreateRoom(); return 0;

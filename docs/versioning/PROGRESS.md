@@ -1,5 +1,27 @@
 # AppTraverse — прогресс версионирования поставок
 
+## SharedNode event-driven RAM chat — 2026-11-12 — PASS
+
+Continued from `773c92d9`. Removed the 100 ms model publication and Win32
+refresh timers. Apply handlers use the existing Node notifier; changed value
+publications post a Windows message, and idle/ACK/retry work does not refresh
+the chat. The headless consumer also waits on notifications instead of polling.
+Chat disk Save/Load/root.id/shutdown checkpoints are removed. Native object
+layers are committed only into RAM; SDK identity storage remains separate.
+
+Fixed an unwritable-stream recovery gap: one bounded frame is now retained
+so Pump can detect a stall and recreate the session instead of endlessly
+refusing Send with an empty queue. No SDK wire/Rx/retry policy change.
+
+**9/9 final adapter/native/memory CTests PASS**, plus a notifier regression
+through reordered replay and duplicate Event/ACK. **100/100 actual-cloud
+headless messages PASS**, followed by zero publication notifications in
+three seconds of idle on both peers and no chat disk files. **Three native
+chat windows PASS** after the queue correction; restarted chat is empty in
+RAM while retaining SDK UID. The separate persistent three-process transport
+campaign also passes all delivery/outage/checkpoint/restart stages. Earlier
+development failures are retained in the [validation record](../validation/shared-node-chat-event-driven-2026-11-12.md).
+
 ## SharedNode two-peer chat latency — 2026-11-12 — MEASURED / INTERMITTENT STALL FOUND
 
 Added an explicit headless benchmark using two unchanged production

@@ -6,7 +6,6 @@
 #include <chrono>
 #include <cstdint>
 #include <deque>
-#include <fstream>
 #include <functional>
 #include <mutex>
 #include <thread>
@@ -16,7 +15,6 @@
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/shared_sync.h"
-#include "apptraverse/single_file_user_storage.h"
 #include "aether-miscpp/serialization/binary_archive.h"
 #include "aether/aether_app.h"
 #include "aether/ae_actions/select_client.h"
@@ -126,10 +124,12 @@ bool Room::CanApply(JoinEvent const& event) const {
 }
 void Room::Apply(TextEvent const& event) {
   messages.push_back({event.author->name, event.text});
+  NoteMaterializedChange();
 }
 void Room::Apply(JoinEvent const& event) {
   participants.push_back(event.person);
   links.push_back(event.person->link);
+  NoteMaterializedChange();
 }
 
 class AttachEvent;
@@ -197,10 +197,12 @@ void Application::Apply(AttachEvent const& event) {
   room = event.room;
   expected = {};
   source.clear();
+  NoteMaterializedChange();
 }
 void Application::Apply(ExpectEvent const& event) {
   expected = event.expected;
   source = event.source;
+  NoteMaterializedChange();
 }
 APPTRAVERSE_REGISTER(Participant);
 APPTRAVERSE_REGISTER(Room);
@@ -290,8 +292,9 @@ class ChatLink final : public IByteLink {
 }  // namespace
 
 struct ChatSession::Impl {
-  Impl(std::filesystem::path value, std::string user_name)
+  Impl(std::filesystem::path value, std::string user_name, Changed changed)
       : profile{std::filesystem::absolute(std::move(value))}, name{Trim(std::move(user_name))},
+        on_changed{std::move(changed)},
         proxy{[this](ModelObjectProxy::ModelWork work) {
           std::lock_guard lock{command_mutex};
           if (!stop_requested.load()) { commands.push_back(std::move(work)); }
@@ -302,6 +305,7 @@ struct ChatSession::Impl {
 
   std::filesystem::path profile;
   std::string name;
+  Changed on_changed;
   mutable std::mutex view_mutex;
   ChatView view;
   std::mutex lifecycle_mutex;
@@ -318,6 +322,8 @@ struct ChatSession::Impl {
   bool selected{false};
   bool selection_ok{false};
   bool failed{false};
+  bool finished{false};
+  bool view_dirty{true};
   std::string status;
   ae::RamDomainStorage storage;
   std::unique_ptr<ae::Domain> domain;
@@ -334,24 +340,27 @@ struct ChatSession::Impl {
     return held.as<Room>();
   }
 
-  bool Persist() {
+  void Observe(Node& node) {
+    node.BindMaterializedChangeNotifier(this, [](void* ctx, Node&) {
+      static_cast<Impl*>(ctx)->view_dirty = true;
+    });
+  }
+
+  bool CommitMemory() {
+    // Keep the native graph's lazy layers consistent in RamDomainStorage.
+    // This does not open files or flush any chat state to disk.
     ae::DomainGraph graph{domain.get()};
-    auto const saved = graph.SaveRoot(domain->Find(app.id()), app.id());
-    if (saved.IsErr() || !SaveUserStorageFile(storage, profile / "native")) { return false; }
-    // This sidecar is the native Application root identity, not a checkpoint.
-    // It is created once; updates replace only the native user.bin.
-    auto const root_path = profile / "root.id";
-    if (!std::filesystem::exists(root_path)) {
-      std::ofstream output{root_path, std::ios::binary | std::ios::trunc};
-      output << app.id().id();
-      output.flush();
-      if (!output) { return false; }
-    }
-    return true;
+    return graph.SaveRoot(domain->Find(app.id()), app.id()).IsOk();
+  }
+
+  void SetStatus(std::string message) {
+    if (status == message) { return; }
+    status = std::move(message);
+    view_dirty = true;
   }
 
   void SetError(std::string message) {
-    status = std::move(message);
+    SetStatus(std::move(message));
     failed = true;
   }
 
@@ -360,43 +369,31 @@ struct ChatSession::Impl {
     native->WatchPeer(app->source);
     sync->ExpectInitialState(app->expected, app->source, Room::kClassId,
         [this](SharedNode::ptr value) {
+          Observe(*value);
           app->Attach(std::move(value));
-          status = "Connected";
+          SetStatus("Connected");
         });
-    status = "Waiting for the host...";
+    SetStatus("Waiting for the host...");
   }
 
   bool InitializeModel() {
-    if (!LoadUserStorageFile(storage, profile / "native")) { return false; }
+    storage = {};
     domain = std::make_unique<ae::Domain>(storage);
-    auto const root_path = profile / "root.id";
-    if (std::filesystem::exists(root_path)) {
-      std::uint32_t root = 0;
-      std::ifstream input{root_path};
-      input >> root;
-      if (!input || root == 0) { return false; }
-      ae::DomainGraph graph{domain.get()};
-      auto held = graph.LoadRoot(ae::ObjId{root});
-      if (!held || held->GetClassId() != Application::kClassId) { return false; }
-      app = Application::ptr{domain.get(), ae::ObjId{root}, {}, held};
-      if (app->endpoint != native->EndpointId()) { return false; }
-      if (app->room.is_valid() && !CurrentRoom()) { return false; }
-    } else {
-      if (!storage.state.empty()) { return false; }
-      app = Application::ptr::Create(ae::CreateWith{*domain});
-      app->endpoint = native->EndpointId();
-      app->name = name;
-      InitializeRuntimeNode(*app);
-      if (!Persist()) { return false; }
-    }
+    app = Application::ptr::Create(ae::CreateWith{*domain});
+    app->endpoint = native->EndpointId();
+    app->name = name;
+    InitializeRuntimeNode(*app);
+    Observe(*app);
+    if (!CommitMemory()) { return false; }
     link = std::make_unique<ChatLink>(*native,
         [this](auto const& source, ae::ObjId room, std::string person_name) {
           OnJoinRequest(source, room, std::move(person_name));
         });
     sync = std::make_unique<SharedSyncRuntime>(*domain, storage, *link,
-        native->EndpointId(), [this] { return Persist(); });
+        // ACK confirms the native RAM graph transition, with no disk checkpoint.
+        native->EndpointId(), [this] { return CommitMemory(); });
     if (app->room.is_valid()) { sync->RegisterNode(app->room); }
-    status = CurrentRoom() ? "Connected" : "Create a room or paste an invitation";
+    SetStatus("Create a room or paste an invitation");
     BindExpected();
     return true;
   }
@@ -410,10 +407,11 @@ struct ChatSession::Impl {
     room->links = {host->link};
     SharedSyncRuntime::InitializeLocalState(*room);
     InitializeRuntimeNode(*room);
+    Observe(*room);
     app->Attach(room);
     sync->RegisterNode(room);
-    if (!Persist()) { SetError("Could not save the room"); return; }
-    status = "Room created. Share the invitation";
+    if (!CommitMemory()) { SetError("Could not commit the room in memory"); return; }
+    SetStatus("Room created. Share the invitation");
   }
 
   void JoinRoom(std::string invite) {
@@ -421,17 +419,17 @@ struct ChatSession::Impl {
     invite = Trim(std::move(invite));
     auto const slash = invite.find('/');
     std::uint32_t id = 0;
-    if (slash != 36 || slash + 1 >= invite.size()) { status = "Invalid invitation"; return; }
+    if (slash != 36 || slash + 1 >= invite.size()) { SetStatus("Invalid invitation"); return; }
     auto const host = invite.substr(0, slash);
     auto const number = invite.substr(slash + 1);
     auto const parsed = std::from_chars(number.data(), number.data() + number.size(), id);
     if (parsed.ec != std::errc{} || parsed.ptr != number.data() + number.size() || id == 0 ||
         host == native->EndpointId() || !native->WatchPeer(host)) {
-      status = "Invalid invitation";
+      SetStatus("Invalid invitation");
       return;
     }
     app->Expect(ae::ObjId{id}, host);
-    if (!Persist()) { SetError("Could not save the invitation"); return; }
+    if (!CommitMemory()) { SetError("Could not commit the invitation in memory"); return; }
     BindExpected();
     next_join_request = 0;
   }
@@ -440,7 +438,7 @@ struct ChatSession::Impl {
     text = Trim(std::move(text));
     auto* room = CurrentRoom();
     if (failed || !sync || !room || text.empty()) { return; }
-    if (text.size() > 8192) { status = "Message is too long (8192 bytes maximum)"; return; }
+    if (text.size() > 8192) { SetStatus("Message is too long (8192 bytes maximum)"); return; }
     auto const author = std::find_if(room->participants.begin(), room->participants.end(),
         [this](auto const& person) { return person->link->endpoint_uid == native->EndpointId(); });
     if (author == room->participants.end()) { SetError("This client is not a room participant"); return; }
@@ -448,10 +446,10 @@ struct ChatSession::Impl {
     event->author = *author;
     event->text = std::move(text);
     if (!sync->CommitLocal(room->obj_id, std::move(event))) {
-      SetError("Could not save the message");
+      SetError("Could not commit the message");
       return;
     }
-    status = "Connected";
+    SetStatus("Connected");
   }
 
   void OnJoinRequest(std::string const& source, ae::ObjId room_id, std::string person_name) {
@@ -460,7 +458,7 @@ struct ChatSession::Impl {
     if (failed || !room || !sync || room->obj_id != room_id ||
         room->host_uid != native->EndpointId() || person_name.empty()) { return; }
     // A repeated request leaves the original frozen admission/snapshot intact.
-    // The runtime retries it until the joining replica durably acknowledges it.
+    // The runtime retries it until the joining replica acknowledges its RAM state.
     auto const known = std::any_of(room->links.begin(), room->links.end(),
         [&](auto const& peer) { return peer->endpoint_uid == source; });
     if (known) { return; }
@@ -479,9 +477,10 @@ struct ChatSession::Impl {
   }
 
   void Publish() {
+    view_dirty = false;
     ChatView next;
     next.status = status;
-    next.ready = sync && !failed && !sync->failed();
+    next.ready = sync && !failed && !finished && !sync->failed();
     if (native) { next.local_uid = native->EndpointId(); }
     if (auto* room = CurrentRoom()) {
       next.in_room = true;
@@ -496,12 +495,18 @@ struct ChatSession::Impl {
     } else if (app.is_valid() && app->expected.is_valid()) {
       next.invite = app->source + "/" + std::to_string(app->expected.id());
     }
-    std::lock_guard lock{view_mutex};
-    view = std::move(next);
+    {
+      std::lock_guard lock{view_mutex};
+      if (view == next) { return; }
+      view = std::move(next);
+    }
+    if (on_changed) { on_changed(); }
   }
 
   void Run() {
     failed = false;
+    finished = false;
+    view_dirty = true;
     if (name.size() > 256) {
       SetError("Name is too long (256 bytes maximum)");
       Publish();
@@ -526,7 +531,7 @@ struct ChatSession::Impl {
     }
     selected = false;
     selection_ok = false;
-    status = "Connecting to Aether...";
+    SetStatus("Connecting to Aether...");
     selection = sdk->aether()->SelectClient(
         ae::Uid::FromString("3ac93165-3d37-4970-87a6-fa4ee27744e4"), "shared-node-chat")
         .result_event().Subscribe([this](auto const& result) {
@@ -535,7 +540,6 @@ struct ChatSession::Impl {
           if (selection_ok) { client = result.value(); }
         });
     auto const started = MonotonicMicros();
-    std::uint64_t next_publication = 0;
     while (!stop_requested.load() && !sdk->IsExited()) {
       auto const wake = sdk->Update(ae::Now());
       auto const now = MonotonicMicros();
@@ -545,11 +549,10 @@ struct ChatSession::Impl {
         } else if (selection_ok) {
           client->connectivity_policy().Load()->ConfigureRxTimings().ForAllPriorities(
               ae::RxTimingConf::Every(std::chrono::milliseconds{1000}));
-          // The native Application binds its identity to this SDK client. Save
-          // credentials before that binding can be written or acknowledged.
+          // SDK identity only; chat objects/history are never written here.
           sdk->aether().Save();
           native = std::make_unique<AetherByteLink>(*sdk->aether(), client);
-          if (!InitializeModel()) { SetError("Could not restore this chat profile"); }
+          if (!InitializeModel()) { SetError("Could not initialize the chat"); }
         }
       }
       if (sync && !failed) {
@@ -567,19 +570,16 @@ struct ChatSession::Impl {
           next_join_request = now + 1000000ULL;
         }
         sync->Service(now);
-        if (sync->failed()) { SetError("SharedNode could not save its state"); }
+        if (sync->failed()) { SetError("SharedNode could not commit its state"); }
       }
-      if (now >= next_publication) {
-        Publish();
-        next_publication = now + 100000ULL;
-      }
+      if (view_dirty) { Publish(); }
       sdk->WaitUntil(std::min(wake, ae::Now() + std::chrono::milliseconds{10}));
     }
-    // Closing immediately after Send must retain commands already accepted by
-    // the proxy. Their durable packets will resume delivery on the next start.
+    // Complete commands already accepted by the proxy; the chat lifetime ends
+    // here. An outer application may choose its own object-saving policy.
     if (!failed && sync) { DrainCommands(); }
-    if (!failed && app.is_valid() && !Persist()) { SetError("Could not save the chat profile"); }
-    if (!failed) { status = "Stopped"; }
+    finished = true;
+    if (!failed) { SetStatus("Stopped"); }
     Publish();
     // Cancel callbacks and transport before their domain and SDK dependencies.
     sync.reset();
@@ -590,12 +590,11 @@ struct ChatSession::Impl {
     selection.Reset();
     client = {};
     sdk.reset();
-    { std::lock_guard lock{view_mutex}; view.ready = false; }
   }
 };
 
-ChatSession::ChatSession(std::filesystem::path profile, std::string name)
-    : impl_{std::make_unique<Impl>(std::move(profile), std::move(name))} {}
+ChatSession::ChatSession(std::filesystem::path profile, std::string name, Changed changed)
+    : impl_{std::make_unique<Impl>(std::move(profile), std::move(name), std::move(changed))} {}
 ChatSession::~ChatSession() { Stop(); }
 void ChatSession::Start() {
   std::lock_guard lock{impl_->lifecycle_mutex};

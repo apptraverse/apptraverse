@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Measure two production ChatSessions through Aether without opening GUI windows.
 
-Worker QPC timestamps measure Send -> remote ChatView observation and Send -> a
-headless display consuming that view on the GUI's 100 ms cadence. Neither metric
+Worker QPC timestamps measure Send -> remote ChatView observation and Send -> an
+event-driven headless display consuming that view. Neither metric
 claims physical GUI paint latency. Run explicitly; this creates cloud identities.
 """
 from __future__ import annotations
@@ -53,6 +53,8 @@ class Campaign:
         self.readers = []
         self.states = {}
         self.clocks = {}
+        self.publications = {}
+        self.idle_notifications = None
         self.stopped = set()
         self.timestamps = {}
         self.expected = {}
@@ -121,6 +123,11 @@ class Campaign:
         event = value.get("event")
         if event == "state":
             self.states[side] = value
+        elif event == "publication":
+            count = value.get("count")
+            if not isinstance(count, int) or count <= self.publications.get(side, 0):
+                raise RuntimeError(f"{side}: nonmonotonic publication count")
+            self.publications[side] = count
         elif event == "clock":
             frequency = value.get("frequency")
             if not isinstance(frequency, int) or frequency <= 0:
@@ -239,6 +246,21 @@ class Campaign:
                 if (index + 1) % 10 == 0 or index + 1 == count:
                     print(f"{phase}: {index + 1}/{count}", flush=True)
                 self.pause()
+        # Let the last message's consumer notifications drain, then verify
+        # transport ACKs/retries do not cause idle publication or UI polling.
+        end = time.monotonic() + 0.5
+        self.wait("last notifications drained", lambda: time.monotonic() >= end, 2)
+        before = self.publications.copy()
+        end = time.monotonic() + 3
+        self.wait("idle notification observation", lambda: time.monotonic() >= end, 5)
+        self.idle_notifications = {s: self.publications[s] - before[s] for s in SIDES}
+        if any(self.idle_notifications.values()):
+            raise RuntimeError(f"idle chat kept publishing: {self.idle_notifications}")
+        print("Idle: zero publications for 3 seconds on both peers", flush=True)
+        for side in SIDES:
+            profile = self.args.out / side
+            if (profile / "native").exists() or (profile / "root.id").exists():
+                raise RuntimeError(f"{side}: chat state was written to disk")
         self.stop_workers()
 
     def stop_workers(self):
@@ -268,11 +290,13 @@ class Campaign:
             "result": result, "reason": reason, "elapsed_seconds": time.monotonic() - self.started,
             "boundary": {
                 "start": "worker QPC immediately before production ChatSession.Send",
-                "observed": "first remote ChatView containing exact sequence observed by 1ms poll",
-                "presented": "first headless display consuming that view on independent 100ms cadence",
+                "observed": "remote ChatView read after its change notification",
+                "presented": "event-driven headless display text built from that notification",
                 "excluded": "physical input, sender edit/UTF8 extraction, actual Win32 control paint",
             },
             "environment": "same-host separate processes, real Aether cloud, existing Debug build",
+            "chat_storage": "RAM only; SDK identity profile is separate",
+            "idle_notifications": self.idle_notifications,
             "percentile_method": "nearest-rank", "timeouts": self.timeouts,
             "payload_bytes": self.args.payload_bytes, "seed": self.args.seed,
             "between_messages_jitter_ms": [20, 180],
