@@ -1,4 +1,18 @@
 # AppTraverse — прогресс версионирования поставок
+## Telemetry portability follow-up — 2026-11-12 — PASS (Windows Debug)
+
+Pinned Tele `a6e632d` and Objects `38a9b21`, retaining the SDK's public
+no-exceptions/no-RTTI policy and all 29 Objects patches. Tele now supports that
+policy without forcing exception flags and shares each thread's writer across
+translation units. Objects uses the existing ForEach boolean result without
+captured mutation; its MSVC 19.51 size/LTCG CI job passed along with the other
+six jobs. Tele's seven CI jobs, including both sanitizers, also passed.
+
+Verified the published dependency graph with no source overrides: full MSVC
+x64 Debug ALL build and **85/85 CTest** (591.29 seconds), including native
+Win32 acceptance. No SDK implementation, schema, ClassId or USER policy changed
+in this follow-up. Other platform runtime scopes were not rerun here.
+
 ## Published telemetry dependencies — 2026-11-12 — PASS (Windows Debug)
 
 Pinned published Objects `94c97c6`, Tele `a496a19`, miscpp `6839624` and
