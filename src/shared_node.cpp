@@ -1,6 +1,7 @@
 #include "apptraverse/shared_node.h"
 
 #include <algorithm>
+#include <limits>
 #include <utility>
 
 namespace apptraverse {
@@ -13,10 +14,12 @@ APPTRAVERSE_REGISTER(CompleteSharedPacketEvent);
 APPTRAVERSE_REGISTER(RememberSharedInitialEvent);
 APPTRAVERSE_REGISTER(InstallSharedAdmissionEvent);
 APPTRAVERSE_REGISTER(ConfirmSharedAdmissionEvent);
+APPTRAVERSE_REGISTER(ConfirmSharedStreamPrefixEvent);
 APPTRAVERSE_REGISTER(SharedNodeLocalState);
 APPTRAVERSE_REGISTER(AddSharedPeerStateEvent);
 APPTRAVERSE_REGISTER(NoteSharedLocalEventEvent);
 APPTRAVERSE_REGISTER(RememberSharedLocalFrameEvent);
+APPTRAVERSE_REGISTER(RememberSharedStreamEvent);
 APPTRAVERSE_REGISTER(SharedNode);
 APPTRAVERSE_REGISTER(AddSharedLinkEvent);
 
@@ -30,10 +33,12 @@ void EnsureSharedNodeRegistration() {
   (void)&g_apptraverse_registrar_RememberSharedInitialEvent;
   (void)&g_apptraverse_registrar_InstallSharedAdmissionEvent;
   (void)&g_apptraverse_registrar_ConfirmSharedAdmissionEvent;
+  (void)&g_apptraverse_registrar_ConfirmSharedStreamPrefixEvent;
   (void)&g_apptraverse_registrar_SharedNodeLocalState;
   (void)&g_apptraverse_registrar_AddSharedPeerStateEvent;
   (void)&g_apptraverse_registrar_NoteSharedLocalEventEvent;
   (void)&g_apptraverse_registrar_RememberSharedLocalFrameEvent;
+  (void)&g_apptraverse_registrar_RememberSharedStreamEvent;
   (void)&g_apptraverse_registrar_SharedNode;
   (void)&g_apptraverse_registrar_AddSharedLinkEvent;
 }
@@ -47,6 +52,11 @@ bool SharedAdmissionPlan::is_valid() const {
              covered_events.end() &&
          std::all_of(covered_events.begin(), covered_events.end(),
                      [](ae::ObjId id) { return id.is_valid(); });
+}
+
+bool SharedEventStamp::is_valid() const {
+  return !author_uid.empty() && index != 0 && event_id.is_valid() &&
+         timestamp_us != 0;
 }
 
 void SharedPeerState::MarkDelivered(ae::ObjId event_id) {
@@ -99,6 +109,9 @@ bool SharedPeerState::CanApply(QueueSharedPacketEvent const& event) const {
   return packet.packet_id.is_valid() && !packet.bytes.empty() &&
          (packet.initial || packet.event_id.is_valid()) &&
          !(packet.initial && packet.coverage_notice) &&
+         (packet.stamp == SharedEventStamp{} ||
+          (!packet.initial && !packet.coverage_notice &&
+           packet.stamp.is_valid() && packet.stamp.event_id == packet.event_id)) &&
          (!packet.coverage_notice ||
           (packet.admission.is_valid() &&
            packet.packet_id == packet.admission.snapshot_id &&
@@ -214,6 +227,49 @@ void SharedPeerState::Apply(ConfirmSharedAdmissionEvent const& event) {
   RemoveCoveredPending(event.plan.covered_events);
 }
 
+void SharedPeerState::ConfirmPrefix(SharedStreamCursor cursor) {
+  if (cursor.index == 0 && cursor.timestamp_us == 0) {
+    return;
+  }
+  auto const existing = std::find_if(acknowledged_streams.begin(),
+      acknowledged_streams.end(), [&](auto const& saved) {
+        return saved.author_uid == cursor.author_uid;
+      });
+  if (existing != acknowledged_streams.end() &&
+      (existing->index > cursor.index || *existing == cursor)) {
+    return;
+  }
+  auto event = ConfirmSharedStreamPrefixEvent::ptr::Create(ae::CreateWith{*domain});
+  event->cursor = std::move(cursor);
+  Commit(std::move(event));
+}
+
+bool SharedPeerState::CanApply(ConfirmSharedStreamPrefixEvent const& event) const {
+  auto const& cursor = event.cursor;
+  if (cursor.author_uid.empty() || cursor.index == 0 || cursor.timestamp_us == 0) {
+    return false;
+  }
+  auto const existing = std::find_if(acknowledged_streams.begin(),
+      acknowledged_streams.end(), [&](auto const& saved) {
+        return saved.author_uid == cursor.author_uid;
+      });
+  return existing == acknowledged_streams.end() ||
+         (cursor.index > existing->index &&
+          cursor.timestamp_us > existing->timestamp_us);
+}
+
+void SharedPeerState::Apply(ConfirmSharedStreamPrefixEvent const& event) {
+  auto const existing = std::find_if(acknowledged_streams.begin(),
+      acknowledged_streams.end(), [&](auto const& saved) {
+        return saved.author_uid == event.cursor.author_uid;
+      });
+  if (existing == acknowledged_streams.end()) {
+    acknowledged_streams.push_back(event.cursor);
+  } else {
+    *existing = event.cursor;
+  }
+}
+
 bool SharedPeerState::HasReceivedInitial(ae::ObjId packet_id) const {
   return std::find(received_initial_packets.begin(),
                    received_initial_packets.end(), packet_id) !=
@@ -320,6 +376,9 @@ bool SharedNodeLocalState::CanApply(
   return event.frame.event_id.is_valid() && event.frame.packet_id.is_valid() &&
          !event.frame.initial && !event.frame.coverage_notice &&
          !event.frame.bytes.empty() &&
+         (event.frame.stamp == SharedEventStamp{} ||
+          (event.frame.stamp.event_id == event.frame.event_id &&
+           CanRememberStamp(event.frame.stamp))) &&
          FindLocalFrame(event.frame.event_id) == nullptr;
 }
 
@@ -329,6 +388,80 @@ void SharedNodeLocalState::Apply(RememberSharedLocalFrameEvent const& event) {
     local_events.push_back(event.frame.event_id);
   }
   local_frames.push_back(event.frame);
+  if (event.frame.stamp.is_valid() &&
+      FindStreamEvent(event.frame.stamp.event_id) == nullptr) {
+    stream_events.push_back(event.frame.stamp);
+  }
+}
+
+SharedEventStamp const* SharedNodeLocalState::FindStreamEvent(
+    ae::ObjId event_id) const {
+  auto const found = std::find_if(stream_events.begin(), stream_events.end(),
+      [event_id](auto const& stamp) { return stamp.event_id == event_id; });
+  return found == stream_events.end() ? nullptr : &*found;
+}
+
+SharedEventStamp const* SharedNodeLocalState::FindStreamIndex(
+    std::string const& author_uid, std::uint64_t index) const {
+  auto const found = std::find_if(stream_events.begin(), stream_events.end(),
+      [&](auto const& stamp) {
+        return stamp.author_uid == author_uid && stamp.index == index;
+      });
+  return found == stream_events.end() ? nullptr : &*found;
+}
+
+SharedStreamCursor SharedNodeLocalState::ReceivedPrefix(
+    std::string const& author_uid) const {
+  SharedStreamCursor cursor{author_uid, 0, 0};
+  while (cursor.index != std::numeric_limits<std::uint64_t>::max()) {
+    auto const* next = FindStreamIndex(author_uid, cursor.index + 1);
+    if (next == nullptr) {
+      break;
+    }
+    cursor.index = next->index;
+    cursor.timestamp_us = next->timestamp_us;
+  }
+  return cursor;
+}
+
+bool SharedNodeLocalState::CanRememberStamp(SharedEventStamp const& stamp) const {
+  if (!stamp.is_valid()) {
+    return false;
+  }
+  auto const* known = FindStreamEvent(stamp.event_id);
+  if (known != nullptr) {
+    return *known == stamp;
+  }
+  for (auto const& saved : stream_events) {
+    if (saved.author_uid != stamp.author_uid) {
+      continue;
+    }
+    if (saved.index == stamp.index ||
+        (saved.index < stamp.index && saved.timestamp_us >= stamp.timestamp_us) ||
+        (saved.index > stamp.index && saved.timestamp_us <= stamp.timestamp_us)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void SharedNodeLocalState::RememberStreamEvent(SharedEventStamp stamp) {
+  auto const* existing = FindStreamEvent(stamp.event_id);
+  if (existing != nullptr && *existing == stamp) {
+    return;
+  }
+  auto event = RememberSharedStreamEvent::ptr::Create(ae::CreateWith{*domain});
+  event->stamp = std::move(stamp);
+  Commit(std::move(event));
+}
+
+bool SharedNodeLocalState::CanApply(RememberSharedStreamEvent const& event) const {
+  return FindStreamEvent(event.stamp.event_id) == nullptr &&
+         CanRememberStamp(event.stamp);
+}
+
+void SharedNodeLocalState::Apply(RememberSharedStreamEvent const& event) {
+  stream_events.push_back(event.stamp);
 }
 
 void SharedNode::AddLink(SharedLinkDescriptor::ptr link) {

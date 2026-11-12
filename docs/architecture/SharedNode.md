@@ -1,7 +1,7 @@
 # SharedNode: native memory synchronization
 
-Scope: native serialization, reliable live delivery and host admission into a
-three-participant room on
+Scope: native serialization, indexed reliable live delivery and host admission
+into a three-participant room on
 `feature/shared-node-native-memory`, based on main
 `8b592f994c2ad2931bcef22a044a6a21dbe05c4e`. The user's November 11 request
 explicitly starts new SharedNode work; the older removal/deferment of network
@@ -56,10 +56,13 @@ same-class collisions are not resolved by this slice.
 `SharedSyncRuntime` is model-thread code over `IByteLink`. Its native reflected
 `SharedSyncMessage` carries InitialState, Event, ACK or CoverageReceipt, target
 Node, packet/Event identity, timestamp and a typed `SharedGraphSnapshot`.
-New messages use version 1.1. Native 1.0 data packets remain readable and retain
-their frozen bytes; their replies use the same minor version. Admission requires
-1.1. Other header versions are rejected without successful ACK. This is not full
-schema/capability negotiation between different client builds.
+New messages use version 1.2 with typed author stamps, initial stream receipts
+and continuous ACK cursors. Native 1.0/1.1 layouts remain readable/writable and
+retain their frozen bytes; their replies use the same minor version. Indexed
+delivery requires 1.2; the older admission layout requires at least 1.1. Lossy
+downgrading of newer fields is rejected. Other header versions are rejected
+without successful ACK. This is not full schema/capability negotiation between
+different client builds.
 
 The application owns persistence. Its `Persist` callback must save the whole
 local Application graph, including the shared root and local delivery subtree,
@@ -93,10 +96,12 @@ delivery confirmations prevent historical Events from being queued again.
 An Event receives a success ACK only after insertion and persistence. Duplicates
 are checked against journal identity, timestamp and native Event-layer data,
 persisted and re-ACKed without a second insertion. ACK source, target Node,
-packet kind and Event identity must match that peer's pending record. ACKs
-themselves are not acknowledged. If an ACK cannot be sent, sender retry elicits
-it again. Unknown roots/missing dependencies receive no success ACK; the sender
-retains the durable packet and retries after the prerequisite is available.
+packet kind and Event identity are validated against the recipient and retained
+outgoing identity. Legacy Event ACKs complete only unstamped pending packets;
+indexed ACKs follow the prefix contract below. ACKs themselves are not
+acknowledged. If an ACK cannot be sent, sender retry elicits it again. Unknown
+roots/missing dependencies receive no success ACK; the sender retains the
+durable packet and retries after the prerequisite is available.
 
 Initial ACK covers only the frozen history. Later Events are independent
 packets and can overtake initial state; retry delivers them after import.
@@ -108,6 +113,60 @@ Before remote insertion, the runtime tries it on a disposable native copy.
 `Node::TryInsertJournalEvent` dispatches through the most-derived `NodeFor<T>`
 serializer, preserving application fields during timestamp-ordered replay.
 Failed speculative replay cannot partially change the live replica.
+
+## Author indexes and continuous acknowledgements
+
+Each new Event, including the host's Join, receives a native
+`SharedEventStamp { author_uid, index, event_id, timestamp_us }`. Indexes start
+at 1 for each author within each SharedNode. Event identity remains native;
+the index is delivery metadata and does not replace timestamp journal ordering.
+
+`SharedNodeLocalState::stream_events` retains immutable stamps for authored and
+received Events. Reusing an Event ID with a different stamp, reusing an author's
+index, or contradicting timestamp order between known indexes is rejected
+before live insertion. Out-of-order reception is valid: index 3 can be stored
+before index 2 without claiming that 2 was received. Stamps and authored frozen
+frames are persisted through local Events before any corresponding ACK/send.
+
+`ReceivedPrefix(author)` returns the largest contiguous sequence from index 1,
+with the timestamp at that boundary. A 1.2 Event ACK echoes the triggering
+Event's stamp and carries this prefix. A prefix ending before the trigger is
+valid; it leaves all pending packets above the gap intact. When the missing
+Event arrives, one ACK can confirm several already received Events. A zero
+prefix confirms no indexed Event. Lost ACKs and duplicate Events elicit the
+current saved prefix rather than inventing progress.
+
+The sender validates the trigger against its retained original frame and the
+prefix boundary against its own saved author index/timestamp. It completes
+only ordinary indexed pending packets from that author up to the prefix, for
+that ACK's source peer. The peer's `acknowledged_streams` cursor and packet
+completions are saved together. Another recipient's pending is untouched.
+Delayed lower prefixes cannot downgrade saved progress. A legacy individual
+ACK cannot complete indexed pending.
+
+Initial messages explicitly carry the known native stamp ledger because
+`LocalPtr` metadata is excluded from the graph snapshot. Every supplied stamp
+must name an actual snapshot journal Event with the same timestamp and a known
+author Link; Event IDs and author indexes must be unique. A snapshot can contain
+a sparse stream and preserves its gap. Imported stamps are saved before the
+initial ACK and do not become locally authored Events. Exact admission coverage
+and a continuous stream prefix remain different facts: a snapshot can deliver
+index 3 while index 2 is still missing.
+
+Chronological generation is enforced across restart. The next local index and
+last author timestamp come from saved stamps; upgraded unstamped local origins
+still contribute their timestamps. Explicit time must exceed that author's
+last time and the bootstrap snapshot floor, otherwise CommitLocal/AdmitPeer
+returns false before changing the journal or saving. Automatic time is at least
+the current clock and strictly exceeds saved author/floor time and the current
+journal tail, with overflow rejected. New/imported local roots capture the
+journal-tail floor before their
+base state is initialized. Legacy metadata has no invented snapshot floor.
+
+Old history remains unstamped: loading it does not assign guessed authors or
+indexes. Its frozen 1.0/1.1 packets retain individual ACK behavior. New indexed
+events begin at 1 for an author with no saved indexed stream. This is format
+compatibility, not mixed-build indexed synchronization.
 
 ## Host admission and direct delivery
 
@@ -153,11 +212,12 @@ No agreement exchange or fabricated participant is needed. Suppressing covered
 incremental history does not forbid repeating the one frozen initial packet
 after its ACK is lost; the receiver re-ACKs it without replacing live state.
 
-Local delivery schemas are S2, with S0/S1 metadata loaders and the original
-QueueSharedPacketEvent layout loader. Existing frozen pending bytes are not
-rewritten. S1 origin IDs that never retained a pre-Apply frame cannot supply
-uncovered old history to a newly added peer; the runtime refuses to invent that
-frame from newer dependency state.
+Local delivery schemas are S3, with S0/S1/S2 metadata loaders and the older
+QueueSharedPacketEvent/RememberSharedLocalFrameEvent inline-layout loaders.
+Existing frozen pending bytes are not rewritten or attributed guessed indexes.
+S1 origin IDs that never retained a pre-Apply frame cannot supply uncovered old
+history to a newly added peer; the runtime refuses to invent that frame from
+newer dependency state.
 
 ## Memory stand
 
@@ -174,7 +234,10 @@ Heartbeat generation and timeout detection are not implemented by this stand.
 ## Next slices
 
 1. Node-owned safe checkpoint/compaction policy, tested with late Events,
-   offline peers and late attachment. Keep history until that contract is proven.
+   offline peers and late attachment. Continuous ACKs are groundwork, not a
+   safe checkpoint by themselves. A silent participant still needs a durable
+   progress promise before declaring it cannot generate an earlier timestamp.
+   No such marker is implemented yet. Keep history until that contract is proven.
 2. Different-build schema/capability compatibility, transport heartbeat and real
    Aether adaptation after the memory contract. Dynamic topology and arbitrary
    mutable dependency graphs need their own application conflict/replay tests.
@@ -201,4 +264,5 @@ delivery/restart, three-participant admission and new-only graph import, without
 historical GUI examples.
 Validation: [foundation](../validation/shared-node-native-memory-2026-11-11.md),
 [live delivery](../validation/shared-node-live-memory-2026-11-11.md),
-[three participants](../validation/shared-node-three-peer-memory-2026-11-11.md).
+[three participants](../validation/shared-node-three-peer-memory-2026-11-11.md),
+[indexed delivery](../validation/shared-node-indexed-memory-2026-11-11.md).

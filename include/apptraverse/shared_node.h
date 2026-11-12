@@ -59,6 +59,29 @@ struct SharedAdmissionPlan {
   bool operator==(SharedAdmissionPlan const&) const = default;
 };
 
+// Identity within one author's stream for one SharedNode. Indices start at 1;
+// timestamps strictly increase with that author's index, independently of
+// arrival order. The journal still orders Events by timestamp only.
+struct SharedEventStamp {
+  std::string author_uid;
+  std::uint64_t index{0};
+  ae::ObjId event_id;
+  std::uint64_t timestamp_us{0};
+
+  AE_REFLECT_MEMBERS(author_uid, index, event_id, timestamp_us)
+  bool is_valid() const;
+  bool operator==(SharedEventStamp const&) const = default;
+};
+
+struct SharedStreamCursor {
+  std::string author_uid;
+  std::uint64_t index{0};
+  std::uint64_t timestamp_us{0};
+
+  AE_REFLECT_MEMBERS(author_uid, index, timestamp_us)
+  bool operator==(SharedStreamCursor const&) const = default;
+};
+
 // Exact S1 layout, used only by library schema loaders. Frozen message bytes
 // are retained unchanged when older metadata is loaded.
 struct SharedPendingPacketV1 {
@@ -71,9 +94,8 @@ struct SharedPendingPacketV1 {
   AE_REFLECT_MEMBERS(packet_id, event_id, initial, covered_events, bytes)
 };
 
-// Frozen native message bytes and their delivery identity. This metadata is
-// local to one SharedNode/peer relationship and never enters NetworkShared.
-struct SharedPendingPacket {
+// Exact S2 inline layout, before stream attribution was added.
+struct SharedPendingPacketV2 {
   ae::ObjId packet_id;
   ae::ObjId event_id;
   bool initial{false};
@@ -84,6 +106,22 @@ struct SharedPendingPacket {
 
   AE_REFLECT_MEMBERS(packet_id, event_id, initial, covered_events, bytes,
                     coverage_notice, admission)
+};
+
+// Frozen native message bytes and their delivery identity. This metadata is
+// local to one SharedNode/peer relationship and never enters NetworkShared.
+struct SharedPendingPacket {
+  ae::ObjId packet_id;
+  ae::ObjId event_id;
+  bool initial{false};
+  std::vector<ae::ObjId> covered_events;
+  std::vector<std::uint8_t> bytes;
+  bool coverage_notice{false};
+  SharedAdmissionPlan admission;
+  SharedEventStamp stamp;
+
+  AE_REFLECT_MEMBERS(packet_id, event_id, initial, covered_events, bytes,
+                    coverage_notice, admission, stamp)
 
   bool operator==(SharedPendingPacket const&) const = default;
 };
@@ -91,7 +129,14 @@ struct SharedPendingPacket {
 inline SharedPendingPacket UpgradeSharedPendingPacket(
     SharedPendingPacketV1 packet) {
   return {packet.packet_id, packet.event_id, packet.initial,
-          std::move(packet.covered_events), std::move(packet.bytes), false, {}};
+          std::move(packet.covered_events), std::move(packet.bytes), false, {}, {}};
+}
+
+inline SharedPendingPacket UpgradeSharedPendingPacket(
+    SharedPendingPacketV2 packet) {
+  return {packet.packet_id, packet.event_id, packet.initial,
+          std::move(packet.covered_events), std::move(packet.bytes),
+          packet.coverage_notice, std::move(packet.admission), {}};
 }
 
 class MarkSharedEventDeliveredEvent;
@@ -100,12 +145,13 @@ class CompleteSharedPacketEvent;
 class RememberSharedInitialEvent;
 class InstallSharedAdmissionEvent;
 class ConfirmSharedAdmissionEvent;
+class ConfirmSharedStreamPrefixEvent;
 
 // A local-persistent metadata Node for one endpoint of one SharedNode.
 // Its own delivery Events never enter the shared journal. Recording delivery
 // is local metadata only; transport and ACK processing are separate stages.
 class SharedPeerState : public NodeFor<SharedPeerState> {
-  APPTRAVERSE_OBJECT(SharedPeerState, Node, 2)
+  APPTRAVERSE_OBJECT(SharedPeerState, Node, 3)
 
  protected:
   SharedPeerState() = default;
@@ -116,7 +162,8 @@ class SharedPeerState : public NodeFor<SharedPeerState> {
   AE_OBJECT_REFLECT(AE_MMBR(link), AE_MMBR(delivered_events),
                     AE_MMBR(pending_packets), AE_MMBR(initial_complete),
                     AE_MMBR(received_initial_packets), AE_MMBR(admission),
-                    AE_MMBR(coverage_confirmed), AE_MMBR(delivered_notices))
+                    AE_MMBR(coverage_confirmed), AE_MMBR(delivered_notices),
+                    AE_MMBR(acknowledged_streams))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
@@ -127,6 +174,7 @@ class SharedPeerState : public NodeFor<SharedPeerState> {
     admission = {};
     coverage_confirmed = false;
     delivered_notices.clear();
+    acknowledged_streams.clear();
   }
 
   template <typename Dnv>
@@ -142,20 +190,35 @@ class SharedPeerState : public NodeFor<SharedPeerState> {
     admission = {};
     coverage_confirmed = false;
     delivered_notices.clear();
+    acknowledged_streams.clear();
   }
 
   template <typename Dnv>
   void Load(ae::Version<2>, Dnv& dnv) {
-    dnv(base_, link, delivered_events, pending_packets, initial_complete,
+    std::vector<SharedPendingPacketV2> pending;
+    dnv(base_, link, delivered_events, pending, initial_complete,
         received_initial_packets, admission, coverage_confirmed,
         delivered_notices);
+    pending_packets.clear();
+    pending_packets.reserve(pending.size());
+    for (auto& packet : pending) {
+      pending_packets.push_back(UpgradeSharedPendingPacket(std::move(packet)));
+    }
+    acknowledged_streams.clear();
   }
 
   template <typename Dnv>
-  void Save(ae::Version<2>, Dnv& dnv) const {
+  void Load(ae::Version<3>, Dnv& dnv) {
     dnv(base_, link, delivered_events, pending_packets, initial_complete,
         received_initial_packets, admission, coverage_confirmed,
-        delivered_notices);
+        delivered_notices, acknowledged_streams);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<3>, Dnv& dnv) const {
+    dnv(base_, link, delivered_events, pending_packets, initial_complete,
+        received_initial_packets, admission, coverage_confirmed,
+        delivered_notices, acknowledged_streams);
   }
 
   SharedLinkDescriptor::ptr link;
@@ -166,6 +229,7 @@ class SharedPeerState : public NodeFor<SharedPeerState> {
   SharedAdmissionPlan admission;
   bool coverage_confirmed{false};
   std::vector<ae::ObjId> delivered_notices;
+  std::vector<SharedStreamCursor> acknowledged_streams;
 
   void MarkDelivered(ae::ObjId event_id);
   bool HasDelivered(ae::ObjId event_id) const;
@@ -179,6 +243,9 @@ class SharedPeerState : public NodeFor<SharedPeerState> {
   void ConfirmAdmission(SharedAdmissionPlan plan);
   bool IsCoveredByAdmission(ae::ObjId event_id) const;
   bool HasNoticeDelivered(ae::ObjId packet_id) const;
+  // Runtime validates the cursor against authored frames before recording it.
+  // This local Event does not complete packets; completion remains explicit.
+  void ConfirmPrefix(SharedStreamCursor cursor);
   bool CanApply(MarkSharedEventDeliveredEvent const& event) const;
   void Apply(MarkSharedEventDeliveredEvent const& event);
   bool CanApply(QueueSharedPacketEvent const& event) const;
@@ -191,6 +258,8 @@ class SharedPeerState : public NodeFor<SharedPeerState> {
   void Apply(InstallSharedAdmissionEvent const& event);
   bool CanApply(ConfirmSharedAdmissionEvent const& event) const;
   void Apply(ConfirmSharedAdmissionEvent const& event);
+  bool CanApply(ConfirmSharedStreamPrefixEvent const& event) const;
+  void Apply(ConfirmSharedStreamPrefixEvent const& event);
 
  private:
   void AddDelivered(ae::ObjId event_id);
@@ -224,7 +293,7 @@ class MarkSharedEventDeliveredEvent
 
 class QueueSharedPacketEvent
     : public EventFor<SharedPeerState, QueueSharedPacketEvent> {
-  APPTRAVERSE_OBJECT(QueueSharedPacketEvent, Event, 1)
+  APPTRAVERSE_OBJECT(QueueSharedPacketEvent, Event, 2)
 
  protected:
   QueueSharedPacketEvent() = default;
@@ -239,9 +308,15 @@ class QueueSharedPacketEvent
     packet = UpgradeSharedPendingPacket(std::move(old));
   }
   template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) { dnv(base_, packet); }
+  void Load(ae::Version<1>, Dnv& dnv) {
+    SharedPendingPacketV2 old;
+    dnv(base_, old);
+    packet = UpgradeSharedPendingPacket(std::move(old));
+  }
   template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const { dnv(base_, packet); }
+  void Load(ae::Version<2>, Dnv& dnv) { dnv(base_, packet); }
+  template <typename Dnv>
+  void Save(ae::Version<2>, Dnv& dnv) const { dnv(base_, packet); }
   SharedPendingPacket packet;
 };
 
@@ -318,14 +393,32 @@ class ConfirmSharedAdmissionEvent
   SharedAdmissionPlan plan;
 };
 
+class ConfirmSharedStreamPrefixEvent
+    : public EventFor<SharedPeerState, ConfirmSharedStreamPrefixEvent> {
+  APPTRAVERSE_OBJECT(ConfirmSharedStreamPrefixEvent, Event, 0)
+
+ protected:
+  ConfirmSharedStreamPrefixEvent() = default;
+
+ public:
+  explicit ConfirmSharedStreamPrefixEvent(ae::ObjProp prop) : EventFor{prop} {}
+  AE_OBJECT_REFLECT(AE_MMBR(cursor))
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) { dnv(base_, cursor); }
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const { dnv(base_, cursor); }
+  SharedStreamCursor cursor;
+};
+
 class AddSharedPeerStateEvent;
 class NoteSharedLocalEventEvent;
 class RememberSharedLocalFrameEvent;
+class RememberSharedStreamEvent;
 
 // The entire collection is behind SharedNode::local_state, rather than a
 // vector of individually local edges: even its size belongs to this replica.
 class SharedNodeLocalState : public NodeFor<SharedNodeLocalState> {
-  APPTRAVERSE_OBJECT(SharedNodeLocalState, Node, 2)
+  APPTRAVERSE_OBJECT(SharedNodeLocalState, Node, 3)
 
  protected:
   SharedNodeLocalState() = default;
@@ -333,45 +426,75 @@ class SharedNodeLocalState : public NodeFor<SharedNodeLocalState> {
  public:
   explicit SharedNodeLocalState(ae::ObjProp prop) : NodeFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(peers), AE_MMBR(local_events), AE_MMBR(local_frames))
+  AE_OBJECT_REFLECT(AE_MMBR(peers), AE_MMBR(local_events), AE_MMBR(local_frames),
+                    AE_MMBR(stream_events), AE_MMBR(timestamp_floor))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, peers);
     local_events.clear();
     local_frames.clear();
+    stream_events.clear();
+    timestamp_floor = 0;
   }
 
   template <typename Dnv>
   void Load(ae::Version<1>, Dnv& dnv) {
     dnv(base_, peers, local_events);
     local_frames.clear();
+    stream_events.clear();
+    timestamp_floor = 0;
   }
 
   template <typename Dnv>
   void Load(ae::Version<2>, Dnv& dnv) {
-    dnv(base_, peers, local_events, local_frames);
+    std::vector<SharedPendingPacketV2> frames;
+    dnv(base_, peers, local_events, frames);
+    local_frames.clear();
+    local_frames.reserve(frames.size());
+    for (auto& frame : frames) {
+      local_frames.push_back(UpgradeSharedPendingPacket(std::move(frame)));
+    }
+    stream_events.clear();
+    timestamp_floor = 0;
   }
 
   template <typename Dnv>
-  void Save(ae::Version<2>, Dnv& dnv) const {
-    dnv(base_, peers, local_events, local_frames);
+  void Load(ae::Version<3>, Dnv& dnv) {
+    dnv(base_, peers, local_events, local_frames, stream_events, timestamp_floor);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<3>, Dnv& dnv) const {
+    dnv(base_, peers, local_events, local_frames, stream_events, timestamp_floor);
   }
 
   std::vector<SharedPeerState::ptr> peers;
   std::vector<ae::ObjId> local_events;
   std::vector<SharedPendingPacket> local_frames;
+  std::vector<SharedEventStamp> stream_events;
+  std::uint64_t timestamp_floor{0};
 
   void AddPeer(SharedPeerState::ptr peer);
   void NoteLocalEvent(ae::ObjId event_id);
   void RememberLocalFrame(SharedPendingPacket frame);
   SharedPendingPacket const* FindLocalFrame(ae::ObjId event_id) const;
+  SharedEventStamp const* FindStreamEvent(ae::ObjId event_id) const;
+  SharedEventStamp const* FindStreamIndex(std::string const& author_uid,
+                                          std::uint64_t index) const;
+  SharedStreamCursor ReceivedPrefix(std::string const& author_uid) const;
+  // Accepts an identical known stamp; rejects ID/index reuse and timestamps
+  // inconsistent with any earlier/later observed index from the same author.
+  bool CanRememberStamp(SharedEventStamp const& stamp) const;
+  void RememberStreamEvent(SharedEventStamp stamp);
   bool CanApply(AddSharedPeerStateEvent const& event) const;
   void Apply(AddSharedPeerStateEvent const& event);
   bool CanApply(NoteSharedLocalEventEvent const& event) const;
   void Apply(NoteSharedLocalEventEvent const& event);
   bool CanApply(RememberSharedLocalFrameEvent const& event) const;
   void Apply(RememberSharedLocalFrameEvent const& event);
+  bool CanApply(RememberSharedStreamEvent const& event) const;
+  void Apply(RememberSharedStreamEvent const& event);
 };
 
 class NoteSharedLocalEventEvent
@@ -393,7 +516,7 @@ class NoteSharedLocalEventEvent
 
 class RememberSharedLocalFrameEvent
     : public EventFor<SharedNodeLocalState, RememberSharedLocalFrameEvent> {
-  APPTRAVERSE_OBJECT(RememberSharedLocalFrameEvent, Event, 0)
+  APPTRAVERSE_OBJECT(RememberSharedLocalFrameEvent, Event, 1)
 
  protected:
   RememberSharedLocalFrameEvent() = default;
@@ -402,10 +525,33 @@ class RememberSharedLocalFrameEvent
   explicit RememberSharedLocalFrameEvent(ae::ObjProp prop) : EventFor{prop} {}
   AE_OBJECT_REFLECT(AE_MMBR(frame))
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) { dnv(base_, frame); }
+  void Load(ae::Version<0>, Dnv& dnv) {
+    SharedPendingPacketV2 old;
+    dnv(base_, old);
+    frame = UpgradeSharedPendingPacket(std::move(old));
+  }
   template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const { dnv(base_, frame); }
+  void Load(ae::Version<1>, Dnv& dnv) { dnv(base_, frame); }
+  template <typename Dnv>
+  void Save(ae::Version<1>, Dnv& dnv) const { dnv(base_, frame); }
   SharedPendingPacket frame;
+};
+
+class RememberSharedStreamEvent
+    : public EventFor<SharedNodeLocalState, RememberSharedStreamEvent> {
+  APPTRAVERSE_OBJECT(RememberSharedStreamEvent, Event, 0)
+
+ protected:
+  RememberSharedStreamEvent() = default;
+
+ public:
+  explicit RememberSharedStreamEvent(ae::ObjProp prop) : EventFor{prop} {}
+  AE_OBJECT_REFLECT(AE_MMBR(stamp))
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) { dnv(base_, stamp); }
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const { dnv(base_, stamp); }
+  SharedEventStamp stamp;
 };
 
 class AddSharedPeerStateEvent

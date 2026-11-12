@@ -468,6 +468,17 @@ struct Pair {
       }
     }
     CHECK(room);
+    if (ack.minor == 2 && ack.acknowledged_kind == SharedSyncKind::Event) {
+      auto const prefix = room->local_state->ReceivedPrefix(destination);
+      CHECK(ack.received_prefix == prefix && ack.stamp == original->message.stamp);
+      for (std::uint64_t index = 1; index <= prefix.index; ++index) {
+        auto const* stamp = room->local_state->FindStreamIndex(destination, index);
+        CHECK(stamp && stamp->timestamp_us <= prefix.timestamp_us);
+        auto const record = std::find_if(room->journal.begin(), room->journal.end(),
+            [&](auto const& value) { return value.event.id() == stamp->event_id; });
+        CHECK(record != room->journal.end() && record->order.timestamp_us == stamp->timestamp_us);
+      }
+    }
     auto const actual = Observe(domain, *room);
     auto expected_storage = ae::RamDomainStorage{};
     expected_storage.state = original->message.graph.layers;
@@ -582,21 +593,21 @@ void TestLiveEventLossDuplicateAndReorderedBothDirections() {
   Pair pair;
   auto const id = pair.AddRoom();
   pair.Bootstrap(id);
-  auto const e30 = pair.h->Append(id, "|30", 30);
+  auto const e20 = pair.h->Append(id, "|20", 20);
   pair.Service(0);
-  auto first = pair.Packet(SharedSyncKind::Event, "H", e30);
+  auto first = pair.Packet(SharedSyncKind::Event, "H", e20);
   bool dropped = pair.network.Drop(first.id);
   CHECK(dropped);
   auto const e10 = pair.b->Append(id, "|10", 10);
-  auto const e20 = pair.h->Append(id, "|20", 20);
+  auto const e30 = pair.h->Append(id, "|30", 30);
   pair.Service(kRetry - 1);
-  auto duplicate_packet = pair.Packet(SharedSyncKind::Event, "H", e20);
+  auto duplicate_packet = pair.Packet(SharedSyncKind::Event, "H", e30);
   auto const duplicate = pair.network.Duplicate(duplicate_packet.id);
   CHECK(duplicate != 0);
   pair.Drain(true);
   CHECK(pair.h->Peer(id, "B").FindPending(pair.Decode(first).packet_id));
   pair.Service(kRetry);
-  auto retry = pair.Packet(SharedSyncKind::Event, "H", e30);
+  auto retry = pair.Packet(SharedSyncKind::Event, "H", e20);
   CHECK(retry.bytes == first.bytes);
   pair.Drain(true);
   pair.Equal(id, 3);
@@ -684,6 +695,8 @@ void TestWrongAckOfflinePacingAndNodeIsolation() {
   forged.node_id = message.node_id;
   forged.packet_id = message.packet_id;
   forged.event_id = message.event_id;
+  forged.stamp = message.stamp;
+  forged.received_prefix = {"H", message.stamp.index, message.stamp.timestamp_us};
   auto send_forged = [&](MemoryLink& endpoint, SharedSyncMessage const& ack) {
     std::vector<std::uint8_t> bytes;
     bool const serialized = SerializeSharedSyncMessage(ack, bytes);

@@ -15,6 +15,10 @@ The next follow-up authorizes a third participant admitted through H and direct
 all-pairs delivery, with Join/snapshot/Event races, losses, Offline and restart
 checks, and no incremental replay of snapshot-covered history. Scope and current
 evidence are in [three-peer validation](docs/validation/shared-node-three-peer-memory-2026-11-11.md).
+The chronological-generation follow-up authorizes per-author/per-Node indexes,
+continuous-prefix ACKs and persistent monotonic author timestamps, with memory
+loss/reorder/restart checks. Compaction remains blocked. The indexed contract
+and evidence are in [indexed-memory validation](docs/validation/shared-node-indexed-memory-2026-11-11.md).
 
 - **Never** add an AeroAdmin dependency or copy AeroAdmin sources.
 - Windows is the first platform; the common model must stay cross-platform (no HWND, Win32 paths, or Win32 keycodes in `src/common/`).

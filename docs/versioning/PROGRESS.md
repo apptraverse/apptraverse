@@ -1,5 +1,25 @@
 # AppTraverse — прогресс версионирования поставок
 
+## SharedNode author indexes and continuous ACKs — 2026-11-11 — PASS
+
+Continued `feature/shared-node-native-memory` from `6da9399`. New Events and
+host Joins carry a native per-author/per-Node index and immutable timestamp
+stamp. Persisted sparse receipt ledgers advance ACKs only across continuous
+prefixes. Source validation binds the ACK to its frozen origin and author
+boundary; one cumulative ACK completes multiple packets for that destination.
+Snapshot transfer preserves stream gaps. Explicit generation times must
+strictly increase; automatic time and indexes continue after restart.
+
+**7/7 SharedNode/native CTest entries and 9/9 targeted headless regressions
+passed** on MSVC x64 Debug. Fourteen three-peer scenario groups now include
+missing indexes, cumulative ACK loss, sparse restart/snapshot, invalid ACKs,
+index reuse, inbound timestamp conflicts and chronological authoring beyond a
+future snapshot. A mutation allowing ACK completion past a hole lost an Event
+and failed the replica-count oracle; reverted and final suite passed. Wire
+1.2 uses native reflected fields; old 1.0/1.1 wire packets retain individual
+ACK behavior. No compaction or silent-participant progress marker yet.
+[Validation and limits](../validation/shared-node-indexed-memory-2026-11-11.md).
+
 ## SharedNode host admission and direct three-peer memory delivery — 2026-11-11 — PASS
 
 Continued `feature/shared-node-native-memory` from `08e951c`. The host now

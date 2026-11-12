@@ -32,6 +32,22 @@ struct SharedSyncMessageV0 {
                     event_id, timestamp_us, graph, covered_events)
 };
 
+struct SharedSyncMessageV1 {
+  std::uint16_t major;
+  std::uint16_t minor;
+  SharedSyncKind kind;
+  SharedSyncKind acknowledged_kind;
+  ae::ObjId node_id;
+  ae::ObjId packet_id;
+  ae::ObjId event_id;
+  std::uint64_t timestamp_us;
+  SharedGraphSnapshot graph;
+  std::vector<ae::ObjId> covered_events;
+  SharedAdmissionPlan admission;
+  AE_REFLECT_MEMBERS(major, minor, kind, acknowledged_kind, node_id, packet_id,
+                    event_id, timestamp_us, graph, covered_events, admission)
+};
+
 bool HasAdmission(SharedAdmissionPlan const& plan) {
   return plan.join_event_id.is_valid();
 }
@@ -70,6 +86,22 @@ SharedSyncMessage CurrentMessage(SharedSyncMessageV0 old) {
   return message;
 }
 
+SharedSyncMessageV1 LegacyAdmissionMessage(SharedSyncMessage const& message) {
+  return {message.major, message.minor, message.kind, message.acknowledged_kind,
+          message.node_id, message.packet_id, message.event_id,
+          message.timestamp_us, message.graph, message.covered_events,
+          message.admission};
+}
+
+SharedSyncMessage CurrentMessage(SharedSyncMessageV1 old) {
+  auto message = CurrentMessage(SharedSyncMessageV0{
+      old.major, old.minor, old.kind, old.acknowledged_kind, old.node_id,
+      old.packet_id, old.event_id, old.timestamp_us, std::move(old.graph),
+      std::move(old.covered_events)});
+  message.admission = std::move(old.admission);
+  return message;
+}
+
 bool Includes(std::vector<ae::ObjId> const& ids, ae::ObjId id) {
   return std::find(ids.begin(), ids.end(), id) != ids.end();
 }
@@ -91,6 +123,76 @@ std::vector<ae::ObjId> JournalIds(SharedNode const& node) {
     ids.push_back(record.event.id());
   }
   return ids;
+}
+
+// Index and time are durable author state, scoped to this SharedNode. Explicit
+// time never silently changes; automatic time tolerates a clock rollback.
+bool NextStamp(SharedNode const& node, std::string const& author,
+               ae::ObjId event_id, std::uint64_t requested,
+               SharedEventStamp& stamp) {
+  std::uint64_t last_index = 0;
+  auto last_time = node.local_state->timestamp_floor;
+  for (auto const& known : node.local_state->stream_events) {
+    if (known.author_uid == author) {
+      last_index = std::max(last_index, known.index);
+      last_time = std::max(last_time, known.timestamp_us);
+    }
+  }
+  // Legacy local origins have no invented indexes, but their time still binds
+  // the upgraded author's chronological generation contract.
+  for (auto const id : node.local_state->local_events) {
+    if (auto const* record = FindRecord(node, id)) {
+      last_time = std::max(last_time, record->order.timestamp_us);
+    }
+  }
+  auto const max = std::numeric_limits<std::uint64_t>::max();
+  if (last_index == max || last_time == max) {
+    return false;
+  }
+  auto time = requested;
+  if (time == 0) {
+    auto floor = last_time;
+    if (!node.journal.empty()) {
+      floor = std::max(floor, node.journal.back().order.timestamp_us);
+    }
+    if (floor == max) {
+      return false;
+    }
+    time = std::max(SystemUtcMicros(), floor + 1);
+  }
+  if (time <= last_time) {
+    return false;
+  }
+  stamp = {author, last_index + 1, event_id, time};
+  return true;
+}
+
+bool ValidateSnapshotStreams(SharedNode const& node,
+                             std::vector<SharedEventStamp> const& stamps) {
+  std::set<ae::ObjId> events;
+  std::map<std::string, std::map<std::uint64_t, std::uint64_t>> streams;
+  for (auto const& stamp : stamps) {
+    auto const* record = FindRecord(node, stamp.event_id);
+    if (!stamp.is_valid() || record == nullptr ||
+        record->order.timestamp_us != stamp.timestamp_us ||
+        !events.insert(stamp.event_id).second ||
+        !std::any_of(node.links.begin(), node.links.end(), [&](auto const& link) {
+          return link->endpoint_uid == stamp.author_uid;
+        }) ||
+        !streams[stamp.author_uid].emplace(stamp.index, stamp.timestamp_us).second) {
+      return false;
+    }
+  }
+  for (auto const& [author, stream] : streams) {
+    std::uint64_t previous = 0;
+    for (auto const& [index, time] : stream) {
+      if (time <= previous) {
+        return false;
+      }
+      previous = time;
+    }
+  }
+  return true;
 }
 
 // Trial insertion is isolated: failed out-of-order replay may partially mutate
@@ -151,8 +253,40 @@ void InsertValidated(SharedNode& node, Event::ptr event,
 }
 
 bool ValidMessageShape(SharedSyncMessage const& message) {
-  if (message.major != 1 || message.minor > 1 ||
+  if (message.major != 1 || message.minor > 2 ||
       !message.node_id.is_valid() || !message.packet_id.is_valid()) {
+    return false;
+  }
+  bool const empty_stamp = message.stamp == SharedEventStamp{};
+  bool const empty_prefix = message.received_prefix == SharedStreamCursor{};
+  if (message.minor < 2 && (!empty_stamp || !empty_prefix ||
+                            !message.stream_events.empty())) {
+    return false;
+  }
+  if (message.kind != SharedSyncKind::InitialState &&
+      !message.stream_events.empty()) {
+    return false;
+  }
+  bool const event_ack = message.kind == SharedSyncKind::Ack &&
+                        message.acknowledged_kind == SharedSyncKind::Event;
+  if (message.minor == 2 &&
+      (message.kind == SharedSyncKind::Event || event_ack)) {
+    if (!message.stamp.is_valid() ||
+        message.stamp.event_id != message.event_id ||
+        message.packet_id != message.event_id) {
+      return false;
+    }
+    if (event_ack) {
+      auto const& prefix = message.received_prefix;
+      if (prefix.author_uid != message.stamp.author_uid ||
+          ((prefix.index == 0) != (prefix.timestamp_us == 0))) {
+        return false;
+      }
+    } else if (!empty_prefix ||
+               message.stamp.timestamp_us != message.timestamp_us) {
+      return false;
+    }
+  } else if (!empty_stamp || !empty_prefix) {
     return false;
   }
   auto const& plan = message.admission;
@@ -179,13 +313,13 @@ bool ValidMessageShape(SharedSyncMessage const& message) {
     case SharedSyncKind::Ack:
       return (message.acknowledged_kind == SharedSyncKind::InitialState ||
               message.acknowledged_kind == SharedSyncKind::Event ||
-              (message.minor == 1 &&
+              (message.minor >= 1 &&
                message.acknowledged_kind == SharedSyncKind::CoverageReceipt)) &&
              message.graph.layers.empty() && !message.graph.root_id.is_valid() &&
              message.covered_events.empty() && message.timestamp_us == 0 &&
              !HasAdmission(plan);
     case SharedSyncKind::CoverageReceipt:
-      return message.minor == 1 && HasAdmission(plan) &&
+      return message.minor >= 1 && HasAdmission(plan) &&
              message.packet_id == plan.snapshot_id &&
              message.event_id == plan.join_event_id &&
              message.graph.layers.empty() && !message.graph.root_id.is_valid() &&
@@ -207,11 +341,17 @@ bool SerializeSharedSyncMessage(SharedSyncMessage const& message,
         message.acknowledged_kind == SharedSyncKind::CoverageReceipt))) {
     return false;
   }
+  if (message.minor < 2 &&
+      (message.stamp != SharedEventStamp{} || !message.stream_events.empty() ||
+       message.received_prefix != SharedStreamCursor{})) {
+    return false;
+  }
   std::vector<std::uint8_t> output;
   ae::seri::BinaryVectorBuffer buffer{output};
   ae::seri::BinaryArchive archive{buffer};
   auto const saved = message.minor == 0 ? archive.Save(LegacyMessage(message))
-                                       : archive.Save(message);
+      : message.minor == 1 ? archive.Save(LegacyAdmissionMessage(message))
+                           : archive.Save(message);
   if (saved.IsErr()) {
     return false;
   }
@@ -227,7 +367,7 @@ bool DeserializeSharedSyncMessage(std::vector<std::uint8_t> const& bytes,
   std::uint16_t major = 0;
   std::uint16_t minor = 0;
   if (prefix.Load(major).IsErr() || prefix.Load(minor).IsErr() ||
-      major != 1 || minor > 1) {
+      major != 1 || minor > 2) {
     return false;
   }
   ae::seri::BinaryVectorBuffer buffer{copy};
@@ -236,6 +376,12 @@ bool DeserializeSharedSyncMessage(std::vector<std::uint8_t> const& bytes,
   bool loaded = false;
   if (minor == 0) {
     SharedSyncMessageV0 old;
+    loaded = archive.Load(old).IsOk();
+    if (loaded) {
+      parsed = CurrentMessage(std::move(old));
+    }
+  } else if (minor == 1) {
+    SharedSyncMessageV1 old;
     loaded = archive.Load(old).IsOk();
     if (loaded) {
       parsed = CurrentMessage(std::move(old));
@@ -272,6 +418,9 @@ void SharedSyncRuntime::InitializeLocalState(SharedNode& node) {
   local->peers.clear();
   local->local_events.clear();
   local->local_frames.clear();
+  local->stream_events.clear();
+  local->timestamp_floor = node.journal.empty()
+      ? 0 : node.journal.back().order.timestamp_us;
   InitializeRuntimeNode(*local);
   node.local_state = std::move(local);
 }
@@ -299,6 +448,7 @@ void SharedSyncRuntime::ReconcilePeers(SharedNode& node) {
     peer->admission = {};
     peer->coverage_confirmed = false;
     peer->delivered_notices.clear();
+    peer->acknowledged_streams.clear();
     InitializeRuntimeNode(*peer);
     node.local_state->AddPeer(std::move(peer));
   }
@@ -359,6 +509,7 @@ bool SharedSyncRuntime::QueueInitialState(ae::ObjId node_id,
   message.node_id = node_id;
   message.packet_id = ae::ObjId::GenerateUnique();
   message.covered_events = JournalIds(*node);
+  message.stream_events = node->local_state->stream_events;
   if (!CaptureSharedGraph(*node, message.graph)) {
     return false;
   }
@@ -447,13 +598,11 @@ bool SharedSyncRuntime::CommitLocal(ae::ObjId node_id, Event::ptr event,
       !IsTargetClass(*event, *node) || FindRecord(*node, event.id()) != nullptr) {
     return false;
   }
-  if (timestamp_us == 0) {
-    timestamp_us = SystemUtcMicros();
-    if (!node->journal.empty() &&
-        timestamp_us <= node->journal.back().order.timestamp_us) {
-      timestamp_us = node->journal.back().order.timestamp_us + 1;
-    }
+  SharedEventStamp stamp;
+  if (!NextStamp(*node, local_endpoint_, event.id(), timestamp_us, stamp)) {
+    return false;
   }
+  timestamp_us = stamp.timestamp_us;
   SharedGraphSnapshot frozen;
   if (!CaptureSharedGraph(*event, frozen) ||
       !CanInsert(*node, frozen, timestamp_us)) {
@@ -465,10 +614,12 @@ bool SharedSyncRuntime::CommitLocal(ae::ObjId node_id, Event::ptr event,
   message.packet_id = id;
   message.event_id = id;
   message.timestamp_us = timestamp_us;
+  message.stamp = stamp;
   message.graph = std::move(frozen);
   SharedPendingPacket origin;
   origin.packet_id = id;
   origin.event_id = id;
+  origin.stamp = stamp;
   if (!SerializeSharedSyncMessage(message, origin.bytes)) {
     return false;
   }
@@ -493,13 +644,11 @@ bool SharedSyncRuntime::AdmitPeer(ae::ObjId node_id, Event::ptr join_event,
       })) {
     return false;
   }
-  if (timestamp_us == 0) {
-    timestamp_us = SystemUtcMicros();
-    if (!node->journal.empty() &&
-        timestamp_us <= node->journal.back().order.timestamp_us) {
-      timestamp_us = node->journal.back().order.timestamp_us + 1;
-    }
+  SharedEventStamp stamp;
+  if (!NextStamp(*node, local_endpoint_, join_event.id(), timestamp_us, stamp)) {
+    return false;
   }
+  timestamp_us = stamp.timestamp_us;
   SharedGraphSnapshot frozen_join;
   if (!CaptureSharedGraph(*join_event, frozen_join) ||
       !CanInsert(*node, frozen_join, timestamp_us, joining_endpoint)) {
@@ -525,12 +674,14 @@ bool SharedSyncRuntime::AdmitPeer(ae::ObjId node_id, Event::ptr join_event,
   join.packet_id = join_id;
   join.event_id = join_id;
   join.timestamp_us = timestamp_us;
+  join.stamp = stamp;
   join.graph = std::move(frozen_join);
   join.admission = plan;
   SharedPendingPacket origin;
   origin.packet_id = join_id;
   origin.event_id = join_id;
   origin.admission = plan;
+  origin.stamp = stamp;
   if (!SerializeSharedSyncMessage(join, origin.bytes)) {
     return false;
   }
@@ -542,6 +693,7 @@ bool SharedSyncRuntime::AdmitPeer(ae::ObjId node_id, Event::ptr join_event,
   initial.packet_id = plan.snapshot_id;
   initial.covered_events = plan.covered_events;
   initial.admission = plan;
+  initial.stream_events = node->local_state->stream_events;
   if (!CaptureSharedGraph(*node, initial.graph)) {
     return false;
   }
@@ -637,7 +789,8 @@ bool SharedSyncRuntime::OnInitial(std::string const& source,
     return false;
   }
   auto* candidate = root.as<SharedNode>();
-  if (JournalIds(*candidate) != message.covered_events) {
+  if (JournalIds(*candidate) != message.covered_events ||
+      !ValidateSnapshotStreams(*candidate, message.stream_events)) {
     return false;
   }
   auto const has_endpoint = [&](std::string const& endpoint) {
@@ -659,6 +812,9 @@ bool SharedSyncRuntime::OnInitial(std::string const& source,
   SharedNode::ptr node{&domain_, message.node_id, {}, imported};
   InitializeLocalState(*node);
   RegisterNode(node);
+  for (auto const& stamp : message.stream_events) {
+    node->local_state->RememberStreamEvent(stamp);
+  }
   auto peer = FindPeer(*node, source);
   peer->RememberInitial(message.packet_id, message.covered_events);
   auto attach = expectation->second.attach;
@@ -679,6 +835,14 @@ bool SharedSyncRuntime::OnEvent(std::string const& source,
   if (!node.is_valid() || !FindPeer(*node, source).is_valid() ||
       !ValidateSharedGraphSnapshot(message.graph, Event::kClassId)) {
     return false;
+  }
+  bool const sequenced = message.minor >= 2;
+  if (sequenced && (message.stamp.author_uid != source ||
+                    !node->local_state->CanRememberStamp(message.stamp))) {
+    return false;
+  }
+  if (!sequenced && node->local_state->FindStreamEvent(message.event_id)) {
+    return false;  // Indexed data cannot silently fall back to a legacy ACK.
   }
   auto const& plan = message.admission;
   if (HasAdmission(plan)) {
@@ -718,6 +882,9 @@ bool SharedSyncRuntime::OnEvent(std::string const& source,
         return false;
       }
     }
+    if (sequenced) {
+      node->local_state->RememberStreamEvent(message.stamp);
+    }
     // A known journal entry may have been created by local model work since
     // the last save. Every success ACK still answers durable state.
     if (!PersistState()) {
@@ -736,6 +903,9 @@ bool SharedSyncRuntime::OnEvent(std::string const& source,
   }
   Event::ptr event{&domain_, message.event_id, {}, imported};
   InsertValidated(*node, std::move(event), message.timestamp_us);
+  if (sequenced) {
+    node->local_state->RememberStreamEvent(message.stamp);
+  }
   if (HasAdmission(plan)) {
     // Install suppression BEFORE discovering/queueing uncovered own Events.
     ReconcilePeers(*node);
@@ -761,6 +931,38 @@ bool SharedSyncRuntime::OnAck(std::string const& source,
   if (!peer.is_valid()) {
     return false;
   }
+  if (message.minor >= 2 &&
+      message.acknowledged_kind == SharedSyncKind::Event) {
+    auto const& stamp = message.stamp;
+    auto const& prefix = message.received_prefix;
+    auto const* origin = node->local_state->FindLocalFrame(message.event_id);
+    if (stamp.author_uid != local_endpoint_ || origin == nullptr ||
+        origin->stamp != stamp || origin->packet_id != message.packet_id ||
+        prefix.author_uid != local_endpoint_) {
+      return false;
+    }
+    if (prefix.index == 0) {
+      return true;  // Durable sparse receipt, not confirmation past a hole.
+    }
+    auto const* boundary = node->local_state->FindStreamIndex(
+        local_endpoint_, prefix.index);
+    if (boundary == nullptr || boundary->timestamp_us != prefix.timestamp_us) {
+      return false;
+    }
+    // Copy before completing: each local completion removes its pending slot.
+    auto const pending = peer->pending_packets;
+    for (auto const& packet : pending) {
+      if (!packet.initial && !packet.coverage_notice &&
+          packet.stamp.is_valid() &&
+          packet.stamp.author_uid == local_endpoint_ &&
+          packet.stamp.index <= prefix.index) {
+        peer->CompletePacket(packet.packet_id);
+        next_send_.erase(RetryKey{message.node_id, source, packet.packet_id});
+      }
+    }
+    peer->ConfirmPrefix(prefix);
+    return PersistState();
+  }
   auto const* pending = peer->FindPending(message.packet_id);
   if (pending == nullptr) {
     return true;  // Delayed duplicate ACK has no state transition.
@@ -769,7 +971,8 @@ bool SharedSyncRuntime::OnAck(std::string const& source,
       : pending->coverage_notice ? SharedSyncKind::CoverageReceipt
                                  : SharedSyncKind::Event;
   if (message.acknowledged_kind != expected_kind ||
-      message.event_id != pending->event_id) {
+      message.event_id != pending->event_id ||
+      (expected_kind == SharedSyncKind::Event && pending->stamp.is_valid())) {
     return false;
   }
   auto const admission = pending->admission;
@@ -819,6 +1022,13 @@ void SharedSyncRuntime::SendAck(std::string const& destination,
   ack.node_id = original.node_id;
   ack.packet_id = original.packet_id;
   ack.event_id = original.event_id;
+  if (original.kind == SharedSyncKind::Event && original.minor >= 2) {
+    auto node = FindNode(original.node_id);
+    assert(node.is_valid());
+    ack.stamp = original.stamp;
+    ack.received_prefix = node->local_state->ReceivedPrefix(
+        original.stamp.author_uid);
+  }
   std::vector<std::uint8_t> bytes;
   if (SerializeSharedSyncMessage(ack, bytes)) {
     link_.Send(destination, bytes);

@@ -317,7 +317,7 @@ struct MeshReplica {
     }
     CHECK(false); std::abort();
   }
-  ae::ObjId Append(ae::ObjId id, std::string text, std::uint64_t timestamp) {
+  MeshTextEvent::ptr NewText(ae::ObjId id, std::string text) {
     auto& room = Room(id);
     auto author = std::find_if(room.participants.begin(), room.participants.end(),
         [&](auto const& person) { return person->link->endpoint_uid == uid; });
@@ -326,10 +326,43 @@ struct MeshReplica {
     event->text = std::move(text);
     event->author = *author;
     event->room_reference = runtime->FindNode(id);
+    return event;
+  }
+  ae::ObjId Append(ae::ObjId id, std::string text, std::uint64_t timestamp) {
+    auto event = NewText(id, std::move(text));
     auto const event_id = event.id();
     bool const committed = runtime->CommitLocal(id, event, timestamp);
     CHECK(committed && !runtime->failed());
     return event_id;
+  }
+  // A pre-index wire origin: freeze old message bytes and keep unstamped local
+  // origin/pending records, rather than downgrading an indexed 1.2 send.
+  ae::ObjId AppendLegacy(ae::ObjId id, std::string text, std::uint64_t timestamp,
+                         std::uint16_t minor = 0) {
+    auto event = NewText(id, std::move(text));
+    SharedSyncMessage message;
+    message.minor = minor;
+    message.node_id = id;
+    message.packet_id = event.id();
+    message.event_id = event.id();
+    message.timestamp_us = timestamp;
+    bool const captured = CaptureSharedGraph(*event, message.graph);
+    CHECK(captured);
+    SharedPendingPacket frame;
+    frame.packet_id = event.id();
+    frame.event_id = event.id();
+    bool const encoded = SerializeSharedSyncMessage(message, frame.bytes);
+    CHECK(encoded);
+    auto& room = Room(id);
+    bool const inserted = room.TryInsertJournalEvent(EventRecord{
+        .event = event, .order = {.timestamp_us = timestamp},
+        .retained_since_us = timestamp});
+    CHECK(inserted);
+    room.local_state->RememberLocalFrame(frame);
+    for (auto const& peer : room.local_state->peers) { peer->QueuePacket(frame); }
+    bool const saved = Persist();
+    CHECK(saved);
+    return event.id();
   }
 };
 
@@ -420,13 +453,13 @@ struct Mesh {
     };
     replicas[uid] = std::make_unique<MeshReplica>(network, uid, disks.at(uid), observer);
   }
-  void Admit() {
+  void Admit(std::uint64_t timestamp = 30) {
     auto& host = R("H");
     auto participant = MakeParticipant(*host.domain, "B", "Bob");
     auto event = MeshJoinEvent::ptr::Create(ae::CreateWith{*host.domain});
     event->participant = participant;
     join_id = event.id();
-    bool const admitted = host.runtime->AdmitPeer(room_id, event, "B", 30);
+    bool const admitted = host.runtime->AdmitPeer(room_id, event, "B", timestamp);
     CHECK(admitted);
   }
   void Service(std::uint64_t advance = 0) {
@@ -549,6 +582,19 @@ struct Mesh {
       }
     }
     CHECK(room);
+    if (ack.minor == 2 && ack.acknowledged_kind == SharedSyncKind::Event) {
+      auto const prefix = room->local_state->ReceivedPrefix(destination);
+      CHECK(ack.received_prefix == prefix);
+      CHECK(ack.stamp == original->message.stamp);
+      for (std::uint64_t index = 1; index <= prefix.index; ++index) {
+        auto const* stamp = room->local_state->FindStreamIndex(destination, index);
+        CHECK(stamp && stamp->timestamp_us <= prefix.timestamp_us);
+        auto const record = std::find_if(room->journal.begin(), room->journal.end(),
+            [&](auto const& value) { return value.event.id() == stamp->event_id; });
+        CHECK(record != room->journal.end());
+        CHECK(record->order.timestamp_us == stamp->timestamp_us);
+      }
+    }
     if (ack.acknowledged_kind == SharedSyncKind::CoverageReceipt) {
       auto const& plan = original->message.admission;
       auto peer = std::find_if(room->local_state->peers.begin(), room->local_state->peers.end(),
@@ -786,7 +832,7 @@ void TestHostOfflineLeavesDirectClientsWorking() {
 void TestLegacyNativeEventAfterAdmission() {
   Mesh mesh;
   mesh.Admit(); mesh.Settle(true); mesh.Equal(3);
-  auto const a40 = mesh.R("A").Append(mesh.room_id, "|A40", 40);
+  auto const a40 = mesh.R("A").AppendLegacy(mesh.room_id, "|A40", 40);
   mesh.Service();
   auto const current = mesh.Packet(SharedSyncKind::Event, "A", "B", a40);
   auto legacy = mesh.Decode(current);
@@ -811,12 +857,7 @@ void TestLegacyNativeEventAfterAdmission() {
   bool const parsed = DeserializeSharedSyncMessage(bytes, decoded);
   CHECK(parsed && decoded.major == 1 && decoded.minor == 0);
   CHECK(decoded.event_id == a40 && decoded.graph.layers == legacy.graph.layers);
-  mesh.Drop(current);
-  // Preserve the real outgoing-frame ledger entry but deliberately replace
-  // its wire representation with the previous native tuple layout.
-  bool const sent = mesh.R("A").endpoint->Send("B", bytes);
-  CHECK(sent);
-  auto const packet = mesh.Packet(SharedSyncKind::Event, "A", "B", a40);
+  auto const packet = current;
   CHECK(mesh.Decode(packet).minor == 0);
   mesh.Deliver(packet);
   auto const ack = mesh.Packet(SharedSyncKind::Ack, "B", "A", a40);
@@ -825,6 +866,322 @@ void TestLegacyNativeEventAfterAdmission() {
   CHECK(mesh.R("A").Peer(mesh.room_id, "B").HasDelivered(a40));
   CHECK(mesh.R("A").Peer(mesh.room_id, "B").FindPending(a40) == nullptr);
   mesh.Settle(true); mesh.Equal(4);
+
+  auto const a50 = mesh.R("A").AppendLegacy(mesh.room_id, "|A50", 50, 1);
+  mesh.Service();
+  auto const v1 = mesh.Packet(SharedSyncKind::Event, "A", "B", a50);
+  CHECK(mesh.Decode(v1).minor == 1 && !mesh.Decode(v1).stamp.is_valid());
+  mesh.Deliver(v1);
+  auto const v1_ack = mesh.Packet(SharedSyncKind::Ack, "B", "A", a50);
+  CHECK(mesh.Decode(v1_ack).minor == 1);
+  mesh.Deliver(v1_ack);
+  CHECK(mesh.R("A").Peer(mesh.room_id, "B").HasDelivered(a50));
+  CHECK(!mesh.R("A").Peer(mesh.room_id, "B").FindPending(a50));
+  mesh.Settle(true); mesh.Equal(5);
+}
+
+SharedStreamCursor Confirmed(MeshReplica const& replica, ae::ObjId room_id,
+                             std::string const& destination,
+                             std::string const& author) {
+  for (auto const& cursor : replica.Peer(room_id, destination).acknowledged_streams) {
+    if (cursor.author_uid == author) { return cursor; }
+  }
+  return {author, 0, 0};
+}
+
+void TestContinuousAckGapLossAndSparseRestart() {
+  Mesh mesh;
+  mesh.Admit(); mesh.Settle(true); mesh.Equal(3);
+  auto const a35 = mesh.R("A").Append(mesh.room_id, "|A35", 35);
+  auto const a40 = mesh.R("A").Append(mesh.room_id, "|A40", 40);
+  mesh.Service();
+  auto const first_b = mesh.Packet(SharedSyncKind::Event, "A", "B", a35);
+  auto const later_b = mesh.Packet(SharedSyncKind::Event, "A", "B", a40);
+  auto const first_stamp = mesh.Decode(first_b).stamp;
+  auto const later_stamp = mesh.Decode(later_b).stamp;
+  CHECK(first_stamp.author_uid == "A" && first_stamp.index == 2);
+  CHECK(later_stamp.author_uid == "A" && later_stamp.index == 3);
+  CHECK(first_stamp.event_id == a35 && later_stamp.event_id == a40);
+  CHECK(first_stamp.timestamp_us == 35 && later_stamp.timestamp_us == 40);
+  auto const duplicate = mesh.network.Duplicate(later_b.id);
+  CHECK(duplicate != 0);
+  mesh.Deliver(later_b);
+  auto hole_ack = mesh.Packet(SharedSyncKind::Ack, "B", "A", a40);
+  CHECK(mesh.Decode(hole_ack).received_prefix == (SharedStreamCursor{"A", 1, 20}));
+  mesh.Deliver(hole_ack);
+  CHECK(mesh.R("A").Peer(mesh.room_id, "B").FindPending(a35));
+  CHECK(mesh.R("A").Peer(mesh.room_id, "B").FindPending(a40));
+  CHECK(!mesh.R("A").Peer(mesh.room_id, "B").HasDelivered(a40));
+
+  // The same source can have a different confirmed prefix at another peer.
+  mesh.Deliver(mesh.Packet(SharedSyncKind::Event, "A", "H", a35));
+  auto const h_ack = mesh.Packet(SharedSyncKind::Ack, "H", "A", a35);
+  CHECK(mesh.Decode(h_ack).received_prefix == (SharedStreamCursor{"A", 2, 35}));
+  mesh.Deliver(h_ack);
+  CHECK(!mesh.R("A").Peer(mesh.room_id, "H").FindPending(a35));
+  CHECK(mesh.R("A").Peer(mesh.room_id, "B").FindPending(a35));
+  CHECK(Confirmed(mesh.R("A"), mesh.room_id, "H", "A").index == 2);
+
+  mesh.Restart("B");
+  auto const& sparse = *mesh.R("B").Room(mesh.room_id).local_state;
+  CHECK(sparse.FindStreamIndex("A", 3));
+  CHECK(!sparse.FindStreamIndex("A", 2));
+  CHECK(sparse.ReceivedPrefix("A") == (SharedStreamCursor{"A", 1, 20}));
+  mesh.Restart("A");
+  CHECK(mesh.R("A").Peer(mesh.room_id, "B").FindPending(a40)->bytes == later_b.bytes);
+  auto const duplicate_packet = mesh.Packet(SharedSyncKind::Event, "A", "B", a40);
+  mesh.Deliver(duplicate_packet);
+  hole_ack = mesh.Packet(SharedSyncKind::Ack, "B", "A", a40);
+  CHECK(mesh.Decode(hole_ack).received_prefix.index == 1);
+  mesh.Deliver(hole_ack);
+  CHECK(mesh.R("A").Peer(mesh.room_id, "B").FindPending(a40));
+
+  mesh.Deliver(first_b);
+  auto const filled_ack = mesh.Packet(SharedSyncKind::Ack, "B", "A", a35);
+  CHECK(mesh.Decode(filled_ack).received_prefix == (SharedStreamCursor{"A", 3, 40}));
+  mesh.Drop(filled_ack);
+  mesh.Restart("B");
+  mesh.Service(kRetry);
+  auto const retry = mesh.Packet(SharedSyncKind::Event, "A", "B", a35);
+  CHECK(retry.bytes == first_b.bytes);
+  mesh.Deliver(retry);
+  auto const replay_ack = mesh.Packet(SharedSyncKind::Ack, "B", "A", a35);
+  CHECK(mesh.Decode(replay_ack).received_prefix.index == 3);
+  mesh.Deliver(replay_ack);
+  CHECK(!mesh.R("A").Peer(mesh.room_id, "B").FindPending(a35));
+  CHECK(!mesh.R("A").Peer(mesh.room_id, "B").FindPending(a40));
+  CHECK(mesh.R("A").Peer(mesh.room_id, "B").HasDelivered(a35));
+  CHECK(mesh.R("A").Peer(mesh.room_id, "B").HasDelivered(a40));
+  CHECK(Confirmed(mesh.R("A"), mesh.room_id, "B", "A") ==
+        (SharedStreamCursor{"A", 3, 40}));
+  mesh.Settle(true); mesh.Equal(5);
+  mesh.Restart("A");
+  auto const a50 = mesh.R("A").Append(mesh.room_id, "|A50", 50);
+  auto const* next = mesh.R("A").Room(mesh.room_id).local_state->FindStreamEvent(a50);
+  CHECK(next && next->author_uid == "A" && next->index == 4 && next->timestamp_us == 50);
+  mesh.Settle(true); mesh.Equal(6);
+}
+
+void TestSnapshotPreservesSparseStreamCoverage() {
+  Mesh mesh;
+  auto const a25 = mesh.R("A").Append(mesh.room_id, "|A25", 25);
+  auto const a27 = mesh.R("A").Append(mesh.room_id, "|A27", 27);
+  mesh.Service();
+  mesh.Deliver(mesh.Packet(SharedSyncKind::Event, "A", "H", a27));
+  auto const sparse_ack = mesh.Packet(SharedSyncKind::Ack, "H", "A", a27);
+  CHECK(mesh.Decode(sparse_ack).received_prefix.index == 1);
+  mesh.Deliver(sparse_ack);
+  CHECK(mesh.R("A").Peer(mesh.room_id, "H").FindPending(a27));
+  mesh.Admit(); mesh.Service();
+  auto const snapshot = mesh.Packet(SharedSyncKind::InitialState, "H", "B");
+  auto const message = mesh.Decode(snapshot);
+  auto const snapshot_stamp = std::find_if(message.stream_events.begin(), message.stream_events.end(),
+      [&](auto const& value) { return value.event_id == a27; });
+  CHECK(snapshot_stamp != message.stream_events.end() && snapshot_stamp->index == 3);
+  CHECK(std::none_of(message.stream_events.begin(), message.stream_events.end(),
+      [&](auto const& value) { return value.event_id == a25; }));
+  mesh.Deliver(snapshot);
+  auto const& ledger = *mesh.R("B").Room(mesh.room_id).local_state;
+  CHECK(ledger.FindStreamIndex("A", 3));
+  CHECK(!ledger.FindStreamIndex("A", 2));
+  CHECK(ledger.ReceivedPrefix("A").index == 1);
+  mesh.Deliver(mesh.Packet(SharedSyncKind::Ack, "B", "H", {}, SharedSyncKind::InitialState));
+  mesh.Deliver(mesh.Packet(SharedSyncKind::Event, "H", "A", mesh.join_id));
+  mesh.Service();
+  CHECK(mesh.Count("A", "B", a25) == 1);
+  CHECK(mesh.Count("A", "B", a27) == 0);
+  mesh.Deliver(mesh.Packet(SharedSyncKind::Event, "A", "B", a25));
+  auto const filled = mesh.Packet(SharedSyncKind::Ack, "B", "A", a25);
+  CHECK(mesh.Decode(filled).received_prefix == (SharedStreamCursor{"A", 3, 27}));
+  mesh.Deliver(filled);
+  mesh.Settle(true); mesh.Equal(5);
+  CHECK(mesh.Count("A", "B", a27) == 0);
+}
+
+void TestInvalidPrefixCannotCancelPending() {
+  Mesh mesh;
+  mesh.Admit(); mesh.Settle(true); mesh.Equal(3);
+  auto const a40 = mesh.R("A").Append(mesh.room_id, "|A40", 40);
+  mesh.Service();
+  auto const data = mesh.Packet(SharedSyncKind::Event, "A", "B", a40);
+  auto downgrade = mesh.Decode(data);
+  std::vector<std::uint8_t> downgraded;
+  downgrade.minor = 0;
+  bool const dropped_index_v0 = SerializeSharedSyncMessage(downgrade, downgraded);
+  CHECK(!dropped_index_v0);
+  downgrade.minor = 1;
+  bool const dropped_index_v1 = SerializeSharedSyncMessage(downgrade, downgraded);
+  CHECK(!dropped_index_v1);
+  mesh.Deliver(data);
+  auto const good_packet = mesh.Packet(SharedSyncKind::Ack, "B", "A", a40);
+  auto const good = mesh.Decode(good_packet);
+  CHECK(good.received_prefix == (SharedStreamCursor{"A", 2, 40}));
+  mesh.Drop(good_packet);
+  auto inject = [&](SharedSyncMessage const& bad) {
+    std::vector<std::uint8_t> bytes;
+    bool const encoded = SerializeSharedSyncMessage(bad, bytes);
+    CHECK(encoded);
+    auto const rejected = mesh.R("A").runtime->rejected_messages();
+    bool const sent = mesh.R("B").endpoint->Send("A", bytes);
+    CHECK(sent);
+    // Some mutations intentionally violate the native message shape, so do not
+    // route this raw packet through Mesh::Packet's valid-message decoder.
+    mesh.Deliver(mesh.network.PendingPackets().back());
+    CHECK(mesh.R("A").runtime->rejected_messages() > rejected);
+    CHECK(mesh.R("A").Peer(mesh.room_id, "B").FindPending(a40));
+    CHECK(!mesh.R("A").Peer(mesh.room_id, "B").HasDelivered(a40));
+  };
+  auto bad = good;
+  bad.received_prefix.index = 3;
+  inject(bad);
+  bad = good; bad.received_prefix.author_uid = "H";
+  inject(bad);
+  bad = good; ++bad.received_prefix.timestamp_us;
+  inject(bad);
+  bad = good; ++bad.stamp.index;
+  inject(bad);
+  bad = good; bad.minor = 1; bad.stamp = {}; bad.received_prefix = {};
+  inject(bad);  // A legacy ACK cannot confirm a newer indexed pending packet.
+  mesh.Restart("A");
+  CHECK(mesh.R("A").Peer(mesh.room_id, "B").FindPending(a40)->bytes == data.bytes);
+  mesh.Settle(true); mesh.Equal(4);
+}
+
+void TestMonotonicAuthorClockAndSnapshotFloorSurviveRestart() {
+  Mesh mesh;
+  constexpr std::uint64_t future = 1000000000000000000ULL;
+  mesh.R("H").Append(mesh.room_id, "|future", future);
+  mesh.Service(); mesh.Drain();
+  mesh.Admit(future + 10); mesh.Settle(true); mesh.Equal(4);
+  CHECK(mesh.R("B").Room(mesh.room_id).local_state->timestamp_floor == future + 10);
+  auto reject = [&](std::uint64_t timestamp) {
+    auto& replica = mesh.R("B");
+    auto event = replica.NewText(mesh.room_id, "|rejected");
+    auto const journal_size = replica.Room(mesh.room_id).journal.size();
+    auto const ledger_size = replica.Room(mesh.room_id).local_state->stream_events.size();
+    auto const saves = replica.durable.saves;
+    bool const committed = replica.runtime->CommitLocal(mesh.room_id, event, timestamp);
+    CHECK(!committed && !replica.runtime->failed());
+    CHECK(replica.Room(mesh.room_id).journal.size() == journal_size);
+    CHECK(replica.Room(mesh.room_id).local_state->stream_events.size() == ledger_size);
+    CHECK(replica.durable.saves == saves);
+    CHECK(!replica.Room(mesh.room_id).local_state->FindStreamEvent(event.id()));
+  };
+  reject(future + 10);
+  reject(future);
+  auto const first = mesh.R("B").Append(mesh.room_id, "|auto1", 0);
+  auto const first_stamp = *mesh.R("B").Room(mesh.room_id).local_state->FindStreamEvent(first);
+  CHECK(first_stamp.index == 1 && first_stamp.timestamp_us > future + 10);
+  reject(first_stamp.timestamp_us);
+  mesh.Settle(true); mesh.Equal(5);
+  mesh.Restart("B");
+  CHECK(mesh.R("B").Room(mesh.room_id).local_state->timestamp_floor == future + 10);
+  reject(first_stamp.timestamp_us);
+  reject(first_stamp.timestamp_us - 1);
+  auto const second = mesh.R("B").Append(mesh.room_id, "|auto2", 0);
+  auto const second_stamp = *mesh.R("B").Room(mesh.room_id).local_state->FindStreamEvent(second);
+  CHECK(second_stamp.index == 2 && second_stamp.timestamp_us > first_stamp.timestamp_us);
+  mesh.Settle(true); mesh.Equal(6);
+}
+
+void TestInboundStreamIdentityAndTimestampConflicts() {
+  Mesh mesh;
+  mesh.Admit(); mesh.Settle(true); mesh.Equal(3);
+  auto const a35 = mesh.R("A").Append(mesh.room_id, "|A35", 35);
+  auto const a40 = mesh.R("A").Append(mesh.room_id, "|A40", 40);
+  auto const a50 = mesh.R("A").Append(mesh.room_id, "|A50", 50);
+  mesh.Service();
+  auto const first = mesh.Packet(SharedSyncKind::Event, "A", "B", a35);
+  auto const middle = mesh.Packet(SharedSyncKind::Event, "A", "B", a40);
+  auto const last = mesh.Packet(SharedSyncKind::Event, "A", "B", a50);
+  mesh.Deliver(first);
+  mesh.Deliver(mesh.Packet(SharedSyncKind::Ack, "B", "A", a35));
+  mesh.Deliver(last);
+  auto const gap_ack = mesh.Packet(SharedSyncKind::Ack, "B", "A", a50);
+  CHECK(mesh.Decode(gap_ack).received_prefix.index == 2);
+  mesh.Deliver(gap_ack);
+  auto const& ledger = *mesh.R("B").Room(mesh.room_id).local_state;
+  CHECK(ledger.FindStreamIndex("A", 2) && ledger.FindStreamIndex("A", 4));
+  CHECK(!ledger.FindStreamIndex("A", 3));
+  auto reject = [&](SharedSyncMessage const& bad) {
+    auto const saves = mesh.R("B").durable.saves;
+    auto const rejections = mesh.R("B").runtime->rejected_messages();
+    auto const records = mesh.R("B").Room(mesh.room_id).journal.size();
+    auto const stamps = mesh.R("B").Room(mesh.room_id).local_state->stream_events.size();
+    auto const sends = mesh.sent.size();
+    auto const native_storage = mesh.R("B").storage.state;
+    std::vector<std::uint8_t> bytes;
+    bool const encoded = SerializeSharedSyncMessage(bad, bytes);
+    CHECK(encoded);
+    SharedSyncMessage shape_checked;
+    bool const valid_shape = DeserializeSharedSyncMessage(bytes, shape_checked);
+    CHECK(valid_shape);  // Exercise stream validation beyond native framing.
+    bool const sent = mesh.R("A").endpoint->Send("B", bytes);
+    CHECK(sent);
+    mesh.Deliver(mesh.network.PendingPackets().back());
+    CHECK(mesh.R("B").runtime->rejected_messages() > rejections);
+    CHECK(mesh.R("B").durable.saves == saves && mesh.sent.size() == sends);
+    CHECK(mesh.R("B").Room(mesh.room_id).journal.size() == records);
+    CHECK(mesh.R("B").Room(mesh.room_id).local_state->stream_events.size() == stamps);
+    CHECK(mesh.R("B").storage.state == native_storage);
+  };
+  auto bad = mesh.Decode(middle);
+  bad.stamp.index = 2;  // This index already names A35, not A40.
+  reject(bad);
+  bad = mesh.Decode(first);
+  bad.stamp.index = 5;  // A known Event cannot acquire a new stream position.
+  bad.stamp.timestamp_us = bad.timestamp_us = 60;
+  reject(bad);
+  bad = mesh.Decode(middle);
+  bad.stamp.timestamp_us = bad.timestamp_us = 34;  // Below index 2's time 35.
+  reject(bad);
+  bad.stamp.timestamp_us = bad.timestamp_us = 51;  // Above index 4's time 50.
+  reject(bad);
+  CHECK(!mesh.R("B").Room(mesh.room_id).local_state->FindStreamEvent(a40));
+  mesh.Settle(true); mesh.Equal(6);
+  CHECK(mesh.R("B").Room(mesh.room_id).local_state->ReceivedPrefix("A").index == 4);
+}
+
+void TestMalformedSnapshotStreamMetadataDoesNotAttach() {
+  Mesh mesh;
+  mesh.Admit(); mesh.Service();
+  auto const snapshot = mesh.Packet(SharedSyncKind::InitialState, "H", "B");
+  auto const original = mesh.Decode(snapshot);
+  CHECK(original.stream_events.size() >= 3);
+  auto reject = [&](SharedSyncMessage const& bad) {
+    auto const saves = mesh.R("B").durable.saves;
+    auto const rejections = mesh.R("B").runtime->rejected_messages();
+    auto const sends = mesh.sent.size();
+    std::vector<std::uint8_t> bytes;
+    bool const encoded = SerializeSharedSyncMessage(bad, bytes);
+    CHECK(encoded);
+    bool const sent = mesh.R("H").endpoint->Send("B", bytes);
+    CHECK(sent);
+    mesh.Deliver(mesh.network.PendingPackets().back());
+    CHECK(mesh.R("B").runtime->rejected_messages() > rejections);
+    CHECK(mesh.R("B").durable.saves == saves && mesh.sent.size() == sends);
+    CHECK(mesh.R("B").app->rooms.empty());
+    CHECK(!mesh.R("B").runtime->FindNode(mesh.room_id).is_valid());
+    CHECK(!mesh.R("B").domain->Find(mesh.room_id));
+    CHECK(mesh.R("B").storage.Enumerate(mesh.room_id).empty());
+  };
+  auto bad = original;
+  bad.stream_events.push_back(bad.stream_events.front());  // Duplicate Event.
+  reject(bad);
+  bad = original;
+  auto first = std::find_if(bad.stream_events.begin(), bad.stream_events.end(),
+      [](auto const& value) { return value.author_uid == "H" && value.index == 1; });
+  auto second = std::find_if(bad.stream_events.begin(), bad.stream_events.end(),
+      [](auto const& value) { return value.author_uid == "H" && value.index == 2; });
+  CHECK(first != bad.stream_events.end() && second != bad.stream_events.end());
+  second->index = first->index;  // Different Event occupying the same index.
+  reject(bad);
+  bad = original;
+  ++bad.stream_events.front().timestamp_us;  // Does not match journal order.
+  reject(bad);
+  mesh.Settle(true); mesh.Equal(3);
+  CHECK(mesh.R("B").Room(mesh.room_id).local_state->ReceivedPrefix("H").index == 2);
+  CHECK(mesh.R("B").Room(mesh.room_id).local_state->ReceivedPrefix("A").index == 1);
 }
 
 }  // namespace
@@ -840,5 +1197,11 @@ int main() {
   apptraverse::test::TestOfflineAndAllThreeRestartWithDirectPending();
   apptraverse::test::TestHostOfflineLeavesDirectClientsWorking();
   apptraverse::test::TestLegacyNativeEventAfterAdmission();
+  apptraverse::test::TestContinuousAckGapLossAndSparseRestart();
+  apptraverse::test::TestSnapshotPreservesSparseStreamCoverage();
+  apptraverse::test::TestInvalidPrefixCannotCancelPending();
+  apptraverse::test::TestMonotonicAuthorClockAndSnapshotFloorSurviveRestart();
+  apptraverse::test::TestInboundStreamIdentityAndTimestampConflicts();
+  apptraverse::test::TestMalformedSnapshotStreamMetadataDoesNotAttach();
   std::cout << "shared_three_peer_test OK\n";
 }

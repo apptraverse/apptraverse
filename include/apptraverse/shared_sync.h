@@ -23,7 +23,7 @@ enum class SharedSyncKind : std::uint8_t {
 // No opaque custom graph encoding is hidden inside the payload.
 struct SharedSyncMessage {
   std::uint16_t major{1};
-  std::uint16_t minor{1};
+  std::uint16_t minor{2};
   SharedSyncKind kind{SharedSyncKind::Event};
   SharedSyncKind acknowledged_kind{SharedSyncKind::Event};
   ae::ObjId node_id;
@@ -33,9 +33,15 @@ struct SharedSyncMessage {
   SharedGraphSnapshot graph;
   std::vector<ae::ObjId> covered_events;
   SharedAdmissionPlan admission;
+  // Event identity, snapshot receipt ledger, and cumulative Event ACK cursor.
+  // These fields use the same native archive as the graph; no custom framing.
+  SharedEventStamp stamp;
+  std::vector<SharedEventStamp> stream_events;
+  SharedStreamCursor received_prefix;
 
   AE_REFLECT_MEMBERS(major, minor, kind, acknowledged_kind, node_id, packet_id,
-                    event_id, timestamp_us, graph, covered_events, admission)
+                    event_id, timestamp_us, graph, covered_events, admission,
+                    stamp, stream_events, received_prefix)
 };
 
 bool SerializeSharedSyncMessage(SharedSyncMessage const& message,
@@ -74,6 +80,8 @@ class SharedSyncRuntime {
   // delivery obligations are frozen/persisted before any transmission.
   bool AdmitPeer(ae::ObjId node_id, Event::ptr join_event,
                    std::string joining_endpoint, std::uint64_t timestamp_us = 0);
+  // Explicit timestamps must strictly increase for this author and exceed the
+  // adopted snapshot floor. Zero selects a durable-monotonic automatic time.
   bool CommitLocal(ae::ObjId node_id, Event::ptr event,
                     std::uint64_t timestamp_us = 0);
   void Service(std::uint64_t now_us);
