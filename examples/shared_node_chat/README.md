@@ -88,3 +88,5 @@ The [previous measurements](../../docs/validation/shared-node-chat-latency-2026-
 used the superseded polling/disk configuration and include an intermittent stall.
 Current [event-driven RAM checks and timing](../../docs/validation/shared-node-chat-event-driven-2026-11-12.md)
 are recorded separately.
+The subsequent [backpressure latency fix and controlled measurements](../../docs/validation/shared-node-chat-latency-backpressure-2026-11-12.md)
+remove the extra ACK-timeout wait after a locally refused send.

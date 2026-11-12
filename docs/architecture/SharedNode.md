@@ -91,8 +91,11 @@ pending until confirmed compaction, so a later participant can receive the
 original frame even after an older destination acknowledged it.
 
 Authoring/bootstrap methods queue and persist without sending. `Service(now_us)` sends pending
-bytes and repeats them after the configured interval. Offline suppresses sends;
-Unknown permits a paced attempt. Deadlines are runtime-only, so a restored
+bytes and repeats accepted frames after the configured ACK interval. A local
+Send refusal accepts no frame and consumes no ACK timeout: admission is eligible
+on the next Service turn. The tentative deadline is set before Send so a
+synchronous ACK can remove it safely; refusal removes that tentative deadline.
+Offline suppresses sends; Unknown permits admission. Deadlines are runtime-only, so a restored
 pending packet may be retried immediately, with the same ID and bytes. Saved
 delivery confirmations prevent historical Events from being queued again.
 

@@ -965,7 +965,11 @@ void SharedSyncRuntime::Service(std::uint64_t now_us) {
         auto const max = std::numeric_limits<std::uint64_t>::max();
         next_send_[key] = retry_interval_us_ > max - now_us
                              ? max : now_us + retry_interval_us_;
-        link_.Send(endpoint, pending.bytes);
+        // A local queue refusal transmitted nothing: it must not consume the
+        // peer's ACK timeout. Retry admission on the next Service turn. Set
+        // the tentative deadline before Send so a synchronous ACK can erase
+        // it without a later assignment resurrecting a completed packet.
+        if (!link_.Send(endpoint, pending.bytes)) { next_send_.erase(key); }
       }
     }
   }

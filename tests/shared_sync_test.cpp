@@ -666,6 +666,53 @@ void TestLiveEventLossDuplicateAndReorderedBothDirections() {
   CHECK(pair.b->Peer(id, "H").HasDelivered(e10));
 }
 
+void TestRefusedSendDoesNotStartAckTimeout() {
+  Pair pair;
+  auto const id = pair.AddRoom();
+  pair.Bootstrap(id);
+  auto const event = pair.h->Append(id, "|backpressure", 100);
+  pair.h->transport->send_budget = 0;
+  auto const before = pair.sent.size();
+  pair.Service(0);
+  CHECK(pair.sent.size() == before);
+  CHECK(pair.network.PendingPackets().empty());
+  CHECK(pair.h->Peer(id, "B").pending_packets.size() == 1);
+
+  // Local refusal sent no bytes, so freeing capacity must permit the first
+  // transmission before the ACK timeout of that refused attempt would expire.
+  auto const accepted_at = kRetry - 1;
+  pair.h->transport->send_budget = 1;
+  pair.Service(accepted_at);
+  CHECK(pair.sent.size() == before + 1);
+  auto const first = pair.Packet(SharedSyncKind::Event, "H", event);
+  bool const delivered = pair.network.Deliver(first.id);
+  CHECK(delivered);
+  auto const ack = pair.Packet(SharedSyncKind::Ack, "B");
+  bool const lost_ack = pair.network.Drop(ack.id);
+  CHECK(lost_ack);
+
+  pair.h->transport->send_budget = 1;
+  auto const before_retry = pair.sent.size();
+  pair.Service(accepted_at + kRetry - 1);
+  CHECK(pair.sent.size() == before_retry);
+  CHECK(pair.network.PendingPackets().empty());
+  CHECK(pair.h->Peer(id, "B").pending_packets.size() == 1);
+  pair.Service(accepted_at + kRetry);
+  CHECK(pair.sent.size() == before_retry + 1);
+  auto const retry = pair.Packet(SharedSyncKind::Event, "H", event);
+  CHECK(retry.bytes == first.bytes);
+  CHECK(pair.Decode(retry).packet_id == pair.Decode(first).packet_id);
+  pair.Drain();
+  pair.Equal(id, 1);
+  CHECK(pair.h->Peer(id, "B").pending_packets.empty());
+
+  pair.h->transport->send_budget = 1;
+  auto const after_ack = pair.sent.size();
+  pair.Service(accepted_at + 2 * kRetry);
+  pair.Service(accepted_at + 3 * kRetry);
+  CHECK(pair.sent.size() == after_ack);
+}
+
 void TestMaterializedNotificationsSurviveReorderAndIgnoreDuplicateAck() {
   Pair pair;
   auto const id = pair.AddRoom();
@@ -912,6 +959,7 @@ int main() {
   apptraverse::test::TestInitialRestartBeforeSendAndAfterApply();
   apptraverse::test::TestLiveEventLossDuplicateAndReorderedBothDirections();
   apptraverse::test::TestLostAckAndReceiverRestart();
+  apptraverse::test::TestRefusedSendDoesNotStartAckTimeout();
   apptraverse::test::TestMaterializedNotificationsSurviveReorderAndIgnoreDuplicateAck();
   apptraverse::test::TestPendingBeforeSendAndBothSidesRestart();
   apptraverse::test::TestWrongAckOfflinePacingAndNodeIsolation();

@@ -20,6 +20,9 @@ class IByteLink {
 
   virtual ~IByteLink() = default;
   virtual void SetReceiver(Receiver receiver) = 0;
+  // true accepts the complete frame for transmission, not delivery/ACK.
+  // false accepts nothing (e.g. local backpressure); admission may be retried
+  // on the next service turn without consuming the remote ACK timeout.
   virtual bool Send(std::string const& destination,
                     std::vector<std::uint8_t> const& bytes) = 0;
   virtual LinkAvailability Availability(

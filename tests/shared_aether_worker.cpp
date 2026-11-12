@@ -9,6 +9,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #ifdef _WIN32
@@ -215,11 +216,27 @@ class CountingLink final : public IByteLink {
       if (message.stamp.author_uid != own_) { ++foreign_relay; }
     }
     bool const accepted = link_.Send(destination, bytes);
-    if (event && accepted) { ++accepted_events[destination]; }
+    if (event && accepted) {
+      ++accepted_events[destination];
+      auto const key = std::make_pair(destination, message.event_id);
+      auto const [previous, first] = last_accepted_event_us.emplace(key, service_clock_us);
+      if (!first) {
+        auto const gap = service_clock_us - previous->second;
+        ++accepted_event_retries[destination];
+        auto const [minimum, new_minimum] = min_accepted_event_retry_gap_us.emplace(destination, gap);
+        if (!new_minimum) { minimum->second = std::min(minimum->second, gap); }
+        previous->second = service_clock_us;
+      }
+    }
     return accepted;
   }
   LinkAvailability Availability(std::string const& peer) const override { return link_.Availability(peer); }
   std::map<std::string, std::uint64_t> attempts, accepted_events, received_events, old_event_attempts;
+  // Only accepted whole-frame admissions of the SAME Event are retries.
+  // Refused admission checks may occur every Service turn without wire sends.
+  std::map<std::pair<std::string, ae::ObjId>, std::uint64_t> last_accepted_event_us;
+  std::map<std::string, std::uint64_t> accepted_event_retries, min_accepted_event_retry_gap_us;
+  std::uint64_t service_clock_us{0};
   std::size_t max_received{0}, foreign_relay{0};
  private:
   AetherByteLink& link_;
@@ -388,6 +405,8 @@ struct Worker {
             << ",\"event_attempts\":" << count(counted.attempts, uid)
             << ",\"old_event_attempts\":" << count(counted.old_event_attempts, uid)
             << ",\"event_accepted\":" << count(counted.accepted_events, uid)
+            << ",\"event_accepted_retries\":" << count(counted.accepted_event_retries, uid)
+            << ",\"min_event_accepted_retry_gap_us\":" << count(counted.min_accepted_event_retry_gap_us, uid)
             << ",\"events_received\":" << count(counted.received_events, uid)
             << ",\"presence_online\":" << native.presence_online_results
             << ",\"presence_offline\":" << native.presence_offline_results
@@ -443,7 +462,9 @@ int main(int argc, char** argv) {
           if (descriptor->endpoint_uid != link->EndpointId()) { link->WatchPeer(descriptor->endpoint_uid); }
         }
       }
-      link->Service(now); worker->sync->Service(now);
+      link->Service(now);
+      worker->counted.service_clock_us = now;
+      worker->sync->Service(now);
       if (now >= next_status || worker->stopped) {
         if (!AtomicText("status.json", worker->Status(client->IsLocallyOnline()))) {
 #ifdef _WIN32

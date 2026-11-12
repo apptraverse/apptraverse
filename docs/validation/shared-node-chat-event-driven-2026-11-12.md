@@ -1,5 +1,9 @@
 # Event-driven chat with RAM-only state
 
+The subsequent [backpressure diagnosis and fix](shared-node-chat-latency-backpressure-2026-11-12.md)
+removes the extra one-second delay after refused local enqueue. The timings
+below are the earlier event-driven build, before that correction.
+
 Continues `feature/shared-node-native-memory` from `773c92d9`. The user
 removed the demo's disk-save requirement and periodic presentation updates.
 

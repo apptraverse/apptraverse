@@ -1,5 +1,24 @@
 # AppTraverse — прогресс версионирования поставок
 
+## SharedNode backpressure latency cause — 2026-11-12 — FIXED / VERIFIED
+
+Continued from `0f2fd3ae`. Found the extra one-second delay in SharedSync:
+it consumed the ACK timeout even when the local link refused enqueue. A
+tentative deadline is now erased on false Send; accepted frames still retain
+the full one-second retry interval, including synchronous-ACK safety.
+
+Deterministic refusal/free-capacity test reproduces the old failure and
+passes after the fix, including exact accepted-send deadlines and lost ACK.
+Same-PC two-process Aether control, 40 measured messages each: presented
+median **1176.63 -> 221.41 ms**, P95 **2206.90 -> 346.46 ms**. SDK/Rx/UI/RAM
+settings are unchanged. Independent fixed-code **100/100 PASS**: median
+**306.59 ms**, P95 **736.96 ms**, max **1831.98 ms**; remaining tails are
+disclosed without attributing their cause. **9/9 CTests, three native windows
+and the H/A/B outage/checkpoint/restart campaign PASS.** The cloud harness
+now distinguishes refused local checks from accepted same-Event retries and
+checks the latter remain at least one second apart.
+[Cause, experiments, historical comparison and raw data](../validation/shared-node-chat-latency-backpressure-2026-11-12.md).
+
 ## SharedNode event-driven RAM chat — 2026-11-12 — PASS
 
 Continued from `773c92d9`. Removed the 100 ms model publication and Win32

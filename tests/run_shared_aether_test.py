@@ -81,6 +81,10 @@ class Campaign:
             return {}
         if state.get("error") or state.get("failed"):
             raise RuntimeError(f"{side}: {state.get('error') or 'runtime failed'}")
+        for uid, peer in state.get("peers", {}).items():
+            if (peer.get("event_accepted_retries", 0) > 0 and
+                    peer.get("min_event_accepted_retry_gap_us", 0) < 1_000_000):
+                raise RuntimeError(f"{side}->{uid}: accepted same-Event retry preceded its ACK timeout")
         return state
 
     def wait(self, description, predicate, seconds=75):
@@ -194,9 +198,12 @@ class Campaign:
         self.wait("H receives A70 while stopped B retains pending delivery", lambda:
                   self.status("H").get("tail") == tail and
                   self.status("A").get("peers", {}).get(uids["B"], {}).get("pending", 0) > 0)
-        # No presence: an absent ACK must cause paced retries even with B stopped.
-        before = self.status("A")["peers"][uids["B"]]["event_attempts"]
-        observation_start = time.monotonic()
+        # An absent ACK retains the obligation. Local queue refusals may be
+        # rechecked every Service turn; they are not accepted transmissions.
+        initial_peer = self.status("A")["peers"][uids["B"]]
+        before = initial_peer["event_attempts"]
+        accepted_before = initial_peer["event_accepted"]
+        retries_before = initial_peer["event_accepted_retries"]
         observation_end = time.monotonic() + 3
         attempts = before
         while time.monotonic() < observation_end:
@@ -207,11 +214,14 @@ class Campaign:
                 raise RuntimeError("unacknowledged delivery was cleared or gated by presence")
             time.sleep(0.1)
         if attempts < before + 2:
-            raise RuntimeError("missing ACK did not cause Event retries")
-        # One pending Event, one-second retry interval; allow one edge sample.
-        if attempts - before > int(time.monotonic() - observation_start) + 2:
-            raise RuntimeError("Event retries were not paced by their ACK timeout")
-        self.record("missing-ack-retry", attempts=attempts - before)
+            raise RuntimeError("missing ACK did not cause local retry/admission checks")
+        # status() checks exact logical Service timestamps for accepted retries
+        # of the same Event. A busy SDK may keep one frame in flight throughout
+        # this interval, so multiple accepted retries are not required here.
+        self.record("missing-ack-retry", local_admission_checks=attempts - before,
+                    accepted_events=peer["event_accepted"] - accepted_before,
+                    accepted_retries=peer["event_accepted_retries"] - retries_before,
+                    min_accepted_retry_gap_us=peer["min_event_accepted_retry_gap_us"])
         self.start("B")
         self.wait("B restores the same identity", lambda: self.status("B").get("uid") == uids["B"], 130)
         self.wait("B catches up from durable pending", lambda: self.stable("HAB", tail, 3, 7), 90)
