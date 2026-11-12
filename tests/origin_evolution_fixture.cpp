@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <sstream>
 #include <memory>
 #include <set>
 #include <string>
@@ -289,15 +290,17 @@ void WriteItem(std::ostream& out, char const* name,
 
 void WriteState(std::string_view op, ae::Domain& domain,
                 EvolutionItem::ptr const& a, EvolutionItem::ptr const& b) {
-  std::cout << "{\"ok\":true,\"op\":\"" << op << "\",\"revision\":"
-            << APPTRAVERSE_ORIGIN_EVOLUTION_EXE_REVISION
-            << ",\"prefab_id\":" << kPrefabIdRaw
-            << ",\"item_class_id\":" << EvolutionItem::kClassId
-            << ",\"obj_class_id\":" << ae::Obj::kClassId;
-  WriteItem(std::cout, "a", a);
-  WriteItem(std::cout, "b", b);
-  std::cout << ",\"p_materialized\":"
-            << (domain.Find(kPrefabId) ? "true" : "false") << "}\n";
+  std::ostringstream record;
+  record << "{\"ok\":true,\"op\":\"" << op
+         << "\",\"revision\":" << APPTRAVERSE_ORIGIN_EVOLUTION_EXE_REVISION
+         << ",\"prefab_id\":" << kPrefabIdRaw
+         << ",\"item_class_id\":" << EvolutionItem::kClassId
+         << ",\"obj_class_id\":" << ae::Obj::kClassId;
+  WriteItem(record, "a", a);
+  WriteItem(record, "b", b);
+  record << ",\"p_materialized\":"
+         << (domain.Find(kPrefabId) ? "true" : "false") << "}\n";
+  std::cout << record.str();
 }
 
 void OpCreateInstances(Args const& args) {
@@ -404,11 +407,13 @@ void OpReplayBase(Args const& args) {
   ae::Domain domain{*stores.overlay};
   EvolutionItem::ptr a = LoadItem(domain, kInstanceAId);
   EvolutionItem::ptr b = LoadItem(domain, kInstanceBId);
-  std::cout << "{\"ok\":true,\"op\":\"replay-base\",\"revision\":"
-            << APPTRAVERSE_ORIGIN_EVOLUTION_EXE_REVISION;
-  WriteReplayItem(std::cout, "a", a);
-  WriteReplayItem(std::cout, "b", b);
-  std::cout << "}\n";
+  std::ostringstream record;
+  record << "{\"ok\":true,\"op\":\"replay-base\",\"revision\":"
+         << APPTRAVERSE_ORIGIN_EVOLUTION_EXE_REVISION;
+  WriteReplayItem(record, "a", a);
+  WriteReplayItem(record, "b", b);
+  record << "}\n";
+  std::cout << record.str();
 }
 
 void OpCompactJournal(Args const& args) {
@@ -425,17 +430,19 @@ void OpCompactJournal(Args const& args) {
   a->CompactJournal(now_us);
   b->CompactJournal(now_us);
   SaveItems(stores, a, b);
-  std::cout << "{\"ok\":true,\"op\":\"compact-journal\",\"revision\":"
-            << APPTRAVERSE_ORIGIN_EVOLUTION_EXE_REVISION
-            << ",\"prefab_id\":" << kPrefabIdRaw
-            << ",\"item_class_id\":" << EvolutionItem::kClassId
-            << ",\"obj_class_id\":" << ae::Obj::kClassId
-            << ",\"journal_a_before\":" << journal_a_before
-            << ",\"journal_a_after\":" << a->journal.size();
-  WriteItem(std::cout, "a", a);
-  WriteItem(std::cout, "b", b);
-  std::cout << ",\"p_materialized\":"
-            << (domain.Find(kPrefabId) ? "true" : "false") << "}\n";
+  std::ostringstream record;
+  record << "{\"ok\":true,\"op\":\"compact-journal\",\"revision\":"
+         << APPTRAVERSE_ORIGIN_EVOLUTION_EXE_REVISION
+         << ",\"prefab_id\":" << kPrefabIdRaw
+         << ",\"item_class_id\":" << EvolutionItem::kClassId
+         << ",\"obj_class_id\":" << ae::Obj::kClassId
+         << ",\"journal_a_before\":" << journal_a_before
+         << ",\"journal_a_after\":" << a->journal.size();
+  WriteItem(record, "a", a);
+  WriteItem(record, "b", b);
+  record << ",\"p_materialized\":"
+         << (domain.Find(kPrefabId) ? "true" : "false") << "}\n";
+  std::cout << record.str();
 }
 
 void OpPublishUi(Args const& args) {

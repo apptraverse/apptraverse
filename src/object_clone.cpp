@@ -40,8 +40,9 @@ bool InjectLayerBytes(ae::IDomainStorage& storage, ae::DomainQuery const& query,
   if (!writer) {
     return false;
   }
-  return static_cast<bool>(writer->Write(
-      ae::seri::DataWriteTag{data.data(), data.size()}));
+  auto const result = writer->Write(
+      ae::seri::DataWriteTag{data.data(), data.size()});
+  return result && writer->Commit();
 }
 
 bool InjectClassData(ae::RamDomainStorage::ClassData const& class_data,
@@ -501,6 +502,9 @@ bool InjectAllLayeredObjects(ae::RamDomainStorage const& scratch,
                 ae::seri::DataWriteTag{data.data(), data.size()})) {
           return false;
         }
+        if (!writer->Commit()) {
+          return false;
+        }
       }
     }
   }
@@ -673,6 +677,9 @@ bool InjectLayeredObjects(ae::RamDomainStorage const& scratch,
         }
         if (!data.empty() &&
             !writer->Write(ae::seri::DataWriteTag{data.data(), data.size()})) {
+          return false;
+        }
+        if (!writer->Commit()) {
           return false;
         }
       }

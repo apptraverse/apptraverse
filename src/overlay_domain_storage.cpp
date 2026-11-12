@@ -53,6 +53,7 @@ class BackingComparedStorageWriter final : public ae::IDomainStorageWriter {
     std::unique_ptr<ae::IDomainStorageWriter> writer = writable_.Store(query_);
     FailIfWriteError(
         writer->Write(ae::seri::DataWriteTag{new_bytes_.data(), new_bytes_.size()}));
+    FailIfWriteError(writer->Commit());
   }
 
   ae::seri::SeriResult Write(ae::seri::SizeWriteTag data) override {

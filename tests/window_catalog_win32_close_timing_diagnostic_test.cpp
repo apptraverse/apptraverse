@@ -51,23 +51,7 @@ std::filesystem::path ExeDir() {
 }
 
 std::filesystem::path ResolveDemo(char const* name) {
-  std::error_code ec;
-  auto try_path = [&](std::filesystem::path const& p) {
-    auto abs = std::filesystem::weakly_canonical(p, ec);
-    if (!ec && std::filesystem::exists(abs)) {
-      return abs;
-    }
-    return std::filesystem::path{};
-  };
-  if (auto p = try_path(ExeDir() / name); !p.empty()) {
-    return p;
-  }
-  if (auto p = try_path(ExeDir() / ".." / "examples" / "surfaces_demo" / "windows" /
-                        name);
-      !p.empty()) {
-    return p;
-  }
-  return ExeDir() / name;
+  return std::filesystem::path{APPTRAVERSE_TEST_DEMO_DIRECTORY} / name;
 }
 
 std::filesystem::path FreshDir(std::filesystem::path const& parent,

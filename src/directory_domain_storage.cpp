@@ -859,6 +859,8 @@ class InstrumentedStorageWriter final : public ae::IDomainStorageWriter {
 
 
 
+  ae::seri::SeriResult Commit() override { return inner_->Commit(); }
+
  private:
 
   ae::DomainQuery query_;

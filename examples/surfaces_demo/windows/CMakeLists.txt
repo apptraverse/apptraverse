@@ -29,39 +29,42 @@ function(apptraverse_add_surfaces_demo_executable target distill_lib evolution_l
   endif()
 endfunction()
 
-apptraverse_add_surfaces_demo_executable(win32_surfaces_demo
-  surfaces_demo_distill surfaces_demo_evolution surfaces_demo_win32)
-apptraverse_add_surfaces_demo_executable(win32_surfaces_demo_v1
-  surfaces_demo_distill_v1 surfaces_demo_evolution_v1 surfaces_demo_win32_v1)
+if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES)
+  apptraverse_add_surfaces_demo_executable(win32_surfaces_demo
+    surfaces_demo_distill surfaces_demo_evolution surfaces_demo_win32)
+  apptraverse_add_surfaces_demo_executable(win32_surfaces_demo_v1
+    surfaces_demo_distill_v1 surfaces_demo_evolution_v1 surfaces_demo_win32_v1)
 
-add_executable(win32_surfaces_demo_load_only ${_surfaces_win_sources})
-target_link_libraries(win32_surfaces_demo_load_only PRIVATE
-  surfaces_demo_win32
-  surfaces_demo_evolution
-  user32
-  gdi32
-)
-target_include_directories(win32_surfaces_demo_load_only PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}
-  ${CMAKE_CURRENT_SOURCE_DIR}/../common
-  ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows
-)
-if(MSVC)
-  target_compile_options(win32_surfaces_demo_load_only PRIVATE /utf-8)
-  set_target_properties(win32_surfaces_demo_load_only PROPERTIES WIN32_EXECUTABLE TRUE)
-  target_link_options(win32_surfaces_demo_load_only PRIVATE /ENTRY:mainCRTStartup)
-endif()
+  add_executable(win32_surfaces_demo_load_only ${_surfaces_win_sources})
+  target_link_libraries(win32_surfaces_demo_load_only PRIVATE
+    surfaces_demo_win32
+    surfaces_demo_evolution
+    user32
+    gdi32
+  )
+  target_include_directories(win32_surfaces_demo_load_only PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common
+    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows
+  )
+  if(MSVC)
+    target_compile_options(win32_surfaces_demo_load_only PRIVATE /utf-8)
+    set_target_properties(win32_surfaces_demo_load_only PROPERTIES WIN32_EXECUTABLE TRUE)
+    target_link_options(win32_surfaces_demo_load_only PRIVATE /ENTRY:mainCRTStartup)
+  endif()
 
-if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/surface_v1_package")
-  foreach(_demo_target win32_surfaces_demo_v1)
-    add_custom_command(TARGET ${_demo_target} POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_CURRENT_SOURCE_DIR}/surface_v1_package"
-        "$<TARGET_FILE_DIR:${_demo_target}>/surface_v1_package"
-      COMMENT "Copy bundled Surface v1 package next to ${_demo_target}"
-    )
-  endforeach()
-endif()
+  if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/surface_v1_package")
+    foreach(_demo_target win32_surfaces_demo_v1)
+      add_custom_command(TARGET ${_demo_target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+          "${CMAKE_CURRENT_SOURCE_DIR}/surface_v1_package"
+          "$<TARGET_FILE_DIR:${_demo_target}>/surface_v1_package"
+        COMMENT "Copy bundled Surface v1 package next to ${_demo_target}"
+      )
+    endforeach()
+  endif()
+
+endif() # APPTRAVERSE_BUILD_LEGACY_EXAMPLES
 
 # Debug prepares a fresh graph; consumers load the supply prepared by Debug.
 set(_window_catalog_win_sources

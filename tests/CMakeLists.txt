@@ -1760,6 +1760,7 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
   add_dependencies(apptraverse_window_catalog_win32_acceptance_test
     win32_window_catalog_demo win32_window_catalog_demo_load_only)
   target_compile_definitions(apptraverse_window_catalog_win32_acceptance_test PRIVATE
+    "APPTRAVERSE_TEST_DEMO_DIRECTORY=u8R\"($<TARGET_FILE_DIR:win32_window_catalog_demo>)\""
     "$<$<CONFIG:Debug>:APPTRAVERSE_TEST_DEBUG_BOOTSTRAP>")
   if(TARGET apptraverse_window_catalog_embedded_supply)
     add_dependencies(apptraverse_window_catalog_win32_acceptance_test
@@ -1771,6 +1772,8 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
   endif()
   target_link_libraries(apptraverse_window_catalog_win32_acceptance_test PRIVATE
     apptraverse_ui_windows apptraverse)
+  set_tests_properties(apptraverse_window_catalog_win32_acceptance_test PROPERTIES
+    RUN_SERIAL TRUE)
 
   apptraverse_add_test(apptraverse_window_catalog_win32_chrome_adaptive_test
     window_catalog_win32_chrome_adaptive_test.cpp surfaces_demo_window_catalog)
@@ -1789,17 +1792,20 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
     apptraverse_ui_windows apptraverse)
   add_dependencies(apptraverse_window_catalog_win32_close_timing_diagnostic_test
     win32_window_catalog_demo_load_only)
+  target_compile_definitions(apptraverse_window_catalog_win32_close_timing_diagnostic_test PRIVATE
+    "APPTRAVERSE_TEST_DEMO_DIRECTORY=u8R\"($<TARGET_FILE_DIR:win32_window_catalog_demo_load_only>)\"")
   if(MSVC)
     target_compile_options(apptraverse_window_catalog_win32_close_timing_diagnostic_test PRIVATE
       /utf-8)
   endif()
   set_tests_properties(apptraverse_window_catalog_win32_close_timing_diagnostic_test PROPERTIES
-    LABELS "window_catalog;diagnostic" TIMEOUT 600)
+    LABELS "window_catalog;diagnostic" TIMEOUT 600 RUN_SERIAL TRUE)
 
   apptraverse_add_test(apptraverse_minimal_app_win32_acceptance_test
     minimal_app_win32_acceptance_test.cpp minimal_app_windows)
   target_compile_definitions(apptraverse_minimal_app_win32_acceptance_test PRIVATE
     APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL
+    "APPTRAVERSE_TEST_DEMO_DIRECTORY=u8R\"($<TARGET_FILE_DIR:win32_minimal_app>)\""
     "$<$<CONFIG:Debug>:APPTRAVERSE_TEST_DEBUG_BOOTSTRAP>")
   target_link_libraries(apptraverse_minimal_app_win32_acceptance_test PRIVATE
     apptraverse_ui_windows)
@@ -1814,7 +1820,7 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
       /utf-8)
   endif()
   set_tests_properties(apptraverse_minimal_app_win32_acceptance_test PROPERTIES
-    LABELS "minimal_app")
+    LABELS "minimal_app" RUN_SERIAL TRUE)
   add_dependencies(apptraverse_minimal_app_win32_acceptance_test
     win32_minimal_app win32_minimal_app_load_only)
 

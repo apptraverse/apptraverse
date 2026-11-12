@@ -10,9 +10,9 @@ get_filename_component(APPTRAVERSE_REPO_ROOT "${APPTRAVERSE_CMAKE_DIR}/.." ABSOL
 # directory hash follows this list of file names, not their contents, so a
 # changed patch needs a new file name.
 set(APPTRAVERSE_AETHER_OBJECTS_PATCH_NAMES
-  local-persistent-load
+  local-persistent-load-telemetry-v1
   domain-storage-access
-  reject-unknown-stored-class
+  reject-unknown-stored-class-telemetry-v1
   objptr-reset-flags
   force-materialize
   should-save-version-scope
@@ -28,12 +28,12 @@ set(APPTRAVERSE_AETHER_OBJECTS_PATCH_NAMES
   graph-load-instance-identity
   origin-layer-lookup
   historical-base-snapshot-scope
-  domain-hierarchy-v1
+  domain-hierarchy-v2
   scoped-layer-hydration-v1
   force-materialize-object-layer-v1
   historical-materialized-version-scope-v1
   storage-constant-query-v1
-  object-scope-metadata-v1
+  object-scope-metadata-v2
   domain-local-storage-precedence-v1
   scoped-object-reference-visitor-v1
   domain-ancestor-factory-v1
@@ -48,7 +48,7 @@ endforeach()
 
 # Pinned SHA verified with a clean CPM cache (GraphSerializationScope + LoadStoredLayers).
 set(APPTRAVERSE_AETHER_OBJECTS_GIT_TAG
-  "79283b667cabf689da1059d618fe2a22abf51db4")
-set(APPTRAVERSE_AETHER_MISCPP_GIT_TAG "main")
-set(APPTRAVERSE_AETHER_NUMERIC_GIT_TAG "main")
-set(APPTRAVERSE_AETHER_TELE_GIT_TAG "main")
+  "94c97c694cb51c7d9bf854793875afcb71ac7cb8")
+set(APPTRAVERSE_AETHER_MISCPP_GIT_TAG "6839624442621a5b060ae610e91f480278ebaf6e")
+set(APPTRAVERSE_AETHER_NUMERIC_GIT_TAG "9d79bd79188420533bab07c437d617aedfaf6b1a")
+set(APPTRAVERSE_AETHER_TELE_GIT_TAG "a496a19599d01a5525dd115933cf01202bb018e0")

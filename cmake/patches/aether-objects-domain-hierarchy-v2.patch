@@ -1,0 +1,174 @@
+--- a/src/aether-objects/obj/domain.h
++++ b/src/aether-objects/obj/domain.h
+@@ -193,8 +193,13 @@
+   /// \brief Returns this domain's optional environment.
+   Env* get_env() const { return env_; }
+ 
+-  // Search for the object by obj_id.
++  // Search local registry only.
++  Ptr<Obj> FindLocal(ObjId obj_id) const;
++  // Search local registry, then parent chain (not siblings or children).
+   Ptr<Obj> Find(ObjId obj_id) const;
++
++  void set_parent_domain(Domain* parent) { parent_domain_ = parent; }
++  Domain* parent_domain() const { return parent_domain_; }
+ 
+   void AddObject(ObjId id, Ptr<Obj> const& obj);
+   void RemoveObject(Obj* obj);
+@@ -215,6 +220,7 @@
+   IDomainStorage* storage_;
+   Registry* registry_;
+   Env* env_{};
++  Domain* parent_domain_{nullptr};
+ 
+   std::shared_ptr<DomainRegisteredObjects> registered_objects_;
+ };
+--- a/src/aether-objects/obj/domain.cpp
++++ b/src/aether-objects/obj/domain.cpp
+@@ -133,7 +133,14 @@
+ }
+ 
+ DomainLoad DomainGraph::GetReader(DomainQuery const& query) {
+-  return domain->storage_->Load(query);
++  auto load = domain->storage_->Load(query);
++  if (load.result != DomainLoadResult::kEmpty) {
++    return load;
++  }
++  if (domain->parent_domain() != nullptr) {
++    return domain->parent_domain()->domain_storage().Load(query);
++  }
++  return load;
+ }
+ 
+ std::unique_ptr<IDomainStorageWriter> DomainGraph::GetWriter(
+@@ -179,13 +186,23 @@
+   return registry_->IsExisting(class_id);
+ }
+ 
+-Ptr<Obj> Domain::Find(ObjId obj_id) const {
++Ptr<Obj> Domain::FindLocal(ObjId obj_id) const {
+   if (!registered_objects_) {
+     return {};
+   }
+   if (auto it = registered_objects_->by_id.find(obj_id.id());
+       it != registered_objects_->by_id.end()) {
+     return it->second.Lock();
++  }
++  return {};
++}
++
++Ptr<Obj> Domain::Find(ObjId obj_id) const {
++  for (Domain const* current = this; current != nullptr;
++       current = current->parent_domain_) {
++    if (auto found = current->FindLocal(obj_id)) {
++      return found;
++    }
+   }
+   return {};
+ }
+@@ -213,6 +230,9 @@
+                      [this](auto const& c) { return !IsExisting(c); }),
+       std::end(classes));
+   if (classes.empty()) {
++    if (parent_domain_ != nullptr) {
++      return parent_domain_->KnownStoredClasses(id);
++    }
+     return {};
+   }
+   std::sort(std::begin(classes), std::end(classes),
+@@ -232,35 +252,40 @@
+ }
+ 
+ Factory* Domain::GetMostRelatedFactory(ObjId id) {
+-  auto classes = storage_->Enumerate(id);
++  Domain const* storage_domain = this;
++  auto classes = KnownStoredClasses(id);
++  if (classes.empty() && parent_domain_ != nullptr) {
++    storage_domain = parent_domain_;
++    classes = parent_domain_->KnownStoredClasses(id);
++  }
++  if (classes.empty()) {
++    return nullptr;
++  }
++
++  auto const enumerated = storage_domain->storage_->Enumerate(id);
+ #ifndef NDEBUG
+   auto class_names = std::vector<std::string_view>{};
+-  class_names.reserve(classes.size());
+-  for (auto cid : classes) {
++  class_names.reserve(enumerated.size());
++  for (auto cid : enumerated) {
+     class_names.emplace_back(registry_->ClassName(cid));
+   }
+ 
+   AE_LOG_MACRO_TAGGED(::ae::objects_tele::kDomainEnumeratedNames,
+                       "For obj {} enumerated classes [{}]", id.id(),
+                       class_names);
+ #else
+-  AE_LOG_MACRO_TAGGED(::ae::objects_tele::kDomainEnumeratedClasses,
+-                      "For obj {} enumerated classes [{}]", id.id(), classes);
++  AE_LOG_MACRO_TAGGED(::ae::objects_tele::kDomainEnumeratedClasses,
++                      "For obj {} enumerated classes [{}]", id.id(), enumerated);
+ #endif
+ 
+   bool const had_unknown_stored_class = [&] {
+-    for (auto const class_id : classes) {
++    for (auto const class_id : enumerated) {
+       if (!IsExisting(class_id) && class_id != Obj::kClassId) {
+         return true;
+       }
+     }
+     return false;
+   }();
+-
+-  classes = KnownStoredClasses(id);
+-  if (classes.empty()) {
+-    return nullptr;
+-  }
+ 
+   if (had_unknown_stored_class) {
+     return nullptr;
+--- a/src/aether-objects/obj/obj_ptr_base.cpp
++++ b/src/aether-objects/obj/obj_ptr_base.cpp
+@@ -50,9 +50,19 @@
+ 
+ ObjectPtrBase::~ObjectPtrBase() = default;
+ 
+-ObjId ObjectPtrBase::id() const { return id_; }
++ObjId ObjectPtrBase::id() const {
++  if (cached_) {
++    return cached_->obj_id;
++  }
++  return id_;
++}
+ ObjFlags ObjectPtrBase::flags() const { return flags_; }
+-Domain* ObjectPtrBase::domain() const { return domain_; }
++Domain* ObjectPtrBase::domain() const {
++  if (cached_) {
++    return cached_->domain;
++  }
++  return domain_;
++}
+ 
+ void ObjectPtrBase::SetFlags(ObjFlags flags) { flags_ = flags; }
+ 
+@@ -70,6 +80,8 @@
+   cached_ = DomainGraph{domain_}.LoadRoot(id_);
+   if (cached_) {
+     flags_ = flags_ & ~ObjFlags::kUnloaded;
++    id_ = cached_->obj_id;
++    domain_ = cached_->domain;
+   }
+   return cached_;
+ }
+@@ -85,6 +97,10 @@
+ }
+ 
+ void ObjectPtrBase::Reset() {
++  if (cached_) {
++    id_ = cached_->obj_id;
++    domain_ = cached_->domain;
++  }
+   cached_.Reset();
+   flags_ = flags_ | ObjFlags::kUnloaded;
+ }

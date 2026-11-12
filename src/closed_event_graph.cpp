@@ -57,6 +57,9 @@ void TransferRamObject(ae::RamDomainStorage const& src, ae::ObjId obj_id,
         assert(result);
         (void)result;
       }
+      auto const committed = writer->Commit();
+      assert(committed);
+      (void)committed;
     }
   }
 }
@@ -513,6 +516,9 @@ bool CopyStoredObjectAs(
         if (!result) {
           return false;
         }
+      }
+      if (!writer->Commit()) {
+        return false;
       }
     }
   }

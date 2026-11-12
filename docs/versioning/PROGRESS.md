@@ -1,4 +1,25 @@
 # AppTraverse — прогресс версионирования поставок
+## Published telemetry dependencies — 2026-11-12 — PASS (Windows Debug)
+
+Pinned published Objects `94c97c6`, Tele `a496a19`, miscpp `6839624` and
+numeric `9d79bd7`. All 29 Objects patches remain applied; four patches were
+rebased onto tagged logging without dropping their existing behavior.
+Direct storage copies now commit transactional writers, and the instrumented
+storage wrapper forwards Commit. A regression checks injection and overlay
+replacement through the native filesystem writer, followed by reopening.
+
+Verified MSVC x64 Debug ALL build and **85/85 CTest** using the published
+dependency graph without source overrides. This includes persistence, clone,
+origin evolution, WindowCatalog and native Win32 acceptance tests. The latter
+now use CMake target directories for multi-configuration builds and run serially;
+origin fixture JSON is emitted after nested diagnostic logging completes.
+Legacy Windows targets now honor `APPTRAVERSE_BUILD_LEGACY_EXAMPLES=OFF`.
+The build directory was shortened after a verified Windows path-length failure.
+
+Application schema, ClassIds and USER policy are unchanged. Linux, Android,
+Web and Apple runtime scopes were not rerun for this dependency update; their
+earlier validation records below retain their original scope.
+
 ## Unified WindowCatalog order and activation — 2026-11-11 — PASS
 
 One lazy-identity `window_order` holds all open windows; index 0 is active.

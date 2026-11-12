@@ -1,19 +1,23 @@
+#include <chrono>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <cstring>
 #include <iterator>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "aether-objects/domain_storage/file_system_std_storage.h"
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/obj.h"
 
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/node.h"
 #include "apptraverse/object_macros.h"
+#include "apptraverse/object_clone.h"
+#include "apptraverse/overlay_domain_storage.h"
 
 namespace apptraverse::test {
 
@@ -308,6 +312,52 @@ void TestNonDirectoryObjectPathFailsSave() {
   std::filesystem::remove_all(root);
 }
 
+#if defined(AE_FILE_SYSTEM_STD_ENABLED)
+void TestTransactionalWritersCommitThroughInjectionAndAdapters() {
+  auto const previous = std::filesystem::current_path();
+  auto const temporary = std::filesystem::temp_directory_path();
+  auto const root =
+      temporary /
+      ("apptraverse_transactional_injection_" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
+  bool const created = std::filesystem::create_directory(root);
+  CHECK(created);
+  std::filesystem::current_path(root);
+  {
+    ae::FileSystemStdStorage filesystem;
+    InstrumentedDomainStorage instrumented{filesystem};
+    ae::DomainQuery const query{ae::ObjId{12345}, 678, 0};
+    std::vector<std::uint8_t> const original{1, 2, 3, 4};
+    ae::RamDomainStorage scratch;
+    scratch.state[query.id].emplace();
+    (*scratch.state[query.id])[query.class_id][query.version] = original;
+    CHECK(InjectAllLayeredObjects(scratch, instrumented));
+    auto read = [&]() {
+      auto load = filesystem.Load(query);
+      CHECK(load.result == ae::DomainLoadResult::kLoaded);
+      std::vector<std::uint8_t> result(original.size());
+      auto const loaded = load.reader->Read(
+          ae::seri::DataReadTag{result.data(), result.size()});
+      CHECK(loaded);
+      return result;
+    };
+    CHECK(read() == original);
+
+    ae::RamDomainStorage backing;
+    CHECK(InjectAllLayeredObjects(scratch, backing));
+    OverlayDomainStorage overlay{instrumented, backing};
+    std::vector<std::uint8_t> const changed{9, 8, 7, 6};
+    (*scratch.state[query.id])[query.class_id][query.version] = changed;
+    CHECK(InjectAllLayeredObjects(scratch, overlay));
+    CHECK(read() == changed);
+  }
+  std::filesystem::current_path(previous);
+  CHECK(std::filesystem::equivalent(root.parent_path(), temporary));
+  std::filesystem::remove_all(root);
+}
+#endif
+
 }  // namespace apptraverse::test
 
 int main() {
@@ -319,6 +369,10 @@ int main() {
   apptraverse::test::TestWriteFailurePreservesPreviousLayer();
   apptraverse::test::TestCompareReadErrorFailsSave();
   apptraverse::test::TestNonDirectoryObjectPathFailsSave();
+#if defined(AE_FILE_SYSTEM_STD_ENABLED)
+  apptraverse::test::
+      TestTransactionalWritersCommitThroughInjectionAndAdapters();
+#endif
   std::cout << "directory_domain_storage_test OK\n";
   return 0;
 }
