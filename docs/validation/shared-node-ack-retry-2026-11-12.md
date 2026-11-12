@@ -1,5 +1,9 @@
 # SharedNode delivery without presence
 
+Follow-up: a longer two-peer [latency campaign](shared-node-chat-latency-2026-11-12.md)
+found an intermittent >30 s delivery stall. The short acceptance PASS below
+retains its executed scope and does not qualify sustained delivery reliability.
+
 Continues `feature/shared-node-native-memory` from `6e3a921`. The user asked
 to disable Online checks for now and resend whenever the application ACK
 has not arrived by its timeout.

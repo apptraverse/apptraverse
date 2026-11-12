@@ -11,6 +11,10 @@ target_link_libraries(shared_node_chat PRIVATE
 
 # Cloud validation is explicit; normal CTest must not create SDK identities.
 if(BUILD_TESTING)
+  add_executable(apptraverse_shared_chat_latency_worker EXCLUDE_FROM_ALL
+    ../../tests/shared_chat_latency_worker.cpp)
+  target_link_libraries(apptraverse_shared_chat_latency_worker PRIVATE
+    apptraverse_shared_chat_session)
   add_executable(apptraverse_shared_chat_win32_test
     ../../tests/shared_chat_win32_test.cpp)
   target_link_libraries(apptraverse_shared_chat_win32_test PRIVATE

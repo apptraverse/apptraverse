@@ -1,5 +1,21 @@
 # AppTraverse — прогресс версионирования поставок
 
+## SharedNode two-peer chat latency — 2026-11-12 — MEASURED / INTERMITTENT STALL FOUND
+
+Added an explicit headless benchmark using two unchanged production
+ChatSessions through real Aether with native persistence. Worker QPC timestamps
+measure Send → remote published View and → a virtual 100 ms display; no GUI
+paint claim. Debug, 128-byte text, 10 warmup plus 100 measured messages,
+50 per direction, on the same machine under concurrent-build CPU load.
+
+Run 02 completes **100/100**: presented Host→Client median **448.75 ms**,
+P95 **2331.67 ms**; Client→Host median **1264.26 ms**, P95 **1877.02 ms**.
+Run 01 completes 94 measured samples then **times out after 30 s** on the
+next Host→Client message. The successful repeat does not resolve that stall.
+No production delivery policy or SDK code was changed. Raw samples and
+[measurement boundaries, statistics and limits](../validation/shared-node-chat-latency-2026-11-12.md)
+are preserved. Previous short smoke PASS scopes remain historical evidence.
+
 ## SharedNode ACK/retry without presence — 2026-11-12 — PASS
 
 Continued from `6e3a921`. The user disabled Online gating for now. Aether

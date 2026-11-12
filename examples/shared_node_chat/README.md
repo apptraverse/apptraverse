@@ -54,3 +54,24 @@ The acceptance controller owns three processes and fresh private profiles. It
 requires actual admission, Unicode/all-peer delivery, stopped-peer catch-up
 after same-profile restart, a new message after restart and clean shutdown.
 A bootstrap failure does not count as a chat PASS.
+
+Headless delivery latency, using the same production `ChatSession` in two
+separate processes with real Aether and private fresh profiles:
+
+```powershell
+cmake --build build/shared-node-debug --target apptraverse_shared_chat_latency_worker
+python tests/run_shared_chat_latency.py --exe build/shared-node-debug/examples/shared_node_chat/apptraverse_shared_chat_latency_worker.exe --out .artifacts/shared-chat-latency --samples 100 --warmup 10 --payload-bytes 128
+```
+
+This explicit network benchmark records a QPC timestamp immediately before
+`ChatSession::Send` and timestamps in the remote process. `observed_ms` ends
+when a 1 ms poll first reads the message in the published `ChatView`;
+`presented_ms` ends when a headless display consumes it on the window's
+independent 100 ms refresh cadence. The session's own 100 ms publication,
+native persistence and delivery/retry path are included. Physical button
+input, sender edit conversion and actual Win32 painting are excluded.
+Use a fresh output directory. Raw samples, worker logs and phase/direction
+statistics are saved there. First messages and warmup are reported separately;
+the default measured phase is 50 messages in each direction. Normal CTest does
+not register cloud identities or run this benchmark.
+See [measured results and the intermittent delivery stall](../../docs/validation/shared-node-chat-latency-2026-11-12.md).
