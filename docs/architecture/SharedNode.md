@@ -1,7 +1,7 @@
-# SharedNode: native memory synchronization
+# SharedNode: native synchronization
 
 Scope: native serialization, indexed reliable live delivery, confirmed
-checkpoint compaction and host admission
+checkpoint compaction, an optional Aether byte transport and host admission
 into a three-participant room on
 `feature/shared-node-native-memory`, based on main
 `8b592f994c2ad2931bcef22a044a6a21dbe05c4e`. The user's November 11 request
@@ -295,23 +295,88 @@ suppresses enqueue/delivery. Recreating an endpoint does not inherit stale
 availability. Retry pacing and persistence belong to `SharedSyncRuntime`.
 Heartbeat generation and timeout detection are not implemented by this stand.
 
+## Optional Aether transport
+
+`APPTRAVERSE_BUILD_AETHER_LINK=ON` adds `apptraverse_shared_aether` and
+`AetherByteLink`; the option defaults OFF. Ordinary model/UI builds and the
+existing memory check do not acquire the SDK. The separate
+`APPTRAVERSE_BUILD_AETHER_CLOUD_WORKER` option also defaults OFF and adds only
+the owned headless cloud worker, not a GUI example or an automatic network test.
+
+The SDK pin is `a5cfce84fb46c6e506e963af8f63aa01ca355b06` from
+`bench/presence-streaming-recovery`. It builds on the earlier `488383c8`
+push-compatible merge of streaming `4c1d125e` with deployed push API `5ddf5eaa`.
+The selected committed line adds allocation-free wire budgets (`99f41a9d`),
+bounded presence probes (`0e20c253`), native ping ownership/deadline recovery
+(`97f2fd53`) and route/startup observations (`a5cfce84`). The first live attempts
+against `488383c8` exposed its unbounded payload-allocation budget calculation;
+they are failures, not delivery evidence. This is not the older AppTraverse
+chat's client-timing-v2 pin. An isolated checkout is used; foreign worktree
+edits are not consumed. The consumer applies one checked Debug registration
+capture patch: a shared-pointer capture fits the SDK SmallFunction storage
+where a Debug vector capture did not. It changes no public ABI or wire format.
+The existing common object dependency and its 27-patch chain remain unchanged.
+
+`AetherByteLink` implements `IByteLink` over SDK `P2pStream` and
+`P2pSafeStream`. It sends the frozen native SharedSyncMessage bytes unchanged
+inside a reflected native transport envelope. SDK `SizedPacketGate` supplies
+whole-message framing; bounded writes through P2pSafeStream fragment messages
+larger than its circular buffer. No application offset/length protocol or new
+SharedNode field codec is added. The business-message limit is 1 MiB, including
+neither the envelope nor SDK framing; larger messages are refused explicitly.
+
+`WatchPeer(uid)` starts observation before sending; Send can discover a valid
+new UID, and incoming SDK ports create or replace the corresponding local peer
+session. Endpoint strings are validated and normalized Aether UIDs. Application
+membership still comes from SharedNode Join/snapshot, rather than from merely
+seeing transport traffic. The adapter and SharedSyncRuntime run on one model
+thread. The context, client and AetherApp outlive the adapter, whose subscriptions
+are released before its streams and SDK owners are destroyed.
+One adapter owns the Client's peer-port subscription; multiple SharedNodes use
+that adapter. Bootstrap snapshots take priority over Event retries so a bounded
+transport cannot repeatedly deliver an early Event while starving its initial
+state.
+
+Presence adapts the benchmark's timestamped-echo principle; it is not an SDK
+Presence API. Per-peer probes default to one second with a five-second expiry.
+Only a reply matching an outstanding sequence and original local monotonic
+request timestamp can establish Online. A delayed buffered reply cannot extend
+freshness by its arrival time. The deployed native push ACK has no request ID
+and is not used as presence evidence. Unknown allows paced first contact;
+Offline blocks new business sends while probes continue. Local probe identity
+is distinct from journal timestamps and checkpoint progress promises.
+
+At most one business message per peer is queued/in flight, with bounded control
+jobs and one native write at a time. Busy/unwritable/oversized sends return
+false; SharedSyncRuntime keeps its durable obligation for retry. An already
+accepted large frame can drain while presence expires; successful chunk progress
+prevents repeated watchdog resets of that frame, but does not establish Online.
+Stalled/offline or failed writes permit bounded session recreation, resetting
+the local SDK stream and packet collector. Inbound replacement uses generation
+checks to ignore old callbacks. Recovery properties are limited to executed
+scenarios in [the Aether validation record](../validation/shared-node-aether-2026-11-11.md).
+
 ## Next slices
 
-1. Compact identity metadata and native storage reclamation only after a
+1. Add the simplest chat that demonstrates SharedNode: minimal participant and
+   message presentation/input, no localization and no unrelated product features.
+   The current transport slice has no GUI.
+2. Compact identity metadata and native storage reclamation only after a
    separate delayed-packet/identity contract; current checkpoints retain the
    stamp ledger and do not perform global object-store garbage collection.
-2. Different-build schema/capability compatibility, transport heartbeat and real
-   Aether adaptation after the memory contract. Dynamic topology and arbitrary
+3. Different-build schema/capability compatibility and broader network fault
+   characterization. Dynamic topology and arbitrary
    mutable dependency graphs need their own application conflict/replay tests.
 
-The current admission contract is a fixed three-participant memory scenario.
+The current admission contract is a fixed three-participant scenario; memory
+and optional real-cloud execution evidence have separate validation records.
 Removal/rejoin, admission by multiple coordinators, host failover during
 admission and generic merging of independently formed rooms are not implemented.
 
 Ordering remains by `timestamp_us` within the agreed single-computer scope.
 Event identity does not become a hidden ordering key. Equal-timestamp behavior
-must be settled before claiming general convergence. GUI, real Aether transport
-and cross-machine clocks are outside this slice.
+must be settled before claiming general convergence. GUI and cross-machine
+clock ordering are outside this transport slice.
 
 ## Headless entry point
 
@@ -328,4 +393,5 @@ Validation: [foundation](../validation/shared-node-native-memory-2026-11-11.md),
 [live delivery](../validation/shared-node-live-memory-2026-11-11.md),
 [three participants](../validation/shared-node-three-peer-memory-2026-11-11.md),
 [indexed delivery](../validation/shared-node-indexed-memory-2026-11-11.md),
-[confirmed checkpoints](../validation/shared-node-checkpoint-memory-2026-11-11.md).
+[confirmed checkpoints](../validation/shared-node-checkpoint-memory-2026-11-11.md),
+[Aether transport](../validation/shared-node-aether-2026-11-11.md).

@@ -1,6 +1,22 @@
 option(APPTRAVERSE_BUILD_EVOLUTION_TESTS
   "Build isolated application/state evolution fixtures and their Python matrix" ON)
 
+if(APPTRAVERSE_BUILD_AETHER_LINK)
+  add_executable(apptraverse_aether_link_test aether_link_test.cpp)
+  target_link_libraries(apptraverse_aether_link_test PRIVATE apptraverse_shared_aether)
+  add_test(NAME apptraverse_aether_link_test COMMAND apptraverse_aether_link_test)
+  set_tests_properties(apptraverse_aether_link_test PROPERTIES
+    LABELS "shared_node;headless;aether" TIMEOUT 60)
+  option(APPTRAVERSE_BUILD_AETHER_CLOUD_WORKER
+    "Build the explicit three-process cloud validation worker" OFF)
+  if(APPTRAVERSE_BUILD_AETHER_CLOUD_WORKER)
+    add_executable(apptraverse_shared_aether_worker shared_aether_worker.cpp)
+    target_link_libraries(apptraverse_shared_aether_worker PRIVATE apptraverse_shared_aether)
+  endif()
+  # The cloud controller is run explicitly: ordinary CTest never registers
+  # identities or depends on an external service.
+endif()
+
 add_executable(apptraverse_network_local_ptr_test network_local_ptr_test.cpp)
 target_link_libraries(apptraverse_network_local_ptr_test PRIVATE apptraverse)
 add_test(NAME apptraverse_network_local_ptr_test

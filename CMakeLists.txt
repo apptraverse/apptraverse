@@ -145,6 +145,13 @@ add_library(apptraverse_shared_node STATIC EXCLUDE_FROM_ALL
 )
 target_link_libraries(apptraverse_shared_node PUBLIC apptraverse)
 
+option(APPTRAVERSE_BUILD_AETHER_LINK
+  "Build the opt-in SharedNode Aether transport and headless cloud worker" OFF)
+if(APPTRAVERSE_BUILD_AETHER_LINK)
+  include(cmake/shared_aether.cmake)
+  apptraverse_add_shared_aether()
+endif()
+
 if(WIN32)
   target_compile_definitions(apptraverse PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
   add_library(apptraverse_ui_windows STATIC

@@ -14,6 +14,7 @@ out/
 /_deps/
 /cpm.cache/
 .cache/
+__pycache__/
 
 # CPM / dependency caches
 .cpm/

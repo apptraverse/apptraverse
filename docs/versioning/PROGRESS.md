@@ -1,5 +1,25 @@
 # AppTraverse — прогресс версионирования поставок
 
+## SharedNode optional Aether transport and real cloud — 2026-11-11 — PASS
+
+Continued `feature/shared-node-native-memory` from `ee1c48c`. Added the opt-in
+Aether byte adapter using native envelope serialization and SDK framing, paced
+fresh correlated presence probes, bounded queues and local stream recreation.
+The SDK is pinned to `a5cfce84` / `bench/presence-streaming-recovery`, retaining
+the existing 27-patch object dependency. A checked registration-capture patch
+fixes the SDK's Debug SmallFunction overflow without changing ABI or protocol.
+
+**8/8 adapter/native/memory tests, 9/9 targeted regressions and the real-cloud
+three-process controller PASS** on MSVC x64 Debug. Private H/A/B clients exchange
+34 KiB native snapshots and own Events directly, suppress business sends to
+offline B, restore B's same UID and missing data, then checkpoint/restart all
+three and continue indexes. The live test exposed InitialState starvation on a
+one-message transport; bootstrap prioritization plus a deterministic regression
+fix it. Earlier SDK allocation and bootstrap failures remain documented as
+failures. SDK/model state remains private and local. Next UI is the explicitly
+requested simplest SharedNode chat, without localization or unrelated features.
+[Validation, exact pin and limits](../validation/shared-node-aether-2026-11-11.md).
+
 ## SharedNode progress promises and confirmed checkpoint compaction — 2026-11-11 — PASS
 
 Continued `feature/shared-node-native-memory` from `18c0881`. Explicit native

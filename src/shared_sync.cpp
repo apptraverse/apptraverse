@@ -949,7 +949,13 @@ void SharedSyncRuntime::Service(std::uint64_t now_us) {
         continue;
       }
       // Copy before Send: an IByteLink implementation may synchronously ACK.
-      auto const packets = peer->pending_packets;
+      auto packets = peer->pending_packets;
+      // A bounded transport may accept only one message at a time. An early
+      // Event cannot be ACKed before bootstrap, so its retries must not starve
+      // the InitialState that enables its recipient to make progress.
+      std::stable_sort(packets.begin(), packets.end(), [](auto const& a, auto const& b) {
+        return a.initial && !b.initial;
+      });
       for (auto const& pending : packets) {
         RetryKey key{node_id, endpoint, pending.packet_id};
         auto const scheduled = next_send_.find(key);

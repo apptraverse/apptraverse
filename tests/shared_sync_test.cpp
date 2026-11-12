@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <utility>
@@ -192,15 +193,21 @@ class CountingLink final : public IByteLink {
   }
   bool Send(std::string const& destination,
             std::vector<std::uint8_t> const& bytes) override {
+    if (send_budget && *send_budget == 0) { return false; }
     SharedSyncMessage message;
     bool const parsed = DeserializeSharedSyncMessage(bytes, message);
     CHECK(parsed);
     observer_(link_.EndpointId(), destination, message, bytes);
-    return link_.Send(destination, bytes);
+    bool const accepted = link_.Send(destination, bytes);
+    if (accepted && send_budget) { --*send_budget; }
+    return accepted;
   }
   LinkAvailability Availability(std::string const& endpoint) const override {
     return link_.Availability(endpoint);
   }
+  // Models a transport admitting only a bounded number of whole messages.
+  // A budget refusal consumes neither capacity nor an outgoing-frame ledger slot.
+  std::optional<std::size_t> send_budget;
  private:
   MemoryLink& link_;
   Observer observer_;
@@ -508,6 +515,45 @@ struct Pair {
   }
 };
 
+void TestInitialStateWinsSingleMessageBackpressure() {
+  Pair pair;
+  auto const id = pair.AddRoom();
+  auto const seed = pair.h->Append(id, "|H10", 10);
+  bool const queued = pair.h->runtime->QueueInitialState(id, "B");
+  CHECK(queued);
+  auto const& pending = pair.h->Peer(id, "B").pending_packets;
+  CHECK(pending.size() == 2 && !pending.front().initial && pending.back().initial);
+  auto const frozen_initial = pending.back();
+  CHECK(pair.b->app->rooms.empty());
+  pair.h->transport->send_budget = 1;
+  pair.Service(0);
+  auto const wire = pair.network.PendingPackets();
+  CHECK(wire.size() == 1);
+  auto const message = pair.Decode(wire.front());
+  CHECK(message.kind == SharedSyncKind::InitialState);
+  CHECK(wire.front().bytes == frozen_initial.bytes);
+  CHECK(message.covered_events == std::vector<ae::ObjId>{seed});
+  CHECK(pair.sent.size() == 1 && pair.sent.front().message.kind == SharedSyncKind::InitialState);
+  pair.Drain();
+  pair.Equal(id, 1);
+  CHECK(pair.h->Peer(id, "B").initial_complete);
+  CHECK(pair.h->Peer(id, "B").HasDelivered(seed));
+  CHECK(pair.h->Peer(id, "B").pending_packets.empty());
+  pair.h->transport->send_budget = 1;
+  pair.Service(kRetry);
+  CHECK(pair.network.PendingPackets().empty());
+  // Once initial coverage is acknowledged, the same constrained transport
+  // delivers a later Event normally without replaying the covered seed.
+  auto const later = pair.h->Append(id, "|H20", 20);
+  pair.Service(kRetry);
+  auto const next = pair.Packet(SharedSyncKind::Event, "H", later);
+  CHECK(pair.Decode(next).event_id == later);
+  pair.Drain();
+  pair.Equal(id, 2);
+  CHECK(pair.h->Peer(id, "B").pending_packets.empty());
+  CHECK(pair.checked_acks >= 2);
+}
+
 void TestInitialLossFrozenCoverageAndLateEvent() {
   Pair pair;
   auto const id = pair.AddRoom();
@@ -813,6 +859,7 @@ void TestUnsupportedVersionDoesNotMutateOrAcknowledge() {
 
 int main() {
   apptraverse::EnsureSharedNodeRegistration();
+  apptraverse::test::TestInitialStateWinsSingleMessageBackpressure();
   apptraverse::test::TestInitialLossFrozenCoverageAndLateEvent();
   apptraverse::test::TestInitialRestartBeforeSendAndAfterApply();
   apptraverse::test::TestLiveEventLossDuplicateAndReorderedBothDirections();

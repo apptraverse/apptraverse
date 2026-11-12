@@ -24,6 +24,13 @@ SharedNode checkpoint policy: persistent progress promises, exact membership,
 all-recipient delivery evidence and memory restart/loss tests. It authorizes
 logical journal/origin-payload compaction, not native object-store garbage
 collection. See [checkpoint-memory validation](docs/validation/shared-node-checkpoint-memory-2026-11-11.md).
+The transport follow-up authorizes the optional Aether adapter using the
+presence-on-streaming SDK line (`bench/presence-streaming-recovery`, pinned
+committed SDK including its allocation-free budget fix) and headless real-cloud
+verification. The next
+chat must be the simplest SharedNode demonstration, without localization or
+unrelated features; this slice connects the transport first. Current evidence
+is in [Aether validation](docs/validation/shared-node-aether-2026-11-11.md).
 
 - **Never** add an AeroAdmin dependency or copy AeroAdmin sources.
 - Windows is the first platform; the common model must stay cross-platform (no HWND, Win32 paths, or Win32 keycodes in `src/common/`).
