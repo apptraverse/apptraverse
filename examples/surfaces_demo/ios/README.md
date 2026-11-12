@@ -40,6 +40,27 @@ Targets:
 These are simulator bundles, not signed physical-device or App Store packages.
 Other example applications and other platforms are outside this port's scope.
 
+### MinSizeRel
+
+Configure a separate Ninja iOS build with `CMAKE_BUILD_TYPE=MinSizeRel` and a
+matching Debug-prepared `APPTRAVERSE_WINDOW_CATALOG_IOS_DEBUG_SUPPLY_HEADER`
+(leave `APPTRAVERSE_WINDOW_CATALOG_IOS_HOST_EXPORTER` empty when using a frozen
+header). Build `ios_window_catalog_demo_load_only`.
+
+`APPTRAVERSE_IOS_MIN_SIZE_OPTIMIZATIONS` defaults to ON for iOS MinSizeRel:
+C/C++/ObjC++ use `-Oz`, ThinLTO, hidden symbols and function/data sections;
+the linker removes unreachable code; a post-build `strip -x` removes local
+symbols. C++ exceptions/RTTI and Objective-C exceptions are disabled. Swift
+keeps `-Osize -wmo` and its platform ABI. The compiler's matching LLVM archive
+tools are used for bitcode; MacPorts Clang selects its matching libLTO when
+linking. Debug and other platforms retain their existing flags.
+
+`APPTRAVERSE_BUILD_IOS_ACCEPTANCE=ON` also enables the existing native fixtures
+under MinSizeRel. Both fixture variants then use embedded startup in fresh test
+profiles. This explicitly enables Swift test access; turn acceptance OFF and
+rebuild the product before measuring its final production size. The size report
+distinguishes that final binary's smoke check from the full fixture runs.
+
 ## Simulator launch
 
 List available devices with `xcrun simctl list devices available`. After booting

@@ -23,6 +23,7 @@ endif()
 include(cmake/CPM.cmake)
 include(cmake/aether_version.cmake)
 include(cmake/apptraverse_compile_policy.cmake)
+include(cmake/ios_min_size.cmake)
 
 # Quiet Aether telemetry unless the caller passes USER_CONFIG.
 if(NOT USER_CONFIG OR USER_CONFIG STREQUAL "")
@@ -269,7 +270,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     Swift_MODULE_NAME AppTraverseIosUI)
   target_compile_options(apptraverse_ui_ios_swift PRIVATE
     "SHELL:-I ${CMAKE_CURRENT_SOURCE_DIR}/include/apptraverse/platform/ios"
-    "$<$<CONFIG:Debug>:-enable-testing>")
+    "$<$<OR:$<CONFIG:Debug>,$<BOOL:${APPTRAVERSE_BUILD_IOS_ACCEPTANCE}>>:-enable-testing>")
   target_include_directories(apptraverse_ui_ios_swift INTERFACE
     ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/include/apptraverse/platform/ios)

@@ -1,4 +1,4 @@
-if(IOS AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND APPTRAVERSE_BUILD_IOS_ACCEPTANCE)
+if(IOS AND APPTRAVERSE_BUILD_IOS_ACCEPTANCE)
   foreach(_kind IN ITEMS debug load_only)
     set(_test apptraverse_ios_window_catalog_acceptance_${_kind})
     string(REPLACE "_" "" _bundle_suffix "${_kind}")

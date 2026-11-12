@@ -3277,3 +3277,13 @@ PASS, including identity checks, rapid lifecycle/newer accepted commands, actual
 Settings/return with the same PID/bridge/presenters, second save and cold restart.
 Updated persistent WindowCatalog installed/launched on iPhone15Pro/iOS17.2 for
 manual app-switcher verification; prior experimental profiles/executable preserved.
+## 2026-11-11 — iOS MinSizeRel optimization
+
+Added iOS-MinSizeRel-only -Oz/ThinLTO/hidden-symbol/dead-strip policy and product
+local-symbol stripping; existing no-C++-exception/RTTI policy retained and ObjC
+exceptions disabled. Matching LLVM archive rules handle MacPorts20 bitcode.
+Optimized fixtures5/5 processes PASS; final product rebuilt without test access
+and independently smoke-tested for cold load, live save and same-PID resume.
+Final simulator x86_64 executable540,376B, `.app`541,584B (57.1% smaller than the
+prior unstripped MinSizeRel). Model/USER/lifecycle unchanged; user app/profile
+preserved. [Scope and measurements](../validation/window-catalog-ios-minsize-2026-11-11.md).
