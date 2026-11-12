@@ -6,6 +6,32 @@
 #include <iostream>
 
 #include "apptraverse/directory_domain_storage.h"
+#include "apptraverse/operation_storage.h"
+
+namespace {
+class FailedCommitWriter final : public ae::IDomainStorageWriter {
+ public:
+  ae::seri::SeriResult Write(ae::seri::SizeWriteTag) override {
+    return ae::Ok{ae::seri::good};
+  }
+  ae::seri::SeriResult Write(ae::seri::DataWriteTag) override {
+    return ae::Ok{ae::seri::good};
+  }
+  ae::seri::SeriResult Commit() override {
+    return ae::Error{ae::seri::write_error};
+  }
+};
+
+bool TestFailedWrappedCommit() {
+  bool ok = true;
+  apptraverse::detail::OperationStorageWriter writer{
+      apptraverse::detail::OperationMode::kRemap, nullptr, nullptr, nullptr,
+      nullptr, nullptr, std::make_unique<FailedCommitWriter>(), &ok};
+  // ImportClosedEventGraph checks this flag after its SaveRoot walks. A
+  // rejected durable commit must not be acknowledged as a successful import.
+  return !writer.Commit() && !ok;
+}
+}  // namespace
 
 int main() {
   namespace fs = std::filesystem;
@@ -17,6 +43,7 @@ int main() {
            std::chrono::steady_clock::now().time_since_epoch().count()));
   if (!fs::create_directory(root)) return 1;
   bool passed = false;
+  bool wrapped_passed = false;
   {
     apptraverse::DirectoryDomainStorage storage{root};
     ae::DomainQuery query{ae::ObjId{123}, 456, 0};
@@ -36,10 +63,30 @@ int main() {
                actual == expected;
     }
   }
+  {
+    apptraverse::DirectoryDomainStorage storage{root};
+    ae::DomainQuery query{ae::ObjId{124}, 456, 0};
+    std::array<std::uint8_t, 4> expected{2, 4, 6, 8};
+    bool ok = true;
+    apptraverse::detail::OperationStorageWriter writer{
+        apptraverse::detail::OperationMode::kRemap,
+        nullptr, nullptr, nullptr, nullptr, nullptr, storage.Store(query), &ok};
+    if (writer.Write(ae::seri::DataWriteTag{expected.data(), expected.size()}) &&
+        writer.Commit()) {
+      auto loaded = storage.Load(query);
+      std::array<std::uint8_t, 4> actual{};
+      wrapped_passed = loaded.result == ae::DomainLoadResult::kLoaded &&
+                       loaded.reader &&
+                       loaded.reader->Read(
+                           ae::seri::DataReadTag{actual.data(), actual.size()}) &&
+                       actual == expected;
+    }
+  }
   if (root.parent_path() == parent &&
       root.filename().string().starts_with("directory-commit-")) {
     fs::remove_all(root);
   }
-  if (!passed) std::cerr << "Committed directory data was not readable\n";
-  return passed ? 0 : 1;
+  if (!passed || !wrapped_passed)
+    std::cerr << "Committed directory data was not readable\n";
+  return passed && wrapped_passed && TestFailedWrappedCommit() ? 0 : 1;
 }

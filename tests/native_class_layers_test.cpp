@@ -643,34 +643,37 @@ void TestOldFlattenedStateRejected() {
   }
 }
 
-void TestCrossProcessEvolution() {
-  auto find_exe = [](std::string const& bin_name) {
-    if (std::filesystem::exists("./" + bin_name)) {
-      return "./" + bin_name;
-    }
-    if (std::filesystem::exists("./tests/" + bin_name)) {
-      return "./tests/" + bin_name;
-    }
-    if (std::filesystem::exists("./build/linux-x64-ninja-gcc-debug/tests/" + bin_name)) {
-      return "./build/linux-x64-ninja-gcc-debug/tests/" + bin_name;
-    }
-    return bin_name;
+void TestCrossProcessEvolution(std::filesystem::path const& executable) {
+  auto find_exe = [&](std::string const& bin_name) {
+    auto path = executable.parent_path() / bin_name;
+    path += executable.extension().string();
+    CHECK(std::filesystem::exists(path));
+    return '"' + path.string() + '"';
   };
 
-  std::string file_path = "/tmp/native_class_layers_evolution_test.bin";
-  std::string writer_cmd = find_exe("native_class_layers_writer_v1") + " " + file_path;
+  auto const file_path = std::filesystem::temp_directory_path() /
+                         "native_class_layers_evolution_test.bin";
+  auto const argument = " \"" + file_path.string() + "\"";
+  std::string writer_cmd = find_exe("native_class_layers_writer_v1") + argument;
+#ifdef _WIN32
+  writer_cmd = '"' + writer_cmd + '"';
+#endif
   int w_rc = std::system(writer_cmd.c_str());
   CHECK(w_rc == 0);
 
-  std::string reader_cmd = find_exe("native_class_layers_reader_v2") + " " + file_path;
+  std::string reader_cmd = find_exe("native_class_layers_reader_v2") + argument;
+#ifdef _WIN32
+  reader_cmd = '"' + reader_cmd + '"';
+#endif
   int r_rc = std::system(reader_cmd.c_str());
   CHECK(r_rc == 0);
+  std::filesystem::remove(file_path);
 }
 
 }  // namespace
 }  // namespace apptraverse::test
 
-int main() {
+int main(int, char* argv[]) {
   apptraverse::EnsureObjectRegistration();
   apptraverse::example::shared_node::EnsureSharedNodeDemoRegistration();
 
@@ -682,7 +685,7 @@ int main() {
   apptraverse::test::TestBaseSnapshotAndMidJournalReplay();
   apptraverse::test::TestLinkSyncStatePersistenceAcrossBusinessReplay();
   apptraverse::test::TestOldFlattenedStateRejected();
-  apptraverse::test::TestCrossProcessEvolution();
+  apptraverse::test::TestCrossProcessEvolution(std::filesystem::absolute(argv[0]));
 
   std::cout << "apptraverse_native_class_layers_test: PASS\n";
   return 0;

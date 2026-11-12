@@ -3788,3 +3788,16 @@ Starting SHA: `954114e`. Final remote: `eed9e02`.
 
 ## Not packaged
 No promoted Host/Client package while live convergence FAILS.
+
+## Telemetry dependency compatibility validation (2026-11-12)
+
+Starting published compatibility SHA: `51df509bf8e7a302cbba6862de5329ea8c799df4`.
+The original product SDK model APIs and GraphSerializationScope patch remain intact.
+
+- Export both owned Objects patches through APPTRAVERSE_AETHER_OBJECTS_PATCHES. Reconstruct data objects using the most-derived stored class, preventing unrelated registered descendants from changing Node/Event identity.
+- Preserve platform-specific Presenter construction explicitly: only the Presenter family selects a unique runtime leaf, while stored class loaders retain ownership of serialized fields. Ambiguous implementations receive no arbitrary selection.
+- Keep the UI graph and root alive throughout initial hydration. Incremental UI publications omit Node base/journal history using the same existing helper as full publications, so omitted historical objects cannot interrupt field loading.
+- Forward OperationStorageWriter::Commit to durable backing and set the shared failure flag on rejection. Regressions cover reading committed native files before writer destruction and a rejected backing commit.
+- Repair test setup: release old Domain object handles before restart, use matching chat endpoint identities, and resolve cross-process evolution binaries next to the running multi-config executable.
+
+Validation: Debug ALL target build passed with published dependency pins, ordinary CPM patch application, and no fetched-source edits. All 33 own SDK CTest tests passed (26.51 seconds), including native persistence, incremental events, Presenter lifecycle, and real Win32 restart tests. App consumer validation is performed separately after pinning this branch. No main/PR publication and no architecture migration.

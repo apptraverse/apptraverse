@@ -50,6 +50,17 @@ class OperationStorageWriter final : public ae::IDomainStorageWriter {
         real_writer{std::move(real_writer)},
         ok{ok} {}
 
+  ae::seri::SeriResult Commit() override {
+    if (real_writer != nullptr) {
+      auto result = real_writer->Commit();
+      if (!result && ok != nullptr) {
+        *ok = false;
+      }
+      return result;
+    }
+    return ae::Ok{ae::seri::good};
+  }
+
   ae::seri::SeriResult Write(ae::seri::SizeWriteTag data) override {
     if (real_writer != nullptr) {
       return real_writer->Write(data);

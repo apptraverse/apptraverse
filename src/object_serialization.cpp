@@ -122,11 +122,26 @@ void RemoveDistilledBaseObjects(std::vector<ae::Obj*>& objects) {
       objects.end());
 }
 
-void LoadExistingObject(ae::Obj& object, ae::Domain& domain) {
+void LoadExistingObject(ae::Obj& object, ae::Domain& domain,
+                        ae::IDomainStorage& storage) {
   ae::DomainGraph graph{&domain};
   auto ptr = domain.Find(object.obj_id);
   assert(ptr);
-  auto* factory = ae::Registry::GetRegistry().FindFactory(object.GetClassId());
+  auto& registry = ae::Registry::GetRegistry();
+  auto* factory = registry.FindFactory(object.GetClassId());
+  if (AsPresenter(&object) != nullptr) {
+    // UI construction may use a runtime-only Presenter subclass. Refresh the
+    // most-derived published ancestor, which owns the serialized fields.
+    std::uint32_t stored_class = Presenter::kClassId;
+    for (auto class_id : storage.Enumerate(object.obj_id)) {
+      if (registry.GenerationDistance(Presenter::kClassId, class_id) >= 0 &&
+          registry.GenerationDistance(class_id, object.GetClassId()) >= 0 &&
+          registry.GenerationDistance(stored_class, class_id) >= 0) {
+        stored_class = class_id;
+        factory = registry.FindFactory(class_id);
+      }
+    }
+  }
   assert(factory != nullptr);
   assert(factory->load != nullptr);
   factory->load(&graph, ptr, object.obj_id);
@@ -145,7 +160,7 @@ void DeserializeObjectFromBuffer(ae::Obj& object, ByteSource& in,
                                  ae::IDomainStorage& domain_storage) {
   std::size_t const payload_size = in.size - in.pos;
   InjectSavedObjectLayers(in, object.obj_id, domain_storage, payload_size);
-  LoadExistingObject(object, domain);
+  LoadExistingObject(object, domain, domain_storage);
 }
 
 void DeserializeObjectGraphFromBuffer(ae::Obj& existing_root, ByteSource& in,
@@ -185,10 +200,10 @@ void DeserializeObjectGraphFromBuffer(ae::Obj& existing_root, ByteSource& in,
   // referenced objects when nested LoadRoot short-circuits). Then refresh every
   // injected object with a fresh DomainGraph so storage bytes (e.g. message
   // bodies) actually populate those shells — matching CopyModelGraphToUiDomain.
-  LoadExistingObject(existing_root, domain);
+  LoadExistingObject(existing_root, domain, domain_storage);
   for (ae::ObjId const id : object_ids) {
     if (auto object = domain.Find(id); object) {
-      LoadExistingObject(*object, domain);
+      LoadExistingObject(*object, domain, domain_storage);
     }
   }
 
@@ -417,7 +432,10 @@ void SerializeIncrementalNodePublication(Node const& node, ByteSink& out) {
   auto const object_id = node.obj_id.id();
   auto const generation = node.Generation();
   ByteSink payload;
+  std::vector<SavedNodeBookkeeping> saved_history;
+  ClearReachableNodeHistoryForPublicationSave(node, saved_history);
   SerializeObjectToBuffer(node, payload);
+  RestoreReachableNodeHistory(saved_history);
   auto const payload_size = static_cast<std::uint32_t>(payload.bytes.size());
   out.write(&object_id, sizeof(object_id));
   out.write(&generation, sizeof(generation));
@@ -609,9 +627,11 @@ bool ReadAndInjectPublicationLayers(ByteSource& in, ae::IDomainStorage& ui_stora
   return true;
 }
 
-bool HydrateInjectedPublicationGraph(ae::Domain& ui_domain, std::uint32_t root_id,
-                                   std::vector<std::uint32_t> const& unique_obj_ids,
-                                   InitialPublicationLoadDiagnostics* diagnostics) {
+ae::Ptr<ae::Obj> HydrateInjectedPublicationGraph(
+    ae::Domain& ui_domain, std::uint32_t root_id,
+    std::vector<std::uint32_t> const& unique_obj_ids,
+    ae::IDomainStorage& ui_storage,
+    InitialPublicationLoadDiagnostics* diagnostics) {
   ae::DomainGraph graph{&ui_domain};
   auto ui_root = graph.LoadRoot(ae::ObjId{root_id});
   if (!ui_root) {
@@ -619,8 +639,10 @@ bool HydrateInjectedPublicationGraph(ae::Domain& ui_domain, std::uint32_t root_i
       diagnostics->stage = InitialPublicationLoadStage::LoadRoot;
       diagnostics->root_id = root_id;
     }
-    return false;
+    return {};
   }
+  std::vector<ae::Ptr<ae::Obj>> loaded_objects;
+  loaded_objects.reserve(unique_obj_ids.size());
   for (std::uint32_t obj_id : unique_obj_ids) {
     auto object = ui_domain.Find(ae::ObjId{obj_id});
     if (!object) {
@@ -629,11 +651,17 @@ bool HydrateInjectedPublicationGraph(ae::Domain& ui_domain, std::uint32_t root_i
         diagnostics->root_id = root_id;
         diagnostics->obj_id = obj_id;
       }
-      return false;
+      return {};
     }
-    LoadExistingObject(*object, ui_domain);
+    loaded_objects.push_back(std::move(object));
   }
-  return true;
+  // Deserializing an ObjPtr clears its previous cache. Keep the complete
+  // graph alive across the refresh, including runtime Presenter instances,
+  // instead of destroying and reconstructing referenced objects mid-walk.
+  for (auto& object : loaded_objects) {
+    LoadExistingObject(*object, ui_domain, ui_storage);
+  }
+  return ui_root;
 }
 
 ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain,
@@ -657,7 +685,9 @@ ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain
     return {};
   }
 
-  if (!HydrateInjectedPublicationGraph(ui_domain, root_id, unique_obj_ids, diagnostics)) {
+  auto ui_root = HydrateInjectedPublicationGraph(
+      ui_domain, root_id, unique_obj_ids, ui_storage, diagnostics);
+  if (!ui_root) {
     return {};
   }
 
@@ -688,7 +718,7 @@ ae::Ptr<ae::Obj> TryLoadInitialPublication(ByteSource& in, ae::Domain& ui_domain
   }
 
   ae::DomainGraph final_graph{&ui_domain};
-  auto ui_root = final_graph.LoadRoot(ae::ObjId{root_id});
+  ui_root = final_graph.LoadRoot(ae::ObjId{root_id});
   if (!ui_root) {
     diagnostics->stage = InitialPublicationLoadStage::FinalFindRoot;
     return {};
@@ -1017,13 +1047,13 @@ void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
     }
   }
 
-  LoadExistingObject(root, domain);
+  LoadExistingObject(root, domain, storage);
   for (ae::ObjId const id : loaded_ids) {
     if (id == root.obj_id) {
       continue;
     }
     if (auto object = domain.Find(id); object) {
-      LoadExistingObject(*object, domain);
+      LoadExistingObject(*object, domain, storage);
     }
   }
 
