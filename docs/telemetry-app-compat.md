@@ -5,10 +5,10 @@ This branch starts at the product's original AppTraverse revision
 snapshot API and shared-node interfaces remain as that revision defines them.
 The independent SDK update on `codex/telemetry-update` covers current SDK main.
 
-Dependencies are pinned to the published Tele A6, Objects38, numeric9d and
-miscpp683 commits and Aether08. The original single serialization-scope patch
-remains owned by this SDK. Current SDK main's 29-patch chain is not substituted
-for this baseline.
+Telemetry follows the published `main` branch (verified at `65eda039`). Objects
+`80fbb4c`, numeric `9d79bd7`, miscpp `6839624` and Aether `59153adf` retain exact
+pins. Both the serialization-scope and stored-factory patches remain owned by
+this SDK. Current SDK main's 29-patch chain is not substituted for this baseline.
 
 Directory writers implement the new explicit Commit contract by flushing and
 reporting stream errors. Serialization injection and graph-copy paths explicitly
@@ -19,5 +19,8 @@ in Objects has its own per-file replacement behavior.
 Core model examples and tests remain available. The optional legacy network
 demo adapters are selected by `APPTRAVERSE_BUILD_AETHER_DEMOS`, default OFF.
 They use an older network API and are not part of the product compatibility
-build. Validation is in progress; no complete build or test PASS is claimed in
-this checkpoint.
+build. The full MSVC x64 Debug build and all 33 CTest cases passed in 98.06
+seconds using remote dependencies with no source overrides. This includes
+native persistence/restart, Presenter identity and Commit failure coverage.
+Other platform runtimes were not rerun. Publication uses the compatibility
+branch rather than changing the current SDK main architecture.

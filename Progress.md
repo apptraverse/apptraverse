@@ -1,3 +1,16 @@
+## 2026-11-12 - Telemetry main dependency - PASS (Windows Debug)
+
+Telemetry follows aethernetio/aether-tele main rather than the previous
+immutable ref. Aether 59153adf and Objects 80fbb4c select the same branch; both
+owned object patches remain intact. No model, persistence, schema or public
+API implementation changed.
+
+Remote dependencies without source overrides resolved Tele to
+65eda03928030b8cc04432e2f98ba4e3242b6f27. Full MSVC x64 Debug ALL build passed
+and 33/33 CTest passed in 98.06 seconds, including native lifetime/restart,
+stored identity and Commit failure coverage. Publication remains on
+codex/telemetry-app-compat. Other platform runtimes were not rerun.
+
 ## Host	oClient delivery (2026-09-17) — NOT FIXED
 
 Starting SHA: `d9b11a48771d077f0208543fbd1663ca71224d1e`
