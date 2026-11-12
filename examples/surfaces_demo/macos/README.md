@@ -64,3 +64,19 @@ automation, which needs a compatible Computer Use service.
 
 The iPhone port is deferred by the current user instruction; existing iOS
 sources are not claimed to be verified by the macOS work.
+
+## MinSizeRel size policy
+
+`APPTRAVERSE_MACOS_MIN_SIZE_OPTIMIZATIONS` defaults to `ON` for macOS
+`MinSizeRel` only. The shared `cmake/apple_min_size.cmake` policy applies `-Oz`,
+ThinLTO, hidden symbols, function/data sections, no C++ exceptions or RTTI,
+no Objective-C exceptions, linker dead stripping and post-link `strip -x`.
+Swift retains `-Osize` whole-module optimization and its platform ABI.
+The bitcode archiver and ranlib are selected from the active Clang toolchain;
+this also supports MacPorts LLVM newer than Xcode's archive tools.
+Debug and other platforms are unaffected. The iOS option remains independent.
+
+Use a Debug-distilled supply from the matching model/schema revision with
+`APPTRAVERSE_WINDOW_CATALOG_MACOS_DEBUG_SUPPLY_HEADER`. Preserve older
+experimental profiles and select a separate `--state-dir` when validating a
+new supply. See the macOS MinSizeRel validation report dated 2026-11-11.

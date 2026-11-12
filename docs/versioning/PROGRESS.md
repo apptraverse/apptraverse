@@ -3287,3 +3287,12 @@ and independently smoke-tested for cold load, live save and same-PID resume.
 Final simulator x86_64 executable540,376B, `.app`541,584B (57.1% smaller than the
 prior unstripped MinSizeRel). Model/USER/lifecycle unchanged; user app/profile
 preserved. [Scope and measurements](../validation/window-catalog-ios-minsize-2026-11-11.md).
+
+## 2026-11-11 — macOS MinSizeRel optimization
+
+Shared Apple MinSizeRel policy now supports an independent macOS option with
+-Oz/ThinLTO/no exceptions/no RTTI/dead stripping/local-symbol stripping.
+Native x86_64 build and final-product startup/orderly-save/cold-restart smoke
+PASS; iOS configure check PASS after helper rename. Executable543,464B, bundle
+files544,474B. Previous profiles preserved; no runtime/schema changes.
+[Scope and measurements](../validation/window-catalog-macos-minsize-2026-11-11.md).

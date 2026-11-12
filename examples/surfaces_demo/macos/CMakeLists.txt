@@ -169,3 +169,6 @@ foreach(_catalog_demo macos_window_catalog_demo macos_window_catalog_demo_load_o
   target_compile_options(${_catalog_demo} PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-rtti>)
   set_target_properties(${_catalog_demo} PROPERTIES LINKER_LANGUAGE OBJCXX)
 endforeach()
+
+apptraverse_apple_strip_min_size(macos_window_catalog_demo)
+apptraverse_apple_strip_min_size(macos_window_catalog_demo_load_only)

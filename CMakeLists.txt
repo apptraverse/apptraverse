@@ -23,7 +23,7 @@ endif()
 include(cmake/CPM.cmake)
 include(cmake/aether_version.cmake)
 include(cmake/apptraverse_compile_policy.cmake)
-include(cmake/ios_min_size.cmake)
+include(cmake/apple_min_size.cmake)
 
 # Quiet Aether telemetry unless the caller passes USER_CONFIG.
 if(NOT USER_CONFIG OR USER_CONFIG STREQUAL "")
