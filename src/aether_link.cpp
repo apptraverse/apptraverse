@@ -105,8 +105,9 @@ struct AetherByteLink::Impl {
   Impl(ae::AeContext const& ctx, ae::Client::ptr value, AetherLinkOptions opts)
       : context{ctx}, client{std::move(value)}, options{opts} {
     assert(client.is_valid() && client.is_loaded());
-    assert(options.presence_query_interval_us != 0 && options.presence_result_ttl_us != 0 &&
-           options.presence_query_timeout_us != 0 && options.recreate_interval_us != 0 &&
+    assert((!options.use_presence || (options.presence_query_interval_us != 0 &&
+           options.presence_result_ttl_us != 0 && options.presence_query_timeout_us != 0)) &&
+           options.recreate_interval_us != 0 &&
            options.max_message_bytes != 0 && options.max_message_bytes <= kMaxPayload);
     endpoint = UidText(client->uid());
     port_sub = client->message_stream_manager().new_port_event().Subscribe(
@@ -139,6 +140,7 @@ struct AetherByteLink::Impl {
     return peer;
   }
   LinkAvailability Availability(Peer const& peer) const {
+    if (!options.use_presence) { return LinkAvailability::Unknown; }
     return peer.presence.Availability(client->IsLocallyOnline(), now_us,
                                       options.presence_result_ttl_us);
   }
@@ -287,14 +289,14 @@ struct AetherByteLink::Impl {
     auto const availability = Availability(peer);
     auto const stalled = now_us >= peer.last_write_progress_us &&
         now_us - peer.last_write_progress_us >= options.recreate_interval_us;
-    if ((peer.reset_needed || (availability == LinkAvailability::Offline && stalled &&
+    if ((peer.reset_needed || ((!options.use_presence || availability == LinkAvailability::Offline) && stalled &&
                               !peer.jobs.empty())) && now_us >= peer.session_started_us &&
         now_us - peer.session_started_us >= options.recreate_interval_us) {
       // SharedNode retains the pending business message for durable retry.
       Bind(peer, client->message_stream_manager().CreatePort(peer.uid));
     }
     if (peer.reset_needed || peer.writing || !peer.safe ||
-        availability != LinkAvailability::Online) { return; }
+        (options.use_presence && availability != LinkAvailability::Online)) { return; }
     auto const info = peer.safe->stream_info();
     if (peer.jobs.empty() || !info.is_writable || info.max_element_size == 0) { return; }
     auto const& job = peer.jobs.front();
@@ -347,7 +349,7 @@ bool AetherByteLink::WatchPeer(std::string const& endpoint) { return impl_->Watc
 void AetherByteLink::Service(std::uint64_t now_us) {
   assert(!impl_->serviced || now_us >= impl_->now_us);
   impl_->now_us = now_us;
-  impl_->QueryPresence();
+  if (impl_->options.use_presence) { impl_->QueryPresence(); }
   for (auto const& [key, peer] : impl_->peers) {
     if (!peer->clock_started) {
       peer->clock_started = true; peer->session_started_us = now_us;
@@ -363,15 +365,18 @@ bool AetherByteLink::Send(std::string const& destination,
   if (bytes.empty() || bytes.size() > impl_->options.max_message_bytes) { return false; }
   auto* peer = impl_->Watch(destination);
   if (peer == nullptr || peer->reset_needed ||
-      impl_->Availability(*peer) != LinkAvailability::Online ||
+      (impl_->options.use_presence && impl_->Availability(*peer) != LinkAvailability::Online) ||
       !peer->safe->stream_info().is_writable || !impl_->Queue(*peer, bytes)) { return false; }
   ++impl_->statistics.data_accepted; ++peer->statistics.data_accepted;
   return true;
 }
 LinkAvailability AetherByteLink::Availability(std::string const& destination) const {
   ae::Uid uid;
-  if (!ParseUid(destination, uid) || uid == impl_->client->uid() ||
-      !impl_->client->IsLocallyOnline()) { return LinkAvailability::Offline; }
+  if (!ParseUid(destination, uid) || uid == impl_->client->uid()) {
+    return LinkAvailability::Offline;
+  }
+  if (!impl_->options.use_presence) { return LinkAvailability::Unknown; }
+  if (!impl_->client->IsLocallyOnline()) { return LinkAvailability::Offline; }
   auto const found = impl_->peers.find(UidText(uid));
   return found == impl_->peers.end() ? LinkAvailability::Unknown
       : impl_->Availability(*found->second);

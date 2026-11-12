@@ -1,5 +1,24 @@
 # AppTraverse — прогресс версионирования поставок
 
+## SharedNode ACK/retry without presence — 2026-11-12 — PASS
+
+Continued from `6e3a921`. The user disabled Online gating for now. Aether
+presence is an explicit opt-in; default sends and chunk writes do not query
+or wait for availability. Valid peers remain Unknown, and the chat shows
+participant names without presence badges. SharedSync keeps its existing
+durable packet/ACK protocol and one-second retry interval.
+
+**9/9 adapter/native/memory CTests PASS.** The ACK case now verifies exact
+retry boundaries after both Event loss and ACK loss with Unknown peers and
+receiver/sender restarts. **Actual three-process cloud acceptance PASS:**
+large snapshot, third-participant admission, direct all-pairs delivery, no old-history
+Event replay, paced retries while B is stopped, catch-up, checkpoint and cold
+restart with continuing author indexes. Zero presence queries throughout.
+**Actual three-window chat acceptance PASS:** Unicode/all-participant
+messages, names without badges, stopped-peer delivery, same-UID restart,
+new post-restart message and clean shutdown. SDK and object pins are unchanged.
+[Implementation, evidence and scope](../validation/shared-node-ack-retry-2026-11-12.md).
+
 ## SharedNode native presence over working push/streaming — 2026-11-11 — TRANSPORT PASS / REMOTE PRESENCE BLOCKED
 
 Continued from `392f393`. Combined the native Client presence port with the

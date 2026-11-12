@@ -43,6 +43,12 @@ The latest follow-up authorizes combining this native presence API with the
 working streaming/push SDK base used by App, preserving its registration and
 ordinary message wire format. Validate real registration, native presence and
 the minimal chat; do not substitute echo for the native API.
+The 2026-11-12 follow-up explicitly disables availability gating for now:
+the default Aether link sends without querying presence, and SharedSync keeps
+each durable packet until its ACK, retrying at the configured timeout. Native
+presence may remain an explicit opt-in; the minimal chat shows participant
+names without Online/Offline badges. This supersedes the native-presence
+requirement above for the default demo and its cloud acceptance.
 
 - **Never** add an AeroAdmin dependency or copy AeroAdmin sources.
 - Windows is the first platform; the common model must stay cross-platform (no HWND, Win32 paths, or Win32 keycodes in `src/common/`).

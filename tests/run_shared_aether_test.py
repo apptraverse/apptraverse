@@ -177,33 +177,41 @@ class Campaign:
         tail = "|H10|A20|A40|B50|H60"
         states = self.wait("all pairs deliver directly", lambda: self.stable("HAB", tail, 3, 6))
         for side in "HAB":
+            if states[side]["presence_queries"] != 0:
+                raise RuntimeError("presence queries ran in ACK/retry-only mode")
             for other in "HAB":
                 if other != side and states[side]["peers"][uids[other]]["events_received"] == 0:
                     raise RuntimeError(f"no direct Event evidence for {other}->{side}")
-                if other != side and not states[side]["peers"][uids[other]]["presence_online"]:
-                    raise RuntimeError(f"no native Online result for {side} observing {other}")
+                if other != side and states[side]["peers"][uids[other]]["availability"] != "unknown":
+                    raise RuntimeError("availability was inferred while presence is disabled")
         if any(states[s]["peers"][uids["B"]]["old_event_attempts"] for s in "HA"):
             raise RuntimeError("initial history was resent incrementally to the joining peer")
         self.record("live-convergence", uids=uids, room_id=room_id,
                     max_native_received={s: states[s]["max_received"] for s in "HAB"})
         self.stop("B")
-        self.wait("offline B suppresses business sends", lambda: all(
-            self.status(s).get("peers", {}).get(uids["B"], {}).get("availability") == "offline"
-            and self.status(s).get("peers", {}).get(uids["B"], {}).get("presence_offline", 0) > 0
-            for s in "HA"), 20)
-        before = self.status("A")["peers"][uids["B"]]["event_attempts"]
         self.command("A", "append 70 |A70")
         tail += "|A70"
-        self.wait("online H receives A70 while B remains offline", lambda:
+        self.wait("H receives A70 while stopped B retains pending delivery", lambda:
                   self.status("H").get("tail") == tail and
                   self.status("A").get("peers", {}).get(uids["B"], {}).get("pending", 0) > 0)
-        # Observe longer than two native retry periods without blocking worker loops.
+        # No presence: an absent ACK must cause paced retries even with B stopped.
+        before = self.status("A")["peers"][uids["B"]]["event_attempts"]
+        observation_start = time.monotonic()
         observation_end = time.monotonic() + 3
+        attempts = before
         while time.monotonic() < observation_end:
             state = self.status("A")
-            if state["peers"][uids["B"]]["event_attempts"] != before:
-                raise RuntimeError("business Event sends continued to a known offline peer")
+            peer = state["peers"][uids["B"]]
+            attempts = peer["event_attempts"]
+            if peer["pending"] == 0 or peer["availability"] != "unknown" or state["presence_queries"]:
+                raise RuntimeError("unacknowledged delivery was cleared or gated by presence")
             time.sleep(0.1)
+        if attempts < before + 2:
+            raise RuntimeError("missing ACK did not cause Event retries")
+        # One pending Event, one-second retry interval; allow one edge sample.
+        if attempts - before > int(time.monotonic() - observation_start) + 2:
+            raise RuntimeError("Event retries were not paced by their ACK timeout")
+        self.record("missing-ack-retry", attempts=attempts - before)
         self.start("B")
         self.wait("B restores the same identity", lambda: self.status("B").get("uid") == uids["B"], 130)
         self.wait("B catches up from durable pending", lambda: self.stable("HAB", tail, 3, 7), 90)

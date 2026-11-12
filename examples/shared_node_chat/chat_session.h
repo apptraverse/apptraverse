@@ -6,14 +6,11 @@
 #include <string>
 #include <vector>
 
-#include "apptraverse/memory_link.h"
-
 namespace apptraverse::chat {
 
 struct ParticipantView {
   std::string name;
   std::string uid;
-  LinkAvailability availability{LinkAvailability::Unknown};
 };
 
 // Value-only publication. The UI owns its copy; no model/SDK pointers cross

@@ -31,16 +31,17 @@ For individual processes:
 Each concurrently running process requires its own profile. Keep profiles
 private: they contain SDK identity credentials and native model state.
 
-Presence is exclusively `Client::IsLocallyOnline()` and
-`Client::QueryPeerPresence()`. The link starts business writes only with fresh
-SDK Online. Offline/Unknown retain pending SharedNode delivery for retry.
+Presence is disabled: participants show names without Online/Offline badges.
+The link sends as soon as transport capacity permits. SharedNode keeps a
+message until its application ACK and retries it every second if the ACK is
+missing, including while the recipient is stopped. SDK write completion alone
+does not confirm delivery. Duplicate Events are applied only once.
 
-**Current network blocker:** registration and ordinary SDK A/B messages now
-work, but remote GetClientTiming queries receive no timing samples. Unknown
-blocks admission sends: Host can create a room and store local messages,
-while other windows remain waiting to join. Local Unicode/history/profile
-restart was checked; multi-participant chat is not yet validated. No echo
-fallback is used. See [validation and limits](../../docs/validation/shared-node-presence-streaming-2026-11-11.md).
+The SDK's native presence support remains available through the explicit
+`AetherLinkOptions::use_presence` opt-in. The default chat makes no presence
+queries and does not wait for GetClientTiming replies.
+Real-cloud and three-window chat acceptance passed; see
+[validation and scope](../../docs/validation/shared-node-ack-retry-2026-11-12.md).
 
 Explicit cloud acceptance (not part of ordinary CTest):
 
@@ -50,6 +51,6 @@ cmake --build build/shared-node-debug --target apptraverse_shared_chat_win32_tes
 ```
 
 The acceptance controller owns three processes and fresh private profiles. It
-requires actual admission, Unicode/all-peer delivery, API Offline, catch-up
+requires actual admission, Unicode/all-peer delivery, stopped-peer catch-up
 after same-profile restart, a new message after restart and clean shutdown.
-A bootstrap failure does not count as a chat/presence PASS.
+A bootstrap failure does not count as a chat PASS.

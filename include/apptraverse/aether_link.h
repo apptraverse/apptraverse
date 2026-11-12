@@ -17,6 +17,9 @@
 namespace apptraverse {
 
 struct AetherLinkOptions {
+  // Disabled by default: send without availability observations and let the
+  // durable SharedSync ACK/retry loop establish delivery.
+  bool use_presence{false};
   std::uint64_t presence_query_interval_us{1000000};
   std::uint64_t presence_result_ttl_us{5000000};
   std::uint64_t presence_query_timeout_us{5000000};
@@ -61,11 +64,12 @@ struct AetherLinkStatistics {
 };
 
 // Model-thread adapter. The context, Client and its AetherApp must outlive it.
-// Owns this Client's peer-port subscription and QueryPeerPresence action;
-// another consumer must not replace that action or co-own its receive ports.
+// Owns this Client's peer-port subscription. When use_presence is enabled it
+// also owns QueryPeerPresence; another consumer must not replace that action.
 // Multiple SharedNodes share this one byte link. Service uses one monotonic
-// local timeline; it does not update AetherApp. Native Client local presence
-// and a fresh native remote Online result are required to send business bytes.
+// local timeline; it does not update AetherApp. With presence disabled, valid
+// destinations report Unknown and sends need no Online result. The optional
+// presence mode requires native local Online and a fresh remote Online result.
 // One business message per peer can be queued/in flight. Failure remains the
 // SharedSyncRuntime's durable retry obligation, rather than a second SDK queue.
 class AetherByteLink final : public IByteLink {

@@ -164,10 +164,7 @@ struct Window {
     SendMessageW(invite, EM_SETREADONLY, view.in_room, 0);
     std::vector<std::wstring> rows;
     for (auto const& person : view.participants) {
-      auto const availability = person.availability == LinkAvailability::Online ? "online"
-          : person.availability == LinkAvailability::Offline ? "offline" : "unknown";
-      auto const label = person.name + " [" + availability + "]";
-      rows.push_back(Utf8ToWide(label));
+      rows.push_back(Utf8ToWide(person.name));
     }
     if (rows != shown_people) {
       SendMessageW(people, WM_SETREDRAW, FALSE, 0);

@@ -323,7 +323,7 @@ larger than its circular buffer. No application offset/length protocol or new
 SharedNode field codec is added. The business-message limit is 1 MiB, excluding
 SDK framing; larger messages are refused explicitly.
 
-`WatchPeer(uid)` starts observation before sending; Send can discover a valid
+`WatchPeer(uid)` prepares a local peer session; Send can discover a valid
 new UID, and incoming SDK ports create or replace the corresponding local peer
 session. Endpoint strings are validated and normalized Aether UIDs. Application
 membership still comes from SharedNode Join/snapshot, rather than from merely
@@ -335,7 +335,16 @@ that adapter. Bootstrap snapshots take priority over Event retries so a bounded
 transport cannot repeatedly deliver an early Event while starving its initial
 state.
 
-Presence uses `Client::IsLocallyOnline()` and `Client::QueryPeerPresence(uid)`.
+Presence is disabled by default (`AetherLinkOptions::use_presence = false`),
+as requested on 2026-11-12. Valid destinations report Unknown without querying
+the SDK or inferring Online from traffic. Send and chunk writes proceed as
+transport capacity permits. SharedSync retains every durable packet until its
+application ACK and retries it at the configured interval (one second by
+default), including while the recipient is absent. A successful SDK write does
+not complete the SharedSync obligation. ACK loss causes an identical retry;
+the receiver deduplicates the Event and acknowledges its persisted result.
+
+The explicit opt-in presence mode uses `Client::IsLocallyOnline()` and `Client::QueryPeerPresence(uid)`.
 The SDK queries the peer's Personal Cloud authoritative servers. Only a fresh
 native remote Online result together with local Online permits business
 sends. Offline, Unknown, errors and expired results retain the durable retry
@@ -348,24 +357,26 @@ queries for different peers. SDK action subscriptions are runtime-only.
 
 At most one business message per peer is queued/in flight, with one native
 write at a time. Busy/unwritable/oversized sends return
-false; SharedSyncRuntime keeps its durable obligation for retry. An already
-accepted frame waits for Online before beginning each further native chunk.
-Successful chunk progress does not establish Online.
-Stalled/offline or failed writes permit bounded session recreation, resetting
+false; SharedSyncRuntime keeps its durable obligation for retry. With presence
+enabled, an accepted frame waits for Online before each further native chunk.
+Successful chunk progress does not establish Online. Failed writes and stalled
+queued writes (without presence, or with observed Offline) permit bounded
+session recreation, resetting
 the local SDK stream and packet collector. Inbound replacement uses generation
 checks to ignore old callbacks. Recovery properties are limited to executed
 scenarios in the corresponding validation record.
 
 ## Minimal Windows chat
 
-Registration and ordinary SDK A/B cloud transport pass on the combined SDK.
-The chat is still blocked because remote GetClientTiming queries yield no
-timing replies; strict Unknown gating prevents admission sends. Local GUI
-room/message persistence passes. See [the current validation](../validation/shared-node-presence-streaming-2026-11-11.md).
+The chat uses the default ACK/retry mode without availability queries. The
+previous GetClientTiming blocker applies only to the opt-in presence mode;
+its historical evidence is in [native-presence validation](../validation/shared-node-presence-streaming-2026-11-11.md).
+Current cloud and three-window chat checks pass in
+[ACK/retry validation](../validation/shared-node-ack-retry-2026-11-12.md).
 
 `APPTRAVERSE_BUILD_SHARED_NODE_CHAT=ON` requires the optional Aether link and
 builds `shared_node_chat`. The window contains the local UID, Host room,
-invitation/Join, participants with native presence, message history and
+invitation/Join, participant names, message history and
 input/Send. Fixed English labels follow the explicitly requested no-localization
 scope. Each running participant needs a distinct `--profile`; `--name` supplies
 the display name. `examples/shared_node_chat/run_demo.ps1` opens three windows.

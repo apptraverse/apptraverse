@@ -488,10 +488,7 @@ struct ChatSession::Impl {
       next.invite = room->host_uid + "/" + std::to_string(room->obj_id.id());
       for (auto const& person : room->participants) {
         auto const& uid = person->link->endpoint_uid;
-        auto const presence = uid == native->EndpointId()
-            ? (client->IsLocallyOnline() ? LinkAvailability::Online : LinkAvailability::Offline)
-            : native->Availability(uid);
-        next.participants.push_back({person->name, uid, presence});
+        next.participants.push_back({person->name, uid});
       }
       for (auto const& message : room->messages) {
         next.messages.push_back(message.author_name + ": " + message.text);

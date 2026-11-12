@@ -1,5 +1,10 @@
 # SharedNode native presence on the working push/streaming SDK
 
+Historical native-presence result. The 2026-11-12 follow-up disables presence
+by default and verifies network chat through application ACK/retry; see
+[current validation](shared-node-ack-retry-2026-11-12.md). The missing native
+GetClientTiming replies below remain specific to the opt-in presence path.
+
 Continues `feature/shared-node-native-memory` from `392f393`. The user asked to
 combine the native Client presence API with the working SDK used by the
 neighboring App project. This record supersedes the earlier registration

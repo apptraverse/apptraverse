@@ -668,9 +668,20 @@ void TestLostAckAndReceiverRestart() {
   auto const id = pair.AddRoom();
   pair.Bootstrap(id);
   auto const event = pair.h->Append(id, "|once", 100);
+  CHECK(pair.h->transport->Availability("B") == LinkAvailability::Unknown);
+  CHECK(pair.b->transport->Availability("H") == LinkAvailability::Unknown);
   pair.Service(0);
   auto const data = pair.Packet(SharedSyncKind::Event, "H", event);
-  bool delivered = pair.network.Deliver(data.id);
+  auto const first_sends = pair.sent.size();
+  bool const lost_event = pair.network.Drop(data.id);
+  CHECK(lost_event);
+  pair.Service(kRetry - 1);
+  CHECK(pair.sent.size() == first_sends);
+  pair.Service(kRetry);
+  CHECK(pair.sent.size() == first_sends + 1);
+  auto const after_loss = pair.Packet(SharedSyncKind::Event, "H", event);
+  CHECK(after_loss.bytes == data.bytes);
+  bool delivered = pair.network.Deliver(after_loss.id);
   CHECK(delivered);
   auto const ack = pair.Packet(SharedSyncKind::Ack, "B");
   bool dropped = pair.network.Drop(ack.id);
@@ -678,7 +689,12 @@ void TestLostAckAndReceiverRestart() {
   CHECK(pair.h->Peer(id, "B").pending_packets.size() == 1);
   pair.RestartB();  // Apply/persist survived; the ACK did not arrive.
   pair.Equal(id, 1);
-  pair.Service(kRetry);
+  auto const before_ack_retry = pair.sent.size();
+  pair.Service(2 * kRetry - 1);
+  CHECK(pair.sent.size() == before_ack_retry);
+  CHECK(pair.h->Peer(id, "B").pending_packets.size() == 1);
+  pair.Service(2 * kRetry);
+  CHECK(pair.sent.size() == before_ack_retry + 1);
   auto const retried = pair.Packet(SharedSyncKind::Event, "H", event);
   CHECK(retried.bytes == data.bytes);
   auto const duplicate = pair.network.Duplicate(retried.id);
@@ -688,12 +704,12 @@ void TestLostAckAndReceiverRestart() {
   CHECK(pair.h->Peer(id, "B").pending_packets.empty());
   auto const sends = pair.sent.size();
   pair.RestartH();  // Saved ACK must not become pending again.
-  pair.Service(2 * kRetry);
+  pair.Service(3 * kRetry);
   CHECK(pair.sent.size() == sends);
   pair.Equal(id, 1);
   auto const next = pair.h->Append(id, "|after-restart", 200);
   CHECK(pair.h->Peer(id, "B").pending_packets.size() == 1);
-  pair.Service(2 * kRetry);
+  pair.Service(3 * kRetry);
   CHECK(pair.sent.size() == sends + 1);
   CHECK(pair.Packet(SharedSyncKind::Event, "H", next).bytes ==
         pair.h->Peer(id, "B").pending_packets.front().bytes);

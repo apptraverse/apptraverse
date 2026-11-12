@@ -3,6 +3,7 @@
 #endif
 #include <windows.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdlib>
@@ -215,12 +216,10 @@ bool ContainsMessages(Process& process, std::vector<std::wstring> const& message
   return true;
 }
 
-bool BobOffline(Process& process) {
-  auto const rows = People(process.Window());
-  for (auto const& row : rows) {
-    if (row == L"Bob [offline]") { return true; }
-  }
-  return false;
+bool ParticipantNames(Process& process) {
+  auto rows = People(process.Window());
+  std::sort(rows.begin(), rows.end());
+  return rows == std::vector<std::wstring>{L"Alice", L"Bob", L"Host"};
 }
 
 std::wstring Argument(int argc, wchar_t** argv, wchar_t const* option) {
@@ -271,7 +270,7 @@ int wmain(int argc, wchar_t** argv) {
     Wait("Joining three participants", [&] {
       for (auto& peer : peers) {
         auto const window = peer.Window();
-        if (People(window).size() != 3 || !IsWindowEnabled(Control(window, kInputControl))) {
+        if (!ParticipantNames(peer) || !IsWindowEnabled(Control(window, kInputControl))) {
           return false;
         }
       }
@@ -288,9 +287,6 @@ int wmain(int argc, wchar_t** argv) {
     });
     auto const bob_uid = Text(Control(peers[2].Window(), kUidControl));
     peers[2].Stop(true);
-    Wait("Observing offline presence through the client API", [&] {
-      return BobOffline(peers[0]) && BobOffline(peers[1]);
-    });
     messages.push_back(prefix + L"-while-bob-offline");
     Send(peers[1], messages.back());
     Wait("Keeping the room usable while a participant is offline", [&] {
@@ -309,6 +305,6 @@ int wmain(int argc, wchar_t** argv) {
       return true;
     });
     for (auto& peer : peers) { peer.Stop(true); }
-    std::cout << "PASS: three native chat windows, Unicode, offline delivery, persistent restart, clean shutdown" << std::endl;
+    std::cout << "PASS: three native chat windows without presence, Unicode, pending delivery, persistent restart, clean shutdown" << std::endl;
     return 0;
 }
