@@ -2,7 +2,7 @@ set(_dynamic_win_sources
   main.cpp
   win_app.cpp
   win_presenters.cpp
-  ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win32_fatal.cpp
+  ${APPTRAVERSE_REPO_ROOT}/examples/main_window_runtime_demo/windows/win32_fatal.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/../common/dynamic_lifecycle.cpp
 )
 
@@ -26,7 +26,7 @@ foreach(_dyn_demo win32_dynamic_objects_demo win32_dynamic_objects_demo_load_onl
   target_include_directories(${_dyn_demo} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/../common
-    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows
+    ${APPTRAVERSE_REPO_ROOT}/examples/main_window_runtime_demo/windows
   )
   if(MSVC)
     target_compile_options(${_dyn_demo} PRIVATE /utf-8)
