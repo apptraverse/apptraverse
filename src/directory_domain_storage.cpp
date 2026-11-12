@@ -15,6 +15,12 @@ class DirectoryStorageWriter final : public ae::IDomainStorageWriter {
 
   ~DirectoryStorageWriter() override { file_.close(); }
 
+  ae::seri::SeriResult Commit() override {
+    file_.flush();
+    if (!file_) return ae::Error{ae::seri::write_error};
+    return ae::Ok{ae::seri::good};
+  }
+
   ae::seri::SeriResult Write(ae::seri::SizeWriteTag data) override {
     auto const u_size = static_cast<std::uint32_t>(data.size);
     return Write(ae::seri::DataTag{u_size});

@@ -1,3 +1,7 @@
+add_executable(apptraverse_directory_commit_test directory_commit_test.cpp)
+target_link_libraries(apptraverse_directory_commit_test PRIVATE apptraverse)
+add_test(NAME apptraverse_directory_commit_test COMMAND apptraverse_directory_commit_test)
+
 add_executable(apptraverse_event_sourced_core_test
   event_sourced_core_test.cpp
 )

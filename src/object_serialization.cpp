@@ -65,7 +65,7 @@ bool InjectObjectBytes(ae::IDomainStorage& storage, ae::DomainQuery const& query
     return false;
   }
   auto const result = writer->Write(ae::seri::DataWriteTag{data, size});
-  return static_cast<bool>(result);
+  return result && writer->Commit();
 }
 
 void AppendSavedObjectLayers(ae::RamDomainStorage const& scratch, ae::ObjId id,

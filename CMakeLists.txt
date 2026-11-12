@@ -20,6 +20,13 @@ include(cmake/CPM.cmake)
 include(cmake/aether_version.cmake)
 include(cmake/apptraverse_compile_policy.cmake)
 
+option(APPTRAVERSE_BUILD_AETHER_DEMOS "Build legacy Aether network demos" OFF)
+# Declare the codec's transitive dependency before telemetry first fetches it.
+CPMDeclarePackage(gcem
+  NAME gcem
+  GITHUB_REPOSITORY aethernetio/gcem
+  GIT_TAG ${APPTRAVERSE_GCEM_GIT_TAG})
+
 # Quiet Aether telemetry unless the caller passes USER_CONFIG.
 if(NOT USER_CONFIG OR USER_CONFIG STREQUAL "")
   get_filename_component(_apptraverse_aether_user_config
