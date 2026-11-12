@@ -1,5 +1,27 @@
 # AppTraverse — прогресс версионирования поставок
 
+## SharedNode progress promises and confirmed checkpoint compaction — 2026-11-11 — PASS
+
+Continued `feature/shared-node-native-memory` from `18c0881`. Explicit native
+progress reports persist author time promises, exact membership and durable
+receipt cursors before transmission. Confirmed compaction requires reports
+from every current member and all-recipient receipt proof. Ordinary native
+NodeFor compaction folds the actual safe prefix, retires frozen origin/pending
+payloads and collapses local metadata journals. Closed time survives restart.
+
+**7/7 SharedNode/native CTest entries and 9/9 targeted headless regressions
+passed** on MSVC x64 Debug. Twenty-two three-peer groups cover silent/offline
+members, report/ACK loss, stale receipts, partial and full checkpoint restart,
+late suffix insertion, retired duplicates, post-checkpoint admission and a
+coverage receipt arriving after Join was compacted. Snapshot graphs exclude
+old Event objects while retired IDs prevent repeated historical delivery.
+Removing all-recipient receipt checks made the pre-delivery checkpoint test
+fail; the mutation was reverted and the final profile passed. Wire 1.3 uses
+native fields; native 1.0/1.1/1.2 packet compatibility remains tested. Small
+stamp/ID metadata remains; native orphan-layer GC and physical file reclamation
+are outside this logical compaction stage.
+[Validation and limits](../validation/shared-node-checkpoint-memory-2026-11-11.md).
+
 ## SharedNode author indexes and continuous ACKs — 2026-11-11 — PASS
 
 Continued `feature/shared-node-native-memory` from `6da9399`. New Events and

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <set>
 #include <utility>
 
 namespace apptraverse {
@@ -20,6 +21,8 @@ APPTRAVERSE_REGISTER(AddSharedPeerStateEvent);
 APPTRAVERSE_REGISTER(NoteSharedLocalEventEvent);
 APPTRAVERSE_REGISTER(RememberSharedLocalFrameEvent);
 APPTRAVERSE_REGISTER(RememberSharedStreamEvent);
+APPTRAVERSE_REGISTER(RememberSharedProgressEvent);
+APPTRAVERSE_REGISTER(PruneSharedHistoryEvent);
 APPTRAVERSE_REGISTER(SharedNode);
 APPTRAVERSE_REGISTER(AddSharedLinkEvent);
 
@@ -39,6 +42,8 @@ void EnsureSharedNodeRegistration() {
   (void)&g_apptraverse_registrar_NoteSharedLocalEventEvent;
   (void)&g_apptraverse_registrar_RememberSharedLocalFrameEvent;
   (void)&g_apptraverse_registrar_RememberSharedStreamEvent;
+  (void)&g_apptraverse_registrar_RememberSharedProgressEvent;
+  (void)&g_apptraverse_registrar_PruneSharedHistoryEvent;
   (void)&g_apptraverse_registrar_SharedNode;
   (void)&g_apptraverse_registrar_AddSharedLinkEvent;
 }
@@ -57,6 +62,28 @@ bool SharedAdmissionPlan::is_valid() const {
 bool SharedEventStamp::is_valid() const {
   return !author_uid.empty() && index != 0 && event_id.is_valid() &&
          timestamp_us != 0;
+}
+
+bool SharedProgressMarker::is_valid() const {
+  if (!marker_id.is_valid() || author_uid.empty() || through_timestamp_us == 0 ||
+      members.empty() || received.size() != members.size() ||
+      !std::is_sorted(members.begin(), members.end()) ||
+      std::adjacent_find(members.begin(), members.end()) != members.end() ||
+      members.front().empty() ||
+      !std::binary_search(members.begin(), members.end(), author_uid)) {
+    return false;
+  }
+  std::set<std::string> seen;
+  for (auto const& cursor : received) {
+    if (!std::binary_search(members.begin(), members.end(), cursor.author_uid) ||
+        !seen.insert(cursor.author_uid).second ||
+        ((cursor.index == 0) != (cursor.timestamp_us == 0)) ||
+        (cursor.author_uid == author_uid &&
+         cursor.timestamp_us > through_timestamp_us)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 void SharedPeerState::MarkDelivered(ae::ObjId event_id) {
@@ -109,8 +136,11 @@ bool SharedPeerState::CanApply(QueueSharedPacketEvent const& event) const {
   return packet.packet_id.is_valid() && !packet.bytes.empty() &&
          (packet.initial || packet.event_id.is_valid()) &&
          !(packet.initial && packet.coverage_notice) &&
-         (packet.stamp == SharedEventStamp{} ||
+         (!packet.progress ||
           (!packet.initial && !packet.coverage_notice &&
+           packet.stamp == SharedEventStamp{})) &&
+         (packet.stamp == SharedEventStamp{} ||
+          (!packet.initial && !packet.coverage_notice && !packet.progress &&
            packet.stamp.is_valid() && packet.stamp.event_id == packet.event_id)) &&
          (!packet.coverage_notice ||
           (packet.admission.is_valid() &&
@@ -157,7 +187,7 @@ void SharedPeerState::Apply(CompleteSharedPacketEvent const& event) {
     if (!HasNoticeDelivered(completed.packet_id)) {
       delivered_notices.push_back(completed.packet_id);
     }
-  } else {
+  } else if (!completed.progress) {
     AddDelivered(completed.event_id);
   }
 }
@@ -166,7 +196,7 @@ void SharedPeerState::RemoveCoveredPending(
     std::vector<ae::ObjId> const& covered_events) {
   pending_packets.erase(std::remove_if(pending_packets.begin(),
       pending_packets.end(), [&](auto const& packet) {
-        return !packet.initial && !packet.coverage_notice &&
+        return !packet.initial && !packet.coverage_notice && !packet.progress &&
                std::find(covered_events.begin(), covered_events.end(),
                          packet.event_id) != covered_events.end();
       }), pending_packets.end());
@@ -375,6 +405,7 @@ bool SharedNodeLocalState::CanApply(
     RememberSharedLocalFrameEvent const& event) const {
   return event.frame.event_id.is_valid() && event.frame.packet_id.is_valid() &&
          !event.frame.initial && !event.frame.coverage_notice &&
+         !event.frame.progress &&
          !event.frame.bytes.empty() &&
          (event.frame.stamp == SharedEventStamp{} ||
           (event.frame.stamp.event_id == event.frame.event_id &&
@@ -462,6 +493,135 @@ bool SharedNodeLocalState::CanApply(RememberSharedStreamEvent const& event) cons
 
 void SharedNodeLocalState::Apply(RememberSharedStreamEvent const& event) {
   stream_events.push_back(event.stamp);
+}
+
+SharedProgressMarker const* SharedNodeLocalState::FindProgress(
+    std::string const& author_uid) const {
+  auto const found = std::find_if(progress_markers.begin(), progress_markers.end(),
+      [&](auto const& marker) { return marker.author_uid == author_uid; });
+  return found == progress_markers.end() ? nullptr : &*found;
+}
+
+void SharedNodeLocalState::RememberProgress(SharedProgressMarker marker) {
+  auto const* existing = FindProgress(marker.author_uid);
+  if (existing != nullptr && *existing == marker) {
+    return;
+  }
+  auto event = RememberSharedProgressEvent::ptr::Create(ae::CreateWith{*domain});
+  event->marker = std::move(marker);
+  Commit(std::move(event));
+}
+
+bool SharedNodeLocalState::CanApply(RememberSharedProgressEvent const& event) const {
+  auto const* existing = FindProgress(event.marker.author_uid);
+  return event.marker.is_valid() &&
+         (existing == nullptr || existing->marker_id != event.marker.marker_id);
+}
+
+void SharedNodeLocalState::Apply(RememberSharedProgressEvent const& event) {
+  auto const existing = std::find_if(progress_markers.begin(), progress_markers.end(),
+      [&](auto const& marker) { return marker.author_uid == event.marker.author_uid; });
+  if (existing == progress_markers.end()) {
+    progress_markers.push_back(event.marker);
+  } else {
+    *existing = event.marker;
+  }
+}
+
+void SharedNodeLocalState::PruneHistory(std::uint64_t through_us) {
+  if (through_us <= checkpoint_us) {
+    return;
+  }
+  auto event = PruneSharedHistoryEvent::ptr::Create(ae::CreateWith{*domain});
+  event->through_us = through_us;
+  Commit(std::move(event));
+}
+
+bool SharedNodeLocalState::CanApply(PruneSharedHistoryEvent const& event) const {
+  return event.through_us > checkpoint_us;
+}
+
+void SharedNodeLocalState::Apply(PruneSharedHistoryEvent const& event) {
+  checkpoint_us = event.through_us;
+  timestamp_floor = std::max(timestamp_floor, checkpoint_us);
+  auto const retired = [&](ae::ObjId id) {
+    auto const* stamp = FindStreamEvent(id);
+    return stamp != nullptr && stamp->timestamp_us <= checkpoint_us;
+  };
+  local_events.erase(std::remove_if(local_events.begin(), local_events.end(),
+      retired), local_events.end());
+  local_frames.erase(std::remove_if(local_frames.begin(), local_frames.end(),
+      [&](auto const& frame) { return retired(frame.event_id); }), local_frames.end());
+}
+
+namespace {
+
+void CompactLocalMetadata(Node& node) {
+  auto const policy = node.GetJournalRetentionPolicy();
+  bool const blocked = node.IsJournalCompactionBlocked();
+  node.SetJournalRetentionPolicy({.max_events = 0});
+  node.SetJournalCompactionBlocked(false);
+  node.CompactJournal(SystemUtcMicros());
+  node.SetJournalCompactionBlocked(blocked);
+  node.SetJournalRetentionPolicy(policy);
+}
+
+}  // namespace
+
+std::uint64_t SharedNode::CompactConfirmedPrefix(std::uint64_t through_us) {
+  assert(local_state.is_valid());
+  auto const previous = local_state->checkpoint_us;
+  if (through_us <= previous) {
+    return previous;
+  }
+  auto const records = journal;
+  std::size_t eligible = 0;
+  while (eligible < records.size() &&
+         records[eligible].order.timestamp_us <= through_us) {
+    ++eligible;
+  }
+  auto const policy = GetJournalRetentionPolicy();
+  bool const blocked = IsJournalCompactionBlocked();
+  SetJournalRetentionPolicy({.max_events = journal.size() - eligible});
+  SetJournalCompactionBlocked(false);
+  auto const now = SystemUtcMicros();
+  // Do not let a native Event-version guard split an equal-time group. The
+  // closed time must describe every Event at that timestamp, not just some.
+  auto allowed = CollapsiblePrefixCount(now);
+  while (allowed != 0 && allowed < records.size() &&
+         records[allowed - 1].order.timestamp_us ==
+             records[allowed].order.timestamp_us) {
+    --allowed;
+  }
+  SetJournalRetentionPolicy({.max_events = journal.size() - allowed});
+  CompactJournal(now);
+  SetJournalCompactionBlocked(blocked);
+  SetJournalRetentionPolicy(policy);
+
+  auto const removed = records.size() - journal.size();
+  auto const actual = removed == eligible ? through_us
+      : removed == 0 ? previous
+                     : records[removed - 1].order.timestamp_us;
+  if (actual <= previous) {
+    return previous;
+  }
+  local_state->PruneHistory(actual);
+  // The caller's all-recipient proof also completes data packets whose
+  // individual ACK was lost. Drop these byte owners before folding metadata.
+  for (auto const& peer : local_state->peers) {
+    auto const pending = peer->pending_packets;
+    for (auto const& packet : pending) {
+      if (!packet.initial && !packet.coverage_notice && !packet.progress &&
+          packet.stamp.is_valid() && packet.stamp.timestamp_us <= actual) {
+        peer->CompletePacket(packet.packet_id);
+      }
+    }
+  }
+  CompactLocalMetadata(*local_state);
+  for (auto const& peer : local_state->peers) {
+    CompactLocalMetadata(*peer);
+  }
+  return actual;
 }
 
 void SharedNode::AddLink(SharedLinkDescriptor::ptr link) {

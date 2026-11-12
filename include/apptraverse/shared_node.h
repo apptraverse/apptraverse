@@ -82,6 +82,20 @@ struct SharedStreamCursor {
   bool operator==(SharedStreamCursor const&) const = default;
 };
 
+// A durable promise not to generate another Event at or before this time,
+// together with the author's durable receipt evidence for the exact roster.
+struct SharedProgressMarker {
+  ae::ObjId marker_id;
+  std::string author_uid;
+  std::uint64_t through_timestamp_us{0};
+  std::vector<std::string> members;
+  std::vector<SharedStreamCursor> received;
+
+  AE_REFLECT_MEMBERS(marker_id, author_uid, through_timestamp_us, members, received)
+  bool is_valid() const;
+  bool operator==(SharedProgressMarker const&) const = default;
+};
+
 // Exact S1 layout, used only by library schema loaders. Frozen message bytes
 // are retained unchanged when older metadata is loaded.
 struct SharedPendingPacketV1 {
@@ -108,9 +122,8 @@ struct SharedPendingPacketV2 {
                     coverage_notice, admission)
 };
 
-// Frozen native message bytes and their delivery identity. This metadata is
-// local to one SharedNode/peer relationship and never enters NetworkShared.
-struct SharedPendingPacket {
+// Exact S3 inline layout, before progress-control packets were introduced.
+struct SharedPendingPacketV3 {
   ae::ObjId packet_id;
   ae::ObjId event_id;
   bool initial{false};
@@ -122,6 +135,23 @@ struct SharedPendingPacket {
 
   AE_REFLECT_MEMBERS(packet_id, event_id, initial, covered_events, bytes,
                     coverage_notice, admission, stamp)
+};
+
+// Frozen native message bytes and their delivery identity. This metadata is
+// local to one SharedNode/peer relationship and never enters NetworkShared.
+struct SharedPendingPacket {
+  ae::ObjId packet_id;
+  ae::ObjId event_id;
+  bool initial{false};
+  std::vector<ae::ObjId> covered_events;
+  std::vector<std::uint8_t> bytes;
+  bool coverage_notice{false};
+  SharedAdmissionPlan admission;
+  SharedEventStamp stamp;
+  bool progress{false};
+
+  AE_REFLECT_MEMBERS(packet_id, event_id, initial, covered_events, bytes,
+                    coverage_notice, admission, stamp, progress)
 
   bool operator==(SharedPendingPacket const&) const = default;
 };
@@ -139,6 +169,14 @@ inline SharedPendingPacket UpgradeSharedPendingPacket(
           packet.coverage_notice, std::move(packet.admission), {}};
 }
 
+inline SharedPendingPacket UpgradeSharedPendingPacket(
+    SharedPendingPacketV3 packet) {
+  return {packet.packet_id, packet.event_id, packet.initial,
+          std::move(packet.covered_events), std::move(packet.bytes),
+          packet.coverage_notice, std::move(packet.admission),
+          std::move(packet.stamp), false};
+}
+
 class MarkSharedEventDeliveredEvent;
 class QueueSharedPacketEvent;
 class CompleteSharedPacketEvent;
@@ -151,7 +189,7 @@ class ConfirmSharedStreamPrefixEvent;
 // Its own delivery Events never enter the shared journal. Recording delivery
 // is local metadata only; transport and ACK processing are separate stages.
 class SharedPeerState : public NodeFor<SharedPeerState> {
-  APPTRAVERSE_OBJECT(SharedPeerState, Node, 3)
+  APPTRAVERSE_OBJECT(SharedPeerState, Node, 4)
 
  protected:
   SharedPeerState() = default;
@@ -209,13 +247,26 @@ class SharedPeerState : public NodeFor<SharedPeerState> {
 
   template <typename Dnv>
   void Load(ae::Version<3>, Dnv& dnv) {
+    std::vector<SharedPendingPacketV3> pending;
+    dnv(base_, link, delivered_events, pending, initial_complete,
+        received_initial_packets, admission, coverage_confirmed,
+        delivered_notices, acknowledged_streams);
+    pending_packets.clear();
+    pending_packets.reserve(pending.size());
+    for (auto& packet : pending) {
+      pending_packets.push_back(UpgradeSharedPendingPacket(std::move(packet)));
+    }
+  }
+
+  template <typename Dnv>
+  void Load(ae::Version<4>, Dnv& dnv) {
     dnv(base_, link, delivered_events, pending_packets, initial_complete,
         received_initial_packets, admission, coverage_confirmed,
         delivered_notices, acknowledged_streams);
   }
 
   template <typename Dnv>
-  void Save(ae::Version<3>, Dnv& dnv) const {
+  void Save(ae::Version<4>, Dnv& dnv) const {
     dnv(base_, link, delivered_events, pending_packets, initial_complete,
         received_initial_packets, admission, coverage_confirmed,
         delivered_notices, acknowledged_streams);
@@ -293,7 +344,7 @@ class MarkSharedEventDeliveredEvent
 
 class QueueSharedPacketEvent
     : public EventFor<SharedPeerState, QueueSharedPacketEvent> {
-  APPTRAVERSE_OBJECT(QueueSharedPacketEvent, Event, 2)
+  APPTRAVERSE_OBJECT(QueueSharedPacketEvent, Event, 3)
 
  protected:
   QueueSharedPacketEvent() = default;
@@ -314,9 +365,15 @@ class QueueSharedPacketEvent
     packet = UpgradeSharedPendingPacket(std::move(old));
   }
   template <typename Dnv>
-  void Load(ae::Version<2>, Dnv& dnv) { dnv(base_, packet); }
+  void Load(ae::Version<2>, Dnv& dnv) {
+    SharedPendingPacketV3 old;
+    dnv(base_, old);
+    packet = UpgradeSharedPendingPacket(std::move(old));
+  }
   template <typename Dnv>
-  void Save(ae::Version<2>, Dnv& dnv) const { dnv(base_, packet); }
+  void Load(ae::Version<3>, Dnv& dnv) { dnv(base_, packet); }
+  template <typename Dnv>
+  void Save(ae::Version<3>, Dnv& dnv) const { dnv(base_, packet); }
   SharedPendingPacket packet;
 };
 
@@ -414,11 +471,13 @@ class AddSharedPeerStateEvent;
 class NoteSharedLocalEventEvent;
 class RememberSharedLocalFrameEvent;
 class RememberSharedStreamEvent;
+class RememberSharedProgressEvent;
+class PruneSharedHistoryEvent;
 
 // The entire collection is behind SharedNode::local_state, rather than a
 // vector of individually local edges: even its size belongs to this replica.
 class SharedNodeLocalState : public NodeFor<SharedNodeLocalState> {
-  APPTRAVERSE_OBJECT(SharedNodeLocalState, Node, 3)
+  APPTRAVERSE_OBJECT(SharedNodeLocalState, Node, 4)
 
  protected:
   SharedNodeLocalState() = default;
@@ -427,7 +486,8 @@ class SharedNodeLocalState : public NodeFor<SharedNodeLocalState> {
   explicit SharedNodeLocalState(ae::ObjProp prop) : NodeFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(peers), AE_MMBR(local_events), AE_MMBR(local_frames),
-                    AE_MMBR(stream_events), AE_MMBR(timestamp_floor))
+                    AE_MMBR(stream_events), AE_MMBR(timestamp_floor),
+                    AE_MMBR(progress_markers), AE_MMBR(checkpoint_us))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
@@ -436,6 +496,8 @@ class SharedNodeLocalState : public NodeFor<SharedNodeLocalState> {
     local_frames.clear();
     stream_events.clear();
     timestamp_floor = 0;
+    progress_markers.clear();
+    checkpoint_us = 0;
   }
 
   template <typename Dnv>
@@ -444,6 +506,8 @@ class SharedNodeLocalState : public NodeFor<SharedNodeLocalState> {
     local_frames.clear();
     stream_events.clear();
     timestamp_floor = 0;
+    progress_markers.clear();
+    checkpoint_us = 0;
   }
 
   template <typename Dnv>
@@ -457,16 +521,33 @@ class SharedNodeLocalState : public NodeFor<SharedNodeLocalState> {
     }
     stream_events.clear();
     timestamp_floor = 0;
+    progress_markers.clear();
+    checkpoint_us = 0;
   }
 
   template <typename Dnv>
   void Load(ae::Version<3>, Dnv& dnv) {
-    dnv(base_, peers, local_events, local_frames, stream_events, timestamp_floor);
+    std::vector<SharedPendingPacketV3> frames;
+    dnv(base_, peers, local_events, frames, stream_events, timestamp_floor);
+    local_frames.clear();
+    local_frames.reserve(frames.size());
+    for (auto& frame : frames) {
+      local_frames.push_back(UpgradeSharedPendingPacket(std::move(frame)));
+    }
+    progress_markers.clear();
+    checkpoint_us = 0;
   }
 
   template <typename Dnv>
-  void Save(ae::Version<3>, Dnv& dnv) const {
-    dnv(base_, peers, local_events, local_frames, stream_events, timestamp_floor);
+  void Load(ae::Version<4>, Dnv& dnv) {
+    dnv(base_, peers, local_events, local_frames, stream_events, timestamp_floor,
+        progress_markers, checkpoint_us);
+  }
+
+  template <typename Dnv>
+  void Save(ae::Version<4>, Dnv& dnv) const {
+    dnv(base_, peers, local_events, local_frames, stream_events, timestamp_floor,
+        progress_markers, checkpoint_us);
   }
 
   std::vector<SharedPeerState::ptr> peers;
@@ -474,6 +555,8 @@ class SharedNodeLocalState : public NodeFor<SharedNodeLocalState> {
   std::vector<SharedPendingPacket> local_frames;
   std::vector<SharedEventStamp> stream_events;
   std::uint64_t timestamp_floor{0};
+  std::vector<SharedProgressMarker> progress_markers;
+  std::uint64_t checkpoint_us{0};
 
   void AddPeer(SharedPeerState::ptr peer);
   void NoteLocalEvent(ae::ObjId event_id);
@@ -487,6 +570,9 @@ class SharedNodeLocalState : public NodeFor<SharedNodeLocalState> {
   // inconsistent with any earlier/later observed index from the same author.
   bool CanRememberStamp(SharedEventStamp const& stamp) const;
   void RememberStreamEvent(SharedEventStamp stamp);
+  SharedProgressMarker const* FindProgress(std::string const& author_uid) const;
+  void RememberProgress(SharedProgressMarker marker);
+  void PruneHistory(std::uint64_t through_us);
   bool CanApply(AddSharedPeerStateEvent const& event) const;
   void Apply(AddSharedPeerStateEvent const& event);
   bool CanApply(NoteSharedLocalEventEvent const& event) const;
@@ -495,6 +581,10 @@ class SharedNodeLocalState : public NodeFor<SharedNodeLocalState> {
   void Apply(RememberSharedLocalFrameEvent const& event);
   bool CanApply(RememberSharedStreamEvent const& event) const;
   void Apply(RememberSharedStreamEvent const& event);
+  bool CanApply(RememberSharedProgressEvent const& event) const;
+  void Apply(RememberSharedProgressEvent const& event);
+  bool CanApply(PruneSharedHistoryEvent const& event) const;
+  void Apply(PruneSharedHistoryEvent const& event);
 };
 
 class NoteSharedLocalEventEvent
@@ -516,7 +606,7 @@ class NoteSharedLocalEventEvent
 
 class RememberSharedLocalFrameEvent
     : public EventFor<SharedNodeLocalState, RememberSharedLocalFrameEvent> {
-  APPTRAVERSE_OBJECT(RememberSharedLocalFrameEvent, Event, 1)
+  APPTRAVERSE_OBJECT(RememberSharedLocalFrameEvent, Event, 2)
 
  protected:
   RememberSharedLocalFrameEvent() = default;
@@ -531,9 +621,15 @@ class RememberSharedLocalFrameEvent
     frame = UpgradeSharedPendingPacket(std::move(old));
   }
   template <typename Dnv>
-  void Load(ae::Version<1>, Dnv& dnv) { dnv(base_, frame); }
+  void Load(ae::Version<1>, Dnv& dnv) {
+    SharedPendingPacketV3 old;
+    dnv(base_, old);
+    frame = UpgradeSharedPendingPacket(std::move(old));
+  }
   template <typename Dnv>
-  void Save(ae::Version<1>, Dnv& dnv) const { dnv(base_, frame); }
+  void Load(ae::Version<2>, Dnv& dnv) { dnv(base_, frame); }
+  template <typename Dnv>
+  void Save(ae::Version<2>, Dnv& dnv) const { dnv(base_, frame); }
   SharedPendingPacket frame;
 };
 
@@ -552,6 +648,40 @@ class RememberSharedStreamEvent
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const { dnv(base_, stamp); }
   SharedEventStamp stamp;
+};
+
+class RememberSharedProgressEvent
+    : public EventFor<SharedNodeLocalState, RememberSharedProgressEvent> {
+  APPTRAVERSE_OBJECT(RememberSharedProgressEvent, Event, 0)
+
+ protected:
+  RememberSharedProgressEvent() = default;
+
+ public:
+  explicit RememberSharedProgressEvent(ae::ObjProp prop) : EventFor{prop} {}
+  AE_OBJECT_REFLECT(AE_MMBR(marker))
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) { dnv(base_, marker); }
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const { dnv(base_, marker); }
+  SharedProgressMarker marker;
+};
+
+class PruneSharedHistoryEvent
+    : public EventFor<SharedNodeLocalState, PruneSharedHistoryEvent> {
+  APPTRAVERSE_OBJECT(PruneSharedHistoryEvent, Event, 0)
+
+ protected:
+  PruneSharedHistoryEvent() = default;
+
+ public:
+  explicit PruneSharedHistoryEvent(ae::ObjProp prop) : EventFor{prop} {}
+  AE_OBJECT_REFLECT(AE_MMBR(through_us))
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) { dnv(base_, through_us); }
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const { dnv(base_, through_us); }
+  std::uint64_t through_us{0};
 };
 
 class AddSharedPeerStateEvent
@@ -621,6 +751,11 @@ class SharedNode : public NodeFor<SharedNode> {
   void AddLink(SharedLinkDescriptor::ptr link);
   bool CanApply(AddSharedLinkEvent const& event) const;
   void Apply(AddSharedLinkEvent const& event);
+
+  // Caller supplies the proof-checked closed time. Ordinary compaction remains
+  // held; this operation folds only its eligible prefix and reports the actual
+  // closed time if native stored-version guards refuse part of the request.
+  std::uint64_t CompactConfirmedPrefix(std::uint64_t through_us);
 
  protected:
   void StashLocalPersistentAcrossRebuild(void* rebuild_scratch) override;

@@ -1,6 +1,7 @@
 # SharedNode: native memory synchronization
 
-Scope: native serialization, indexed reliable live delivery and host admission
+Scope: native serialization, indexed reliable live delivery, confirmed
+checkpoint compaction and host admission
 into a three-participant room on
 `feature/shared-node-native-memory`, based on main
 `8b592f994c2ad2931bcef22a044a6a21dbe05c4e`. The user's November 11 request
@@ -18,7 +19,8 @@ registration entry points do not acquire the extension's factories.
   data before `InitializeRuntimeNode`. Its Node identity survives another Node's
   historical replay, so multiple SharedNodes can refer to the same descriptor.
 - `SharedNode` has shared link topology, changed through `AddSharedLinkEvent`.
-  There is no peer-count restriction. History compaction starts blocked.
+  There is no peer-count restriction. Uncontrolled history compaction stays
+  blocked; the explicit confirmed-checkpoint operation selects its safe prefix.
 - `SharedNodeLocalState` and its per-peer `SharedPeerState` Nodes are reachable
   through one `LocalPtr`. The entire collection, including its size and local
   delivery Events, belongs to this replica. Local metadata changes use Events.
@@ -54,10 +56,11 @@ same-class collisions are not resolved by this slice.
 ## Two-live-replica delivery
 
 `SharedSyncRuntime` is model-thread code over `IByteLink`. Its native reflected
-`SharedSyncMessage` carries InitialState, Event, ACK or CoverageReceipt, target
+`SharedSyncMessage` carries InitialState, Event, ACK, CoverageReceipt or Progress, target
 Node, packet/Event identity, timestamp and a typed `SharedGraphSnapshot`.
-New messages use version 1.2 with typed author stamps, initial stream receipts
-and continuous ACK cursors. Native 1.0/1.1 layouts remain readable/writable and
+New messages use version 1.3 with progress reports and checkpoint boundaries,
+typed author stamps, initial stream receipts and continuous ACK cursors.
+Native 1.0/1.1/1.2 layouts remain readable/writable and
 retain their frozen bytes; their replies use the same minor version. Indexed
 delivery requires 1.2; the older admission layout requires at least 1.1. Lossy
 downgrading of newer fields is rejected. Other header versions are rejected
@@ -84,10 +87,10 @@ for its peers and persists them. This explicit authoring entry point is required
 for this runtime; arbitrary calls to ordinary `Node::Commit` are not automatically
 classified or transmitted. Outgoing Event closure is captured before Apply.
 Each origin frame is retained in the local root independently of per-peer
-pending, so a later participant can receive the original frame even after an
-older destination acknowledged it.
+pending until confirmed compaction, so a later participant can receive the
+original frame even after an older destination acknowledged it.
 
-Both methods queue and persist without sending. `Service(now_us)` sends pending
+Authoring/bootstrap methods queue and persist without sending. `Service(now_us)` sends pending
 bytes and repeats them after the configured interval. Offline suppresses sends;
 Unknown permits a paced attempt. Deadlines are runtime-only, so a restored
 pending packet may be retried immediately, with the same ID and bytes. Saved
@@ -136,8 +139,9 @@ Event arrives, one ACK can confirm several already received Events. A zero
 prefix confirms no indexed Event. Lost ACKs and duplicate Events elicit the
 current saved prefix rather than inventing progress.
 
-The sender validates the trigger against its retained original frame and the
-prefix boundary against its own saved author index/timestamp. It completes
+The sender validates the trigger against its retained original frame, or exact
+retired stamp after confirmed compaction, and the prefix boundary against its
+own saved author index/timestamp. It completes
 only ordinary indexed pending packets from that author up to the prefix, for
 that ACK's source peer. The peer's `acknowledged_streams` cursor and packet
 completions are saved together. Another recipient's pending is untouched.
@@ -146,8 +150,9 @@ ACK cannot complete indexed pending.
 
 Initial messages explicitly carry the known native stamp ledger because
 `LocalPtr` metadata is excluded from the graph snapshot. Every supplied stamp
-must name an actual snapshot journal Event with the same timestamp and a known
-author Link; Event IDs and author indexes must be unique. A snapshot can contain
+must name either a snapshot journal Event with the same timestamp or a retired
+Event at/below the checkpoint boundary, and a known author Link; Event IDs and
+author indexes must be unique. A snapshot can contain
 a sparse stream and preserves its gap. Imported stamps are saved before the
 initial ACK and do not become locally authored Events. Exact admission coverage
 and a continuous stream prefix remain different facts: a snapshot can deliver
@@ -156,17 +161,76 @@ index 3 while index 2 is still missing.
 Chronological generation is enforced across restart. The next local index and
 last author timestamp come from saved stamps; upgraded unstamped local origins
 still contribute their timestamps. Explicit time must exceed that author's
-last time and the bootstrap snapshot floor, otherwise CommitLocal/AdmitPeer
+last time, published progress promise, closed checkpoint and bootstrap snapshot
+floor, otherwise CommitLocal/AdmitPeer
 returns false before changing the journal or saving. Automatic time is at least
 the current clock and strictly exceeds saved author/floor time and the current
 journal tail, with overflow rejected. New/imported local roots capture the
 journal-tail floor before their
-base state is initialized. Legacy metadata has no invented snapshot floor.
+base state is initialized. A checkpoint snapshot raises the new author's floor
+to at least its closed boundary. Legacy metadata has no invented snapshot floor.
 
 Old history remains unstamped: loading it does not assign guessed authors or
 indexes. Its frozen 1.0/1.1 packets retain individual ACK behavior. New indexed
 events begin at 1 for an author with no saved indexed stream. This is format
 compatibility, not mixed-build indexed synchronization.
+
+## Progress promises and confirmed checkpoints
+
+The application explicitly calls `PublishProgress(node_id, through_us)`; zero
+selects an automatic time. A native `SharedProgressMarker` binds one author,
+its promise that no later Event will have timestamp at/below that time, the
+exact sorted room membership and the author's durable continuous receipt
+cursors for every participant. A silent participant can publish a promise
+without creating a business Event. Publication saves the promise and frozen
+delivery obligations before Service can transmit them. It is not a heartbeat.
+
+Reports go directly to all other participants through paced retry. A receiver
+requires every reported receipt prefix and its timestamp boundary to be locally
+present before saving the report and sending its terminal Progress ACK. This
+includes the report author's own prefix. A report that overtakes the needed
+Events remains unacknowledged until retry after those Events arrive. A newer
+coordinatewise stronger report can replace the saved report; dominated repeats
+are re-ACKed without downgrading progress. Incomparable promises/receipts are
+rejected. Refreshing reports after more Events arrive supplies newer durable
+receipt evidence even when the author has created no new business Event.
+
+`CompactConfirmed(node_id)` considers reports from every current participant.
+Their memberships must exactly match the current room. It takes the minimum
+promise, requires local continuous receipt through every author's declared own
+prefix, and requires every participant's report to confirm each author's
+Event prefix through that candidate time. This combines two separate facts:
+no unknown earlier Event can still be generated, and all known Events through
+the boundary have been durably received by everyone. Offline or silent peers
+with insufficient reports stop advancement. No peer is implicitly removed.
+
+The selected timestamp prefix is folded through the ordinary most-derived
+`NodeFor` compaction path, preserving current application fields and this
+replica's local subtree. Existing native schema/compaction guards still apply;
+only the actually collapsed prefix can retire its frozen authored payloads.
+The closed boundary and local cleanup are saved together. Failure to persist
+latches the runtime rather than allowing further sends from unsaved progress.
+
+The immutable stamp/ID ledger remains. It preserves exact duplicate identity,
+author indexes and ACK validation after payload retirement; this first policy
+does not compress that ledger. A retired Event with its exact stamp is re-ACKed
+without reinsertion or dependency import. Conflicting stamps or an unknown
+Event at/below the closed boundary cannot reopen historical state.
+The retired payload is no longer available for byte comparison; replay handling
+uses its retained immutable author/index/Event ID/timestamp identity.
+
+Initial state carries the closed checkpoint, full stamp ledger and materialized
+base plus remaining journal. Its exact covered IDs include retired Events as
+well as the remaining journal. Therefore an existing peer that has not yet
+compacted does not send the old covered payloads to a new participant. The
+joining participant starts after the adopted checkpoint. Current-roster
+reports must be refreshed before further compaction after admission; an old
+two-participant report is not evidence for a three-participant room.
+
+This is logical journal and origin-payload compaction. Native storage may still
+contain unreachable old object layers; storage garbage collection and physical
+file-size reduction are separate work. Retained identity metadata is also not
+bounded by this operation.
 
 ## Host admission and direct delivery
 
@@ -212,7 +276,7 @@ No agreement exchange or fabricated participant is needed. Suppressing covered
 incremental history does not forbid repeating the one frozen initial packet
 after its ACK is lost; the receiver re-ACKs it without replacing live state.
 
-Local delivery schemas are S3, with S0/S1/S2 metadata loaders and the older
+Local delivery schemas are S4, with S0/S1/S2/S3 metadata loaders and the older
 QueueSharedPacketEvent/RememberSharedLocalFrameEvent inline-layout loaders.
 Existing frozen pending bytes are not rewritten or attributed guessed indexes.
 S1 origin IDs that never retained a pre-Apply frame cannot supply uncovered old
@@ -233,11 +297,9 @@ Heartbeat generation and timeout detection are not implemented by this stand.
 
 ## Next slices
 
-1. Node-owned safe checkpoint/compaction policy, tested with late Events,
-   offline peers and late attachment. Continuous ACKs are groundwork, not a
-   safe checkpoint by themselves. A silent participant still needs a durable
-   progress promise before declaring it cannot generate an earlier timestamp.
-   No such marker is implemented yet. Keep history until that contract is proven.
+1. Compact identity metadata and native storage reclamation only after a
+   separate delayed-packet/identity contract; current checkpoints retain the
+   stamp ledger and do not perform global object-store garbage collection.
 2. Different-build schema/capability compatibility, transport heartbeat and real
    Aether adaptation after the memory contract. Dynamic topology and arbitrary
    mutable dependency graphs need their own application conflict/replay tests.
@@ -265,4 +327,5 @@ historical GUI examples.
 Validation: [foundation](../validation/shared-node-native-memory-2026-11-11.md),
 [live delivery](../validation/shared-node-live-memory-2026-11-11.md),
 [three participants](../validation/shared-node-three-peer-memory-2026-11-11.md),
-[indexed delivery](../validation/shared-node-indexed-memory-2026-11-11.md).
+[indexed delivery](../validation/shared-node-indexed-memory-2026-11-11.md),
+[confirmed checkpoints](../validation/shared-node-checkpoint-memory-2026-11-11.md).

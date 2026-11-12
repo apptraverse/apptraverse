@@ -16,14 +16,14 @@
 namespace apptraverse {
 
 enum class SharedSyncKind : std::uint8_t {
-  InitialState = 1, Event = 2, Ack = 3, CoverageReceipt = 4
+  InitialState = 1, Event = 2, Ack = 3, CoverageReceipt = 4, Progress = 5
 };
 
 // The entire message, including native object layers, uses BinaryArchive.
 // No opaque custom graph encoding is hidden inside the payload.
 struct SharedSyncMessage {
   std::uint16_t major{1};
-  std::uint16_t minor{2};
+  std::uint16_t minor{3};
   SharedSyncKind kind{SharedSyncKind::Event};
   SharedSyncKind acknowledged_kind{SharedSyncKind::Event};
   ae::ObjId node_id;
@@ -38,10 +38,12 @@ struct SharedSyncMessage {
   SharedEventStamp stamp;
   std::vector<SharedEventStamp> stream_events;
   SharedStreamCursor received_prefix;
+  SharedProgressMarker progress;
+  std::uint64_t checkpoint_us{0};
 
   AE_REFLECT_MEMBERS(major, minor, kind, acknowledged_kind, node_id, packet_id,
                     event_id, timestamp_us, graph, covered_events, admission,
-                    stamp, stream_events, received_prefix)
+                    stamp, stream_events, received_prefix, progress, checkpoint_us)
 };
 
 bool SerializeSharedSyncMessage(SharedSyncMessage const& message,
@@ -84,6 +86,12 @@ class SharedSyncRuntime {
   // adopted snapshot floor. Zero selects a durable-monotonic automatic time.
   bool CommitLocal(ae::ObjId node_id, Event::ptr event,
                     std::uint64_t timestamp_us = 0);
+  // Persist a promise closing this author's past and broadcast durable receipt
+  // evidence. Explicit refresh is allowed at the same time after new receipts.
+  bool PublishProgress(ae::ObjId node_id, std::uint64_t through_timestamp_us = 0);
+  // Node-owned hold is opened only for a prefix proven closed and received by
+  // every member. The native compactor may conservatively refuse that prefix.
+  bool CompactConfirmed(ae::ObjId node_id);
   void Service(std::uint64_t now_us);
   bool failed() const { return failed_; }
   std::size_t rejected_messages() const { return rejected_messages_; }
@@ -108,6 +116,7 @@ class SharedSyncRuntime {
   bool OnEvent(std::string const& source, SharedSyncMessage const& message);
   bool OnAck(std::string const& source, SharedSyncMessage const& message);
   bool OnCoverage(std::string const& source, SharedSyncMessage const& message);
+  bool OnProgress(std::string const& source, SharedSyncMessage const& message);
   void SendAck(std::string const& destination, SharedSyncMessage const& original);
 
   ae::Domain& domain_;

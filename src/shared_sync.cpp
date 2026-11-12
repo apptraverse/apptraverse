@@ -48,6 +48,26 @@ struct SharedSyncMessageV1 {
                     event_id, timestamp_us, graph, covered_events, admission)
 };
 
+struct SharedSyncMessageV2 {
+  std::uint16_t major;
+  std::uint16_t minor;
+  SharedSyncKind kind;
+  SharedSyncKind acknowledged_kind;
+  ae::ObjId node_id;
+  ae::ObjId packet_id;
+  ae::ObjId event_id;
+  std::uint64_t timestamp_us;
+  SharedGraphSnapshot graph;
+  std::vector<ae::ObjId> covered_events;
+  SharedAdmissionPlan admission;
+  SharedEventStamp stamp;
+  std::vector<SharedEventStamp> stream_events;
+  SharedStreamCursor received_prefix;
+  AE_REFLECT_MEMBERS(major, minor, kind, acknowledged_kind, node_id, packet_id,
+                    event_id, timestamp_us, graph, covered_events, admission,
+                    stamp, stream_events, received_prefix)
+};
+
 bool HasAdmission(SharedAdmissionPlan const& plan) {
   return plan.join_event_id.is_valid();
 }
@@ -102,6 +122,25 @@ SharedSyncMessage CurrentMessage(SharedSyncMessageV1 old) {
   return message;
 }
 
+SharedSyncMessageV2 LegacyIndexedMessage(SharedSyncMessage const& message) {
+  return {message.major, message.minor, message.kind, message.acknowledged_kind,
+          message.node_id, message.packet_id, message.event_id,
+          message.timestamp_us, message.graph, message.covered_events,
+          message.admission, message.stamp, message.stream_events,
+          message.received_prefix};
+}
+
+SharedSyncMessage CurrentMessage(SharedSyncMessageV2 old) {
+  auto message = CurrentMessage(SharedSyncMessageV1{
+      old.major, old.minor, old.kind, old.acknowledged_kind, old.node_id,
+      old.packet_id, old.event_id, old.timestamp_us, std::move(old.graph),
+      std::move(old.covered_events), std::move(old.admission)});
+  message.stamp = std::move(old.stamp);
+  message.stream_events = std::move(old.stream_events);
+  message.received_prefix = std::move(old.received_prefix);
+  return message;
+}
+
 bool Includes(std::vector<ae::ObjId> const& ids, ae::ObjId id) {
   return std::find(ids.begin(), ids.end(), id) != ids.end();
 }
@@ -125,6 +164,51 @@ std::vector<ae::ObjId> JournalIds(SharedNode const& node) {
   return ids;
 }
 
+std::vector<std::string> Members(SharedNode const& node) {
+  std::vector<std::string> result;
+  for (auto const& link : node.links) { result.push_back(link->endpoint_uid); }
+  std::sort(result.begin(), result.end());
+  return result;
+}
+
+SharedStreamCursor const* Receipt(SharedProgressMarker const& marker,
+                                  std::string const& author) {
+  auto const found = std::find_if(marker.received.begin(), marker.received.end(),
+      [&](auto const& cursor) { return cursor.author_uid == author; });
+  return found == marker.received.end() ? nullptr : &*found;
+}
+
+bool Dominates(SharedProgressMarker const& newer,
+                 SharedProgressMarker const& older) {
+  if (newer.members != older.members ||
+      newer.through_timestamp_us < older.through_timestamp_us) { return false; }
+  for (auto const& old : older.received) {
+    auto const* current = Receipt(newer, old.author_uid);
+    if (current == nullptr || current->index < old.index ||
+        current->timestamp_us < old.timestamp_us ||
+        (current->index == old.index && current->timestamp_us != old.timestamp_us)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+std::vector<ae::ObjId> CoveredIds(SharedNode const& node,
+    std::vector<SharedEventStamp> const& stamps, std::uint64_t checkpoint) {
+  std::set<std::pair<std::uint64_t, ae::ObjId>> ordered;
+  for (auto const& record : node.journal) {
+    ordered.emplace(record.order.timestamp_us, record.event.id());
+  }
+  for (auto const& stamp : stamps) {
+    if (stamp.timestamp_us <= checkpoint) {
+      ordered.emplace(stamp.timestamp_us, stamp.event_id);
+    }
+  }
+  std::vector<ae::ObjId> ids;
+  for (auto const& [time, id] : ordered) { ids.push_back(id); }
+  return ids;
+}
+
 // Index and time are durable author state, scoped to this SharedNode. Explicit
 // time never silently changes; automatic time tolerates a clock rollback.
 bool NextStamp(SharedNode const& node, std::string const& author,
@@ -132,6 +216,10 @@ bool NextStamp(SharedNode const& node, std::string const& author,
                SharedEventStamp& stamp) {
   std::uint64_t last_index = 0;
   auto last_time = node.local_state->timestamp_floor;
+  last_time = std::max(last_time, node.local_state->checkpoint_us);
+  if (auto const* progress = node.local_state->FindProgress(author)) {
+    last_time = std::max(last_time, progress->through_timestamp_us);
+  }
   for (auto const& known : node.local_state->stream_events) {
     if (known.author_uid == author) {
       last_index = std::max(last_index, known.index);
@@ -168,13 +256,18 @@ bool NextStamp(SharedNode const& node, std::string const& author,
 }
 
 bool ValidateSnapshotStreams(SharedNode const& node,
-                             std::vector<SharedEventStamp> const& stamps) {
+                             std::vector<SharedEventStamp> const& stamps,
+                             std::uint64_t checkpoint) {
+  if (std::any_of(node.journal.begin(), node.journal.end(), [&](auto const& r) {
+        return r.order.timestamp_us <= checkpoint;
+      })) { return false; }
   std::set<ae::ObjId> events;
   std::map<std::string, std::map<std::uint64_t, std::uint64_t>> streams;
   for (auto const& stamp : stamps) {
     auto const* record = FindRecord(node, stamp.event_id);
-    if (!stamp.is_valid() || record == nullptr ||
-        record->order.timestamp_us != stamp.timestamp_us ||
+    if (!stamp.is_valid() ||
+        (record == nullptr && stamp.timestamp_us > checkpoint) ||
+        (record != nullptr && record->order.timestamp_us != stamp.timestamp_us) ||
         !events.insert(stamp.event_id).second ||
         !std::any_of(node.links.begin(), node.links.end(), [&](auto const& link) {
           return link->endpoint_uid == stamp.author_uid;
@@ -253,10 +346,15 @@ void InsertValidated(SharedNode& node, Event::ptr event,
 }
 
 bool ValidMessageShape(SharedSyncMessage const& message) {
-  if (message.major != 1 || message.minor > 2 ||
+  if (message.major != 1 || message.minor > 3 ||
       !message.node_id.is_valid() || !message.packet_id.is_valid()) {
     return false;
   }
+  if ((message.kind != SharedSyncKind::Progress &&
+       message.progress != SharedProgressMarker{}) ||
+      (message.kind != SharedSyncKind::InitialState && message.checkpoint_us != 0) ||
+      (message.minor < 3 && (message.progress != SharedProgressMarker{} ||
+                             message.checkpoint_us != 0))) { return false; }
   bool const empty_stamp = message.stamp == SharedEventStamp{};
   bool const empty_prefix = message.received_prefix == SharedStreamCursor{};
   if (message.minor < 2 && (!empty_stamp || !empty_prefix ||
@@ -269,7 +367,7 @@ bool ValidMessageShape(SharedSyncMessage const& message) {
   }
   bool const event_ack = message.kind == SharedSyncKind::Ack &&
                         message.acknowledged_kind == SharedSyncKind::Event;
-  if (message.minor == 2 &&
+  if (message.minor >= 2 &&
       (message.kind == SharedSyncKind::Event || event_ack)) {
     if (!message.stamp.is_valid() ||
         message.stamp.event_id != message.event_id ||
@@ -314,7 +412,9 @@ bool ValidMessageShape(SharedSyncMessage const& message) {
       return (message.acknowledged_kind == SharedSyncKind::InitialState ||
               message.acknowledged_kind == SharedSyncKind::Event ||
               (message.minor >= 1 &&
-               message.acknowledged_kind == SharedSyncKind::CoverageReceipt)) &&
+               message.acknowledged_kind == SharedSyncKind::CoverageReceipt) ||
+              (message.minor >= 3 &&
+               message.acknowledged_kind == SharedSyncKind::Progress)) &&
              message.graph.layers.empty() && !message.graph.root_id.is_valid() &&
              message.covered_events.empty() && message.timestamp_us == 0 &&
              !HasAdmission(plan);
@@ -322,6 +422,12 @@ bool ValidMessageShape(SharedSyncMessage const& message) {
       return message.minor >= 1 && HasAdmission(plan) &&
              message.packet_id == plan.snapshot_id &&
              message.event_id == plan.join_event_id &&
+             message.graph.layers.empty() && !message.graph.root_id.is_valid() &&
+             message.covered_events.empty() && message.timestamp_us == 0;
+    case SharedSyncKind::Progress:
+      return message.minor >= 3 && message.progress.is_valid() &&
+             message.packet_id == message.progress.marker_id &&
+             message.event_id == message.packet_id && !HasAdmission(plan) &&
              message.graph.layers.empty() && !message.graph.root_id.is_valid() &&
              message.covered_events.empty() && message.timestamp_us == 0;
   }
@@ -346,11 +452,17 @@ bool SerializeSharedSyncMessage(SharedSyncMessage const& message,
        message.received_prefix != SharedStreamCursor{})) {
     return false;
   }
+  if (message.minor < 3 &&
+      (message.progress != SharedProgressMarker{} || message.checkpoint_us != 0 ||
+       message.kind == SharedSyncKind::Progress ||
+       (message.kind == SharedSyncKind::Ack &&
+        message.acknowledged_kind == SharedSyncKind::Progress))) { return false; }
   std::vector<std::uint8_t> output;
   ae::seri::BinaryVectorBuffer buffer{output};
   ae::seri::BinaryArchive archive{buffer};
   auto const saved = message.minor == 0 ? archive.Save(LegacyMessage(message))
       : message.minor == 1 ? archive.Save(LegacyAdmissionMessage(message))
+      : message.minor == 2 ? archive.Save(LegacyIndexedMessage(message))
                            : archive.Save(message);
   if (saved.IsErr()) {
     return false;
@@ -367,7 +479,7 @@ bool DeserializeSharedSyncMessage(std::vector<std::uint8_t> const& bytes,
   std::uint16_t major = 0;
   std::uint16_t minor = 0;
   if (prefix.Load(major).IsErr() || prefix.Load(minor).IsErr() ||
-      major != 1 || minor > 2) {
+      major != 1 || minor > 3) {
     return false;
   }
   ae::seri::BinaryVectorBuffer buffer{copy};
@@ -386,6 +498,10 @@ bool DeserializeSharedSyncMessage(std::vector<std::uint8_t> const& bytes,
     if (loaded) {
       parsed = CurrentMessage(std::move(old));
     }
+  } else if (minor == 2) {
+    SharedSyncMessageV2 old;
+    loaded = archive.Load(old).IsOk();
+    if (loaded) { parsed = CurrentMessage(std::move(old)); }
   } else {
     loaded = archive.Load(parsed).IsOk();
   }
@@ -421,6 +537,8 @@ void SharedSyncRuntime::InitializeLocalState(SharedNode& node) {
   local->stream_events.clear();
   local->timestamp_floor = node.journal.empty()
       ? 0 : node.journal.back().order.timestamp_us;
+  local->checkpoint_us = 0;
+  local->progress_markers.clear();
   InitializeRuntimeNode(*local);
   node.local_state = std::move(local);
 }
@@ -508,7 +626,9 @@ bool SharedSyncRuntime::QueueInitialState(ae::ObjId node_id,
   message.kind = SharedSyncKind::InitialState;
   message.node_id = node_id;
   message.packet_id = ae::ObjId::GenerateUnique();
-  message.covered_events = JournalIds(*node);
+  message.checkpoint_us = node->local_state->checkpoint_us;
+  message.covered_events = CoveredIds(*node, node->local_state->stream_events,
+                                      message.checkpoint_us);
   message.stream_events = node->local_state->stream_events;
   if (!CaptureSharedGraph(*node, message.graph)) {
     return false;
@@ -527,7 +647,7 @@ bool SharedSyncRuntime::QueueInitialState(ae::ObjId node_id,
 bool SharedSyncRuntime::QueueLocalEvents(SharedNode& node) {
   for (auto const id : node.local_state->local_events) {
     auto const* record = FindRecord(node, id);
-    assert(record != nullptr);  // Shared history is held until checkpoint work.
+    assert(record != nullptr);  // Closed origins are retired with the prefix.
     for (auto const& peer : node.local_state->peers) {
       if (peer->HasDelivered(id) || peer->IsCoveredByAdmission(id)) {
         continue;
@@ -664,7 +784,8 @@ bool SharedSyncRuntime::AdmitPeer(ae::ObjId node_id, Event::ptr join_event,
   } while (!plan.snapshot_id.is_valid() || plan.snapshot_id == join_id);
   plan.host_endpoint = local_endpoint_;
   plan.joining_endpoint = std::move(joining_endpoint);
-  plan.covered_events = JournalIds(*node);
+  plan.covered_events = CoveredIds(*node, node->local_state->stream_events,
+                                    node->local_state->checkpoint_us);
   if (!InstallAdmission(*node, plan)) {
     return false;
   }
@@ -693,6 +814,7 @@ bool SharedSyncRuntime::AdmitPeer(ae::ObjId node_id, Event::ptr join_event,
   initial.packet_id = plan.snapshot_id;
   initial.covered_events = plan.covered_events;
   initial.admission = plan;
+  initial.checkpoint_us = node->local_state->checkpoint_us;
   initial.stream_events = node->local_state->stream_events;
   if (!CaptureSharedGraph(*node, initial.graph)) {
     return false;
@@ -707,6 +829,111 @@ bool SharedSyncRuntime::AdmitPeer(ae::ObjId node_id, Event::ptr join_event,
   }
   FindPeer(*node, plan.joining_endpoint)->QueuePacket(std::move(pending));
   return QueueLocalEvents(*node) && PersistState();
+}
+
+bool SharedSyncRuntime::PublishProgress(ae::ObjId node_id,
+                                        std::uint64_t through_timestamp_us) {
+  auto node = FindNode(node_id);
+  if (failed_ || !node.is_valid()) { return false; }
+  SharedProgressMarker marker;
+  marker.marker_id = ae::ObjId::GenerateUnique();
+  marker.author_uid = local_endpoint_;
+  marker.members = Members(*node);
+  for (auto const& member : marker.members) {
+    marker.received.push_back(node->local_state->ReceivedPrefix(member));
+  }
+  auto floor = std::max(node->local_state->timestamp_floor,
+                        node->local_state->checkpoint_us);
+  for (auto const id : node->local_state->local_events) {
+    if (auto const* record = FindRecord(*node, id)) {
+      floor = std::max(floor, record->order.timestamp_us);
+    }
+  }
+  auto const own = node->local_state->ReceivedPrefix(local_endpoint_);
+  floor = std::max(floor, own.timestamp_us);
+  if (auto const* previous = node->local_state->FindProgress(local_endpoint_)) {
+    floor = std::max(floor, previous->through_timestamp_us);
+  }
+  marker.through_timestamp_us = through_timestamp_us == 0
+      ? std::max(SystemUtcMicros(), floor) : through_timestamp_us;
+  if (marker.through_timestamp_us < floor || !marker.is_valid()) { return false; }
+  SharedSyncMessage message;
+  message.kind = SharedSyncKind::Progress;
+  message.node_id = node_id;
+  message.packet_id = marker.marker_id;
+  message.event_id = marker.marker_id;
+  message.progress = marker;
+  SharedPendingPacket packet;
+  packet.packet_id = marker.marker_id;
+  packet.event_id = marker.marker_id;
+  packet.progress = true;
+  if (!SerializeSharedSyncMessage(message, packet.bytes)) { return false; }
+  node->local_state->RememberProgress(std::move(marker));
+  for (auto const& peer : node->local_state->peers) {
+    // A refreshed report dominates this author's previous report. Keep one
+    // outgoing obligation per recipient, without ACK-on-ACK chains.
+    auto const previous = peer->pending_packets;
+    for (auto const& old : previous) {
+      if (old.progress) {
+        peer->CompletePacket(old.packet_id);
+        next_send_.erase(RetryKey{node_id, peer->link->endpoint_uid, old.packet_id});
+      }
+    }
+    peer->QueuePacket(packet);
+  }
+  return PersistState();
+}
+
+bool SharedSyncRuntime::CompactConfirmed(ae::ObjId node_id) {
+  auto node = FindNode(node_id);
+  if (failed_ || !node.is_valid()) { return false; }
+  auto const members = Members(*node);
+  if (members.empty() || std::adjacent_find(members.begin(), members.end()) !=
+                             members.end()) { return false; }
+  auto through = std::numeric_limits<std::uint64_t>::max();
+  for (auto const& member : members) {
+    auto const* marker = node->local_state->FindProgress(member);
+    if (marker == nullptr || marker->members != members) { return false; }
+    auto const* own = Receipt(*marker, member);
+    if (own == nullptr || node->local_state->ReceivedPrefix(member).index < own->index) {
+      return false;
+    }
+    through = std::min(through, marker->through_timestamp_us);
+  }
+  if (through <= node->local_state->checkpoint_us) { return false; }
+  for (auto const& record : node->journal) {
+    if (record.order.timestamp_us <= through &&
+        node->local_state->FindStreamEvent(record.event.id()) == nullptr) {
+      return false;  // Legacy unstamped history has no all-author proof.
+    }
+  }
+  for (auto const& author : members) {
+    std::uint64_t required = 0;
+    for (auto const& stamp : node->local_state->stream_events) {
+      if (stamp.author_uid == author && stamp.timestamp_us <= through) {
+        required = std::max(required, stamp.index);
+      }
+    }
+    if (node->local_state->ReceivedPrefix(author).index < required) { return false; }
+    for (auto const& member : members) {
+      auto const* report = node->local_state->FindProgress(member);
+      auto const* receipt = Receipt(*report, author);
+      if (receipt == nullptr || receipt->index < required) { return false; }
+    }
+  }
+  auto const before = node->local_state->checkpoint_us;
+  auto const actual = node->CompactConfirmedPrefix(through);
+  if (actual <= before) { return false; }
+  for (auto it = next_send_.begin(); it != next_send_.end();) {
+    if (std::get<0>(it->first) == node_id) {
+      auto peer = FindPeer(*node, std::get<1>(it->first));
+      if (!peer.is_valid() || !peer->FindPending(std::get<2>(it->first))) {
+        it = next_send_.erase(it); continue;
+      }
+    }
+    ++it;
+  }
+  return PersistState();
 }
 
 void SharedSyncRuntime::Service(std::uint64_t now_us) {
@@ -751,6 +978,7 @@ void SharedSyncRuntime::OnBytes(std::string const& source,
       case SharedSyncKind::Event: accepted = OnEvent(source, message); break;
       case SharedSyncKind::Ack: accepted = OnAck(source, message); break;
       case SharedSyncKind::CoverageReceipt: accepted = OnCoverage(source, message); break;
+      case SharedSyncKind::Progress: accepted = OnProgress(source, message); break;
     }
   }
   if (!accepted) {
@@ -789,8 +1017,12 @@ bool SharedSyncRuntime::OnInitial(std::string const& source,
     return false;
   }
   auto* candidate = root.as<SharedNode>();
-  if (JournalIds(*candidate) != message.covered_events ||
-      !ValidateSnapshotStreams(*candidate, message.stream_events)) {
+  auto const covered = message.minor >= 3
+      ? CoveredIds(*candidate, message.stream_events, message.checkpoint_us)
+      : JournalIds(*candidate);
+  if (covered != message.covered_events ||
+      !ValidateSnapshotStreams(*candidate, message.stream_events,
+                                message.checkpoint_us)) {
     return false;
   }
   auto const has_endpoint = [&](std::string const& endpoint) {
@@ -814,6 +1046,9 @@ bool SharedSyncRuntime::OnInitial(std::string const& source,
   RegisterNode(node);
   for (auto const& stamp : message.stream_events) {
     node->local_state->RememberStreamEvent(stamp);
+  }
+  if (message.checkpoint_us != 0) {
+    node->local_state->PruneHistory(message.checkpoint_us);
   }
   auto peer = FindPeer(*node, source);
   peer->RememberInitial(message.packet_id, message.covered_events);
@@ -840,6 +1075,23 @@ bool SharedSyncRuntime::OnEvent(std::string const& source,
   if (sequenced && (message.stamp.author_uid != source ||
                     !node->local_state->CanRememberStamp(message.stamp))) {
     return false;
+  }
+  if (message.timestamp_us <= node->local_state->checkpoint_us) {
+    auto const* retired = node->local_state->FindStreamEvent(message.event_id);
+    if (!sequenced || retired == nullptr || *retired != message.stamp) {
+      return false;
+    }
+    // The immutable small stamp remains after payload retirement. Re-ACK an
+    // exact retired identity without replaying it or importing old dependencies.
+    if (!PersistState()) { return false; }
+    SendAck(source, message);
+    return true;
+  }
+  if (auto const* promise = node->local_state->FindProgress(source)) {
+    if (message.timestamp_us <= promise->through_timestamp_us &&
+        node->local_state->FindStreamEvent(message.event_id) == nullptr) {
+      return false;  // An accepted marker promised no unknown earlier Event.
+    }
   }
   if (!sequenced && node->local_state->FindStreamEvent(message.event_id)) {
     return false;  // Indexed data cannot silently fall back to a legacy ACK.
@@ -936,8 +1188,12 @@ bool SharedSyncRuntime::OnAck(std::string const& source,
     auto const& stamp = message.stamp;
     auto const& prefix = message.received_prefix;
     auto const* origin = node->local_state->FindLocalFrame(message.event_id);
-    if (stamp.author_uid != local_endpoint_ || origin == nullptr ||
-        origin->stamp != stamp || origin->packet_id != message.packet_id ||
+    auto const* known = node->local_state->FindStreamEvent(message.event_id);
+    bool const retired = known != nullptr && *known == stamp &&
+                         stamp.timestamp_us <= node->local_state->checkpoint_us;
+    if (stamp.author_uid != local_endpoint_ ||
+        (!retired && (origin == nullptr || origin->stamp != stamp ||
+                       origin->packet_id != message.packet_id)) ||
         prefix.author_uid != local_endpoint_) {
       return false;
     }
@@ -952,7 +1208,7 @@ bool SharedSyncRuntime::OnAck(std::string const& source,
     // Copy before completing: each local completion removes its pending slot.
     auto const pending = peer->pending_packets;
     for (auto const& packet : pending) {
-      if (!packet.initial && !packet.coverage_notice &&
+      if (!packet.initial && !packet.coverage_notice && !packet.progress &&
           packet.stamp.is_valid() &&
           packet.stamp.author_uid == local_endpoint_ &&
           packet.stamp.index <= prefix.index) {
@@ -969,6 +1225,7 @@ bool SharedSyncRuntime::OnAck(std::string const& source,
   }
   auto const expected_kind = pending->initial ? SharedSyncKind::InitialState
       : pending->coverage_notice ? SharedSyncKind::CoverageReceipt
+      : pending->progress ? SharedSyncKind::Progress
                                  : SharedSyncKind::Event;
   if (message.acknowledged_kind != expected_kind ||
       message.event_id != pending->event_id ||
@@ -992,9 +1249,13 @@ bool SharedSyncRuntime::OnCoverage(std::string const& source,
                                     SharedSyncMessage const& message) {
   auto node = FindNode(message.node_id);
   auto const& plan = message.admission;
+  auto const* retired = node.is_valid()
+      ? node->local_state->FindStreamEvent(plan.join_event_id) : nullptr;
   if (!node.is_valid() || source != plan.host_endpoint ||
       !FindPeer(*node, source).is_valid() ||
-      FindRecord(*node, plan.join_event_id) == nullptr) {
+      (FindRecord(*node, plan.join_event_id) == nullptr &&
+       (retired == nullptr ||
+        retired->timestamp_us > node->local_state->checkpoint_us))) {
     return false;
   }
   auto joining = FindPeer(*node, plan.joining_endpoint);
@@ -1005,6 +1266,51 @@ bool SharedSyncRuntime::OnCoverage(std::string const& source,
   if (!PersistState()) {
     return false;
   }
+  SendAck(source, message);
+  return true;
+}
+
+bool SharedSyncRuntime::OnProgress(std::string const& source,
+                                    SharedSyncMessage const& message) {
+  auto node = FindNode(message.node_id);
+  auto const& marker = message.progress;
+  if (!node.is_valid() || marker.author_uid != source ||
+      !FindPeer(*node, source).is_valid() || marker.members != Members(*node)) {
+    return false;
+  }
+  for (auto const& receipt : marker.received) {
+    if (node->local_state->ReceivedPrefix(receipt.author_uid).index < receipt.index) {
+      return false;  // The report overtook data; retain sender's retry obligation.
+    }
+    if (receipt.index != 0) {
+      auto const* boundary = node->local_state->FindStreamIndex(
+          receipt.author_uid, receipt.index);
+      if (boundary == nullptr || boundary->timestamp_us != receipt.timestamp_us) {
+        return false;
+      }
+    }
+  }
+  auto const* own = Receipt(marker, source);
+  assert(own != nullptr);
+  for (auto const& stamp : node->local_state->stream_events) {
+    if (stamp.author_uid == source && stamp.index > own->index &&
+        stamp.timestamp_us <= marker.through_timestamp_us) { return false; }
+  }
+  auto const* previous = node->local_state->FindProgress(source);
+  if (previous != nullptr && previous->members == marker.members &&
+      Dominates(*previous, marker)) {
+    // A stale or duplicate report cannot overwrite stronger saved receipts.
+  } else {
+    if (previous != nullptr &&
+        (marker.through_timestamp_us < previous->through_timestamp_us ||
+         (previous->members == marker.members && !Dominates(marker, *previous)))) {
+      return false;
+    }
+    if (previous == nullptr &&
+        marker.through_timestamp_us < node->local_state->checkpoint_us) { return false; }
+    node->local_state->RememberProgress(marker);
+  }
+  if (!PersistState()) { return false; }
   SendAck(source, message);
   return true;
 }

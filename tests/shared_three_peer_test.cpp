@@ -385,7 +385,8 @@ MeshObserved Describe(ae::Domain& domain, ae::ObjId id, std::uint64_t timestamp)
   return {id, timestamp, MeshJoinEvent::kClassId,
             join->participant->name + ":" + join->participant->link->endpoint_uid};
 }
-std::vector<MeshObserved> Observe(ae::Domain& domain, MeshRoom const& room) {
+std::vector<MeshObserved> Observe(ae::Domain& domain, MeshRoom const& room,
+                                  std::uint64_t checkpoint_us = 0) {
   std::vector<MeshObserved> result;
   std::string text = "room:";
   for (auto const& record : room.journal) {
@@ -396,7 +397,10 @@ std::vector<MeshObserved> Observe(ae::Domain& domain, MeshRoom const& room) {
       text += event.as<MeshTextEvent>()->text;
     }
   }
-  CHECK(text == room.text);
+  if (checkpoint_us == 0 &&
+      (!room.local_state.is_valid() || room.local_state->checkpoint_us == 0)) {
+    CHECK(text == room.text);
+  }
   std::set<std::string> names;
   for (auto const& person : room.participants) {
     CHECK(names.insert(person->link->endpoint_uid).second);
@@ -582,7 +586,7 @@ struct Mesh {
       }
     }
     CHECK(room);
-    if (ack.minor == 2 && ack.acknowledged_kind == SharedSyncKind::Event) {
+    if (ack.minor >= 2 && ack.acknowledged_kind == SharedSyncKind::Event) {
       auto const prefix = room->local_state->ReceivedPrefix(destination);
       CHECK(ack.received_prefix == prefix);
       CHECK(ack.stamp == original->message.stamp);
@@ -591,11 +595,30 @@ struct Mesh {
         CHECK(stamp && stamp->timestamp_us <= prefix.timestamp_us);
         auto const record = std::find_if(room->journal.begin(), room->journal.end(),
             [&](auto const& value) { return value.event.id() == stamp->event_id; });
-        CHECK(record != room->journal.end());
-        CHECK(record->order.timestamp_us == stamp->timestamp_us);
+        if (record == room->journal.end()) {
+          CHECK(stamp->timestamp_us <= room->local_state->checkpoint_us);
+        } else {
+          CHECK(record->order.timestamp_us == stamp->timestamp_us);
+        }
       }
     }
-    if (ack.acknowledged_kind == SharedSyncKind::CoverageReceipt) {
+    if (ack.acknowledged_kind == SharedSyncKind::Progress) {
+      auto const& report = original->message.progress;
+      auto const* saved = room->local_state->FindProgress(destination);
+      CHECK(saved && saved->author_uid == destination);
+      CHECK(saved->members == report.members);
+      CHECK(saved->through_timestamp_us >= report.through_timestamp_us);
+      for (auto const& cursor : report.received) {
+        auto const confirmed = std::find_if(saved->received.begin(), saved->received.end(),
+            [&](auto const& value) { return value.author_uid == cursor.author_uid; });
+        CHECK(confirmed != saved->received.end() && confirmed->index >= cursor.index);
+        CHECK(room->local_state->ReceivedPrefix(cursor.author_uid).index >= cursor.index);
+        if (cursor.index != 0) {
+          auto const* stamp = room->local_state->FindStreamIndex(cursor.author_uid, cursor.index);
+          CHECK(stamp && stamp->timestamp_us == cursor.timestamp_us);
+        }
+      }
+    } else if (ack.acknowledged_kind == SharedSyncKind::CoverageReceipt) {
       auto const& plan = original->message.admission;
       auto peer = std::find_if(room->local_state->peers.begin(), room->local_state->peers.end(),
           [&](auto const& value) { return value->link->endpoint_uid == plan.joining_endpoint; });
@@ -612,10 +635,15 @@ struct Mesh {
       CHECK(expected_root);
       std::vector<MeshObserved> expected;
       if (ack.acknowledged_kind == SharedSyncKind::InitialState) {
+        CHECK(room->local_state->checkpoint_us >= original->message.checkpoint_us);
+        for (auto const& stamp : original->message.stream_events) {
+          auto const* stored = room->local_state->FindStreamEvent(stamp.event_id);
+          CHECK(stored && *stored == stamp);
+        }
         CHECK(expected_root->GetClassId() == MeshRoom::kClassId);
         auto* initial_room = expected_root.as<MeshRoom>();
         CHECK(initial_room);
-        expected = Observe(expected_domain, *initial_room);
+        expected = Observe(expected_domain, *initial_room, original->message.checkpoint_us);
       } else {
         expected.push_back(Describe(expected_domain, original->message.event_id,
                                      original->message.timestamp_us));
@@ -623,9 +651,14 @@ struct Mesh {
       for (auto const& item : expected) {
         auto found = std::find_if(actual.begin(), actual.end(),
             [&](auto const& value) { return value.id == item.id; });
-        CHECK(found != actual.end());
-        CHECK(found->timestamp == item.timestamp && found->class_id == item.class_id &&
-              found->payload == item.payload);
+        if (found == actual.end()) {
+          auto const* stamp = room->local_state->FindStreamEvent(item.id);
+          CHECK(stamp && stamp->timestamp_us == item.timestamp &&
+                stamp->timestamp_us <= room->local_state->checkpoint_us);
+        } else {
+          CHECK(found->timestamp == item.timestamp && found->class_id == item.class_id &&
+                found->payload == item.payload);
+        }
       }
     }
     ++ack_checks;
@@ -878,6 +911,29 @@ void TestLegacyNativeEventAfterAdmission() {
   CHECK(mesh.R("A").Peer(mesh.room_id, "B").HasDelivered(a50));
   CHECK(!mesh.R("A").Peer(mesh.room_id, "B").FindPending(a50));
   mesh.Settle(true); mesh.Equal(5);
+
+  // The previous indexed tuple preserves all Event fields; only the newer
+  // progress/checkpoint extensions are absent, so this is a lossless encoding.
+  auto const a60 = mesh.R("A").Append(mesh.room_id, "|A60", 60);
+  mesh.Service();
+  auto const v3 = mesh.Packet(SharedSyncKind::Event, "A", "B", a60);
+  auto indexed_v2 = mesh.Decode(v3);
+  indexed_v2.minor = 2;
+  std::vector<std::uint8_t> v2_bytes;
+  bool const encoded_v2 = SerializeSharedSyncMessage(indexed_v2, v2_bytes);
+  CHECK(encoded_v2);
+  mesh.Drop(v3);
+  bool const replaced = mesh.R("A").endpoint->Send("B", v2_bytes);
+  CHECK(replaced);
+  auto const v2 = mesh.Packet(SharedSyncKind::Event, "A", "B", a60);
+  CHECK(mesh.Decode(v2).minor == 2 && mesh.Decode(v2).stamp.index == 2);
+  mesh.Deliver(v2);
+  auto const v2_ack = mesh.Packet(SharedSyncKind::Ack, "B", "A", a60);
+  CHECK(mesh.Decode(v2_ack).minor == 2);
+  CHECK(mesh.Decode(v2_ack).received_prefix == (SharedStreamCursor{"A", 2, 60}));
+  mesh.Deliver(v2_ack);
+  CHECK(!mesh.R("A").Peer(mesh.room_id, "B").FindPending(a60));
+  mesh.Settle(true); mesh.Equal(6);
 }
 
 SharedStreamCursor Confirmed(MeshReplica const& replica, ae::ObjId room_id,
@@ -1184,6 +1240,365 @@ void TestMalformedSnapshotStreamMetadataDoesNotAttach() {
   CHECK(mesh.R("B").Room(mesh.room_id).local_state->ReceivedPrefix("A").index == 1);
 }
 
+void Publish(Mesh& mesh, std::initializer_list<std::string> authors,
+              std::uint64_t through) {
+  for (auto const& author : authors) {
+    bool const published = mesh.R(author).runtime->PublishProgress(mesh.room_id, through);
+    CHECK(published && !mesh.R(author).runtime->failed());
+  }
+}
+
+void CheckColdCheckpoint(Mesh const& mesh, std::string const& uid,
+                         std::uint64_t through, std::size_t journal_size,
+                         std::string const& text) {
+  auto storage = mesh.disks.at(uid).storage;
+  ae::Domain domain{storage};
+  ae::DomainGraph graph{&domain};
+  auto root = graph.LoadRoot(mesh.disks.at(uid).app_id);
+  CHECK(root && root->GetClassId() == MeshApplication::kClassId);
+  auto* app = root.as<MeshApplication>();
+  CHECK(app->rooms.size() == 1 && app->rooms.front().id() == mesh.room_id);
+  auto held = domain.Find(mesh.room_id);
+  CHECK(held && held->GetClassId() == MeshRoom::kClassId);
+  auto* room = held.as<MeshRoom>();
+  CHECK(room->text == text && room->journal.size() == journal_size);
+  CHECK(room->local_state->checkpoint_us == through);
+  CHECK(room->local_state->timestamp_floor >= through);
+}
+
+void Compact(Mesh& mesh, std::initializer_list<std::string> replicas,
+              std::uint64_t through, std::size_t journal_size,
+              std::string const& text) {
+  for (auto const& uid : replicas) {
+    bool const compacted = mesh.R(uid).runtime->CompactConfirmed(mesh.room_id);
+    CHECK(compacted && !mesh.R(uid).runtime->failed());
+    auto const& room = mesh.R(uid).Room(mesh.room_id);
+    CHECK(room.text == text && room.journal.size() == journal_size);
+    CHECK(room.local_state->checkpoint_us == through);
+    CHECK(room.IsJournalCompactionBlocked());
+    CHECK(room.local_state->journal.empty());
+    for (auto const& peer : room.local_state->peers) { CHECK(peer->journal.empty()); }
+    CheckColdCheckpoint(mesh, uid, through, journal_size, text);
+  }
+}
+
+void TestSilentParticipantBlocksCheckpointAndEmptyIntervalAdvances() {
+  Mesh mesh;
+  mesh.Admit(); mesh.Settle(true); mesh.Equal(3);
+  auto const text = mesh.R("H").Room(mesh.room_id).text;
+  Publish(mesh, {"H", "A"}, 100);
+  mesh.Settle(true);
+  auto const saves = mesh.R("H").durable.saves;
+  bool const premature = mesh.R("H").runtime->CompactConfirmed(mesh.room_id);
+  CHECK(!premature && mesh.R("H").durable.saves == saves);
+  CHECK(mesh.R("H").Room(mesh.room_id).journal.size() == 3);
+  CHECK(mesh.R("H").Room(mesh.room_id).local_state->checkpoint_us == 0);
+
+  Publish(mesh, {"B"}, 100); mesh.Settle(true);
+  Compact(mesh, {"H", "A", "B"}, 100, 0, text);
+  for (auto const& uid : {"H", "A", "B"}) {
+    auto const& state = *mesh.R(uid).Room(mesh.room_id).local_state;
+    CHECK(state.local_frames.empty() && state.local_events.empty());
+    CHECK(state.stream_events.size() == 3);  // Small dedup identities remain.
+    CHECK(state.FindStreamEvent(mesh.h10) && state.FindStreamEvent(mesh.a20));
+    auto const count = mesh.R(uid).durable.saves;
+    bool const again = mesh.R(uid).runtime->CompactConfirmed(mesh.room_id);
+    CHECK(!again && mesh.R(uid).durable.saves == count);
+  }
+  // No new Events are needed to close another silent interval.
+  Publish(mesh, {"H", "A", "B"}, 200); mesh.Settle(true);
+  Compact(mesh, {"H", "A", "B"}, 200, 0, text);
+}
+
+void TestProgressBeforeEventAndStaleReceiptRequireRefresh() {
+  Mesh mesh;
+  mesh.Admit(); mesh.Settle(true); mesh.Equal(3);
+  auto const a40 = mesh.R("A").Append(mesh.room_id, "|A40", 40);
+  mesh.Service();
+  mesh.Deliver(mesh.Packet(SharedSyncKind::Event, "A", "H", a40));
+  mesh.Deliver(mesh.Packet(SharedSyncKind::Ack, "H", "A", a40));
+  mesh.Drop(mesh.Packet(SharedSyncKind::Event, "A", "B", a40));
+  Publish(mesh, {"H", "A", "B"}, 100); mesh.Service();
+  auto const early = mesh.Packet(SharedSyncKind::Progress, "A", "B");
+  auto const marker_id = mesh.Decode(early).packet_id;
+  mesh.Deliver(early);
+  CHECK(!mesh.Find(SharedSyncKind::Ack, "B", "A", marker_id,
+                   SharedSyncKind::Progress).has_value());
+  CHECK(!mesh.R("B").Room(mesh.room_id).local_state->FindProgress("A"));
+  mesh.Drain(true);
+  bool const before_data = mesh.R("H").runtime->CompactConfirmed(mesh.room_id);
+  CHECK(!before_data);
+  mesh.Settle(true);
+  CHECK(mesh.R("B").Room(mesh.room_id).local_state->ReceivedPrefix("A").index == 2);
+  // B's old report truthfully said A:1. Receiving A:2 does not rewrite it.
+  auto const* stale = mesh.R("H").Room(mesh.room_id).local_state->FindProgress("B");
+  CHECK(stale);
+  auto const receipt = std::find_if(stale->received.begin(), stale->received.end(),
+      [](auto const& value) { return value.author_uid == "A"; });
+  CHECK(receipt != stale->received.end() && receipt->index == 1);
+  bool const before_refresh = mesh.R("H").runtime->CompactConfirmed(mesh.room_id);
+  CHECK(!before_refresh && mesh.R("H").Room(mesh.room_id).journal.size() == 4);
+  Publish(mesh, {"B"}, 100); mesh.Settle(true);
+  auto const text = mesh.R("H").Room(mesh.room_id).text;
+  Compact(mesh, {"H", "A", "B"}, 100, 0, text);
+}
+
+void TestProgressLossOfflineAndRestartPreservePromise() {
+  Mesh mesh;
+  mesh.Admit(); mesh.Settle(true); mesh.Equal(3);
+  Publish(mesh, {"H"}, 100); mesh.Service();
+  auto const first_a = mesh.Packet(SharedSyncKind::Progress, "H", "A");
+  auto const first_b = mesh.Packet(SharedSyncKind::Progress, "H", "B");
+  auto const marker_id = mesh.Decode(first_a).packet_id;
+  CHECK(mesh.Decode(first_b).packet_id == marker_id);
+  mesh.Drop(first_a);
+  mesh.Deliver(first_b);
+  mesh.Drop(mesh.Packet(SharedSyncKind::Ack, "B", "H", marker_id,
+                         SharedSyncKind::Progress));
+  mesh.network.SetAvailability("B", LinkAvailability::Offline);
+  auto count_b = [&] {
+    return std::count_if(mesh.sent.begin(), mesh.sent.end(), [](auto const& frame) {
+      return frame.source == "H" && frame.destination == "B" &&
+             frame.message.kind == SharedSyncKind::Progress;
+    });
+  };
+  auto const sends_b = count_b();
+  mesh.Restart("H");
+  auto event = mesh.R("H").NewText(mesh.room_id, "|too-early");
+  auto const saves = mesh.R("H").durable.saves;
+  bool const too_early = mesh.R("H").runtime->CommitLocal(mesh.room_id, event, 100);
+  CHECK(!too_early && mesh.R("H").durable.saves == saves);
+  event.Reset();  // Its room reference must not keep H alive across restart.
+  mesh.Service(kRetry);
+  CHECK(count_b() == sends_b);
+  auto const retry = mesh.Packet(SharedSyncKind::Progress, "H", "A");
+  CHECK(retry.bytes == first_a.bytes);
+  mesh.Deliver(retry);
+  mesh.Drop(mesh.Packet(SharedSyncKind::Ack, "A", "H", marker_id,
+                         SharedSyncKind::Progress));
+  mesh.Restart("A"); mesh.Restart("H");
+  mesh.Service(kRetry);
+  auto const again = mesh.Packet(SharedSyncKind::Progress, "H", "A");
+  CHECK(again.bytes == first_a.bytes);
+  mesh.Deliver(again);
+  mesh.Deliver(mesh.Packet(SharedSyncKind::Ack, "A", "H", marker_id,
+                            SharedSyncKind::Progress));
+  CHECK(!mesh.R("H").Peer(mesh.room_id, "A").FindPending(marker_id));
+  CHECK(!mesh.R("H").Peer(mesh.room_id, "A").HasDelivered(marker_id));
+  CHECK(count_b() == sends_b);
+  mesh.network.SetAvailability("B", LinkAvailability::Online);
+  mesh.Settle(true);
+  CHECK(!mesh.R("H").Peer(mesh.room_id, "B").FindPending(marker_id));
+  CHECK(!mesh.R("H").Peer(mesh.room_id, "B").HasDelivered(marker_id));
+  bool const incomplete = mesh.R("H").runtime->CompactConfirmed(mesh.room_id);
+  CHECK(!incomplete);
+  Publish(mesh, {"A", "B"}, 100); mesh.Settle(true);
+  auto const text = mesh.R("H").Room(mesh.room_id).text;
+  Compact(mesh, {"H", "A", "B"}, 100, 0, text);
+}
+
+void TestPartialCheckpointKeepsTailAndAllowsLateSuffixEvent() {
+  Mesh mesh;
+  mesh.Admit(); mesh.Settle(true); mesh.Equal(3);
+  Publish(mesh, {"H", "A", "B"}, 35); mesh.Settle(true);
+  auto const h60 = mesh.R("H").Append(mesh.room_id, "|H60", 60);
+  auto const a50 = mesh.R("A").Append(mesh.room_id, "|A50", 50);
+  auto const b70 = mesh.R("B").Append(mesh.room_id, "|B70", 70);
+  (void)b70;
+  CHECK(mesh.network.PendingPackets().empty());
+  Compact(mesh, {"H"}, 35, 1, "room:|H10|A20|H60");
+  auto const& state = *mesh.R("H").Room(mesh.room_id).local_state;
+  CHECK(state.local_frames.size() == 1 && state.local_frames.front().event_id == h60);
+  CHECK(!state.FindLocalFrame(mesh.h10) && !state.FindLocalFrame(mesh.join_id));
+  mesh.Restart("H");
+  mesh.Service();
+  mesh.Deliver(mesh.Packet(SharedSyncKind::Event, "A", "H", a50));
+  CHECK(mesh.R("H").Room(mesh.room_id).text == "room:|H10|A20|A50|H60");
+  mesh.Settle(true);
+  for (auto const& uid : {"H", "A", "B"}) {
+    CHECK(mesh.R(uid).Room(mesh.room_id).text == "room:|H10|A20|A50|H60|B70");
+  }
+  CHECK(mesh.R("H").Room(mesh.room_id).journal.size() == 3);
+  CHECK(mesh.R("A").Room(mesh.room_id).journal.size() == 6);
+  CheckColdCheckpoint(mesh, "H", 35, 3, "room:|H10|A20|A50|H60|B70");
+  mesh.NoOldResend();
+}
+
+void TestAllCompactedRestartAndRetiredDuplicate() {
+  Mesh mesh;
+  mesh.Admit(); mesh.Settle(true); mesh.Equal(3);
+  auto const original = std::find_if(mesh.sent.begin(), mesh.sent.end(), [&](auto const& frame) {
+    return frame.source == "A" && frame.destination == "H" &&
+           frame.message.kind == SharedSyncKind::Event && frame.message.event_id == mesh.a20;
+  });
+  CHECK(original != mesh.sent.end());
+  auto const retired = *original;
+  Publish(mesh, {"H", "A", "B"}, 100); mesh.Settle(true);
+  auto const text = mesh.R("H").Room(mesh.room_id).text;
+  Compact(mesh, {"H", "A", "B"}, 100, 0, text);
+  mesh.Restart("H"); mesh.Restart("A"); mesh.Restart("B");
+  bool const replayed = mesh.R("A").endpoint->Send("H", retired.bytes);
+  CHECK(replayed);
+  mesh.Deliver(mesh.network.PendingPackets().back());
+  auto const ack = mesh.Packet(SharedSyncKind::Ack, "H", "A", mesh.a20);
+  CHECK(mesh.Decode(ack).received_prefix == (SharedStreamCursor{"A", 1, 20}));
+  mesh.Deliver(ack);
+  CHECK(mesh.R("H").Room(mesh.room_id).journal.empty());
+  CHECK(mesh.R("H").Room(mesh.room_id).text == text);
+
+  // An unknown late Event cannot be smuggled into the folded interval.
+  auto late = mesh.R("A").NewText(mesh.room_id, "|late-invalid");
+  SharedSyncMessage invalid;
+  invalid.node_id = mesh.room_id;
+  invalid.packet_id = invalid.event_id = late.id();
+  invalid.timestamp_us = 90;
+  invalid.stamp = {"A", 2, late.id(), 90};
+  bool const captured = CaptureSharedGraph(*late, invalid.graph);
+  CHECK(captured);
+  std::vector<std::uint8_t> bytes;
+  bool const encoded = SerializeSharedSyncMessage(invalid, bytes);
+  CHECK(encoded);
+  auto const saves = mesh.R("H").durable.saves;
+  auto const sent_count = mesh.sent.size();
+  bool const injected = mesh.R("A").endpoint->Send("H", bytes);
+  CHECK(injected);
+  mesh.Deliver(mesh.network.PendingPackets().back());
+  CHECK(mesh.R("H").durable.saves == saves && mesh.sent.size() == sent_count);
+  CHECK(mesh.R("H").Room(mesh.room_id).journal.empty());
+  CHECK(!mesh.R("H").Room(mesh.room_id).local_state->FindStreamEvent(late.id()));
+
+  auto const h110 = mesh.R("H").Append(mesh.room_id, "|H110", 110);
+  auto const a120 = mesh.R("A").Append(mesh.room_id, "|A120", 120);
+  auto const b130 = mesh.R("B").Append(mesh.room_id, "|B130", 130);
+  CHECK(mesh.R("H").Room(mesh.room_id).local_state->FindStreamEvent(h110)->index == 3);
+  CHECK(mesh.R("A").Room(mesh.room_id).local_state->FindStreamEvent(a120)->index == 2);
+  CHECK(mesh.R("B").Room(mesh.room_id).local_state->FindStreamEvent(b130)->index == 1);
+  mesh.Settle(true);
+  for (auto const& uid : {"H", "A", "B"}) {
+    CHECK(mesh.R(uid).Room(mesh.room_id).text == text + "|H110|A120|B130");
+    CHECK(mesh.R(uid).Room(mesh.room_id).journal.size() == 3);
+  }
+  CHECK(mesh.Count("A", "B", a120) == 1 && mesh.Count("B", "A", b130) == 1);
+  mesh.NoOldResend();
+}
+
+void TestAdmissionAfterHostCheckpointDoesNotReplayOldHistory() {
+  Mesh mesh;
+  Publish(mesh, {"H", "A"}, 100); mesh.Settle(true);
+  Compact(mesh, {"H"}, 100, 0, "room:|H10|A20");
+  CHECK(mesh.R("A").Room(mesh.room_id).journal.size() == 2);
+  CHECK(mesh.R("A").Room(mesh.room_id).local_state->FindLocalFrame(mesh.a20));
+  mesh.Admit(110); mesh.Service();
+  auto const snapshot = mesh.Packet(SharedSyncKind::InitialState, "H", "B");
+  auto const initial = mesh.Decode(snapshot);
+  CHECK(initial.checkpoint_us == 100 && initial.covered_events.size() == 3);
+  CHECK(initial.graph.layers.count(mesh.h10) == 0);
+  CHECK(initial.graph.layers.count(mesh.a20) == 0);
+  CHECK(std::find(initial.covered_events.begin(), initial.covered_events.end(), mesh.a20) !=
+        initial.covered_events.end());
+  mesh.Deliver(mesh.Packet(SharedSyncKind::Event, "H", "A", mesh.join_id));
+  mesh.Service();
+  mesh.NoOldResend();
+  mesh.Deliver(snapshot);
+  mesh.Settle(true);
+  for (auto const& uid : {"H", "A", "B"}) {
+    CHECK(mesh.R(uid).Room(mesh.room_id).text == "room:|H10|A20");
+    CHECK(mesh.R(uid).Room(mesh.room_id).participants.size() == 3);
+  }
+  CHECK(mesh.R("B").Room(mesh.room_id).local_state->checkpoint_us == 100);
+  CHECK(mesh.R("B").Room(mesh.room_id).local_state->timestamp_floor >= 110);
+  CHECK(mesh.R("B").Room(mesh.room_id).journal.size() == 1);
+  auto early = mesh.R("B").NewText(mesh.room_id, "|before-snapshot");
+  bool const bad_time = mesh.R("B").runtime->CommitLocal(mesh.room_id, early, 105);
+  CHECK(!bad_time);
+  bool const stale_roster = mesh.R("H").runtime->CompactConfirmed(mesh.room_id);
+  CHECK(!stale_roster);  // Old H/A reports do not authorize the new roster.
+  Publish(mesh, {"H", "A", "B"}, 150); mesh.Settle(true);
+  Compact(mesh, {"H", "A", "B"}, 150, 0, "room:|H10|A20");
+  mesh.NoOldResend();
+}
+
+void TestWrongRosterAndMarkerAuthorAreRejected() {
+  Mesh mesh;
+  mesh.Admit(); mesh.Settle(true); mesh.Equal(3);
+  Publish(mesh, {"H"}, 100); mesh.Service();
+  auto const packet = mesh.Packet(SharedSyncKind::Progress, "H", "A");
+  auto const original = mesh.Decode(packet);
+  auto reject = [&](SharedSyncMessage const& bad) {
+    auto const saves = mesh.R("A").durable.saves;
+    auto const sent_count = mesh.sent.size();
+    auto const rejects = mesh.R("A").runtime->rejected_messages();
+    std::vector<std::uint8_t> bytes;
+    bool const encoded = SerializeSharedSyncMessage(bad, bytes);
+    CHECK(encoded);
+    bool const injected = mesh.R("H").endpoint->Send("A", bytes);
+    CHECK(injected);
+    mesh.Deliver(mesh.network.PendingPackets().back());
+    CHECK(mesh.R("A").runtime->rejected_messages() > rejects);
+    CHECK(mesh.R("A").durable.saves == saves && mesh.sent.size() == sent_count);
+    CHECK(!mesh.R("A").Room(mesh.room_id).local_state->FindProgress("H"));
+  };
+  auto bad = original;
+  bad.progress.members.erase(std::remove(bad.progress.members.begin(),
+      bad.progress.members.end(), "B"), bad.progress.members.end());
+  bad.progress.received.erase(std::remove_if(bad.progress.received.begin(),
+      bad.progress.received.end(), [](auto const& cursor) { return cursor.author_uid == "B"; }),
+      bad.progress.received.end());
+  reject(bad);
+  bad = original;
+  bad.progress.author_uid = "A";
+  reject(bad);
+  bad = original;
+  auto cursor = std::find_if(bad.progress.received.begin(), bad.progress.received.end(),
+      [](auto const& value) { return value.author_uid == "A"; });
+  CHECK(cursor != bad.progress.received.end() && cursor->index == 1);
+  ++cursor->timestamp_us;  // A known index must bind the saved timestamp.
+  reject(bad);
+  mesh.Settle(true);
+}
+
+void TestCoverageReceiptAfterJoinWasCompactedAndRestarted() {
+  Mesh mesh;
+  mesh.Admit(); mesh.Service();
+  mesh.Deliver(mesh.Packet(SharedSyncKind::Event, "H", "A", mesh.join_id));
+  mesh.Deliver(mesh.Packet(SharedSyncKind::InitialState, "H", "B"));
+  mesh.Deliver(mesh.Packet(SharedSyncKind::Ack, "B", "H", {},
+                            SharedSyncKind::InitialState));
+  mesh.Service();
+  auto const notice = mesh.Packet(SharedSyncKind::CoverageReceipt, "H", "A");
+  auto const notice_id = mesh.Decode(notice).packet_id;
+  mesh.Drop(notice);
+  CHECK(mesh.R("H").Peer(mesh.room_id, "A").FindPending(notice_id));
+  CHECK(!mesh.R("A").Peer(mesh.room_id, "B").coverage_confirmed);
+
+  // Reports prove durable Event receipt without requiring receipt-ACK
+  // bookkeeping to finish first. Keep logical time below the notice retry.
+  Publish(mesh, {"H", "A", "B"}, 100);
+  mesh.Service(); mesh.Drain(true);
+  CHECK(mesh.R("H").Peer(mesh.room_id, "A").FindPending(notice_id));
+  CHECK(!mesh.R("A").Peer(mesh.room_id, "B").coverage_confirmed);
+  Compact(mesh, {"A"}, 100, 0, "room:|H10|A20");
+  CHECK(mesh.R("A").Room(mesh.room_id).local_state->FindStreamEvent(mesh.join_id));
+  mesh.Restart("A");
+  CHECK(mesh.R("A").Room(mesh.room_id).journal.empty());
+  CHECK(!mesh.R("A").Peer(mesh.room_id, "B").coverage_confirmed);
+  mesh.Service(kRetry);
+  auto const retry = mesh.Packet(SharedSyncKind::CoverageReceipt, "H", "A");
+  CHECK(retry.bytes == notice.bytes);
+  mesh.Deliver(retry);
+  auto const ack = mesh.Packet(SharedSyncKind::Ack, "A", "H", {},
+                                SharedSyncKind::CoverageReceipt);
+  CHECK(mesh.R("A").Peer(mesh.room_id, "B").coverage_confirmed);
+  CheckColdCheckpoint(mesh, "A", 100, 0, "room:|H10|A20");
+  mesh.Deliver(ack);
+  CHECK(!mesh.R("H").Peer(mesh.room_id, "A").FindPending(notice_id));
+  CHECK(mesh.R("H").Peer(mesh.room_id, "A").HasNoticeDelivered(notice_id));
+  mesh.Settle(true);
+  CHECK(mesh.R("A").Room(mesh.room_id).journal.empty());
+  CHECK(mesh.R("A").Room(mesh.room_id).text == mesh.R("H").Room(mesh.room_id).text);
+  mesh.NoOldResend();
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -1203,5 +1618,13 @@ int main() {
   apptraverse::test::TestMonotonicAuthorClockAndSnapshotFloorSurviveRestart();
   apptraverse::test::TestInboundStreamIdentityAndTimestampConflicts();
   apptraverse::test::TestMalformedSnapshotStreamMetadataDoesNotAttach();
+  apptraverse::test::TestSilentParticipantBlocksCheckpointAndEmptyIntervalAdvances();
+  apptraverse::test::TestProgressBeforeEventAndStaleReceiptRequireRefresh();
+  apptraverse::test::TestProgressLossOfflineAndRestartPreservePromise();
+  apptraverse::test::TestPartialCheckpointKeepsTailAndAllowsLateSuffixEvent();
+  apptraverse::test::TestAllCompactedRestartAndRetiredDuplicate();
+  apptraverse::test::TestAdmissionAfterHostCheckpointDoesNotReplayOldHistory();
+  apptraverse::test::TestWrongRosterAndMarkerAuthorAreRejected();
+  apptraverse::test::TestCoverageReceiptAfterJoinWasCompactedAndRestarted();
   std::cout << "shared_three_peer_test OK\n";
 }
