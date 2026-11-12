@@ -2,6 +2,11 @@ option(APPTRAVERSE_BUILD_EVOLUTION_TESTS
   "Build isolated application/state evolution fixtures and their Python matrix" ON)
 
 if(APPTRAVERSE_BUILD_AETHER_LINK)
+  option(APPTRAVERSE_BUILD_AETHER_SDK_TESTS
+    "Build the native presence and protocol checks of the pinned SDK" OFF)
+  if(APPTRAVERSE_BUILD_AETHER_SDK_TESTS)
+    include(${PROJECT_SOURCE_DIR}/cmake/shared_aether_tests.cmake)
+  endif()
   add_executable(apptraverse_aether_link_test aether_link_test.cpp)
   target_link_libraries(apptraverse_aether_link_test PRIVATE apptraverse_shared_aether)
   add_test(NAME apptraverse_aether_link_test COMMAND apptraverse_aether_link_test)

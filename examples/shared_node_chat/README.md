@@ -6,10 +6,10 @@ Fixed English labels; no localization or extra chat features.
 
 Enable `APPTRAVERSE_BUILD_AETHER_LINK=ON` and
 `APPTRAVERSE_BUILD_SHARED_NODE_CHAT=ON` in an existing Debug build. The SDK must
-match the immutable pin in `cmake/shared_aether.cmake`; its exact upstream
-MSVC compile patch is applied automatically. This is the published
-`feature/percentile8-policy-v1` branch from
-[Cursor PR #550](https://github.com/aethernetio/aether-client-cpp/pull/550).
+match the public `5ddf5eaa` pin in `cmake/shared_aether.cmake`; frozen patches
+add streaming fixes and native Client presence. A manifest verifies the
+source/test postimages. The equivalent isolated integration `423ab1e1` is
+also accepted through `APPTRAVERSE_AETHER_CLIENT_SOURCE`.
 Ordinary builds leave both options OFF. Build target `shared_node_chat`.
 
 ```powershell
@@ -35,11 +35,12 @@ Presence is exclusively `Client::IsLocallyOnline()` and
 `Client::QueryPeerPresence()`. The link starts business writes only with fresh
 SDK Online. Offline/Unknown retain pending SharedNode delivery for retry.
 
-**Current network blocker:** the native-API SDK pin compiles but does not
-complete registration against the tested cloud. The working streaming/push
-SDK branch has no native Client presence API. The chat therefore displays a
-registration error and cannot yet form a room on that deployment. No echo
-fallback is used. See the exact [validation and limits](../../docs/validation/shared-node-chat-native-presence-2026-11-11.md).
+**Current network blocker:** registration and ordinary SDK A/B messages now
+work, but remote GetClientTiming queries receive no timing samples. Unknown
+blocks admission sends: Host can create a room and store local messages,
+while other windows remain waiting to join. Local Unicode/history/profile
+restart was checked; multi-participant chat is not yet validated. No echo
+fallback is used. See [validation and limits](../../docs/validation/shared-node-presence-streaming-2026-11-11.md).
 
 Explicit cloud acceptance (not part of ordinary CTest):
 

@@ -1,5 +1,27 @@
 # AppTraverse — прогресс версионирования поставок
 
+## SharedNode native presence over working push/streaming — 2026-11-11 — TRANSPORT PASS / REMOTE PRESENCE BLOCKED
+
+Continued from `392f393`. Combined the native Client presence port with the
+working App SDK. Public base `5ddf5eaa` plus frozen source patches/manifest
+reproduces development SDK `423ab1e1` without publishing another chat's local
+benchmark history. Ordinary push registration/Ping/P2P formats are retained;
+GetClientTiming alone uses correlated RPC. Corrected its native DTO field
+order to server ADSL and kept soft retries from Restreaming shared connections.
+
+**13/13 targeted adapter/native/memory and SDK presence/RPC tests PASS;
+9/9 common regressions PASS.** Ordinary real-cloud SDK A/B control delivers
+four messages in both directions. GUI local room creation, Unicode message
+and same-UID/profile/history restart PASS. The wider legacy SDK Ping mock
+aggregate has separate Debug fixture failures and is not qualified.
+
+**Remote presence and network chat remain BLOCKED:** H/A/B register and local
+API Online is observed, but three queried peer-cloud servers provide zero
+timing samples/native Online results. Initial snapshot and GUI Join time out
+because strict Unknown gating correctly retains pending sends. No server or
+global network settings were changed; no echo fallback was introduced.
+[Exact source package, validation, failed attempts and limits](../validation/shared-node-presence-streaming-2026-11-11.md).
+
 ## SharedNode native Client presence and minimal Windows chat — 2026-11-11 — BUILD PASS / CLOUD BLOCKED
 
 Continued `feature/shared-node-native-memory` from `a85b1c2`. Replaced adapter

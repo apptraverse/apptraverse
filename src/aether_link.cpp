@@ -142,6 +142,17 @@ struct AetherByteLink::Impl {
     return peer.presence.Availability(client->IsLocallyOnline(), now_us,
                                       options.presence_result_ttl_us);
   }
+  void CapturePresenceDiagnostics() {
+    auto& peer = query_peer->statistics;
+    peer.presence_cloud_servers = query_action->peer_cloud_server_ids().size();
+    peer.presence_queried_servers = query_action->queried_server_ids().size();
+    auto const& samples = query_action->samples();
+    peer.presence_timing_samples = static_cast<std::size_t>(std::count_if(
+        samples.begin(), samples.end(), [](auto const& sample) { return sample.has_timing; }));
+    statistics.presence_cloud_servers = peer.presence_cloud_servers;
+    statistics.presence_queried_servers = peer.presence_queried_servers;
+    statistics.presence_timing_samples = peer.presence_timing_samples;
+  }
   void QueryPresence() {
     if (query_peer != nullptr) {
       bool const timed_out = now_us >= query_started_us &&
@@ -149,6 +160,7 @@ struct AetherByteLink::Impl {
       if (!query_done && !query_action->is_finished()) {
         if (!timed_out) { return; }
         if (!query_timed_out) {
+          CapturePresenceDiagnostics();
           query_peer->presence.Forget();
           ++statistics.presence_timeouts; ++query_peer->statistics.presence_timeouts;
           query_timed_out = true;
@@ -183,9 +195,27 @@ struct AetherByteLink::Impl {
         query_action = &client->QueryPeerPresence(peer.uid);
         query_sub = query_action->result_event().Subscribe([this](auto const& result) {
           if (stopped || query_peer == nullptr) { return; }
+          CapturePresenceDiagnostics();
           query_peer->presence.Observe(result, query_started_us);
           if (!result) {
             ++statistics.presence_errors; ++query_peer->statistics.presence_errors;
+            statistics.last_presence_error = result.error();
+            query_peer->statistics.last_presence_error = result.error();
+          } else {
+            switch (result.value().state) {
+              case ae::PeerPresenceState::kOnline:
+                ++statistics.presence_online_results;
+                ++query_peer->statistics.presence_online_results;
+                break;
+              case ae::PeerPresenceState::kOffline:
+                ++statistics.presence_offline_results;
+                ++query_peer->statistics.presence_offline_results;
+                break;
+              case ae::PeerPresenceState::kUnknown:
+                ++statistics.presence_unknown_results;
+                ++query_peer->statistics.presence_unknown_results;
+                break;
+            }
           }
           query_done = true;
         });

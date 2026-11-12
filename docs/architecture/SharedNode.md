@@ -303,13 +303,14 @@ existing memory check do not acquire the SDK. The separate
 `APPTRAVERSE_BUILD_AETHER_CLOUD_WORKER` option also defaults OFF and adds only
 the owned headless cloud worker, not a GUI example or an automatic network test.
 
-The SDK pin is `fc61d36c8e30842ca1088020e69621efaba513df` from the published
-`feature/percentile8-policy-v1` branch ([Cursor PR #550](https://github.com/aethernetio/aether-client-cpp/pull/550)).
-It exposes the native Client presence API. An isolated checkout is required;
-foreign worktree edits are not consumed. One exact upstream compile fix from
-`fix/msvc-api-context-baseline` (`25e8497f`) constructs a nonmovable ApiContext
-without an MSVC ternary move; its file hash is checked. This changes no wire
-format. The existing common object
+The public SDK base is `5ddf5eaaac5bd154ec384ff8c74f247a0ab80fb7`, the working
+push SDK used by App. Frozen consumer patches add the streaming fixes and
+native Client presence API without changing ordinary push registration/Ping
+or P2P message formats. GetClientTiming uses its defined correlated RPC.
+The native source/test postimages are checked by manifest; an isolated source
+override can also use equivalent integration `423ab1e1`. Foreign live worktrees
+and benchmark reports are not consumed by the build. The Debug registration
+capture patch only makes its callback fit SmallFunction capacity. The common object
 dependency and its 27-patch chain remain unchanged. The earlier transport
 pin and probe-based verification are historical and recorded separately in
 [the original validation](../validation/shared-node-aether-2026-11-11.md).
@@ -357,9 +358,10 @@ scenarios in the corresponding validation record.
 
 ## Minimal Windows chat
 
-Current cloud execution is blocked at SDK registration on the tested
-deployment; presence and GUI message exchange are not runtime-verified for
-this pin. See [the current validation](../validation/shared-node-chat-native-presence-2026-11-11.md).
+Registration and ordinary SDK A/B cloud transport pass on the combined SDK.
+The chat is still blocked because remote GetClientTiming queries yield no
+timing replies; strict Unknown gating prevents admission sends. Local GUI
+room/message persistence passes. See [the current validation](../validation/shared-node-presence-streaming-2026-11-11.md).
 
 `APPTRAVERSE_BUILD_SHARED_NODE_CHAT=ON` requires the optional Aether link and
 builds `shared_node_chat`. The window contains the local UID, Host room,

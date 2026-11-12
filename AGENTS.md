@@ -39,6 +39,10 @@ SDK checkout from the presence experiments, no application echo fallback.
 This opt-in demo has fixed English labels, one room, host admission, direct
 participant messages and private persistent profiles; unrelated UI remains out
 of scope. Profile restore is required for this replication demonstration.
+The latest follow-up authorizes combining this native presence API with the
+working streaming/push SDK base used by App, preserving its registration and
+ordinary message wire format. Validate real registration, native presence and
+the minimal chat; do not substitute echo for the native API.
 
 - **Never** add an AeroAdmin dependency or copy AeroAdmin sources.
 - Windows is the first platform; the common model must stay cross-platform (no HWND, Win32 paths, or Win32 keycodes in `src/common/`).

@@ -12,6 +12,32 @@ import time
 import uuid
 
 
+def read_status(path: Path):
+    if os.name != "nt":
+        return json.loads(path.read_text(encoding="utf-8"))
+    # Let the worker atomically replace status.json while it is being read.
+    # The Windows CRT's ordinary open does not grant FILE_SHARE_DELETE.
+    import ctypes
+    from ctypes import wintypes
+    import msvcrt
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    create = kernel.CreateFileW
+    create.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                       wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    create.restype = wintypes.HANDLE
+    handle = create(str(path), 0x80000000, 7, None, 3, 0x80, None)
+    if handle == ctypes.c_void_p(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        descriptor = msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY)
+    except OSError:
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel.CloseHandle(handle)
+        raise
+    with os.fdopen(descriptor, encoding="utf-8") as stream:
+        return json.load(stream)
+
+
 class Campaign:
     def __init__(self, exe: Path, out: Path, deadline: float):
         self.exe, self.out, self.deadline = exe, out, time.monotonic() + deadline
@@ -50,7 +76,7 @@ class Campaign:
         if process.poll() is not None:
             raise RuntimeError(f"{side} exited {process.returncode}; inspect its private worker log")
         try:
-            state = json.loads((self.out / side / "status.json").read_text(encoding="utf-8"))
+            state = read_status(self.out / side / "status.json")
         except (FileNotFoundError, json.JSONDecodeError, PermissionError):
             return {}
         if state.get("error") or state.get("failed"):
@@ -154,6 +180,8 @@ class Campaign:
             for other in "HAB":
                 if other != side and states[side]["peers"][uids[other]]["events_received"] == 0:
                     raise RuntimeError(f"no direct Event evidence for {other}->{side}")
+                if other != side and not states[side]["peers"][uids[other]]["presence_online"]:
+                    raise RuntimeError(f"no native Online result for {side} observing {other}")
         if any(states[s]["peers"][uids["B"]]["old_event_attempts"] for s in "HA"):
             raise RuntimeError("initial history was resent incrementally to the joining peer")
         self.record("live-convergence", uids=uids, room_id=room_id,
@@ -161,6 +189,7 @@ class Campaign:
         self.stop("B")
         self.wait("offline B suppresses business sends", lambda: all(
             self.status(s).get("peers", {}).get(uids["B"], {}).get("availability") == "offline"
+            and self.status(s).get("peers", {}).get(uids["B"], {}).get("presence_offline", 0) > 0
             for s in "HA"), 20)
         before = self.status("A")["peers"][uids["B"]]["event_attempts"]
         self.command("A", "append 70 |A70")

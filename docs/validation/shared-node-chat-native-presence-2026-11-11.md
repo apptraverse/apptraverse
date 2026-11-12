@@ -1,5 +1,9 @@
 # SharedNode minimal chat and native Client presence — 2026-11-11
 
+Historical native-API-only attempt. The subsequent working-push integration
+and its remaining remote-reply blocker are recorded in
+[the current validation](shared-node-presence-streaming-2026-11-11.md).
+
 Continues `feature/shared-node-native-memory` from `a85b1c2`. The user explicitly
 requested the Client's online API and the simplest chat, without localization.
 

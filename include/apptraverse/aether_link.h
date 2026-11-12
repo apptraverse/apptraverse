@@ -48,6 +48,13 @@ struct AetherLinkStatistics {
   std::uint64_t presence_queries{0};
   std::uint64_t presence_errors{0};
   std::uint64_t presence_timeouts{0};
+  std::uint64_t presence_online_results{0};
+  std::uint64_t presence_offline_results{0};
+  std::uint64_t presence_unknown_results{0};
+  int last_presence_error{0};
+  std::size_t presence_cloud_servers{0};
+  std::size_t presence_queried_servers{0};
+  std::size_t presence_timing_samples{0};
   std::uint64_t malformed_messages{0};
   std::uint64_t write_failures{0};
   std::uint64_t session_replacements{0};

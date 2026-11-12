@@ -340,13 +340,24 @@ struct Worker {
       if (stopped) { break; }
     }
   }
-  std::string Status() const {
+  std::string Status(bool locally_online) const {
     std::ostringstream out;
     out << "{\"selected\":true,\"uid\":" << Quote(link.EndpointId())
         << ",\"error\":" << Quote(error) << ",\"failed\":" << (sync->failed() ? "true" : "false")
         << ",\"saves\":" << saves << ",\"max_received\":" << counted.max_received
         << ",\"transport_accepted\":" << link.stats().data_accepted
         << ",\"transport_completed\":" << link.stats().data_completed
+        << ",\"local_online\":" << (locally_online ? "true" : "false")
+        << ",\"presence_queries\":" << link.stats().presence_queries
+        << ",\"presence_errors\":" << link.stats().presence_errors
+        << ",\"presence_timeouts\":" << link.stats().presence_timeouts
+        << ",\"presence_online\":" << link.stats().presence_online_results
+        << ",\"presence_offline\":" << link.stats().presence_offline_results
+        << ",\"presence_unknown\":" << link.stats().presence_unknown_results
+        << ",\"last_presence_error\":" << link.stats().last_presence_error
+        << ",\"presence_cloud_servers\":" << link.stats().presence_cloud_servers
+        << ",\"presence_queried_servers\":" << link.stats().presence_queried_servers
+        << ",\"presence_timing_samples\":" << link.stats().presence_timing_samples
         << ",\"foreign_relay\":" << counted.foreign_relay;
     auto* current = room();
     out << ",\"room_id\":" << (current ? current->obj_id.id() : 0)
@@ -361,6 +372,7 @@ struct Worker {
     if (current) {
       for (auto const& peer : current->local_state->peers) {
         auto const& uid = peer->link->endpoint_uid;
+        auto const native = link.PeerStats(uid);
         if (!first) { out << ','; } first = false;
         auto const count = [](auto const& map, std::string const& id) {
           auto found = map.find(id); return found == map.end() ? 0ULL : found->second;
@@ -371,7 +383,12 @@ struct Worker {
             << ",\"event_attempts\":" << count(counted.attempts, uid)
             << ",\"old_event_attempts\":" << count(counted.old_event_attempts, uid)
             << ",\"event_accepted\":" << count(counted.accepted_events, uid)
-            << ",\"events_received\":" << count(counted.received_events, uid) << '}';
+            << ",\"events_received\":" << count(counted.received_events, uid)
+            << ",\"presence_online\":" << native.presence_online_results
+            << ",\"presence_offline\":" << native.presence_offline_results
+            << ",\"presence_unknown\":" << native.presence_unknown_results
+            << ",\"presence_errors\":" << native.presence_errors
+            << ",\"last_presence_error\":" << native.last_presence_error << '}';
         pending += peer->pending_packets.size();
       }
     }
@@ -398,6 +415,7 @@ int main(int argc, char** argv) {
   std::unique_ptr<apptraverse::AetherByteLink> link;
   std::unique_ptr<Worker> worker;
   std::uint64_t next_status = 0;
+  std::uint64_t status_blocked_since = 0;
   while (Micros() - start < 600000000ULL && !sdk->IsExited()) {
     auto const wake = sdk->Update(ae::Now()); auto const now = Micros();
     if ((selected && !okay) || (!selected && now - start > 120000000ULL)) {
@@ -422,8 +440,27 @@ int main(int argc, char** argv) {
       }
       link->Service(now); worker->sync->Service(now);
       if (now >= next_status || worker->stopped) {
-        if (!AtomicText("status.json", worker->Status())) { return 4; }
-        next_status = now + 200000;
+        if (!AtomicText("status.json", worker->Status(client->IsLocallyOnline()))) {
+#ifdef _WIN32
+          auto const error = GetLastError();
+          if (!status_blocked_since) {
+            status_blocked_since = now;
+            std::cerr << "status publication blocked, Win32 error " << error << '\n';
+          }
+          // This is disposable controller telemetry, not native persistence.
+          // An open reader/indexer can briefly prevent Windows replacement.
+          if ((error != ERROR_SHARING_VIOLATION && error != ERROR_ACCESS_DENIED &&
+               error != ERROR_LOCK_VIOLATION) || now - status_blocked_since > 5000000ULL) {
+            return 4;
+          }
+          next_status = now + 20000;
+#else
+          return 4;
+#endif
+        } else {
+          status_blocked_since = 0;
+          next_status = now + 200000;
+        }
       }
       if (worker->stopped) { worker.reset(); link.reset(); return 0; }
       if (worker->sync->failed() || !worker->error.empty()) { return 5; }
