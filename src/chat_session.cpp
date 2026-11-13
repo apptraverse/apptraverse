@@ -980,6 +980,14 @@ void ChatSession::Stop() {
   std::lock_guard commands_lock{impl_->command_mutex};
   impl_->commands.clear();
 }
+void ChatSession::Checkpoint(std::function<void(bool)> completion) {
+  impl_->proxy.EnqueueModelWork(
+      [impl = impl_.get(), completion = std::move(completion)](ae::Domain&) {
+        bool const ok = impl->CommitMemory();
+        if (!ok) impl->SetError("Could not persist chat checkpoint");
+        completion(ok);
+      });
+}
 void ChatSession::CreateRoom() {
   impl_->proxy.EnqueueModelWork(
       [impl = impl_.get()](ae::Domain&) { impl->CreateRoom(); });

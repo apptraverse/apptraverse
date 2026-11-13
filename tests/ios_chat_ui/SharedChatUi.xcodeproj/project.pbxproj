@@ -1,0 +1,74 @@
+// !$*UTF8*$!
+{
+ archiveVersion = 1;
+ classes = {};
+ objectVersion = 56;
+ objects = {
+  100000000000000000000001 = {isa = PBXBuildFile; fileRef = 100000000000000000000002; };
+  100000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedChatUi.swift; sourceTree = "<group>"; };
+  100000000000000000000003 = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SharedChatUi.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+  100000000000000000000004 = {isa = PBXGroup; children = (100000000000000000000002,100000000000000000000005,); sourceTree = "<group>"; };
+  100000000000000000000005 = {isa = PBXGroup; children = (100000000000000000000003,); name = Products; sourceTree = "<group>"; };
+  100000000000000000000006 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000001,); runOnlyForDeploymentPostprocessing = 0; };
+  100000000000000000000007 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+  100000000000000000000008 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+  100000000000000000000009 = {
+   isa = PBXNativeTarget;
+   buildConfigurationList = 100000000000000000000010;
+   buildPhases = (100000000000000000000006,100000000000000000000007,100000000000000000000008,);
+   buildRules = ();
+   dependencies = ();
+   name = SharedChatUi;
+   productName = SharedChatUi;
+   productReference = 100000000000000000000003;
+   productType = "com.apple.product-type.bundle.ui-testing";
+  };
+  100000000000000000000011 = {
+   isa = PBXProject;
+   attributes = {LastUpgradeCheck = 1500; TargetAttributes = {100000000000000000000009 = {CreatedOnToolsVersion = 15.1; }; }; };
+   buildConfigurationList = 100000000000000000000012;
+   compatibilityVersion = "Xcode 14.0";
+   developmentRegion = en;
+   hasScannedForEncodings = 0;
+   knownRegions = (en,Base,);
+   mainGroup = 100000000000000000000004;
+   productRefGroup = 100000000000000000000005;
+   projectDirPath = "";
+   projectRoot = "";
+   targets = (100000000000000000000009,);
+  };
+  100000000000000000000010 = {isa = XCConfigurationList; buildConfigurations = (100000000000000000000013,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Debug; };
+  100000000000000000000012 = {isa = XCConfigurationList; buildConfigurations = (100000000000000000000014,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Debug; };
+  100000000000000000000013 = {
+   isa = XCBuildConfiguration;
+   buildSettings = {
+    CODE_SIGNING_ALLOWED = NO;
+    GENERATE_INFOPLIST_FILE = YES;
+    IPHONEOS_DEPLOYMENT_TARGET = 17.2;
+    PRODUCT_BUNDLE_IDENTIFIER = org.apptraverse.SharedChat.ui-tests;
+    PRODUCT_NAME = "$(TARGET_NAME)";
+    SDKROOT = iphonesimulator;
+    SUPPORTED_PLATFORMS = iphonesimulator;
+    SUPPORTS_MACCATALYST = NO;
+    SWIFT_VERSION = 5.0;
+    SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+    TARGETED_DEVICE_FAMILY = 1;
+    TEST_TARGET_NAME = "";
+   };
+   name = Debug;
+  };
+  100000000000000000000014 = {
+   isa = XCBuildConfiguration;
+   buildSettings = {
+    CLANG_ENABLE_MODULES = YES;
+    DEBUG_INFORMATION_FORMAT = dwarf;
+    ENABLE_TESTABILITY = YES;
+    IPHONEOS_DEPLOYMENT_TARGET = 17.2;
+    SDKROOT = iphonesimulator;
+    SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+   };
+   name = Debug;
+  };
+ };
+ rootObject = 100000000000000000000011;
+}

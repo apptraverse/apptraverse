@@ -1,3 +1,7 @@
+if(IOS)
+  add_subdirectory(ios)
+  return()
+endif()
 if(APPLE AND NOT IOS)
   add_subdirectory(macos)
   return()

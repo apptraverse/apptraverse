@@ -402,9 +402,14 @@ The SDK, Domain and sync runtime live on a model thread. GUI commands enter
 through `ModelObjectProxy`; the UI consumes immutable value publications.
 ChatView is published only after a materialized Node change or a status
 transition, through the existing Node notifier. On Windows a callback posts a
-window message; on macOS the bridge dispatches to the main queue and the
+window message; on macOS/iOS the shared Apple bridge dispatches to the main queue and the
 SwiftUI presenter consumes the value publication. There is no regular
 publication/refresh timer, and no presentation work for ACKs/retries/idle.
+
+iOS deactivation enqueues an ordered USER checkpoint on the model worker.
+A bounded platform background task covers completion; neither deactivation
+nor that task ending destroys the session or presenters. Ordinary accepted
+mutations remain durable before ACK, independently of lifecycle callbacks.
 
 The current demonstration persists chat objects and delivery obligations as
 one native USER graph over the embedded supply. A successful SharedSync commit

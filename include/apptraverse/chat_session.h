@@ -55,6 +55,9 @@ class ChatSession {
 
   void Start();
   void Stop();
+  // Ordered model-worker checkpoint; completion runs there after USER is durable.
+  // Keeps the model, transport and presenters alive during native deactivation.
+  void Checkpoint(std::function<void(bool)> completion);
   void CreateRoom();
   // Resolve the selected host's current room over Aether, then join it.
   // Only the host UID is user-visible; room object IDs stay in the protocol.

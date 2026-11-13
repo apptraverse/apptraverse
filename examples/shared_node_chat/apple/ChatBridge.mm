@@ -43,6 +43,12 @@ static NSString* Text(std::string const& value) {
   session->Stop();
   if (lock >= 0) { close(lock); lock = -1; }
 }
+- (void)checkpoint:(void (^)(BOOL))completion {
+  if (stopped) { completion(NO); return; }
+  session->Checkpoint([completion](bool ok) {
+    dispatch_async(dispatch_get_main_queue(), ^{ completion(ok); });
+  });
+}
 - (void)dealloc { [self stop]; }
 - (void)createRoom { if (!stopped) session->CreateRoom(); }
 - (void)joinRoom:(NSString*)invite { if (!stopped) session->JoinRoom(invite.UTF8String); }

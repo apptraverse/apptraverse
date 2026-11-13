@@ -1,7 +1,7 @@
 # Keep the optional SDK out of ordinary model/UI builds. Shared object and
 # serialization dependencies have already been added by the root project.
 set(APPTRAVERSE_AETHER_CLIENT_GIT_TAG
-  "dcc3197e564baeb2f3d4b8fcb19fac7dcc54bd70")
+  "91aea53310335778b2bb4803cffff43d2b19b59b")
 set(APPTRAVERSE_AETHER_CLIENT_SOURCE "" CACHE PATH "Optional clean SDK checkout at the pinned upstream revision")
 if(EMSCRIPTEN)
   set(_apptraverse_shared_aether_default_config "${CMAKE_CURRENT_LIST_DIR}/shared_aether_web_config.h")

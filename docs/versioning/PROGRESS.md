@@ -1,3 +1,13 @@
+## SharedNode iPhone SwiftUI port — 2026-11-13 — BUILD PASS, UI IN PROGRESS
+
+Added the iPhone SwiftUI screen, shared Apple presenter/bridge and model-worker
+USER checkpoint on deactivation without stopping the live session. SDK `91aea53`
+adds the missing iOS c-ares dependency. macOS and iOS Debug products build;
+**18/18 final CTests PASS**. iOS product is installed; native UI/cloud acceptance
+is not complete because CoreSimulator is slow/stalling during runner setup.
+The user explicitly requested merging this current state and continuing tests.
+[Validation](../validation/shared-node-chat-ios-swiftui-2026-11-13.md).
+
 ## SharedNode macOS SwiftUI chat — 2026-11-13 — PASS
 
 Based on main `68233585`, with UID-only host/client roles. Thin SwiftUI

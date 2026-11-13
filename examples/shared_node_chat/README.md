@@ -172,3 +172,55 @@ through accessibility. It checks rendered accessibility text, three-peer
 Unicode delivery, TCP activation and durable delivery after forced restarts.
 The normal application has no command channel. Use a fresh output directory;
 its profiles contain test credentials and must remain private.
+
+## iPhone (SwiftUI)
+
+The iOS screen uses the same Apple `ChatPresenter`, Objective-C++ bridge and
+C++ `ChatSession` as macOS. It places messages above the keyboard-aware composer
+and shows participants in a sheet. There is no second model or refresh timer.
+The default role is client: enter the Windows/macOS host Aether ID and tap Join.
+`--host` and `--client HOST-UID` are also available as launch arguments.
+
+Every accepted model mutation is durable before ACK. On scene deactivation,
+iOS additionally enqueues a model-worker checkpoint with a bounded native
+background task. Completion ends that task; expiration also releases it. The
+session and presenters stay alive. A cold launch restores the same native USER
+and SDK identity; no application-termination callback is required to save them.
+
+For an installed iOS 17.2 Simulator, first produce the chat supply using the
+macOS exporter above. Then, from the repository root:
+
+```sh
+cmake -S . -B build/chat-ios -G Ninja \
+  -DCMAKE_TOOLCHAIN_FILE="$PWD/cmake/toolchains/ios-simulator.cmake" \
+  -DCMAKE_BUILD_TYPE=Debug -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+  -DAE_NO_DEBUG_LOG=ON -DBUILD_TESTING=OFF \
+  -DAPPTRAVERSE_BUILD_EXAMPLES=OFF \
+  -DAPPTRAVERSE_BUILD_AETHER_LINK=ON \
+  -DAPPTRAVERSE_BUILD_SHARED_NODE_CHAT=ON \
+  -DAPPTRAVERSE_CHAT_SUPPLY_HEADER="$PWD/build/chat-macos/chat_supply.h"
+cmake --build build/chat-ios --target shared_node_chat --parallel 2
+codesign --force --sign - build/chat-ios/examples/shared_node_chat/ios/shared_node_chat.app
+xcrun simctl install booted build/chat-ios/examples/shared_node_chat/ios/shared_node_chat.app
+xcrun simctl launch booted org.apptraverse.SharedNodeChat.ios
+```
+
+Profiles live in the application's private Application Support directory.
+The simulator toolchain and ad-hoc signing above do not package a physical-device
+release; device signing is a separate step.
+
+Explicit native UI/cloud acceptance uses the installed product plus the
+standalone `tests/ios_chat_ui/SharedChatUi.xcodeproj` XCTest runner. It taps the
+real SwiftUI controls, checks Mac/iPhone messages, Unicode replies, participants,
+rotation, background/foreground without a process replacement, and cold restore.
+Build its `SharedChatUi` scheme with `xcodebuild build-for-testing`, then run:
+
+```sh
+python3 tests/run_shared_chat_ios.py \
+  --host build/chat-macos/examples/shared_node_chat/macos/apptraverse_shared_chat_macos_acceptance \
+  --xctestrun PATH/TO/SharedChatUi_iphonesimulator17.2-x86_64.xctestrun \
+  --device BOOTED-SIMULATOR-UUID --out .artifacts/shared-chat-ios
+```
+
+This creates fresh private cloud identities and requires a new output directory.
+It never joins or modifies a user's manually running chat.
