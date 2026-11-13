@@ -100,6 +100,7 @@ struct Process {
   HWND window{};
   std::wstring name;
   std::filesystem::path profile;
+  std::wstring host_id;
 
   Process() = default;
   Process(Process const&) = delete;
@@ -123,6 +124,8 @@ struct Process {
     Require(!error, "Could not create participant profile directory");
     auto command = L"\"" + exe.wstring() + L"\" --profile \"" +
                    profile.wstring() + L"\" --name \"" + name + L"\"";
+    command += name == L"Host" ? L" --host" : L" --client";
+    if (!host_id.empty()) command += L" \"" + host_id + L"\"";
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
     SECURITY_ATTRIBUTES attributes{sizeof(attributes), nullptr, TRUE};
@@ -327,24 +330,40 @@ int wmain(int argc, wchar_t** argv) {
   for (std::size_t index = 0; index < peers.size(); ++index) {
     peers[index].name = names[index];
     peers[index].profile = profiles / names[index];
+  }
+  peers[0].Start(exe);
+  std::wstring invite;
+  Wait("Automatically creating a host room", [&] {
+    auto const window = peers[0].Window();
+    if (!window || !GetDlgItem(window, kInputControl) ||
+        !IsWindowEnabled(Control(window, kInputControl))) return false;
+    invite = Text(Control(window, kUidControl));
+    Require(IsWindowVisible(Control(window, kUidControl)) &&
+            !IsWindowVisible(Control(window, kInviteControl)),
+            "Host must show only its Aether ID field");
+    return invite.size() == 36 && invite.find(L'/') == std::wstring::npos;
+  });
+  Click(peers[0].Window(), kHostControl);
+  Require(OpenClipboard(nullptr) != FALSE, "Could not inspect clipboard");
+  auto clipboard = GetClipboardData(CF_UNICODETEXT);
+  auto* copied = clipboard ? static_cast<wchar_t*>(GlobalLock(clipboard)) : nullptr;
+  bool const copied_id = copied && std::wstring{copied} == invite;
+  if (copied) GlobalUnlock(clipboard);
+  CloseClipboard();
+  Require(copied_id, "Copy must put only the host Aether ID on the clipboard");
+  peers[1].host_id = invite;
+  for (std::size_t index = 1; index < peers.size(); ++index) {
     peers[index].Start(exe);
   }
   Wait("Waiting for the Aether client API", [&] {
-    for (auto& peer : peers) {
-      if (!Ready(peer)) {
-        return false;
-      }
-    }
-    return true;
-  });
-  Click(peers[0].Window(), kHostControl);
-  std::wstring invite;
-  Wait("Creating a room", [&] {
-    invite = Text(Control(peers[0].Window(), kInviteControl));
-    return invite.find(L'/') != std::wstring::npos;
+    return Ready(peers[1]) && Ready(peers[2]);
   });
   for (std::size_t index = 1; index < peers.size(); ++index) {
     auto const window = peers[index].Window();
+    Require(!IsWindowVisible(Control(window, kUidControl)) &&
+            IsWindowVisible(Control(window, kInviteControl)),
+            "Client must show only the host Aether ID field");
+    if (index == 1) continue;  // --client UID joins without clicking.
     SetText(Control(window, kInviteControl), invite);
     Click(window, kJoinControl);
   }
@@ -411,7 +430,8 @@ int wmain(int argc, wchar_t** argv) {
     Require(!std::filesystem::exists(peer.profile / L"root.id"),
             "Chat wrote an application-root sidecar");
   }
-  std::cout << "PASS: event-driven native chat, Unicode, three peers, native "
+  std::cout << "PASS: CLI host/client, UID-only discovery, Copy, single ID field, "
+               "event-driven native chat, Unicode, three peers, native "
                "USER restore, offline delivery, clean shutdown"
             << std::endl;
   return 0;

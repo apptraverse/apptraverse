@@ -8,6 +8,7 @@ $chatProfiles = [IO.Path]::GetFullPath($Profiles)
 foreach ($participant in @('Host', 'Alice', 'Bob')) {
   $chatProfile = Join-Path $chatProfiles $participant
   # These are the three visible chat windows requested for the demonstration.
-  Start-Process -FilePath $chatExe -ArgumentList @('--profile', ('"' + $chatProfile + '"'), '--name', $participant)
+  $chatRole = if ($participant -eq 'Host') { '--host' } else { '--client' }
+  Start-Process -FilePath $chatExe -ArgumentList @($chatRole, '--profile', ('"' + $chatProfile + '"'), '--name', $participant)
 }
-Write-Host 'Click Host room in one window. Copy its Room invite into the other windows and click Join.'
+Write-Host 'Host starts automatically. Copy its Aether ID into the clients and click Join.'

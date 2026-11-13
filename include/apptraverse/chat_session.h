@@ -56,7 +56,9 @@ class ChatSession {
   void Start();
   void Stop();
   void CreateRoom();
-  void JoinRoom(std::string invite);
+  // Resolve the selected host's current room over Aether, then join it.
+  // Only the host UID is user-visible; room object IDs stay in the protocol.
+  void JoinRoom(std::string host_uid);
   void Send(std::string text);
   ChatView View() const;
 
