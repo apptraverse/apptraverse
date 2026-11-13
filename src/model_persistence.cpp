@@ -92,10 +92,9 @@ bool IsRuntimeOnlyClassId(std::uint32_t class_id) {
 bool IsExcludedFromPersistentSnapshot(ae::Obj const& object) {
   RegisterDefaultRuntimeOnlyClasses();
   auto const class_id = object.GetClassId();
-  if (ae::Registry::GetRegistry().GenerationDistance(Presenter::kClassId,
-                                                     class_id) >= 0) {
-    return true;
-  }
+  // The portable presenter is part of the canonical graph. Native handles and
+  // backend view instances are unreflected runtime fields, not a reason to
+  // erase its identity and model links from a persistent checkpoint.
   return IsRuntimeOnlyClassId(class_id);
 }
 
