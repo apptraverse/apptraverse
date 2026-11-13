@@ -15,6 +15,8 @@
 namespace apptraverse {
 namespace {
 
+constexpr std::size_t kMaxDeferredAcks = 256;
+
 // The original 1.0 schema remains a native reflected type so persisted frozen
 // packets can still be decoded without changing their identity or bytes.
 struct SharedSyncMessageV0 {
@@ -951,6 +953,29 @@ void SharedSyncRuntime::Service(std::uint64_t now_us) {
   if (failed_) {
     return;
   }
+  // A long fragmented write may occupy the transport when peer data arrives.
+  // Give replies for persisted state the next slot before retrying our data.
+  // Copy keys: Send can call this runtime synchronously. A newer reply with
+  // the same key wins if the older attempt is refused.
+  std::vector<RetryKey> ack_keys;
+  ack_keys.reserve(deferred_acks_.size());
+  for (auto const& [key, bytes] : deferred_acks_) {
+    (void)bytes;
+    ack_keys.push_back(key);
+  }
+  for (auto const& key : ack_keys) {
+    auto found = deferred_acks_.find(key);
+    if (found == deferred_acks_.end() ||
+        link_.Availability(std::get<1>(key)) == LinkAvailability::Offline) {
+      continue;
+    }
+    auto bytes = std::move(found->second);
+    deferred_acks_.erase(found);
+    if (!link_.Send(std::get<1>(key), bytes) &&
+        deferred_acks_.size() < kMaxDeferredAcks) {
+      deferred_acks_.try_emplace(key, std::move(bytes));
+    }
+  }
   for (auto const& [node_id, node] : nodes_) {
     for (auto const& peer : node->local_state->peers) {
       auto const endpoint = peer->link->endpoint_uid;
@@ -1356,7 +1381,13 @@ void SharedSyncRuntime::SendAck(std::string const& destination,
   }
   std::vector<std::uint8_t> bytes;
   if (SerializeSharedSyncMessage(ack, bytes)) {
-    link_.Send(destination, bytes);
+    RetryKey const key{ack.node_id, destination, ack.packet_id};
+    if (link_.Send(destination, bytes)) {
+      deferred_acks_.erase(key);
+    } else if (deferred_acks_.contains(key) ||
+               deferred_acks_.size() < kMaxDeferredAcks) {
+      deferred_acks_.insert_or_assign(key, std::move(bytes));
+    }
   }
 }
 

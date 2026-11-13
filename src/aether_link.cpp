@@ -10,9 +10,9 @@
 
 #include "aether-miscpp/format/format.h"
 #include "aether/client_messages/p2p_message_stream.h"
-#include "aether/client_messages/p2p_safe_message_stream.h"
+#include "aether/client_messages/p2p_stream_write_budget.h"
 #include "aether/connection_manager/peer_presence_query.h"
-#include "aether/stream_api/sized_packet_gate.h"
+#include "apptraverse/p2p_message_fragments.h"
 
 namespace apptraverse {
 namespace {
@@ -83,12 +83,11 @@ LinkAvailability AetherPresenceSnapshot::Availability(
 }
 
 struct AetherByteLink::Impl {
-  struct Job {
-    std::vector<std::uint8_t> wire;
-    std::size_t offset{0};
-  };
   struct Peer {
-    explicit Peer(ae::Uid value) : uid{value} {}
+    Peer(ae::Uid value, std::size_t max_message_bytes)
+        : uid{value},
+          packets{P2pMessageReader::Limits{.max_message_bytes =
+                                               max_message_bytes}} {}
     ae::Uid uid;
     AetherPresenceSnapshot presence;
     std::uint64_t next_query_us{0};
@@ -97,30 +96,23 @@ struct AetherByteLink::Impl {
     std::uint64_t session_started_us{0};
     std::uint64_t last_write_progress_us{0};
     bool reset_needed{false};
-    std::shared_ptr<ae::P2pStream> raw;
-    std::shared_ptr<ae::P2pSafeStream> safe;
-    std::unique_ptr<ae::SizedPacketGate> packets;
-    ae::Subscription packet_sub;
+    std::unique_ptr<ae::P2pStream> raw;
+    P2pMessageReader packets;
     ae::Subscription chunk_sub;
-    ae::Subscription receive_reset_sub;
     ae::Subscription write_sub;
-    std::deque<Job> jobs;
+    std::deque<P2pMessageWriter> jobs;
     bool writing{false};
     std::optional<ae::WriteAction::Status> terminal;
-    std::size_t written_end{0};
     AetherLinkStatistics statistics;
 
     void Drop() {
       write_sub.Reset();
-      receive_reset_sub.Reset();
       chunk_sub.Reset();
-      packet_sub.Reset();
       writing = false;
       terminal.reset();
       jobs.clear();
-      safe.reset();
       raw.reset();
-      packets.reset();
+      packets.Reset();
     }
     ~Peer() { Drop(); }
   };
@@ -157,7 +149,7 @@ struct AetherByteLink::Impl {
     auto const key = UidText(uid);
     auto found = peers.find(key);
     if (found == peers.end()) {
-      auto peer = std::make_unique<Peer>(uid);
+      auto peer = std::make_unique<Peer>(uid, options.max_message_bytes);
       peer->clock_started = serviced;
       found = peers.emplace(key, std::move(peer)).first;
     }
@@ -169,7 +161,7 @@ struct AetherByteLink::Impl {
       return nullptr;
     }
     auto* peer = Get(uid);
-    if (!peer->safe) {
+    if (!peer->raw) {
       Bind(*peer, client->message_stream_manager().CreatePort(uid));
     }
     return peer;
@@ -296,36 +288,20 @@ struct AetherByteLink::Impl {
     peer.session_started_us = now_us;
     peer.last_write_progress_us = now_us;
     peer.reset_needed = false;
-    peer.raw = std::make_shared<ae::P2pStream>(context, client.Load(), peer.uid,
+    peer.raw = std::make_unique<ae::P2pStream>(context, client.Load(), peer.uid,
                                                std::move(handle));
-    using namespace std::chrono_literals;
-    auto const config =
-        ae::SafeStreamConfig{.window_size = AE_SAFE_STREAM_CAPACITY / 2 - 1,
-                             .max_packet_size = AE_SAFE_STREAM_CAPACITY / 2 - 1,
-                             .max_repeat_count = 10,
-                             .wait_ack_timeout = 1500ms,
-                             .send_ack_timeout = 0ms,
-                             .send_repeat_timeout = 200ms};
-    peer.safe = std::make_shared<ae::P2pSafeStream>(context, config, peer.raw);
-    peer.packets = std::make_unique<ae::SizedPacketGate>(context);
     auto* const raw_peer = &peer;
     auto const generation = peer.generation;
-    peer.receive_reset_sub = peer.safe->receive_reset_event().Subscribe(
-        [this, raw_peer, generation]() {
-          if (!stopped && raw_peer->generation == generation) {
-            raw_peer->packets->Reset();
-          }
-        });
-    peer.chunk_sub = peer.safe->out_data_event().Subscribe(
+    peer.chunk_sub = peer.raw->out_data_event().Subscribe(
         [this, raw_peer, generation](ae::DataBuffer const& data) {
           if (!stopped && raw_peer->generation == generation) {
-            raw_peer->packets->WriteOut(data);
-          }
-        });
-    peer.packet_sub = peer.packets->out_data_event().Subscribe(
-        [this, raw_peer, generation](ae::DataBuffer const& data) {
-          if (!stopped && raw_peer->generation == generation) {
-            Receive(*raw_peer, data);
+            auto const malformed_before = raw_peer->packets.malformed();
+            auto message = raw_peer->packets.Receive(data, now_us);
+            auto const malformed =
+                raw_peer->packets.malformed() - malformed_before;
+            statistics.malformed_messages += malformed;
+            raw_peer->statistics.malformed_messages += malformed;
+            if (message) Receive(*raw_peer, *message);
           }
         });
   }
@@ -333,9 +309,7 @@ struct AetherByteLink::Impl {
     if (!peer.jobs.empty()) {
       return false;
     }
-    auto wire =
-        peer.packets->WriteIn(ae::DataBuffer{bytes.begin(), bytes.end()});
-    peer.jobs.push_back({std::move(wire), 0});
+    peer.jobs.emplace_back(bytes);
     return true;
   }
   void Receive(Peer& peer, ae::DataBuffer const& data) {
@@ -363,8 +337,8 @@ struct AetherByteLink::Impl {
       } else if (!peer.jobs.empty()) {
         peer.last_write_progress_us = now_us;
         auto& job = peer.jobs.front();
-        job.offset = peer.written_end;
-        if (job.offset == job.wire.size()) {
+        job.Advance();
+        if (job.done()) {
           ++statistics.data_completed;
           ++peer.statistics.data_completed;
           peer.jobs.pop_front();
@@ -384,27 +358,29 @@ struct AetherByteLink::Impl {
       // SharedNode retains the pending business message for durable retry.
       Bind(peer, client->message_stream_manager().CreatePort(peer.uid));
     }
-    if (peer.reset_needed || peer.writing || !peer.safe ||
+    peer.packets.Expire(now_us);
+    if (peer.reset_needed || peer.writing || !peer.raw ||
         (options.use_presence && options.gate_delivery_on_presence &&
          availability != LinkAvailability::Online)) {
       return;
     }
-    auto const info = peer.safe->stream_info();
+    auto const info = peer.raw->stream_info();
     if (peer.jobs.empty() || !info.is_writable || info.max_element_size == 0) {
       return;
     }
-    auto const& job = peer.jobs.front();
-    auto const budget = std::min<std::size_t>(info.max_element_size,
-                                              AE_SAFE_STREAM_CAPACITY / 2 - 1);
-    auto const end = std::min(job.wire.size(), job.offset + budget);
-    ae::DataBuffer chunk{
-        job.wire.begin() + static_cast<std::ptrdiff_t>(job.offset),
-        job.wire.begin() + static_cast<std::ptrdiff_t>(end)};
-    peer.written_end = end;
+    auto& job = peer.jobs.front();
+    auto const budget = std::min<std::size_t>(
+        65535,
+        ae::P2pStreamWritePayloadLimitFromChannelMax(info.max_element_size));
+    auto chunk = job.Next(budget);
+    if (chunk.empty()) {
+      peer.reset_needed = true;
+      return;
+    }
     peer.writing = true;
     auto const generation = peer.generation;
     auto* const raw_peer = &peer;
-    auto& action = peer.safe->Write(std::move(chunk));
+    auto& action = peer.raw->Write(std::move(chunk));
     if (action.is_finished()) {
       // The SDK provides no readable status after synchronous completion.
       peer.terminal = ae::WriteAction::Status::kFail;

@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
+#include "apptraverse/p2p_message_fragments.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/shared_sync.h"
 
@@ -218,7 +219,16 @@ class CountingLink final : public IByteLink {
   CountingLink(MemoryLink& link, Observer observer)
       : link_{link}, observer_{std::move(observer)} {}
   void SetReceiver(Receiver receiver) override {
-    link_.SetReceiver(std::move(receiver));
+    link_.SetReceiver([this, receiver = std::move(receiver)](
+                          auto const& source, auto const& bytes) {
+      if (!receiver) return;
+      if (!fragmented) {
+        receiver(source, bytes);
+        return;
+      }
+      auto message = fragments.Receive(bytes, 0);
+      if (message) receiver(source, *message);
+    });
   }
   bool Send(std::string const& destination,
             std::vector<std::uint8_t> const& bytes) override {
@@ -229,7 +239,18 @@ class CountingLink final : public IByteLink {
     bool const parsed = DeserializeSharedSyncMessage(bytes, message);
     CHECK(parsed);
     observer_(link_.EndpointId(), destination, message, bytes);
-    bool const accepted = link_.Send(destination, bytes);
+    bool accepted = true;
+    if (fragmented) {
+      P2pMessageWriter writer{bytes};
+      while (!writer.done()) {
+        auto fragment = writer.Next(256);
+        CHECK(!fragment.empty());
+        accepted = link_.Send(destination, fragment) && accepted;
+        writer.Advance();
+      }
+    } else {
+      accepted = link_.Send(destination, bytes);
+    }
     if (accepted && send_budget) {
       --*send_budget;
     }
@@ -242,6 +263,8 @@ class CountingLink final : public IByteLink {
   // A budget refusal consumes neither capacity nor an outgoing-frame ledger
   // slot.
   std::optional<std::size_t> send_budget;
+  bool fragmented{false};
+  P2pMessageReader fragments;
 
  private:
   MemoryLink& link_;
@@ -1050,11 +1073,82 @@ void TestUnsupportedVersionDoesNotMutateOrAcknowledge() {
   pair.Equal(id, 1);
 }
 
+void TestFragmentedDatagramLossAckLossAndBothSidesRestart() {
+  Pair pair;
+  auto fragmented = [&] {
+    pair.h->transport->fragmented = true;
+    pair.b->transport->fragmented = true;
+  };
+  fragmented();
+  auto const id = pair.AddRoom();
+  bool const queued = pair.h->runtime->QueueInitialState(id, "B");
+  CHECK(queued);
+  pair.Service(0);
+  auto packets = pair.network.PendingPackets();
+  CHECK(packets.size() > 2);
+  // Drop one initial fragment and duplicate another. No partial graph or ACK.
+  CHECK(pair.network.Drop(packets.front().id));
+  CHECK(pair.network.Duplicate(packets.back().id) != 0);
+  pair.Drain(true);
+  CHECK(pair.b->app->rooms.empty());
+  CHECK(!pair.h->Peer(id, "B").initial_complete);
+  pair.Service(kRetry);
+  pair.Drain(true);
+  CHECK(pair.h->Peer(id, "B").initial_complete);
+  pair.Equal(id, 0);
+  auto const event = pair.h->Append(id, std::string(8192, 'x'), 100);
+  pair.Service(2 * kRetry);
+  // Deliver the entire Event, but discard every returning ACK fragment.
+  for (auto const& packet : pair.network.PendingPackets()) {
+    CHECK(packet.source == "H");
+    CHECK(pair.network.Deliver(packet.id));
+  }
+  CHECK(pair.b->Room(id).text.size() == 8197);
+  for (auto const& packet : pair.network.PendingPackets())
+    CHECK(pair.network.Drop(packet.id));
+  CHECK(pair.h->Peer(id, "B").FindPending(event) != nullptr);
+  pair.RestartH();
+  pair.RestartB();
+  fragmented();
+  pair.Service(3 * kRetry);
+  pair.Drain(true);
+  pair.Equal(id, 1);
+  CHECK(pair.h->Peer(id, "B").FindPending(event) == nullptr);
+  auto const reverse = pair.b->Append(id, "|after-restart", 200);
+  CHECK(reverse.is_valid());
+  pair.Service(4 * kRetry);
+  pair.Drain(true);
+  pair.Equal(id, 2);
+  CHECK(pair.checked_acks > 0);
+}
+
+void TestSimultaneousBackpressureDoesNotStarveDurableAcks() {
+  Pair pair;
+  auto const id = pair.AddRoom();
+  pair.Bootstrap(id);
+  pair.h->Append(id, "|H", 100);
+  pair.b->Append(id, "|B", 200);
+  // One admitted message per service turn models long fragmented writes in
+  // both directions. Receiving data while the local write owns that slot must
+  // not discard its ACK forever in favour of the next data retry.
+  for (std::uint64_t turn = 0; turn < 5; ++turn) {
+    pair.h->transport->send_budget = 1;
+    pair.b->transport->send_budget = 1;
+    pair.Service(turn * kRetry);
+    pair.Drain(true);
+  }
+  pair.Equal(id, 2);
+  CHECK(pair.h->Peer(id, "B").pending_packets.empty());
+  CHECK(pair.b->Peer(id, "H").pending_packets.empty());
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
 int main() {
   apptraverse::EnsureSharedNodeRegistration();
+  apptraverse::test::TestFragmentedDatagramLossAckLossAndBothSidesRestart();
+  apptraverse::test::TestSimultaneousBackpressureDoesNotStarveDurableAcks();
   apptraverse::test::TestLocalDeliveryMetadataHasBoundedHistory();
   apptraverse::test::TestInitialStateWinsSingleMessageBackpressure();
   apptraverse::test::TestInitialLossFrozenCoverageAndLateEvent();

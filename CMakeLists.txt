@@ -145,6 +145,7 @@ add_library(apptraverse_shared_node STATIC EXCLUDE_FROM_ALL
   src/shared_graph.cpp
   src/shared_sync.cpp
   src/memory_link.cpp
+  src/p2p_message_fragments.cpp
 )
 target_link_libraries(apptraverse_shared_node PUBLIC apptraverse)
 

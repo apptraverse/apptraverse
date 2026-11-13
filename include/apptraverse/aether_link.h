@@ -26,7 +26,8 @@ struct AetherLinkOptions {
   std::uint64_t presence_result_ttl_us{5000000};
   std::uint64_t presence_query_timeout_us{5000000};
   std::uint64_t recreate_interval_us{5000000};
-  // SDK PacketSize supplies framing; SharedSync supplies native serialization.
+  // Direct P2pStream carries bounded, independent message fragments.
+  // SharedSync supplies native serialization and durable ACK/retry.
   std::size_t max_message_bytes{1024 * 1024};
 };
 
@@ -81,6 +82,9 @@ struct AetherLinkStatistics {
 // One business message per peer can be queued/in flight. Failure remains the
 // SharedSyncRuntime's durable retry obligation, rather than a second SDK queue.
 // An unwritable SDK stream retains that one frame for stall/recovery handling.
+// No SafeStream or adaptive transport is layered on P2pStream. Reassembly is
+// bounded and tolerates UDP loss/reordering; only complete messages are
+// exposed.
 class AetherByteLink final : public IByteLink {
  public:
   AetherByteLink(ae::AeContext const& context, ae::Client::ptr client,

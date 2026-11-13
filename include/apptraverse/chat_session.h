@@ -1,6 +1,7 @@
 #ifndef APPTRAVERSE_CHAT_SESSION_H_
 #define APPTRAVERSE_CHAT_SESSION_H_
 
+#include <cstddef>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -29,6 +30,10 @@ struct ChatView {
   bool ready{false};
   bool in_room{false};
   bool locally_online{false};
+  bool tcp_path_verified{false};
+  bool udp_path_verified{false};
+  std::size_t retained_events{0};
+  std::size_t pending_packets{0};
   bool operator==(ChatView const&) const = default;
 };
 
@@ -42,8 +47,8 @@ class ChatSession {
   using PrepareProfile = std::function<bool()>;
   ChatSession(std::filesystem::path profile, std::string name,
               Changed changed = {});
-  ChatSession(std::filesystem::path profile, std::string name,
-              Changed changed, PrepareProfile prepare_profile);
+  ChatSession(std::filesystem::path profile, std::string name, Changed changed,
+              PrepareProfile prepare_profile);
   ~ChatSession();
   ChatSession(ChatSession const&) = delete;
   ChatSession& operator=(ChatSession const&) = delete;

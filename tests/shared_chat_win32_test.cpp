@@ -125,11 +125,22 @@ struct Process {
                    profile.wstring() + L"\" --name \"" + name + L"\"";
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
+    SECURITY_ATTRIBUTES attributes{sizeof(attributes), nullptr, TRUE};
+    auto const log_path =
+        profile / (L"process-" + std::to_wstring(GetTickCount64()) + L".log");
+    HANDLE log =
+        CreateFileW(log_path.c_str(), GENERIC_WRITE, FILE_SHARE_READ,
+                    &attributes, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    Require(log != INVALID_HANDLE_VALUE, "Could not open owned process log");
+    startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdOutput = startup.hStdError = log;
+    startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
     PROCESS_INFORMATION process{};
-    Require(CreateProcessW(exe.c_str(), command.data(), nullptr, nullptr, FALSE,
-                           0, nullptr, exe.parent_path().c_str(), &startup,
-                           &process) != FALSE,
-            "Could not launch shared_node_chat");
+    auto const created =
+        CreateProcessW(exe.c_str(), command.data(), nullptr, nullptr, TRUE, 0,
+                       nullptr, exe.parent_path().c_str(), &startup, &process);
+    CloseHandle(log);
+    Require(created != FALSE, "Could not launch shared_node_chat");
     CloseHandle(process.hThread);
     handle = process.hProcess;
     pid = process.dwProcessId;
@@ -187,6 +198,10 @@ struct Process {
     if (strict) {
       Require(stopped,
               "Closing the chat did not stop its model thread promptly");
+      if (code != 0) {
+        std::wcerr << name << L" exit code: " << code << L" (0x" << std::hex
+                   << code << std::dec << L")\n";
+      }
       Require(code == 0, "Chat process reported a failure on exit");
     }
   }
@@ -225,7 +240,10 @@ void Wait(char const* stage, Predicate predicate) {
 
 bool Ready(Process& process) {
   auto window = process.Window();
-  return window && IsWindowEnabled(Control(window, kHostControl));
+  // EnumWindows may see the HWND while WM_CREATE is still constructing its
+  // children. Missing controls are a real startup state until readiness.
+  auto host = window ? GetDlgItem(window, kHostControl) : nullptr;
+  return host && IsWindowEnabled(host);
 }
 
 void Send(Process& process, std::wstring const& message) {
