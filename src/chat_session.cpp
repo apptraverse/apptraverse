@@ -83,7 +83,8 @@ class Participant : public NodeFor<Participant> {
 struct ChatMessage {
   std::string author_name;
   std::string text;
-  AE_REFLECT_MEMBERS(author_name, text)
+  std::string id, author_uid;
+  AE_REFLECT_MEMBERS(author_name, text, id, author_uid)
 };
 
 class TextEvent;
@@ -167,7 +168,7 @@ bool Room::CanApply(JoinEvent const& event) const {
          });
 }
 void Room::Apply(TextEvent const& event) {
-  messages.push_back({event.author->name, event.text});
+  messages.push_back({event.author->name, event.text, std::to_string(event.obj_id.id()), event.author->link->endpoint_uid});
   NoteMaterializedChange();
 }
 void Room::Apply(JoinEvent const& event) {
@@ -417,11 +418,12 @@ class ChatLink final : public IByteLink {
 
 struct ChatSession::Impl {
   Impl(std::filesystem::path value, std::string user_name, Changed changed,
-       PrepareProfile prepare)
+       PrepareProfile prepare, FlushProfile flush)
       : profile{std::filesystem::absolute(std::move(value))},
         name{Trim(std::move(user_name))},
         on_changed{std::move(changed)},
         prepare_profile{std::move(prepare)},
+        flush_profile{std::move(flush)},
         proxy{[this](ModelObjectProxy::ModelWork work) {
           std::lock_guard lock{command_mutex};
           if (!stop_requested.load()) {
@@ -438,6 +440,7 @@ struct ChatSession::Impl {
   std::string name;
   Changed on_changed;
   PrepareProfile prepare_profile;
+  FlushProfile flush_profile;
   mutable std::mutex view_mutex;
   ChatView view;
   std::mutex lifecycle_mutex;
@@ -495,6 +498,7 @@ struct ChatSession::Impl {
     if (!SaveUserStorageFile(snapshot, profile)) {
       return false;
     }
+    if (flush_profile && !flush_profile()) return false;
     storage = std::move(snapshot);
     return true;
   }
@@ -667,15 +671,15 @@ struct ChatSession::Impl {
     next_join_request = 0;
   }
 
-  void Send(std::string text) {
+  bool Send(std::string text) {
     text = Trim(std::move(text));
     auto* room = CurrentRoom();
     if (failed || !sync || !room || text.empty()) {
-      return;
+      return false;
     }
     if (text.size() > 8192) {
       SetStatus("Message is too long (8192 bytes maximum)");
-      return;
+      return false;
     }
     auto const author = std::find_if(
         room->participants.begin(), room->participants.end(),
@@ -684,16 +688,17 @@ struct ChatSession::Impl {
         });
     if (author == room->participants.end()) {
       SetError("This client is not a room participant");
-      return;
+      return false;
     }
     auto event = TextEvent::ptr::Create(ae::CreateWith{*domain});
     event->author = *author;
     event->text = std::move(text);
     if (!sync->CommitLocal(room->obj_id, std::move(event))) {
       SetError("Could not commit the message");
-      return;
+      return false;
     }
     SetStatus("Connected");
+    return true;
   }
 
   void OnJoinRequest(std::string const& source, ae::ObjId room_id,
@@ -777,6 +782,7 @@ struct ChatSession::Impl {
       }
       for (auto const& message : room->messages) {
         next.messages.push_back(message.author_name + ": " + message.text);
+        next.message_records.push_back({message.id, message.author_uid, message.author_name, message.text});
       }
     } else if (app.is_valid() && app->expected.is_valid()) {
       next.invite = app->source;
@@ -958,10 +964,10 @@ ChatSession::ChatSession(std::filesystem::path profile, std::string name,
     : ChatSession{std::move(profile), std::move(name), std::move(changed), {}} {
 }
 ChatSession::ChatSession(std::filesystem::path profile, std::string name,
-                         Changed changed, PrepareProfile prepare_profile)
+                         Changed changed, PrepareProfile prepare_profile, FlushProfile flush_profile)
     : impl_{std::make_unique<Impl>(std::move(profile), std::move(name),
                                    std::move(changed),
-                                   std::move(prepare_profile))} {}
+                                   std::move(prepare_profile), std::move(flush_profile))} {}
 ChatSession::~ChatSession() { Stop(); }
 void ChatSession::Start() {
   std::lock_guard lock{impl_->lifecycle_mutex};
@@ -993,6 +999,9 @@ void ChatSession::JoinRoom(std::string invite) {
 void ChatSession::Send(std::string text) {
   impl_->proxy.EnqueueModelWork([impl = impl_.get(), text = std::move(text)](
                                     ae::Domain&) { impl->Send(text); });
+}
+void ChatSession::Send(std::string text, std::function<void(bool)> committed) {
+  impl_->proxy.EnqueueModelWork([impl=impl_.get(), text=std::move(text), committed=std::move(committed)](ae::Domain&) { committed(impl->Send(text)); });
 }
 ChatView ChatSession::View() const {
   std::lock_guard lock{impl_->view_mutex};

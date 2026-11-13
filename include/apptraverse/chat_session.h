@@ -21,12 +21,17 @@ struct ParticipantView {
 
 // Value-only publication. The UI owns its copy; no model/SDK pointers cross
 // the model thread boundary.
+struct ChatMessageView {
+  std::string id, author_uid, author_name, text;
+  bool operator==(ChatMessageView const&) const = default;
+};
 struct ChatView {
   std::string local_uid;
   std::string invite;
   std::string status;
   std::vector<ParticipantView> participants;
   std::vector<std::string> messages;
+  std::vector<ChatMessageView> message_records;
   bool ready{false};
   bool in_room{false};
   bool locally_online{false};
@@ -45,10 +50,12 @@ class ChatSession {
   // Runtime platform setup runs on the model worker before opening its profile.
   // Browser OPFS must be mounted there, without blocking the browser UI thread.
   using PrepareProfile = std::function<bool()>;
+  // Complete platform durability before SharedSync may emit its ACK.
+  using FlushProfile = std::function<bool()>;
   ChatSession(std::filesystem::path profile, std::string name,
               Changed changed = {});
   ChatSession(std::filesystem::path profile, std::string name, Changed changed,
-              PrepareProfile prepare_profile);
+              PrepareProfile prepare_profile, FlushProfile flush_profile = {});
   ~ChatSession();
   ChatSession(ChatSession const&) = delete;
   ChatSession& operator=(ChatSession const&) = delete;
@@ -60,6 +67,7 @@ class ChatSession {
   // Only the host UID is user-visible; room object IDs stay in the protocol.
   void JoinRoom(std::string host_uid);
   void Send(std::string text);
+  void Send(std::string text, std::function<void(bool)> committed);
   ChatView View() const;
 
  private:
