@@ -21,6 +21,7 @@ include(cmake/aether_version.cmake)
 include(cmake/apptraverse_compile_policy.cmake)
 
 option(APPTRAVERSE_BUILD_AETHER_DEMOS "Build legacy Aether network demos" OFF)
+option(APPTRAVERSE_BUILD_EXAMPLES "Build standalone example applications" ON)
 # Declare the codec's transitive dependency before telemetry first fetches it.
 CPMDeclarePackage(gcem
   NAME gcem
@@ -131,6 +132,7 @@ if(WIN32)
 endif()
 target_compile_features(apptraverse PUBLIC cxx_std_20)
 
+if(APPTRAVERSE_BUILD_EXAMPLES)
 if(APPTRAVERSE_BUILD_AETHER_DEMOS)
   add_subdirectory(examples/model_ui_runtime_demo)
   add_subdirectory(examples/chat_ui_runtime_demo)
@@ -141,6 +143,7 @@ add_subdirectory(examples/dynamic_objects_demo)
 add_subdirectory(examples/surfaces_demo)
 add_subdirectory(examples/shared_node_demo)
 add_subdirectory(examples/chat_demo)
+endif()
 
 include(CTest)
 if(BUILD_TESTING)
