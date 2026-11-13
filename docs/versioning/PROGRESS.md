@@ -3564,3 +3564,5 @@ CTest8/8 PASS, six complete three-peer native GUI scenarios PASS, and actual
 TCP outage/forced restart/both-side cold restart/order/dedup/journal collapse
 acceptance PASS (23.83s including cleanup). No adaptive transport is applied.
 [Scope, failure evidence and remaining limits](../validation/shared-node-p2pstream-tcp-2026-11-13.md).
+
+2026-11-13: Windows direct P2pStream UDP Debug acceptance PASS: 8/8 scoped tests, real loss/duplicate/reorder + offline two-way delivery, both-peer cold restart, ordered deduplicated history and journal collapse. See docs/validation/shared-node-p2pstream-udp-2026-11-13.md. No throughput/Presence benchmark or other-platform runtime claim.
