@@ -1,6 +1,70 @@
 option(APPTRAVERSE_BUILD_EVOLUTION_TESTS
   "Build isolated application/state evolution fixtures and their Python matrix" ON)
 
+if(APPTRAVERSE_BUILD_AETHER_LINK)
+  option(APPTRAVERSE_BUILD_AETHER_SDK_TESTS
+    "Build the native presence and protocol checks of the pinned SDK" OFF)
+  if(APPTRAVERSE_BUILD_AETHER_SDK_TESTS)
+    include(${PROJECT_SOURCE_DIR}/cmake/shared_aether_tests.cmake)
+  endif()
+  add_executable(apptraverse_aether_link_test aether_link_test.cpp)
+  target_link_libraries(apptraverse_aether_link_test PRIVATE apptraverse_shared_aether)
+  add_test(NAME apptraverse_aether_link_test COMMAND apptraverse_aether_link_test)
+  set_tests_properties(apptraverse_aether_link_test PROPERTIES
+    LABELS "shared_node;headless;aether" TIMEOUT 60)
+  option(APPTRAVERSE_BUILD_AETHER_CLOUD_WORKER
+    "Build the explicit three-process cloud validation worker" OFF)
+  if(APPTRAVERSE_BUILD_AETHER_CLOUD_WORKER)
+    add_executable(apptraverse_shared_aether_worker shared_aether_worker.cpp)
+    target_link_libraries(apptraverse_shared_aether_worker PRIVATE apptraverse_shared_aether)
+  endif()
+  # The cloud controller is run explicitly: ordinary CTest never registers
+  # identities or depends on an external service.
+endif()
+
+add_executable(apptraverse_network_local_ptr_test network_local_ptr_test.cpp)
+target_link_libraries(apptraverse_network_local_ptr_test PRIVATE apptraverse)
+add_test(NAME apptraverse_network_local_ptr_test
+  COMMAND apptraverse_network_local_ptr_test)
+
+add_executable(apptraverse_memory_link_test memory_link_test.cpp)
+target_link_libraries(apptraverse_memory_link_test PRIVATE apptraverse_shared_node)
+add_test(NAME apptraverse_memory_link_test COMMAND apptraverse_memory_link_test)
+
+add_executable(apptraverse_shared_node_memory_test shared_node_memory_test.cpp)
+target_link_libraries(apptraverse_shared_node_memory_test PRIVATE apptraverse_shared_node)
+add_test(NAME apptraverse_shared_node_memory_test
+  COMMAND apptraverse_shared_node_memory_test)
+
+add_executable(apptraverse_shared_sync_test shared_sync_test.cpp)
+target_link_libraries(apptraverse_shared_sync_test PRIVATE apptraverse_shared_node)
+add_test(NAME apptraverse_shared_sync_test COMMAND apptraverse_shared_sync_test)
+
+add_executable(apptraverse_shared_graph_import_test shared_graph_import_test.cpp)
+target_link_libraries(apptraverse_shared_graph_import_test PRIVATE apptraverse_shared_node)
+add_test(NAME apptraverse_shared_graph_import_test COMMAND apptraverse_shared_graph_import_test)
+
+add_executable(apptraverse_shared_three_peer_test shared_three_peer_test.cpp)
+target_link_libraries(apptraverse_shared_three_peer_test PRIVATE apptraverse_shared_node)
+add_test(NAME apptraverse_shared_three_peer_test COMMAND apptraverse_shared_three_peer_test)
+
+set_tests_properties(apptraverse_network_local_ptr_test
+  apptraverse_memory_link_test apptraverse_shared_node_memory_test
+  apptraverse_shared_sync_test apptraverse_shared_graph_import_test
+  apptraverse_shared_three_peer_test
+  PROPERTIES LABELS "shared_node;headless" TIMEOUT 60)
+
+add_custom_target(apptraverse_shared_node_headless_check
+  COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure -R
+    "^apptraverse_(network_local_ptr|memory_link|shared_node_memory|shared_sync|shared_graph_import|shared_three_peer|native_object_graph_serialization)_test$"
+  DEPENDS apptraverse_network_local_ptr_test apptraverse_memory_link_test
+    apptraverse_shared_node_memory_test apptraverse_shared_sync_test
+    apptraverse_shared_graph_import_test
+    apptraverse_shared_three_peer_test
+    apptraverse_native_object_graph_serialization_test
+  WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+  VERBATIM)
+
 if(MSVC AND CMAKE_SIZEOF_VOID_P EQUAL 8)
   find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
   add_test(NAME apptraverse_windows_binary_contract_policy_test
@@ -730,8 +794,6 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
   )
 endif()
 
-if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES)
-
 add_executable(apptraverse_native_object_graph_serialization_test
   native_object_graph_serialization_test.cpp
 )
@@ -744,6 +806,8 @@ add_test(
   NAME apptraverse_native_object_graph_serialization_test
   COMMAND apptraverse_native_object_graph_serialization_test
 )
+
+if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES)
 
 add_executable(apptraverse_closed_event_graph_test
   closed_event_graph_test.cpp

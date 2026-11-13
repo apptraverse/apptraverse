@@ -1,5 +1,60 @@
 # Agent rules (apptraverse — unified worktree)
 
+## SharedNode task — 2026-11-11
+
+The user explicitly authorized new SharedNode implementation in a separate
+branch from main, beginning with native serialization and headless memory
+tests. `feature/shared-node-native-memory` owns this opt-in extension; its
+contract and remaining stages are in [SharedNode.md](docs/architecture/SharedNode.md).
+This authorization supersedes the older SharedNode removal/deferment below
+for this extension. Existing WindowCatalog/backend boundaries still apply.
+The follow-up authorizes ACK/retry and two live memory replicas, including
+loss/duplicate/out-of-order and restart checks; current evidence is in
+[live-memory validation](docs/validation/shared-node-live-memory-2026-11-11.md).
+The next follow-up authorizes a third participant admitted through H and direct
+all-pairs delivery, with Join/snapshot/Event races, losses, Offline and restart
+checks, and no incremental replay of snapshot-covered history. Scope and current
+evidence are in [three-peer validation](docs/validation/shared-node-three-peer-memory-2026-11-11.md).
+The chronological-generation follow-up authorizes per-author/per-Node indexes,
+continuous-prefix ACKs and persistent monotonic author timestamps, with memory
+loss/reorder/restart checks. That slice left compaction blocked. The indexed contract
+and evidence are in [indexed-memory validation](docs/validation/shared-node-indexed-memory-2026-11-11.md).
+The checkpoint follow-up supersedes that hold only through the confirmed
+SharedNode checkpoint policy: persistent progress promises, exact membership,
+all-recipient delivery evidence and memory restart/loss tests. It authorizes
+logical journal/origin-payload compaction, not native object-store garbage
+collection. See [checkpoint-memory validation](docs/validation/shared-node-checkpoint-memory-2026-11-11.md).
+The transport follow-up authorizes the optional Aether adapter using the
+presence-on-streaming SDK line (`bench/presence-streaming-recovery`, pinned
+committed SDK including its allocation-free budget fix) and headless real-cloud
+verification. The next
+chat must be the simplest SharedNode demonstration, without localization or
+unrelated features; this slice connects the transport first. Current evidence
+is in [Aether validation](docs/validation/shared-node-aether-2026-11-11.md).
+The current follow-up explicitly requires the client's native presence API
+(`Client::IsLocallyOnline` / `Client::QueryPeerPresence`) and the simplest
+Windows chat demonstrating SharedNode. It supersedes the adapter probe/echo
+policy and the earlier transport-only hold on GUI work. Use an isolated pinned
+SDK checkout from the presence experiments, no application echo fallback.
+This opt-in demo has fixed English labels, one room, host admission, direct
+participant messages and private persistent profiles; unrelated UI remains out
+of scope. Profile restore is required for this replication demonstration.
+The latest follow-up authorizes combining this native presence API with the
+working streaming/push SDK base used by App, preserving its registration and
+ordinary message wire format. Validate real registration, native presence and
+the minimal chat; do not substitute echo for the native API.
+The 2026-11-12 follow-up explicitly disables availability gating for now:
+the default Aether link sends without querying presence, and SharedSync keeps
+each durable packet until its ACK, retrying at the configured timeout. Native
+presence may remain an explicit opt-in; the minimal chat shows participant
+names without Online/Offline badges. This supersedes the native-presence
+requirement above for the default demo and its cloud acceptance.
+The following correction requires event-driven chat publication/presentation:
+no periodic ChatView refresh and no UI polling timer. Use the existing Node
+materialized-change notifications. Chat state/history and pending receipts
+stay in RAM, with no chat disk Save/Load on send/receive/shutdown. This
+supersedes demo profile-restore acceptance; SDK identity storage is separate.
+
 - **Never** add an AeroAdmin dependency or copy AeroAdmin sources.
 - Windows is the first platform; the common model must stay cross-platform (no HWND, Win32 paths, or Win32 keycodes in `src/common/`).
 - Model first: `surfaces_demo` / WindowCatalog semantics — model thread → publication → UI mirror → presenters; GUI → `ModelObjectProxy` → model Events.

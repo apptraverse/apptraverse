@@ -1,4 +1,243 @@
+## SharedNode upstream main update — 2026-11-12
+
+AppTraverse main integrated; SDK and telemetry pinned to current upstream main. Ten core/object Debug tests PASS. Full SDK/adapter integration BLOCKED by missing Objects telemetry API and obsolete native presence API/test references. No new cloud/chat PASS. See [validation](../validation/shared-node-main-update-2026-11-12.md).
+
 # AppTraverse — прогресс версионирования поставок
+
+## SharedNode backpressure latency cause — 2026-11-12 — FIXED / VERIFIED
+
+Continued from `0f2fd3ae`. Found the extra one-second delay in SharedSync:
+it consumed the ACK timeout even when the local link refused enqueue. A
+tentative deadline is now erased on false Send; accepted frames still retain
+the full one-second retry interval, including synchronous-ACK safety.
+
+Deterministic refusal/free-capacity test reproduces the old failure and
+passes after the fix, including exact accepted-send deadlines and lost ACK.
+Same-PC two-process Aether control, 40 measured messages each: presented
+median **1176.63 -> 221.41 ms**, P95 **2206.90 -> 346.46 ms**. SDK/Rx/UI/RAM
+settings are unchanged. Independent fixed-code **100/100 PASS**: median
+**306.59 ms**, P95 **736.96 ms**, max **1831.98 ms**; remaining tails are
+disclosed without attributing their cause. **9/9 CTests, three native windows
+and the H/A/B outage/checkpoint/restart campaign PASS.** The cloud harness
+now distinguishes refused local checks from accepted same-Event retries and
+checks the latter remain at least one second apart.
+[Cause, experiments, historical comparison and raw data](../validation/shared-node-chat-latency-backpressure-2026-11-12.md).
+
+## SharedNode event-driven RAM chat — 2026-11-12 — PASS
+
+Continued from `773c92d9`. Removed the 100 ms model publication and Win32
+refresh timers. Apply handlers use the existing Node notifier; changed value
+publications post a Windows message, and idle/ACK/retry work does not refresh
+the chat. The headless consumer also waits on notifications instead of polling.
+Chat disk Save/Load/root.id/shutdown checkpoints are removed. Native object
+layers are committed only into RAM; SDK identity storage remains separate.
+
+Fixed an unwritable-stream recovery gap: one bounded frame is now retained
+so Pump can detect a stall and recreate the session instead of endlessly
+refusing Send with an empty queue. No SDK wire/Rx/retry policy change.
+
+**9/9 final adapter/native/memory CTests PASS**, plus a notifier regression
+through reordered replay and duplicate Event/ACK. **100/100 actual-cloud
+headless messages PASS**, followed by zero publication notifications in
+three seconds of idle on both peers and no chat disk files. **Three native
+chat windows PASS** after the queue correction; restarted chat is empty in
+RAM while retaining SDK UID. The separate persistent three-process transport
+campaign also passes all delivery/outage/checkpoint/restart stages. Earlier
+development failures are retained in the [validation record](../validation/shared-node-chat-event-driven-2026-11-12.md).
+
+## SharedNode two-peer chat latency — 2026-11-12 — MEASURED / INTERMITTENT STALL FOUND
+
+Added an explicit headless benchmark using two unchanged production
+ChatSessions through real Aether with native persistence. Worker QPC timestamps
+measure Send → remote published View and → a virtual 100 ms display; no GUI
+paint claim. Debug, 128-byte text, 10 warmup plus 100 measured messages,
+50 per direction, on the same machine under concurrent-build CPU load.
+
+Run 02 completes **100/100**: presented Host→Client median **448.75 ms**,
+P95 **2331.67 ms**; Client→Host median **1264.26 ms**, P95 **1877.02 ms**.
+Run 01 completes 94 measured samples then **times out after 30 s** on the
+next Host→Client message. The successful repeat does not resolve that stall.
+No production delivery policy or SDK code was changed. Raw samples and
+[measurement boundaries, statistics and limits](../validation/shared-node-chat-latency-2026-11-12.md)
+are preserved. Previous short smoke PASS scopes remain historical evidence.
+
+## SharedNode ACK/retry without presence — 2026-11-12 — PASS
+
+Continued from `6e3a921`. The user disabled Online gating for now. Aether
+presence is an explicit opt-in; default sends and chunk writes do not query
+or wait for availability. Valid peers remain Unknown, and the chat shows
+participant names without presence badges. SharedSync keeps its existing
+durable packet/ACK protocol and one-second retry interval.
+
+**9/9 adapter/native/memory CTests PASS.** The ACK case now verifies exact
+retry boundaries after both Event loss and ACK loss with Unknown peers and
+receiver/sender restarts. **Actual three-process cloud acceptance PASS:**
+large snapshot, third-participant admission, direct all-pairs delivery, no old-history
+Event replay, paced retries while B is stopped, catch-up, checkpoint and cold
+restart with continuing author indexes. Zero presence queries throughout.
+**Actual three-window chat acceptance PASS:** Unicode/all-participant
+messages, names without badges, stopped-peer delivery, same-UID restart,
+new post-restart message and clean shutdown. SDK and object pins are unchanged.
+[Implementation, evidence and scope](../validation/shared-node-ack-retry-2026-11-12.md).
+
+## SharedNode native presence over working push/streaming — 2026-11-11 — TRANSPORT PASS / REMOTE PRESENCE BLOCKED
+
+Continued from `392f393`. Combined the native Client presence port with the
+working App SDK. Public base `5ddf5eaa` plus frozen source patches/manifest
+reproduces development SDK `423ab1e1` without publishing another chat's local
+benchmark history. Ordinary push registration/Ping/P2P formats are retained;
+GetClientTiming alone uses correlated RPC. Corrected its native DTO field
+order to server ADSL and kept soft retries from Restreaming shared connections.
+
+**13/13 targeted adapter/native/memory and SDK presence/RPC tests PASS;
+9/9 common regressions PASS.** Ordinary real-cloud SDK A/B control delivers
+four messages in both directions. GUI local room creation, Unicode message
+and same-UID/profile/history restart PASS. The wider legacy SDK Ping mock
+aggregate has separate Debug fixture failures and is not qualified.
+
+**Remote presence and network chat remain BLOCKED:** H/A/B register and local
+API Online is observed, but three queried peer-cloud servers provide zero
+timing samples/native Online results. Initial snapshot and GUI Join time out
+because strict Unknown gating correctly retains pending sends. No server or
+global network settings were changed; no echo fallback was introduced.
+[Exact source package, validation, failed attempts and limits](../validation/shared-node-presence-streaming-2026-11-11.md).
+
+## SharedNode native Client presence and minimal Windows chat — 2026-11-11 — BUILD PASS / CLOUD BLOCKED
+
+Continued `feature/shared-node-native-memory` from `a85b1c2`. Replaced adapter
+probe/echo with `Client::IsLocallyOnline` / `QueryPeerPresence`, serialized
+queries and strict fresh Online gating. Raw SharedSync bytes use SDK framing.
+Published SDK pin `fc61d36c` is isolated; the exact upstream MSVC ApiContext
+compile fix `25e8497f` is applied and checked by file hash. No foreign SDK
+edits are consumed. The branch is `feature/percentile8-policy-v1`,
+[Cursor PR #550](https://github.com/aethernetio/aether-client-cpp/pull/550).
+Added opt-in minimal Windows chat with host invitation, participants, messages,
+native persistence, model-thread proxy commands and value-only UI views.
+
+**SDK/chat/controller build PASS; 8/8 adapter/native/memory tests and 9/9
+targeted headless regressions PASS.** Actual GUI startup/layout/error state
+was inspected. **Cloud acceptance is BLOCKED at registration:** the native API
+SDK workers never become selected and reach their registration deadline.
+An independent experiment report at SDK `a6b6a1c5` reproduces the same bootstrap
+failure; the working streaming/push line has no native Client presence API.
+The differing registration request-ID contract is documented as evidence,
+without asserting an unobserved server-side cause. No native Online/Offline,
+room admission, GUI delivery or restart PASS is claimed for this pin. The
+earlier echo-based cloud PASS below is historical. Profiles remain private.
+[Implementation, commands, evidence and blocker](../validation/shared-node-chat-native-presence-2026-11-11.md).
+
+## SharedNode optional Aether transport and real cloud — 2026-11-11 — PASS
+
+Continued `feature/shared-node-native-memory` from `ee1c48c`. Added the opt-in
+Aether byte adapter using native envelope serialization and SDK framing, paced
+fresh correlated presence probes, bounded queues and local stream recreation.
+The SDK is pinned to `a5cfce84` / `bench/presence-streaming-recovery`, retaining
+the existing 27-patch object dependency. A checked registration-capture patch
+fixes the SDK's Debug SmallFunction overflow without changing ABI or protocol.
+
+**8/8 adapter/native/memory tests, 9/9 targeted regressions and the real-cloud
+three-process controller PASS** on MSVC x64 Debug. Private H/A/B clients exchange
+34 KiB native snapshots and own Events directly, suppress business sends to
+offline B, restore B's same UID and missing data, then checkpoint/restart all
+three and continue indexes. The live test exposed InitialState starvation on a
+one-message transport; bootstrap prioritization plus a deterministic regression
+fix it. Earlier SDK allocation and bootstrap failures remain documented as
+failures. SDK/model state remains private and local. Next UI is the explicitly
+requested simplest SharedNode chat, without localization or unrelated features.
+[Validation, exact pin and limits](../validation/shared-node-aether-2026-11-11.md).
+
+## SharedNode progress promises and confirmed checkpoint compaction — 2026-11-11 — PASS
+
+Continued `feature/shared-node-native-memory` from `18c0881`. Explicit native
+progress reports persist author time promises, exact membership and durable
+receipt cursors before transmission. Confirmed compaction requires reports
+from every current member and all-recipient receipt proof. Ordinary native
+NodeFor compaction folds the actual safe prefix, retires frozen origin/pending
+payloads and collapses local metadata journals. Closed time survives restart.
+
+**7/7 SharedNode/native CTest entries and 9/9 targeted headless regressions
+passed** on MSVC x64 Debug. Twenty-two three-peer groups cover silent/offline
+members, report/ACK loss, stale receipts, partial and full checkpoint restart,
+late suffix insertion, retired duplicates, post-checkpoint admission and a
+coverage receipt arriving after Join was compacted. Snapshot graphs exclude
+old Event objects while retired IDs prevent repeated historical delivery.
+Removing all-recipient receipt checks made the pre-delivery checkpoint test
+fail; the mutation was reverted and the final profile passed. Wire 1.3 uses
+native fields; native 1.0/1.1/1.2 packet compatibility remains tested. Small
+stamp/ID metadata remains; native orphan-layer GC and physical file reclamation
+are outside this logical compaction stage.
+[Validation and limits](../validation/shared-node-checkpoint-memory-2026-11-11.md).
+
+## SharedNode author indexes and continuous ACKs — 2026-11-11 — PASS
+
+Continued `feature/shared-node-native-memory` from `6da9399`. New Events and
+host Joins carry a native per-author/per-Node index and immutable timestamp
+stamp. Persisted sparse receipt ledgers advance ACKs only across continuous
+prefixes. Source validation binds the ACK to its frozen origin and author
+boundary; one cumulative ACK completes multiple packets for that destination.
+Snapshot transfer preserves stream gaps. Explicit generation times must
+strictly increase; automatic time and indexes continue after restart.
+
+**7/7 SharedNode/native CTest entries and 9/9 targeted headless regressions
+passed** on MSVC x64 Debug. Fourteen three-peer scenario groups now include
+missing indexes, cumulative ACK loss, sparse restart/snapshot, invalid ACKs,
+index reuse, inbound timestamp conflicts and chronological authoring beyond a
+future snapshot. A mutation allowing ACK completion past a hole lost an Event
+and failed the replica-count oracle; reverted and final suite passed. Wire
+1.2 uses native reflected fields; old 1.0/1.1 wire packets retain individual
+ACK behavior. No compaction or silent-participant progress marker yet.
+[Validation and limits](../validation/shared-node-indexed-memory-2026-11-11.md).
+
+## SharedNode host admission and direct three-peer memory delivery — 2026-11-11 — PASS
+
+Continued `feature/shared-node-native-memory` from `08e951c`. The host now
+persists an application Join, frozen initial state and exact admission coverage
+before transmission. Existing peers immediately send their own uncovered
+Events directly to the new UID. Reliable coverage receipts distinguish assigned
+snapshot delivery from confirmed delivery, without clearing another recipient's
+pending. Retained pre-Apply origin frames survive earlier destination ACKs.
+
+**7/7 SharedNode/native CTest entries and 9/9 targeted headless regressions
+passed** on MSVC x64 Debug. Eight new scenario groups cover Join/snapshot/Event
+races, control and ACK loss, duplicates, reverse order, offline destinations,
+host offline with direct A↔B delivery, actual destruction/restore and native
+1.0 Event/ACK compatibility. Exact send counts verify zero covered incremental
+A→B history and no host relay. Disabling coverage suppression made that oracle
+fail; the mutation was reverted and the final suite passed. Native messages are
+1.1; admission requires 1.1. Compaction and full mixed-build negotiation remain
+separate work. [Validation and limits](../validation/shared-node-three-peer-memory-2026-11-11.md).
+
+## SharedNode live memory delivery, ACK/retry and restart — 2026-11-11 — PASS
+
+Continued `feature/shared-node-native-memory` from `7d1732b`. Added native
+InitialState/Event/ACK messages and a two-live-replica runtime with persisted
+per-peer frozen packets, paced retry, exact initial coverage, save-before-ACK,
+duplicate suppression and saved confirmation state. Native new-only import
+preserves known live/cold dependencies; historical insertion dispatches through
+the most-derived NodeFor serializer after isolated trial replay.
+
+**6/6 SharedNode/native CTest entries and 9/9 targeted headless regressions
+passed** on MSVC x64 Debug. Live cases cover initial/Event/ACK loss, duplicates,
+reverse order, early Event, Offline pacing, wrong ACK, two Nodes, and actual
+App/Room destruction plus restore around initial delivery and steady-state
+pending/ACK. The cold ACK oracle detects an intentionally premature ACK mutation;
+that mutation was reverted. [Validation and exact boundaries](../validation/shared-node-live-memory-2026-11-11.md).
+
+## SharedNode native serialization and memory foundation — 2026-11-11 — PASS
+
+User-authorized separate branch `feature/shared-node-native-memory` starts from
+main `8b592f9`. Added an explicitly linked SharedNode extension with persistent
+link Nodes, local per-peer delivery metadata, native DomainGraph/BinaryArchive
+snapshots and deterministic memory transport. Network loads preserve receiver
+LocalPtr state; historical replay preserves canonical Link identity and the
+whole local peer collection. Application Join fixtures carry participant name
+and Link UID using native serialization.
+
+**4/4 foundation tests and 9/9 targeted headless regressions passed** on MSVC x64
+Debug using exactly main's pinned 27-patch object dependency. This is the native
+serialization/memory first slice; ACK/retry, live import reconciliation,
+heartbeat, version compatibility and compaction are subsequent stages.
+[Scope, commands and evidence](../validation/shared-node-native-memory-2026-11-11.md).
 ## Unified WindowCatalog order and activation — 2026-11-11 — PASS
 
 One lazy-identity `window_order` holds all open windows; index 0 is active.
@@ -3296,3 +3535,19 @@ Native x86_64 build and final-product startup/orderly-save/cold-restart smoke
 PASS; iOS configure check PASS after helper rename. Executable543,464B, bundle
 files544,474B. Previous profiles preserved; no runtime/schema changes.
 [Scope and measurements](../validation/window-catalog-macos-minsize-2026-11-11.md).
+
+## 2026-11-12 — latest library on Apple WindowCatalog
+
+Integrated latest upstream `feature/shared-node-native-memory`8cdb809 into
+isolated `feature/apple-latest-library`, retaining Apple3cb608a and telemetry
+pin64183232. Both macOS/iOS Debug products and load-only variants built.
+All9 named macOS and10 extra core checks have successful results, including
+explicit foreground retry and a three-peer deadline retry (same binary31.30s).
+iOS5-process scope PASS: Debug23, embedded23/cold5, actual OS same-PID live
+save/resume/second save/cold5. Stale simulator acceptance-package installation
+required runtime restart and test-only uninstall/reinstall before seed; no
+USER erasure between paired phases, no app/model/presenter implementation edits.
+Historical profiles preserved; native macOS product save/cold smoke PASS.
+Final iOS Latest launch/copied-USER visual smoke PASS on an isolated fresh
+iPhone15Pro simulator after CoreSimulator service recovery/first migration.
+[Exact evidence, initial failures and limits](../validation/window-catalog-apple-latest-library-2026-11-12.md).

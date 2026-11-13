@@ -1,0 +1,48 @@
+# Keep the optional SDK out of ordinary model/UI builds. Shared object and
+# serialization dependencies have already been added by the root project.
+set(APPTRAVERSE_AETHER_CLIENT_GIT_TAG
+  "6b7abc458a86b93b2ba3b5e92ee19f05e5101757")
+set(APPTRAVERSE_AETHER_CLIENT_SOURCE "" CACHE PATH "Optional clean SDK checkout at the pinned upstream revision")
+function(_apptraverse_verify_sdk source allow_unpatched)
+  execute_process(COMMAND git -C "${source}" rev-parse HEAD
+    OUTPUT_VARIABLE sdk_sha OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+  execute_process(COMMAND git -C "${source}" diff --name-only HEAD
+    OUTPUT_VARIABLE sdk_changes OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+  if(NOT sdk_sha STREQUAL APPTRAVERSE_AETHER_CLIENT_GIT_TAG OR sdk_changes)
+    message(FATAL_ERROR "Use a clean pinned upstream SDK checkout; got ${sdk_sha}")
+  endif()
+endfunction()
+
+function(apptraverse_add_shared_aether)
+  set(USER_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/cmake/shared_aether_config.h")
+  set(AE_BUILD_TESTS OFF CACHE BOOL "SDK tests" FORCE)
+  set(AE_BUILD_EXAMPLES OFF CACHE BOOL "SDK examples" FORCE)
+  set(AE_BUILD_TOOLS OFF CACHE BOOL "SDK tools" FORCE)
+  set(AE_INSTALL OFF CACHE BOOL "SDK installation" FORCE)
+  set(AE_DISTILLATION OFF CACHE BOOL "SDK fresh identity policy" FORCE)
+  set(AE_FILTRATION ON CACHE BOOL "SDK persisted identity loading" FORCE)
+  set(AE_BUILD_PRESENCE_BENCH OFF CACHE BOOL "SDK diagnostic hooks" FORCE)
+  set(STDEXEC_BUILD_TESTS OFF CACHE BOOL "stdexec tests" FORCE)
+  set(STDEXEC_BUILD_EXAMPLES OFF CACHE BOOL "stdexec examples" FORCE)
+  set(STDEXEC_INSTALL OFF CACHE BOOL "stdexec installation" FORCE)
+  if(APPTRAVERSE_AETHER_CLIENT_SOURCE)
+    _apptraverse_verify_sdk("${APPTRAVERSE_AETHER_CLIENT_SOURCE}" TRUE)
+    set(CPM_aether-client-cpp_SOURCE "${APPTRAVERSE_AETHER_CLIENT_SOURCE}")
+  endif()
+  CPMAddPackage(
+    NAME aether-client-cpp
+    GITHUB_REPOSITORY aethernetio/aether-client-cpp
+    GIT_TAG ${APPTRAVERSE_AETHER_CLIENT_GIT_TAG}
+    EXCLUDE_FROM_ALL YES)
+  if(NOT TARGET aether)
+    message(FATAL_ERROR "The pinned Aether SDK did not define its target")
+  endif()
+  _apptraverse_verify_sdk("${aether-client-cpp_SOURCE_DIR}" FALSE)
+  target_link_libraries(aether PUBLIC apptraverse_compile_policy)
+  add_library(apptraverse_shared_aether STATIC EXCLUDE_FROM_ALL
+    src/aether_link.cpp)
+  target_link_libraries(apptraverse_shared_aether PUBLIC
+    apptraverse_shared_node aether)
+  set_property(TARGET apptraverse_shared_aether PROPERTY APPTRAVERSE_SDK_SOURCE_DIR
+    "${aether-client-cpp_SOURCE_DIR}")
+endfunction()

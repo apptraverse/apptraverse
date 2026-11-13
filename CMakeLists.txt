@@ -135,6 +135,24 @@ target_include_directories(apptraverse PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/includ
 target_link_libraries(apptraverse PUBLIC
   aether::objects aether::miscpp apptraverse_compile_policy)
 target_compile_features(apptraverse PUBLIC cxx_std_20)
+
+# SharedNode is an explicitly linked headless extension. Existing application
+# registrations and native hosts do not acquire replication/runtime objects.
+add_library(apptraverse_shared_node STATIC EXCLUDE_FROM_ALL
+  src/shared_node.cpp
+  src/shared_graph.cpp
+  src/shared_sync.cpp
+  src/memory_link.cpp
+)
+target_link_libraries(apptraverse_shared_node PUBLIC apptraverse)
+
+option(APPTRAVERSE_BUILD_AETHER_LINK
+  "Build the opt-in SharedNode Aether transport and headless cloud worker" OFF)
+if(APPTRAVERSE_BUILD_AETHER_LINK)
+  include(cmake/shared_aether.cmake)
+  apptraverse_add_shared_aether()
+endif()
+
 if(WIN32)
   target_compile_definitions(apptraverse PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
   add_library(apptraverse_ui_windows STATIC
@@ -423,6 +441,14 @@ if(APPTRAVERSE_BUILD_EXAMPLES OR BUILD_TESTING)
 endif()
 
 include(CTest)
+option(APPTRAVERSE_BUILD_SHARED_NODE_CHAT
+  "Build the minimal Windows SharedNode chat over Aether" OFF)
+if(APPTRAVERSE_BUILD_SHARED_NODE_CHAT)
+  if(NOT WIN32 OR NOT APPTRAVERSE_BUILD_AETHER_LINK)
+    message(FATAL_ERROR "SharedNode chat requires Windows and APPTRAVERSE_BUILD_AETHER_LINK")
+  endif()
+  add_subdirectory(examples/shared_node_chat)
+endif()
 if(BUILD_TESTING)
   add_subdirectory(tests)
 endif()
