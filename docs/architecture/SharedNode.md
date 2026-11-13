@@ -401,8 +401,9 @@ suppression. The chat adds no separate journal or message index.
 The SDK, Domain and sync runtime live on a model thread. GUI commands enter
 through `ModelObjectProxy`; the UI consumes immutable value publications.
 ChatView is published only after a materialized Node change or a status
-transition, through the existing Node notifier. A callback posts a Windows
-message; the UI consumes the view when handling it. There is no regular
+transition, through the existing Node notifier. On Windows a callback posts a
+window message; on macOS the bridge dispatches to the main queue and the
+SwiftUI presenter consumes the value publication. There is no regular
 publication/refresh timer, and no presentation work for ACKs/retries/idle.
 
 The current demonstration persists chat objects and delivery obligations as

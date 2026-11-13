@@ -1,3 +1,7 @@
+if(APPLE AND NOT IOS)
+  add_subdirectory(macos)
+  return()
+endif()
 add_executable(shared_node_chat WIN32
   main_windows.cpp
   ../../src/platform/windows/win_ui_utf8.cpp

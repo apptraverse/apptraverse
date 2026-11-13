@@ -57,6 +57,13 @@ CPMAddPackage(
     "AE_INSTALL OFF"
     "AE_BUILD_TESTS OFF"
 )
+# Resolve the application-owned numeric revision before telemetry/SDK request it.
+CPMAddPackage(
+  NAME ae-numeric
+  GITHUB_REPOSITORY aethernetio/aethernet-numeric
+  GIT_TAG ${APPTRAVERSE_AETHER_NUMERIC_GIT_TAG}
+  OPTIONS "AE_NUMERIC_INSTALL OFF" "AE_BUILD_TESTS OFF"
+)
 CPMAddPackage(
   NAME aether-tele
   GITHUB_REPOSITORY aethernetio/aether-tele
@@ -467,10 +474,10 @@ endif()
 
 include(CTest)
 option(APPTRAVERSE_BUILD_SHARED_NODE_CHAT
-  "Build the minimal Windows SharedNode chat over Aether" OFF)
+  "Build the native SharedNode chat over Aether" OFF)
 if(APPTRAVERSE_BUILD_SHARED_NODE_CHAT)
-  if(NOT WIN32 OR NOT APPTRAVERSE_BUILD_AETHER_LINK)
-    message(FATAL_ERROR "SharedNode chat requires Windows and APPTRAVERSE_BUILD_AETHER_LINK")
+  if((NOT WIN32 AND NOT (APPLE AND NOT IOS)) OR NOT APPTRAVERSE_BUILD_AETHER_LINK)
+    message(FATAL_ERROR "SharedNode chat requires Windows/macOS and APPTRAVERSE_BUILD_AETHER_LINK")
   endif()
   add_subdirectory(examples/shared_node_chat)
 endif()

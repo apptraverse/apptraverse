@@ -1,6 +1,6 @@
 # SharedNode chat
 
-Minimal Windows demonstration: one host creates a room, participants join by
+Minimal Windows/macOS demonstration: one host creates a room, participants join by
 the host Aether ID, and each participant sends its own Events directly to every peer.
 Fixed English labels; no localization or extra chat features.
 
@@ -113,3 +113,62 @@ Current [event-driven RAM checks and timing](../../docs/validation/shared-node-c
 are recorded separately.
 The subsequent [backpressure latency fix and controlled measurements](../../docs/validation/shared-node-chat-latency-backpressure-2026-11-12.md)
 remove the extra ACK-timeout wait after a locally refused send.
+
+## macOS (SwiftUI)
+
+The macOS host uses SwiftUI controls and a thin Objective-C++ bridge to the
+same `ChatSession` as Windows. AppKit owns only the application/window shell.
+Model notifications dispatch to the main queue; published values update the
+SwiftUI presenter. There is no UI polling timer or separate chat model.
+Editing fields are transient UI state; room creation, Join and Send enqueue model commands.
+Closing the last window drains/stops the session. Deactivation leaves it alive.
+Standard Copy/Paste shortcuts are available through the Edit menu.
+
+Use Xcode's Swift compiler and a C++20 compiler (MacPorts Clang 20 is supported).
+For example, from the repository root, with Xcode selected:
+
+```sh
+cmake -S . -B build/chat-macos -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_C_COMPILER=/opt/local/bin/clang-mp-20 \
+  -DCMAKE_CXX_COMPILER=/opt/local/bin/clang++-mp-20 \
+  -DCMAKE_OBJC_COMPILER=/opt/local/bin/clang-mp-20 \
+  -DCMAKE_OBJCXX_COMPILER=/opt/local/bin/clang++-mp-20 \
+  -DCMAKE_OSX_SYSROOT="$(xcrun --sdk macosx --show-sdk-path)" \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
+  -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DAE_NO_DEBUG_LOG=ON \
+  -DAPPTRAVERSE_BUILD_AETHER_LINK=ON \
+  -DAPPTRAVERSE_BUILD_SHARED_NODE_CHAT=ON
+cmake --build build/chat-macos --target apptraverse_chat_supply_exporter
+build/chat-macos/apptraverse_chat_supply_exporter "$PWD/build/chat-macos/chat_supply.h"
+cmake -S . -B build/chat-macos \
+  -DAPPTRAVERSE_CHAT_SUPPLY_HEADER="$PWD/build/chat-macos/chat_supply.h"
+cmake --build build/chat-macos --target shared_node_chat
+open build/chat-macos/examples/shared_node_chat/macos/shared_node_chat.app
+```
+
+The default private profile is under
+`~/Library/Application Support/AppTraverse/SharedNodeChat/client`.
+Launch with `--host` to create a room automatically; the default `--client`
+shows **Host Aether ID** and **Join**, matching the Windows protocol.
+`--client HOST-UID` joins automatically. The host default profile ends in
+`/host` instead of `/client`.
+For several clients, launch the bundle executable directly with distinct
+`--profile PATH --name NAME` arguments. An advisory lock rejects concurrent
+use of one profile. Keep existing profiles paired with their supply revision.
+
+Explicit three-process SwiftUI/cloud acceptance:
+
+```sh
+cmake --build build/chat-macos --target apptraverse_shared_chat_macos_acceptance
+python3 tests/run_shared_chat_macos.py \
+  --exe build/chat-macos/examples/shared_node_chat/macos/apptraverse_shared_chat_macos_acceptance \
+  --out .artifacts/shared-chat-macos --idle-seconds 180
+```
+
+The separate acceptance host compiles the production SwiftUI view and bridge,
+adds stdin commands and screenshot output, and presses the SwiftUI buttons
+through accessibility. It checks rendered accessibility text, three-peer
+Unicode delivery, TCP activation and durable delivery after forced restarts.
+The normal application has no command channel. Use a fresh output directory;
+its profiles contain test credentials and must remain private.

@@ -47,3 +47,11 @@ add_executable(apptraverse_aether_sdk_ab_smoke EXCLUDE_FROM_ALL
 target_compile_definitions(apptraverse_aether_sdk_ab_smoke PRIVATE
   AE_AB_MESSAGE_EXCHANGE_STAGE_TIMEOUT_MS=15000)
 target_link_libraries(apptraverse_aether_sdk_ab_smoke PRIVATE aether)
+
+add_executable(apptraverse_aether_packet_queue_test
+  "${PROJECT_SOURCE_DIR}/tests/aether_packet_queue_main.cpp"
+  "${_sdk_root}/tests/test-transport/test-packet-queue-manager.cpp")
+target_link_libraries(apptraverse_aether_packet_queue_test PRIVATE aether unity)
+add_test(NAME apptraverse_aether_packet_queue_test COMMAND apptraverse_aether_packet_queue_test)
+set_tests_properties(apptraverse_aether_packet_queue_test PROPERTIES
+  LABELS "aether;headless;sdk" TIMEOUT 60)

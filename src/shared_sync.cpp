@@ -697,7 +697,11 @@ bool SharedSyncRuntime::QueueCoverageReceipts(SharedNode& node,
                                                SharedAdmissionPlan const& plan) {
   assert(plan.host_endpoint == local_endpoint_);
   for (auto const& peer : node.local_state->peers) {
+    // A later admission's initial snapshot already contains this Join. That
+    // recipient never installed this older admission plan and has no local
+    // delivery obligation for its covered history, so it needs no receipt.
     if (peer->link->endpoint_uid == plan.joining_endpoint ||
+        peer->IsCoveredByAdmission(plan.join_event_id) ||
         peer->HasNoticeDelivered(plan.snapshot_id) ||
         peer->FindPending(plan.snapshot_id) != nullptr) {
       continue;

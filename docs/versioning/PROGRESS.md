@@ -1,3 +1,13 @@
+## SharedNode macOS SwiftUI chat — 2026-11-13 — PASS
+
+Based on main `68233585`, with UID-only host/client roles. Thin SwiftUI
+presentation uses the existing ChatSession. Updated pinned dependencies; fixed
+overlapping-admission coverage receipts and pinned SDK cloud completion plus
+owner-loop socket readiness fixes. **18/18 CTests PASS** and three-window
+cloud recovery/180-second idle acceptance PASS. User confirmed manual Mac/Windows
+chat works. Windows was not built per user instruction.
+[Validation](../validation/shared-node-chat-macos-swiftui-2026-11-13.md).
+
 ## SharedNode upstream main update — 2026-11-12
 
 AppTraverse main integrated; SDK and telemetry pinned to current upstream main. Ten core/object Debug tests PASS. Full SDK/adapter integration BLOCKED by missing Objects telemetry API and obsolete native presence API/test references. No new cloud/chat PASS. See [validation](../validation/shared-node-main-update-2026-11-12.md).

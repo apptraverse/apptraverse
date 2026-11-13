@@ -505,11 +505,12 @@ struct Mesh {
   ae::ObjId room_id, h10, a20, join_id;
   std::size_t ack_checks{0};
 
-  Mesh() {
+  explicit Mesh(bool bootstrap = true) {
     for (auto const& uid : {"H", "A", "B"}) {
       disks.emplace(uid, MeshDurable{});
       Restart(uid);
     }
+    if (!bootstrap) return;
     auto& host = R("H");
     auto room = MeshRoom::ptr::Create(ae::CreateWith{*host.domain});
     room->text = "room:";
@@ -806,6 +807,44 @@ struct Mesh {
     ++ack_checks;
   }
 };
+
+void TestOverlappingInitialAdmissionsDoNotNotifySnapshotCoveredPeer() {
+  Mesh mesh{false};
+  auto& host = mesh.R("H");
+  auto room = MeshRoom::ptr::Create(ae::CreateWith{*host.domain});
+  room->text = "room:";
+  auto owner = MakeParticipant(*host.domain, "H", "Host");
+  room->participants = {owner};
+  room->links = {owner->link};
+  SharedSyncRuntime::InitializeLocalState(*room);
+  InitializeRuntimeNode(*room);
+  mesh.room_id = room.id();
+  host.app->Attach(room);
+  host.runtime->RegisterNode(room);
+  mesh.R("A").Expect(room.id());
+  mesh.R("B").Expect(room.id());
+  auto join_a = MeshJoinEvent::ptr::Create(ae::CreateWith{*host.domain});
+  join_a->participant = MakeParticipant(*host.domain, "A", "Alice");
+  auto const first_join = join_a.id();
+  bool const admitted = host.runtime->AdmitPeer(room.id(), join_a, "A", 10);
+  CHECK(admitted);
+  // B's frozen initial state includes A's Join before A's initial ACK arrives.
+  mesh.Admit(20);
+  mesh.Settle();
+  CHECK(!mesh.Pending());
+  CHECK(mesh.R("H").Peer(room.id(), "A").initial_complete);
+  CHECK(mesh.R("H").Peer(room.id(), "B").initial_complete);
+  CHECK(mesh.R("A").Peer(room.id(), "B").coverage_confirmed);
+  for (auto const& frame : mesh.sent) {
+    CHECK(!(frame.destination == "B" &&
+            frame.message.kind == SharedSyncKind::CoverageReceipt &&
+            frame.message.event_id == first_join));
+  }
+  auto const text = mesh.R("B").Append(room.id(), "|after admission", 30);
+  mesh.Settle();
+  CHECK(mesh.R("B").Peer(room.id(), "H").HasDelivered(text));
+  CHECK(mesh.R("B").Peer(room.id(), "A").HasDelivered(text));
+}
 
 void TestJoinFirstImmediateDirectDelivery() {
   Mesh mesh;
@@ -1937,6 +1976,8 @@ int main(int argc, char** argv) {
       ++executed;
     }
   };
+  run("TestOverlappingInitialAdmissionsDoNotNotifySnapshotCoveredPeer",
+      apptraverse::test::TestOverlappingInitialAdmissionsDoNotNotifySnapshotCoveredPeer);
   run("TestJoinFirstImmediateDirectDelivery",
       apptraverse::test::TestJoinFirstImmediateDirectDelivery);
   run("TestSnapshotAndReceiptBeforeJoin",
