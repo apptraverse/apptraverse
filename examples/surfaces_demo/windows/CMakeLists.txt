@@ -1,3 +1,4 @@
+if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES)
 set(_surfaces_win_sources
   main.cpp
   win_app.cpp
@@ -61,6 +62,8 @@ if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/surface_v1_package")
       COMMENT "Copy bundled Surface v1 package next to ${_demo_target}"
     )
   endforeach()
+endif()
+
 endif()
 
 # Debug prepares a fresh graph; consumers load the supply prepared by Debug.

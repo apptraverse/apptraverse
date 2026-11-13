@@ -6,6 +6,7 @@ import hashlib
 import json
 import shutil
 import subprocess
+from fixture_process import run_fixture
 import tempfile
 from pathlib import Path
 
@@ -41,7 +42,7 @@ def user_layer_map(user_root: Path) -> dict[str, str]:
 
 
 def run(exe: Path, state_root: Path, op: str):
-    completed = subprocess.run(
+    completed = run_fixture(
         [str(exe), "--state-dir", str(state_root), "--op", op],
         capture_output=True,
         text=True,

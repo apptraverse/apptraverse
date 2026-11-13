@@ -5,6 +5,7 @@ import argparse
 import json
 import shutil
 import subprocess
+from fixture_process import run_fixture, copy_fixture
 import sys
 import tempfile
 from pathlib import Path
@@ -23,7 +24,7 @@ def read_release(config_path: Path) -> int:
 
 
 def run_probe(probe: Path, cwd: Path) -> int:
-    completed = subprocess.run(
+    completed = run_fixture(
         [str(probe)],
         cwd=cwd,
         capture_output=True,
@@ -61,7 +62,7 @@ def main() -> int:
             root = Path(tmp)
             (root / "state" / "5").mkdir(parents=True)
             (root / "state" / "active-release").write_text("5\n", encoding="utf-8")
-            shutil.copy2(probe, root / probe.name)
+            copy_fixture(probe, root / probe.name)
             actual = run_probe(root / probe.name, root)
     else:
         actual = run_probe(probe, probe.parent)

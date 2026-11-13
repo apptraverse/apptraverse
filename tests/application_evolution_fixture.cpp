@@ -1,9 +1,9 @@
 #include <charconv>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -17,13 +17,13 @@
 // Six independent executables use this fixture. Only these test classes evolve;
 // AppTraverse's working classes remain at schema zero.
 #ifndef APPTRAVERSE_EXE_REVISION
-#error APPTRAVERSE_EXE_REVISION must be set by the fixture target
+#  error APPTRAVERSE_EXE_REVISION must be set by the fixture target
 #endif
 #ifndef APPTRAVERSE_SCHEMA_REVISION
-#error APPTRAVERSE_SCHEMA_REVISION must be set by the fixture target
+#  error APPTRAVERSE_SCHEMA_REVISION must be set by the fixture target
 #endif
 #ifndef APPTRAVERSE_EVOLUTION_MODE
-#error APPTRAVERSE_EVOLUTION_MODE must be set by the fixture target
+#  error APPTRAVERSE_EVOLUTION_MODE must be set by the fixture target
 #endif
 
 namespace apptraverse::test::application_evolution {
@@ -41,8 +41,9 @@ constexpr std::uint32_t kStep[] = {1, 10, 100};
 class StateRoot;
 
 class LayerBase : public ae::Obj {
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::application_evolution::LayerBase",
-                          LayerBase, ae::Obj, kBaseSchema)
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::test::application_evolution::LayerBase", LayerBase, ae::Obj,
+      kBaseSchema)
 
  protected:
   LayerBase() = default;
@@ -144,8 +145,9 @@ class LayerDerived : public LayerBase {
 // Journals are exercised by the existing Node persistence tests. This fixture
 // isolates schema dispatch, native class layers, identity, aliases and cycles.
 class StateRoot : public ae::Obj {
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::application_evolution::StateRoot",
-                          StateRoot, ae::Obj, 0)
+  APPTRAVERSE_NAMED_OBJECT(
+      "apptraverse::test::application_evolution::StateRoot", StateRoot, ae::Obj,
+      0)
 
  protected:
   StateRoot() = default;
@@ -173,11 +175,17 @@ APPTRAVERSE_REGISTER(LayerBase);
 APPTRAVERSE_REGISTER(LayerDerived);
 APPTRAVERSE_REGISTER(StateRoot);
 
+[[noreturn]] void Fail(std::string const& message) {
+  std::cerr << "FAIL: " << message << "\n";
+  std::exit(1);
+}
+
 std::uint32_t ParseNumber(std::string const& text) {
   std::uint32_t value{};
-  auto const result = std::from_chars(text.data(), text.data() + text.size(), value);
+  auto const result =
+      std::from_chars(text.data(), text.data() + text.size(), value);
   if (result.ec != std::errc{} || result.ptr != text.data() + text.size()) {
-    throw std::runtime_error("invalid numeric storage path: " + text);
+    Fail("invalid numeric storage path: " + text);
   }
   return value;
 }
@@ -186,20 +194,20 @@ std::uint32_t ParseNumber(std::string const& text) {
 // Check every stored layer, including stale slots that a native old reader can
 // silently ignore. This runs before constructing a Domain or loading objects.
 std::string UnsupportedSchema(std::filesystem::path const& state_dir) {
-  for (auto const& entry : std::filesystem::recursive_directory_iterator(state_dir)) {
+  for (auto const& entry :
+       std::filesystem::recursive_directory_iterator(state_dir)) {
     if (entry.is_directory()) {
       continue;
     }
     if (!entry.is_regular_file()) {
-      throw std::runtime_error("non-file entry in fixture storage");
+      Fail("non-file entry in fixture storage");
     }
     std::vector<std::string> parts;
     for (auto const& part : entry.path().lexically_relative(state_dir)) {
       parts.push_back(part.string());
     }
     if (parts.size() != 3) {
-      throw std::runtime_error("unexpected file in fixture storage: " +
-                               entry.path().string());
+      Fail("unexpected file in fixture storage: " + entry.path().string());
     }
     auto const object_id = ParseNumber(parts[0]);
     auto const class_id = ParseNumber(parts[1]);
@@ -217,12 +225,13 @@ std::string UnsupportedSchema(std::filesystem::path const& state_dir) {
     } else if (class_id == ae::Obj::kClassId) {
       class_name = "ae::Obj";
     } else {
-      return "object=" + std::to_string(object_id) + " unknown class=" +
-             std::to_string(class_id);
+      return "object=" + std::to_string(object_id) +
+             " unknown class=" + std::to_string(class_id);
     }
     if (schema > supported) {
-      return "object=" + std::to_string(object_id) + " class=" +
-             std::string(class_name) + "(" + std::to_string(class_id) +
+      return "object=" + std::to_string(object_id) +
+             " class=" + std::string(class_name) + "(" +
+             std::to_string(class_id) +
              ") stored_schema=" + std::to_string(schema) +
              " supported_max=" + std::to_string(supported);
     }
@@ -243,24 +252,23 @@ int Run(int argc, char** argv) {
     } else if (arg == "--op" && i + 1 < argc) {
       operation = argv[++i];
     } else {
-      throw std::runtime_error("unknown or incomplete argument: " + std::string(arg));
+      Fail("unknown or incomplete argument: " + std::string(arg));
     }
   }
   if (state_dir.empty() || (operation != "create" && operation != "inspect" &&
                             operation != "update")) {
-    throw std::runtime_error(
-        "usage: --state-dir PATH --op create|inspect|update [--native]");
+    Fail("usage: --state-dir PATH --op create|inspect|update [--native]");
   }
 
   if (operation == "create") {
     if (std::filesystem::exists(state_dir) &&
         (!std::filesystem::is_directory(state_dir) ||
          !std::filesystem::is_empty(state_dir))) {
-      throw std::runtime_error("create requires a new or empty state directory");
+      Fail("create requires a new or empty state directory");
     }
   } else {
     if (!std::filesystem::is_directory(state_dir)) {
-      throw std::runtime_error("state directory does not exist");
+      Fail("state directory does not exist");
     }
     if (!native) {
       auto const reason = UnsupportedSchema(state_dir);
@@ -276,8 +284,10 @@ int Run(int argc, char** argv) {
   ae::Domain domain{storage};
   ae::Ptr<StateRoot> root;
   if (operation == "create") {
-    auto root_ref = StateRoot::ptr::Create(ae::CreateWith{domain}.with_id(kRootId));
-    auto child = LayerDerived::ptr::Create(ae::CreateWith{domain}.with_id(kChildId));
+    auto root_ref =
+        StateRoot::ptr::Create(ae::CreateWith{domain}.with_id(kRootId));
+    auto child =
+        LayerDerived::ptr::Create(ae::CreateWith{domain}.with_id(kChildId));
     child->value = 11;
     child->child_value = 37;
     child->label = "initial";
@@ -290,7 +300,7 @@ int Run(int argc, char** argv) {
     ae::Ptr<ae::Obj> loaded;
     if (!graph.LoadRoot(kRootId, loaded).IsOk() || !loaded ||
         loaded->GetClassId() != StateRoot::kClassId) {
-      throw std::runtime_error("native LoadRoot failed or root class mismatched");
+      Fail("native LoadRoot failed or root class mismatched");
     }
     root = ae::Ptr<StateRoot>{loaded};
   }
@@ -301,11 +311,11 @@ int Run(int argc, char** argv) {
       child->obj_id.id() != kChildId ||
       child->GetClassId() != LayerDerived::kClassId ||
       child.get() != alias_child.get() || child->child_value != 37) {
-    throw std::runtime_error("object identity, alias or child value changed");
+    Fail("object identity, alias or child value changed");
   }
   auto backref = child->backref.Load();
   if (!backref || backref.get() != root.get()) {
-    throw std::runtime_error("child-to-root cycle changed");
+    Fail("child-to-root cycle changed");
   }
 
   if (operation == "update") {
@@ -321,8 +331,9 @@ int Run(int argc, char** argv) {
 #endif
     storage.BeginSaveSession();
     ae::DomainGraph graph{&domain};
-    if (!graph.SaveRoot(root, kRootId).IsOk() || storage.SaveSessionHadFailure()) {
-      throw std::runtime_error("SaveRoot failed");
+    if (!graph.SaveRoot(root, kRootId).IsOk() ||
+        storage.SaveSessionHadFailure()) {
+      Fail("SaveRoot failed");
     }
   }
 
@@ -357,10 +368,5 @@ int Run(int argc, char** argv) {
 }  // namespace apptraverse::test::application_evolution
 
 int main(int argc, char** argv) {
-  try {
-    return apptraverse::test::application_evolution::Run(argc, argv);
-  } catch (std::exception const& error) {
-    std::cerr << "FAIL: " << error.what() << '\n';
-    return 1;
-  }
+  return apptraverse::test::application_evolution::Run(argc, argv);
 }

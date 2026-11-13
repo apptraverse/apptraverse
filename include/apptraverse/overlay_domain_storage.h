@@ -35,6 +35,7 @@ class OverlayDomainStorage final : public ae::IDomainStorage {
       ae::DomainQuery const& query) override;
   ae::ClassList Enumerate(ae::ObjId const& obj_id) override;
   ae::DomainLoad Load(ae::DomainQuery const& query) override;
+  bool HasVersionAfter(ae::DomainQuery const& query) override;
   void Remove(ae::ObjId const& obj_id) override;
   void CleanUp() override;
 

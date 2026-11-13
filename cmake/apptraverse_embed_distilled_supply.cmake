@@ -11,6 +11,11 @@ function(apptraverse_embed_distilled_supply target exporter_exe header_basename)
     message(FATAL_ERROR "apptraverse_embed_distilled_supply: header_basename required")
   endif()
 
+  if(EMSCRIPTEN)
+    # Exporters run in Node during the build and write real host files.
+    target_link_options(${exporter_exe} PRIVATE -sNODERAWFS=1 -sENVIRONMENT=node)
+  endif()
+
   set(_extra_deps "")
   if(ARGC GREATER 3)
     foreach(_dep IN LISTS ARGN)
@@ -27,7 +32,7 @@ function(apptraverse_embed_distilled_supply target exporter_exe header_basename)
   add_custom_command(
     OUTPUT "${_header}"
     COMMAND ${exporter_exe} "${_header}"
-    DEPENDS ${exporter_exe} ${_extra_deps}
+    DEPENDS ${exporter_exe} "$<TARGET_FILE:${exporter_exe}>" ${_extra_deps}
     VERBATIM
     COMMENT "Embed distilled domain supply for ${target}")
 

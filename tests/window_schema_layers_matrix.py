@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+from fixture_process import run_fixture
 import tempfile
 
 from application_evolution_matrix import CheckFailed, digest, manifest, unchanged
@@ -42,7 +43,7 @@ class WindowMatrix:
         before = manifest(directory)
         self.count += 1
         try:
-            completed = subprocess.run(command, capture_output=True, text=True,
+            completed = run_fixture(command, capture_output=True, text=True,
                                        encoding="utf-8", errors="replace",
                                        timeout=self.timeout, cwd=self.root)
         except subprocess.TimeoutExpired as error:

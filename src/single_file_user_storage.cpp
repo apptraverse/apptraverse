@@ -6,6 +6,12 @@
 #include <iterator>
 #include <map>
 #include <vector>
+#ifdef _WIN32
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  include <windows.h>
+#endif
 #include "aether-miscpp/serialization/binary_archive.h"
 
 namespace apptraverse {
@@ -22,11 +28,12 @@ bool DeserializeUserStorage(ae::RamDomainStorage& storage,
   ae::seri::BinaryArchive archive{std::move(buffer)};
   ae::RamDomainStorage::ObjClassData loaded;
   Scopes scopes;
-  if (archive.Load(loaded).IsErr() || archive.Load(scopes).IsErr()) return false;
+  if (archive.Load(loaded).IsErr() || archive.Load(scopes).IsErr())
+    return false;
   std::map<ae::ObjId, ae::ObjectScope> metadata;
   for (auto const& [id, fields] : scopes) {
     metadata.emplace(id, ae::ObjectScope{ae::ObjId{fields[0]},
-        ae::ObjId{fields[1]}, fields[2] != 0});
+                                         ae::ObjId{fields[1]}, fields[2] != 0});
   }
   storage.state = std::move(loaded);
   storage.object_scopes = std::move(metadata);
@@ -37,18 +44,21 @@ bool SerializeUserStorage(ae::RamDomainStorage const& storage,
                           std::vector<std::uint8_t>& bytes) {
   Scopes scopes;
   for (auto const& [id, scope] : storage.object_scopes) {
-    scopes.emplace(id, std::array<std::uint32_t, 3>{scope.root_id.id(),
-        scope.parent_root_id.id(), scope.is_constant ? 1U : 0U});
+    scopes.emplace(id, std::array<std::uint32_t, 3>{
+                           scope.root_id.id(), scope.parent_root_id.id(),
+                           scope.is_constant ? 1U : 0U});
   }
   std::vector<std::uint8_t> encoded;
   ae::seri::BinaryVectorBuffer buffer{encoded};
   ae::seri::BinaryArchive archive{std::move(buffer)};
-  if (archive.Save(storage.state).IsErr() || archive.Save(scopes).IsErr()) return false;
+  if (archive.Save(storage.state).IsErr() || archive.Save(scopes).IsErr())
+    return false;
   bytes = std::move(encoded);
   return true;
 }
 
-bool LoadUserStorageFile(ae::RamDomainStorage& storage, std::filesystem::path const& profile) {
+bool LoadUserStorageFile(ae::RamDomainStorage& storage,
+                         std::filesystem::path const& profile) {
   auto const file_ = profile / "user.bin";
   errno = 0;
   std::ifstream input{file_, std::ios::binary};
@@ -63,15 +73,17 @@ bool LoadUserStorageFile(ae::RamDomainStorage& storage, std::filesystem::path co
   return DeserializeUserStorage(storage, bytes);
 }
 
-bool SaveUserStorageFile(ae::RamDomainStorage const& storage, std::filesystem::path const& profile) {
+bool SaveUserStorageFile(ae::RamDomainStorage const& storage,
+                         std::filesystem::path const& profile) {
   auto const file_ = profile / "user.bin";
+  auto const pending = profile / "user.bin.pending";
   std::vector<std::uint8_t> bytes;
   if (!SerializeUserStorage(storage, bytes)) return false;
   std::error_code ec;
   std::filesystem::create_directories(file_.parent_path(), ec);
   if (ec) return false;
   {
-    std::ofstream output{file_, std::ios::binary | std::ios::trunc};
+    std::ofstream output{pending, std::ios::binary | std::ios::trunc};
     if (!output) return false;
     output.write(reinterpret_cast<char const*>(bytes.data()),
                  static_cast<std::streamsize>(bytes.size()));
@@ -80,6 +92,14 @@ bool SaveUserStorageFile(ae::RamDomainStorage const& storage, std::filesystem::p
     output.close();
     if (!output) return false;
   }
-  return true;
+  // The existing committed USER remains intact if the process is killed while
+  // writing. The temporary file is never read as state on restart.
+#ifdef _WIN32
+  return MoveFileExW(pending.c_str(), file_.c_str(),
+                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+#else
+  std::filesystem::rename(pending, file_, ec);
+  return !ec;
+#endif
 }
 }  // namespace apptraverse

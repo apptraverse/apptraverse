@@ -28,7 +28,7 @@ else()
   set(_surfaces_demo_presentation_lib surfaces_demo_presentation)
 endif()
 
-add_library(surfaces_demo_evolution STATIC
+add_library(surfaces_demo_evolution STATIC EXCLUDE_FROM_ALL
   common/surfaces_evolution_ops.cpp
   common/surfaces_session_automation.cpp
 )
@@ -89,7 +89,7 @@ if(WIN32 AND NOT EMSCRIPTEN)
   )
   target_compile_features(surfaces_demo_distill_v1 PUBLIC cxx_std_20)
 
-  add_library(surfaces_demo_evolution_v1 STATIC
+  add_library(surfaces_demo_evolution_v1 STATIC EXCLUDE_FROM_ALL
     common/surfaces_evolution_ops.cpp
     common/surfaces_session_automation.cpp
     common/surfaces_v1_package.cpp

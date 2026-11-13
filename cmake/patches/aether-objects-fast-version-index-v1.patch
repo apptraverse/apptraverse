@@ -1,0 +1,64 @@
+diff --git a/src/aether-objects/domain_storage/ram_domain_storage.cpp b/src/aether-objects/domain_storage/ram_domain_storage.cpp
+index f58d8d6..f7ec387 100644
+--- a/src/aether-objects/domain_storage/ram_domain_storage.cpp
++++ b/src/aether-objects/domain_storage/ram_domain_storage.cpp
+@@ -109,6 +109,22 @@ ClassList RamDomainStorage::Enumerate(ObjId const& obj_id) {
+   return classes;
+ }
+ 
++bool RamDomainStorage::HasVersionAfter(DomainQuery const& query) {
++  if (query.version == 255U) {
++    return false;
++  }
++  auto const object = state.find(query.id);
++  if (object == state.end()) {
++    return false;
++  }
++  if (!object->second) {
++    return true;
++  }
++  auto const layer = object->second->find(query.class_id);
++  return layer != object->second->end() &&
++         layer->second.upper_bound(query.version) != layer->second.end();
++}
++
+ DomainLoad RamDomainStorage::Load(DomainQuery const& query) {
+   auto obj_map_it = state.find(query.id);
+   if (obj_map_it == std::end(state)) {
+diff --git a/src/aether-objects/domain_storage/ram_domain_storage.h b/src/aether-objects/domain_storage/ram_domain_storage.h
+index ecac59c..8521a80 100644
+--- a/src/aether-objects/domain_storage/ram_domain_storage.h
++++ b/src/aether-objects/domain_storage/ram_domain_storage.h
+@@ -39,6 +39,7 @@ class RamDomainStorage : public IDomainStorage {
+ 
+   ClassList Enumerate(ObjId const& obj_id) override;
+   DomainLoad Load(DomainQuery const& query) override;
++  bool HasVersionAfter(DomainQuery const& query) override;
+   void Remove(ObjId const& obj_id) override;
+   void CleanUp() override;
+   std::optional<ObjectScope> ReadObjectScope(ObjId const& id) const override {
+diff --git a/src/aether-objects/obj/idomain_storage.h b/src/aether-objects/obj/idomain_storage.h
+index 210a916..e07b39e 100644
+--- a/src/aether-objects/obj/idomain_storage.h
++++ b/src/aether-objects/obj/idomain_storage.h
+@@ -104,6 +104,20 @@ class IDomainStorage {
+    * \brief Load object data by query.
+    */
+   virtual DomainLoad Load(DomainQuery const& query) = 0;
++  // Metadata query: do not open/trace hundreds of absent readers when the
++  // storage already has a native version index. Legacy backends keep the same
++  // loaded/removed semantics through this default implementation.
++  virtual bool HasVersionAfter(DomainQuery const& query) {
++    for (unsigned version = static_cast<unsigned>(query.version) + 1U;
++         version <= 255U; ++version) {
++      auto const load =
++          Load({query.id, query.class_id, static_cast<std::uint8_t>(version)});
++      if (load.result != DomainLoadResult::kEmpty) {
++        return true;
++      }
++    }
++    return false;
++  }
+ 
+   /**
+    * \brief Remove object data by query

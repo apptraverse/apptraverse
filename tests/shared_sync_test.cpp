@@ -18,8 +18,8 @@ namespace {
 
 #define CHECK(condition)                                                    \
   do {                                                                      \
-    if (!(condition)) {                                                      \
-      std::cerr << "CHECK failed: " #condition << " at " << __FILE__ << ':'  \
+    if (!(condition)) {                                                     \
+      std::cerr << "CHECK failed: " #condition << " at " << __FILE__ << ':' \
                 << __LINE__ << '\n';                                        \
       std::exit(1);                                                         \
     }                                                                       \
@@ -33,15 +33,20 @@ class SyncRoom : public NodeFor<SyncRoom, SharedNode> {
                            SharedNode, 0)
  protected:
   SyncRoom() { living.insert(this); }
+
  public:
   explicit SyncRoom(ae::ObjProp prop) : NodeFor{prop} { living.insert(this); }
   ~SyncRoom() { living.erase(this); }
   inline static std::set<SyncRoom*> living;
   AE_OBJECT_REFLECT(AE_MMBR(text))
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) { dnv(base_, text); }
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, text);
+  }
   template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const { dnv(base_, text); }
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, text);
+  }
   void Apply(AppendSyncTextEvent const& event);
   void InsertSeed(Event::ptr event, std::uint64_t timestamp) {
     InsertEvent({.event = std::move(event),
@@ -56,11 +61,14 @@ class AppendSyncTextEvent : public EventFor<SyncRoom, AppendSyncTextEvent> {
                            AppendSyncTextEvent, Event, 0)
  protected:
   AppendSyncTextEvent() = default;
+
  public:
   explicit AppendSyncTextEvent(ae::ObjProp prop) : EventFor{prop} {}
   AE_OBJECT_REFLECT(AE_MMBR(text), AE_MMBR(room_reference))
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) { dnv(base_, text, room_reference); }
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, text, room_reference);
+  }
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, text, room_reference);
@@ -89,13 +97,18 @@ class SyncApplication : public NodeFor<SyncApplication> {
                            SyncApplication, Node, 0)
  protected:
   SyncApplication() { living.insert(this); }
+
  public:
-  explicit SyncApplication(ae::ObjProp prop) : NodeFor{prop} { living.insert(this); }
+  explicit SyncApplication(ae::ObjProp prop) : NodeFor{prop} {
+    living.insert(this);
+  }
   ~SyncApplication() { living.erase(this); }
   inline static std::set<SyncApplication*> living;
   AE_OBJECT_REFLECT(AE_MMBR(rooms), AE_MMBR(expected_rooms))
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) { dnv(base_, rooms, expected_rooms); }
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, rooms, expected_rooms);
+  }
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, rooms, expected_rooms);
@@ -114,13 +127,18 @@ class AttachSyncRoomEvent
                            AttachSyncRoomEvent, Event, 0)
  protected:
   AttachSyncRoomEvent() = default;
+
  public:
   explicit AttachSyncRoomEvent(ae::ObjProp prop) : EventFor{prop} {}
   AE_OBJECT_REFLECT(AE_MMBR(room))
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) { dnv(base_, room); }
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, room);
+  }
   template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const { dnv(base_, room); }
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, room);
+  }
   SharedNode::ptr room;
 };
 
@@ -130,13 +148,18 @@ class ExpectSyncRoomEvent
                            ExpectSyncRoomEvent, Event, 0)
  protected:
   ExpectSyncRoomEvent() = default;
+
  public:
   explicit ExpectSyncRoomEvent(ae::ObjProp prop) : EventFor{prop} {}
   AE_OBJECT_REFLECT(AE_MMBR(expected))
   template <typename Dnv>
-  void Load(ae::Version<0>, Dnv& dnv) { dnv(base_, expected); }
+  void Load(ae::Version<0>, Dnv& dnv) {
+    dnv(base_, expected);
+  }
   template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& dnv) const { dnv(base_, expected); }
+  void Save(ae::Version<0>, Dnv& dnv) const {
+    dnv(base_, expected);
+  }
   ExpectedSyncRoom expected;
 };
 
@@ -147,14 +170,17 @@ void SyncApplication::Attach(SharedNode::ptr room) {
 }
 void SyncApplication::Apply(AttachSyncRoomEvent const& event) {
   rooms.push_back(event.room);
-  expected_rooms.erase(std::remove_if(expected_rooms.begin(), expected_rooms.end(),
-      [&](auto const& expected) { return expected.id == event.room.id(); }),
+  expected_rooms.erase(
+      std::remove_if(
+          expected_rooms.begin(), expected_rooms.end(),
+          [&](auto const& expected) { return expected.id == event.room.id(); }),
       expected_rooms.end());
 }
 
 void SyncApplication::Expect(ae::ObjId id, std::string source) {
-  auto const existing = std::find_if(expected_rooms.begin(), expected_rooms.end(),
-      [id](auto const& expected) { return expected.id == id; });
+  auto const existing =
+      std::find_if(expected_rooms.begin(), expected_rooms.end(),
+                   [id](auto const& expected) { return expected.id == id; });
   CHECK(existing == expected_rooms.end());
   auto event = ExpectSyncRoomEvent::ptr::Create(ae::CreateWith{*domain});
   event->expected = {id, std::move(source)};
@@ -186,9 +212,9 @@ struct Sent {
 
 class CountingLink final : public IByteLink {
  public:
-  using Observer = std::function<void(std::string const&,
-      std::string const&, SharedSyncMessage const&,
-      std::vector<std::uint8_t> const&)>;
+  using Observer = std::function<void(std::string const&, std::string const&,
+                                      SharedSyncMessage const&,
+                                      std::vector<std::uint8_t> const&)>;
   CountingLink(MemoryLink& link, Observer observer)
       : link_{link}, observer_{std::move(observer)} {}
   void SetReceiver(Receiver receiver) override {
@@ -196,21 +222,27 @@ class CountingLink final : public IByteLink {
   }
   bool Send(std::string const& destination,
             std::vector<std::uint8_t> const& bytes) override {
-    if (send_budget && *send_budget == 0) { return false; }
+    if (send_budget && *send_budget == 0) {
+      return false;
+    }
     SharedSyncMessage message;
     bool const parsed = DeserializeSharedSyncMessage(bytes, message);
     CHECK(parsed);
     observer_(link_.EndpointId(), destination, message, bytes);
     bool const accepted = link_.Send(destination, bytes);
-    if (accepted && send_budget) { --*send_budget; }
+    if (accepted && send_budget) {
+      --*send_budget;
+    }
     return accepted;
   }
   LinkAvailability Availability(std::string const& endpoint) const override {
     return link_.Availability(endpoint);
   }
   // Models a transport admitting only a bounded number of whole messages.
-  // A budget refusal consumes neither capacity nor an outgoing-frame ledger slot.
+  // A budget refusal consumes neither capacity nor an outgoing-frame ledger
+  // slot.
   std::optional<std::size_t> send_budget;
+
  private:
   MemoryLink& link_;
   Observer observer_;
@@ -226,7 +258,8 @@ struct Replica {
   std::unique_ptr<SharedSyncRuntime> runtime;
 
   Replica(MemoryLinkNetwork& network, std::string uid, Durable& disk,
-          CountingLink::Observer observer) : durable{disk} {
+          CountingLink::Observer observer)
+      : durable{disk} {
     storage = durable.storage;
     domain = std::make_unique<ae::Domain>(storage);
     if (durable.app_id.is_valid()) {
@@ -245,8 +278,11 @@ struct Replica {
     endpoint = std::make_unique<MemoryLink>(network, uid);
     transport = std::make_unique<CountingLink>(*endpoint, std::move(observer));
     runtime = std::make_unique<SharedSyncRuntime>(
-        *domain, storage, *transport, uid, [this] { return Persist(); }, kRetry);
-    for (auto const& room : app->rooms) { runtime->RegisterNode(room); }
+        *domain, storage, *transport, uid, [this] { return Persist(); },
+        kRetry);
+    for (auto const& room : app->rooms) {
+      runtime->RegisterNode(room);
+    }
     for (auto const& expected : app->expected_rooms) {
       BindExpectation(expected);
     }
@@ -274,9 +310,9 @@ struct Replica {
   }
 
   bool Persist() {
-    ae::DomainGraph graph{domain.get()};
-    auto const result = graph.SaveRoot(domain->Find(app.id()), app.id());
-    if (result.IsErr()) { return false; }
+    ae::RamDomainStorage checkpoint;
+    SavePersistedObjectGraphToRam(*app, checkpoint);
+    storage = std::move(checkpoint);
     durable.storage = storage;
     durable.app_id = app.id();
     ++durable.saves;
@@ -294,7 +330,9 @@ struct Replica {
   SharedPeerState& Peer(ae::ObjId id, std::string const& uid) const {
     auto& room = Room(id);
     for (auto const& peer : room.local_state->peers) {
-      if (peer->link->endpoint_uid == uid) { return *peer; }
+      if (peer->link->endpoint_uid == uid) {
+        return *peer;
+      }
     }
     CHECK(false);
     std::abort();
@@ -319,7 +357,8 @@ struct Replica {
   }
 
   void BindExpectation(ExpectedSyncRoom const& expected) {
-    runtime->ExpectInitialState(expected.id, expected.source, SyncRoom::kClassId,
+    runtime->ExpectInitialState(
+        expected.id, expected.source, SyncRoom::kClassId,
         [this](SharedNode::ptr room) { app->Attach(std::move(room)); });
   }
 };
@@ -336,7 +375,8 @@ std::vector<ObservedEvent> Observe(ae::Domain& domain, SyncRoom const& room) {
   for (auto const& record : room.journal) {
     auto* event = domain.Find(record.event.id()).as<AppendSyncTextEvent>();
     CHECK(event);
-    events.push_back({record.event.id(), record.order.timestamp_us, event->text});
+    events.push_back(
+        {record.event.id(), record.order.timestamp_us, event->text});
     materialized += event->text;
   }
   CHECK(room.text == materialized);
@@ -350,7 +390,10 @@ struct Pair {
   std::unique_ptr<Replica> h, b;
   std::size_t checked_acks{0};
 
-  Pair() { RestartH(); RestartB(); }
+  Pair() {
+    RestartH();
+    RestartB();
+  }
 
   CountingLink::Observer Observer() {
     return [this](auto const& source, auto const& destination,
@@ -403,7 +446,9 @@ struct Pair {
   void Drain(bool reverse = false) {
     for (unsigned turns = 0; turns != 1000; ++turns) {
       auto packets = network.PendingPackets();
-      if (packets.empty()) { return; }
+      if (packets.empty()) {
+        return;
+      }
       auto const packet = reverse ? packets.back() : packets.front();
       bool const delivered = network.Deliver(packet.id);
       CHECK(delivered);
@@ -453,12 +498,13 @@ struct Pair {
 
   void CheckAck(std::string const& source, std::string const& destination,
                 SharedSyncMessage const& ack) {
-    auto original = std::find_if(sent.begin(), sent.end(), [&](auto const& frame) {
-      return frame.source == destination && frame.destination == source &&
-             frame.message.node_id == ack.node_id &&
-             frame.message.packet_id == ack.packet_id &&
-             frame.message.kind == ack.acknowledged_kind;
-    });
+    auto original =
+        std::find_if(sent.begin(), sent.end(), [&](auto const& frame) {
+          return frame.source == destination && frame.destination == source &&
+                 frame.message.node_id == ack.node_id &&
+                 frame.message.packet_id == ack.packet_id &&
+                 frame.message.kind == ack.acknowledged_kind;
+        });
     CHECK(original != sent.end());
     auto const& disk = source == "H" ? disk_h : disk_b;
     CHECK(disk.app_id.is_valid());
@@ -478,24 +524,35 @@ struct Pair {
       }
     }
     CHECK(room);
+    if (original->message.kind == SharedSyncKind::Progress) {
+      auto const* progress = room->local_state->FindProgress(destination);
+      CHECK(progress && *progress == original->message.progress);
+      return;
+    }
     if (ack.minor == 2 && ack.acknowledged_kind == SharedSyncKind::Event) {
       auto const prefix = room->local_state->ReceivedPrefix(destination);
-      CHECK(ack.received_prefix == prefix && ack.stamp == original->message.stamp);
+      CHECK(ack.received_prefix == prefix &&
+            ack.stamp == original->message.stamp);
       for (std::uint64_t index = 1; index <= prefix.index; ++index) {
-        auto const* stamp = room->local_state->FindStreamIndex(destination, index);
+        auto const* stamp =
+            room->local_state->FindStreamIndex(destination, index);
         CHECK(stamp && stamp->timestamp_us <= prefix.timestamp_us);
-        auto const record = std::find_if(room->journal.begin(), room->journal.end(),
-            [&](auto const& value) { return value.event.id() == stamp->event_id; });
-        CHECK(record != room->journal.end() && record->order.timestamp_us == stamp->timestamp_us);
+        auto const record = std::find_if(
+            room->journal.begin(), room->journal.end(), [&](auto const& value) {
+              return value.event.id() == stamp->event_id;
+            });
+        CHECK(record != room->journal.end() &&
+              record->order.timestamp_us == stamp->timestamp_us);
       }
     }
     auto const actual = Observe(domain, *room);
     auto expected_storage = ae::RamDomainStorage{};
     expected_storage.state = original->message.graph.layers;
     ae::Domain expected_domain{expected_storage};
-    ae::DomainGraph expected_graph{
-        &expected_domain, ae::GraphSerializationScope::NetworkShared};
-    auto expected_root = expected_graph.LoadRoot(original->message.graph.root_id);
+    ae::DomainGraph expected_graph{&expected_domain,
+                                   ae::GraphSerializationScope::NetworkShared};
+    auto expected_root =
+        expected_graph.LoadRoot(original->message.graph.root_id);
     CHECK(expected_root);
     std::vector<ObservedEvent> expected;
     if (original->message.kind == SharedSyncKind::InitialState) {
@@ -509,7 +566,8 @@ struct Pair {
                           original->message.timestamp_us, event->text});
     }
     for (auto const& item : expected) {
-      auto const found = std::find_if(actual.begin(), actual.end(),
+      auto const found = std::find_if(
+          actual.begin(), actual.end(),
           [&](auto const& observed) { return observed.id == item.id; });
       CHECK(found != actual.end());
       CHECK(found->timestamp == item.timestamp && found->text == item.text);
@@ -525,7 +583,8 @@ void TestInitialStateWinsSingleMessageBackpressure() {
   bool const queued = pair.h->runtime->QueueInitialState(id, "B");
   CHECK(queued);
   auto const& pending = pair.h->Peer(id, "B").pending_packets;
-  CHECK(pending.size() == 2 && !pending.front().initial && pending.back().initial);
+  CHECK(pending.size() == 2 && !pending.front().initial &&
+        pending.back().initial);
   auto const frozen_initial = pending.back();
   CHECK(pair.b->app->rooms.empty());
   pair.h->transport->send_budget = 1;
@@ -536,7 +595,8 @@ void TestInitialStateWinsSingleMessageBackpressure() {
   CHECK(message.kind == SharedSyncKind::InitialState);
   CHECK(wire.front().bytes == frozen_initial.bytes);
   CHECK(message.covered_events == std::vector<ae::ObjId>{seed});
-  CHECK(pair.sent.size() == 1 && pair.sent.front().message.kind == SharedSyncKind::InitialState);
+  CHECK(pair.sent.size() == 1 &&
+        pair.sent.front().message.kind == SharedSyncKind::InitialState);
   pair.Drain();
   pair.Equal(id, 1);
   CHECK(pair.h->Peer(id, "B").initial_complete);
@@ -718,7 +778,9 @@ void TestMaterializedNotificationsSurviveReorderAndIgnoreDuplicateAck() {
   auto const id = pair.AddRoom();
   pair.Bootstrap(id);
   std::size_t h_changes = 0, b_changes = 0;
-  auto const changed = [](void* ctx, Node&) { ++*static_cast<std::size_t*>(ctx); };
+  auto const changed = [](void* ctx, Node&) {
+    ++*static_cast<std::size_t*>(ctx);
+  };
   pair.h->Room(id).BindMaterializedChangeNotifier(&h_changes, changed);
   pair.b->Room(id).BindMaterializedChangeNotifier(&b_changes, changed);
   auto const e20 = pair.h->Append(id, "|20", 20);
@@ -810,8 +872,10 @@ void TestPendingBeforeSendAndBothSidesRestart() {
   CHECK(pair.h->Peer(id, "B").pending_packets.front().bytes == frozen_h.bytes);
   CHECK(pair.b->Peer(id, "H").pending_packets.front().bytes == frozen_b.bytes);
   pair.Service(0);
-  CHECK(pair.Packet(SharedSyncKind::Event, "H", h_event).bytes == frozen_h.bytes);
-  CHECK(pair.Packet(SharedSyncKind::Event, "B", b_event).bytes == frozen_b.bytes);
+  CHECK(pair.Packet(SharedSyncKind::Event, "H", h_event).bytes ==
+        frozen_h.bytes);
+  CHECK(pair.Packet(SharedSyncKind::Event, "B", b_event).bytes ==
+        frozen_b.bytes);
   pair.Drain(true);
   pair.Equal(id, 2);
   CHECK(pair.h->Peer(id, "B").pending_packets.empty());
@@ -837,7 +901,8 @@ void TestWrongAckOfflinePacingAndNodeIsolation() {
   forged.packet_id = message.packet_id;
   forged.event_id = message.event_id;
   forged.stamp = message.stamp;
-  forged.received_prefix = {"H", message.stamp.index, message.stamp.timestamp_us};
+  forged.received_prefix = {"H", message.stamp.index,
+                            message.stamp.timestamp_us};
   auto send_forged = [&](MemoryLink& endpoint, SharedSyncMessage const& ack) {
     std::vector<std::uint8_t> bytes;
     bool const serialized = SerializeSharedSyncMessage(ack, bytes);
@@ -914,6 +979,42 @@ void TestDuplicateInitialDoesNotReplaceLiveReplica() {
   CHECK(pair.b->Room(id).local_state->local_events[0] == b_event);
 }
 
+void TestLocalDeliveryMetadataHasBoundedHistory() {
+  Pair pair;
+  auto const id = pair.AddRoom();
+  pair.Bootstrap(id);
+  pair.h->Append(id, "|durable", 100);
+  std::size_t host_objects = 0, peer_objects = 0;
+  for (std::uint64_t turn = 1; turn != 33; ++turn) {
+    CHECK(pair.h->runtime->PublishProgress(id));
+    CHECK(pair.b->runtime->PublishProgress(id));
+    pair.Service(turn * kRetry);
+    pair.Drain();
+    if (turn == 2) {
+      host_objects = pair.disk_h.storage.state.size();
+      peer_objects = pair.disk_b.storage.state.size();
+    } else if (turn > 2) {
+      CHECK(pair.disk_h.storage.state.size() <= host_objects);
+      CHECK(pair.disk_b.storage.state.size() <= peer_objects);
+    }
+    // Durable delivery state is current local metadata. Its internal Events
+    // must not retain every superseded ACK/progress/pending-packet payload.
+    for (auto* replica : {pair.h.get(), pair.b.get()}) {
+      CHECK(replica->Room(id).local_state->journal.empty());
+      for (auto const& peer : replica->Room(id).local_state->peers) {
+        CHECK(peer->journal.empty());
+      }
+    }
+  }
+  pair.Equal(id, 1);
+  pair.RestartH();
+  pair.RestartB();
+  pair.Service(34 * kRetry);
+  pair.Drain();
+  pair.Equal(id, 1);
+  CHECK(pair.h->Room(id).text == "room:|durable");
+}
+
 void TestUnsupportedVersionDoesNotMutateOrAcknowledge() {
   Pair pair;
   auto const id = pair.AddRoom();
@@ -954,13 +1055,15 @@ void TestUnsupportedVersionDoesNotMutateOrAcknowledge() {
 
 int main() {
   apptraverse::EnsureSharedNodeRegistration();
+  apptraverse::test::TestLocalDeliveryMetadataHasBoundedHistory();
   apptraverse::test::TestInitialStateWinsSingleMessageBackpressure();
   apptraverse::test::TestInitialLossFrozenCoverageAndLateEvent();
   apptraverse::test::TestInitialRestartBeforeSendAndAfterApply();
   apptraverse::test::TestLiveEventLossDuplicateAndReorderedBothDirections();
   apptraverse::test::TestLostAckAndReceiverRestart();
   apptraverse::test::TestRefusedSendDoesNotStartAckTimeout();
-  apptraverse::test::TestMaterializedNotificationsSurviveReorderAndIgnoreDuplicateAck();
+  apptraverse::test::
+      TestMaterializedNotificationsSurviveReorderAndIgnoreDuplicateAck();
   apptraverse::test::TestPendingBeforeSendAndBothSidesRestart();
   apptraverse::test::TestWrongAckOfflinePacingAndNodeIsolation();
   apptraverse::test::TestDuplicateInitialDoesNotReplaceLiveReplica();

@@ -179,6 +179,13 @@ ae::DomainLoad OverlayDomainStorage::Load(ae::DomainQuery const& query) {
   return backing_.Load(query);
 }
 
+bool OverlayDomainStorage::HasVersionAfter(ae::DomainQuery const& query) {
+  return IsSupplyConstant(query.id)
+             ? backing_.HasVersionAfter(query)
+             : writable_overlay_.HasVersionAfter(query) ||
+                   backing_.HasVersionAfter(query);
+}
+
 void OverlayDomainStorage::Remove(ae::ObjId const& obj_id) {
   if (IsSupplyConstant(obj_id)) {
     return;

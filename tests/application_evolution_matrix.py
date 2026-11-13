@@ -13,6 +13,7 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+from fixture_process import run_fixture
 import tempfile
 
 
@@ -131,7 +132,7 @@ class Matrix:
         log = directory.parent / f"process-{self.process_count:03d}-{revision}-{operation}.json"
         before = manifest(directory)
         try:
-            completed = subprocess.run(command, capture_output=True, text=True,
+            completed = run_fixture(command, capture_output=True, text=True,
                                        encoding="utf-8", errors="replace",
                                        timeout=self.args.timeout, cwd=self.root)
         except subprocess.TimeoutExpired as error:

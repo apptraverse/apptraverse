@@ -53,8 +53,8 @@ class OverlayVersionedWindow : public ae::Obj {
 };
 
 class OverlayLazyRoot : public ae::Obj {
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::OverlayLazyRoot", OverlayLazyRoot,
-                           ae::Obj, 0)
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::OverlayLazyRoot",
+                           OverlayLazyRoot, ae::Obj, 0)
 
  protected:
   OverlayLazyRoot() = default;
@@ -107,13 +107,13 @@ APPTRAVERSE_REGISTER(OverlayEmptyBodyConstant);
 
 namespace {
 
-#define CHECK(cond)                                                          \
-  do {                                                                       \
-    if (!(cond)) {                                                           \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"       \
-                << __LINE__ << '\n';                                         \
-      std::exit(1);                                                          \
-    }                                                                        \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      std::exit(1);                                                    \
+    }                                                                  \
   } while (0)
 
 void WriteBytes(ae::IDomainStorage& storage, ae::DomainQuery const& query,
@@ -258,7 +258,8 @@ void TestNativeVersionedObjectUsesMixedSources() {
 
   CHECK(backing.state == backing_after_bundle);
   {
-    ae::RamDomainStorage::ObjClassData const& overlay_ram = overlay.overlay().state;
+    ae::RamDomainStorage::ObjClassData const& overlay_ram =
+        overlay.overlay().state;
     CHECK(overlay_ram.count(object_id) == 1);
     CHECK(overlay_ram.at(object_id).has_value());
     ae::RamDomainStorage::VersionData const& versions =
@@ -280,7 +281,8 @@ void TestNativeVersionedObjectUsesMixedSources() {
     CHECK(save_graph.SaveRoot(window, object_id).IsOk());
   }
 
-  ae::RamDomainStorage::ObjClassData const backing_before_user_save = backing.state;
+  ae::RamDomainStorage::ObjClassData const backing_before_user_save =
+      backing.state;
   ae::RamDomainStorage::ObjClassData const overlay_before_mixed_load =
       overlay.overlay().state;
 
@@ -304,7 +306,8 @@ void TestNativeVersionedObjectUsesMixedSources() {
 
   CHECK(backing.state == backing_before_user_save);
   {
-    ae::RamDomainStorage::ObjClassData const& overlay_ram = overlay.overlay().state;
+    ae::RamDomainStorage::ObjClassData const& overlay_ram =
+        overlay.overlay().state;
     CHECK(overlay_ram.count(object_id) == 1);
     CHECK(overlay_ram.at(object_id).has_value());
     ae::RamDomainStorage::VersionData const& versions =
@@ -346,7 +349,8 @@ void TestUnchangedBackingLayerIsNotMaterialized() {
 
   WriteBytes(overlay, query, {17, 29});
   {
-    ae::RamDomainStorage::ObjClassData const& overlay_ram = overlay.overlay().state;
+    ae::RamDomainStorage::ObjClassData const& overlay_ram =
+        overlay.overlay().state;
     CHECK(overlay_ram.count(id) == 1);
     CHECK(overlay_ram.at(id).has_value());
     CHECK(overlay_ram.at(id)->at(9).count(0) == 1);
@@ -355,7 +359,8 @@ void TestUnchangedBackingLayerIsNotMaterialized() {
 
   WriteBytes(overlay, query, {10, 20});
   {
-    ae::RamDomainStorage::ObjClassData const& overlay_ram = overlay.overlay().state;
+    ae::RamDomainStorage::ObjClassData const& overlay_ram =
+        overlay.overlay().state;
     CHECK(overlay_ram.count(id) == 1);
     CHECK(overlay_ram.at(id).has_value());
     CHECK(overlay_ram.at(id)->at(9).count(0) == 1);
@@ -377,8 +382,10 @@ void TestDurableVersionedOverlay() {
 
   ae::RamDomainStorage backing;
   ae::ObjId const object_id{42};
-  ae::DomainQuery const v0_query{object_id, OverlayVersionedWindow::kClassId, 0};
-  ae::DomainQuery const v1_query{object_id, OverlayVersionedWindow::kClassId, 1};
+  ae::DomainQuery const v0_query{object_id, OverlayVersionedWindow::kClassId,
+                                 0};
+  ae::DomainQuery const v1_query{object_id, OverlayVersionedWindow::kClassId,
+                                 1};
 
   {
     ae::Domain domain{backing};
@@ -423,7 +430,8 @@ void TestDurableVersionedOverlay() {
     CHECK(save_graph.SaveRoot(window, object_id).IsOk());
   }
 
-  ae::RamDomainStorage::ObjClassData const backing_after_rebundle = backing.state;
+  ae::RamDomainStorage::ObjClassData const backing_after_rebundle =
+      backing.state;
 
   {
     DirectoryDomainStorage user_storage{user_root};
@@ -490,17 +498,15 @@ void TestLazyGraphPreservesUnloadedChildren() {
             .Load();
     OverlayVersionedWindow::ptr child1_ref =
         OverlayVersionedWindow::ptr::Create(
-            ae::CreateWith{domain}
-                .with_id(child1_id)
-                .with_flags(ae::ObjFlags::kUnloadedByDefault));
+            ae::CreateWith{domain}.with_id(child1_id).with_flags(
+                ae::ObjFlags::kUnloadedByDefault));
     ae::Ptr<OverlayVersionedWindow> child1 = child1_ref.Load();
     child1->width = 800;
     child1->posx = 100;
     OverlayVersionedWindow::ptr child2_ref =
         OverlayVersionedWindow::ptr::Create(
-            ae::CreateWith{domain}
-                .with_id(child2_id)
-                .with_flags(ae::ObjFlags::kUnloadedByDefault));
+            ae::CreateWith{domain}.with_id(child2_id).with_flags(
+                ae::ObjFlags::kUnloadedByDefault));
     ae::Ptr<OverlayVersionedWindow> child2 = child2_ref.Load();
     child2->width = 600;
     child2->posx = 200;
@@ -674,12 +680,11 @@ void TestSupplyConstantMixedDynamicAndConstantSameClass() {
   }
 
   WriteBytes(overlay.overlay(),
-              ae::DomainQuery{const_id, OverlayVersionedWindow::kClassId, 0},
-              {9, 9, 9});
+             ae::DomainQuery{const_id, OverlayVersionedWindow::kClassId, 0},
+             {9, 9, 9});
 
   ae::DomainQuery const const_v0{const_id, OverlayVersionedWindow::kClassId, 0};
-  CHECK(ReadAll(overlay.Load(const_v0)) ==
-        ReadAll(backing.Load(const_v0)));
+  CHECK(ReadAll(overlay.Load(const_v0)) == ReadAll(backing.Load(const_v0)));
 
   {
     ae::Domain domain{overlay};
@@ -716,9 +721,8 @@ void TestSupplyConstantSaveRootKeepsReferenceNotBody() {
     ae::Ptr<OverlayLazyRoot> root =
         OverlayLazyRoot::ptr::Create(ae::CreateWith{domain}.with_id(root_id))
             .Load();
-    OverlayVersionedWindow::ptr child_ref =
-        OverlayVersionedWindow::ptr::Create(
-            ae::CreateWith{domain}.with_id(const_child));
+    OverlayVersionedWindow::ptr child_ref = OverlayVersionedWindow::ptr::Create(
+        ae::CreateWith{domain}.with_id(const_child));
     ae::Ptr<OverlayVersionedWindow> child = child_ref.Load();
     child->width = 500;
     child->posx = 50;
@@ -783,9 +787,8 @@ void TestSupplyConstantContainerDynamicChild() {
     ae::Ptr<OverlayLazyRoot> root =
         OverlayLazyRoot::ptr::Create(ae::CreateWith{domain}.with_id(root_id))
             .Load();
-    OverlayVersionedWindow::ptr child_ref =
-        OverlayVersionedWindow::ptr::Create(
-            ae::CreateWith{domain}.with_id(dynamic_child));
+    OverlayVersionedWindow::ptr child_ref = OverlayVersionedWindow::ptr::Create(
+        ae::CreateWith{domain}.with_id(dynamic_child));
     ae::Ptr<OverlayVersionedWindow> child = child_ref.Load();
     child->width = 600;
     child->posx = 60;
@@ -830,11 +833,10 @@ void TestSupplyConstantLazyNotLoadedOnSave() {
     ae::Ptr<OverlayLazyRoot> root =
         OverlayLazyRoot::ptr::Create(ae::CreateWith{domain}.with_id(root_id))
             .Load();
-    OverlayVersionedWindow::ptr child_ref =
-        OverlayVersionedWindow::ptr::Create(
-            ae::CreateWith{domain}
-                .with_id(lazy_const)
-                .with_flags(ae::ObjFlags::kUnloadedByDefault));
+    OverlayVersionedWindow::ptr child_ref = OverlayVersionedWindow::ptr::Create(
+        ae::CreateWith{domain}
+            .with_id(lazy_const)
+            .with_flags(ae::ObjFlags::kUnloadedByDefault));
     ae::Ptr<OverlayVersionedWindow> child = child_ref.Load();
     child->width = 900;
     child->posx = 90;
@@ -862,7 +864,7 @@ void TestSupplyConstantLazyNotLoadedOnSave() {
 }
 
 void StripApplicationLayerZero(ae::RamDomainStorage& ram, ae::ObjId id,
-                              std::uint32_t class_id) {
+                               std::uint32_t class_id) {
   auto obj_it = ram.state.find(id);
   if (obj_it == ram.state.end() || !obj_it->second.has_value()) {
     return;
@@ -1043,8 +1045,39 @@ void TestSupplyConstantRemoveIsNoOpOnBacking() {
 }  // namespace
 }  // namespace apptraverse::test
 
+namespace apptraverse::test {
+void TestVersionIndexDoesNotOpenMissingReaders() {
+  struct CountedRam final : ae::RamDomainStorage {
+    unsigned reads{0};
+    ae::DomainLoad Load(ae::DomainQuery const& query) override {
+      ++reads;
+      return ae::RamDomainStorage::Load(query);
+    }
+  };
+  CountedRam user, backing;
+  ae::ObjId const id{123456};
+  constexpr std::uint32_t cid = 123;
+  backing.SaveData({id, cid, 7}, {1, 2});
+  user.SaveData({id, cid, 3}, {3});
+  OverlayDomainStorage overlay{user, backing};
+  CHECK(overlay.HasVersionAfter({id, cid, 3}));
+  CHECK(overlay.HasVersionAfter({id, cid, 6}));
+  CHECK(!overlay.HasVersionAfter({id, cid, 7}));
+  CHECK(!overlay.HasVersionAfter({id, cid, 255}));
+  CHECK(!overlay.HasVersionAfter({id, cid + 1, 0}));
+  CHECK(user.reads == 0 && backing.reads == 0);
+  user.Remove(id);
+  CHECK(overlay.HasVersionAfter({id, cid, 7}));
+  CHECK(!overlay.HasVersionAfter({id, cid, 255}));
+  OverlayDomainStorage constant{user, backing, {id}};
+  CHECK(!constant.HasVersionAfter({id, cid, 7}));
+  CHECK(user.reads == 0 && backing.reads == 0);
+}
+}  // namespace apptraverse::test
+
 int main() {
   apptraverse::EnsureObjectRegistration();
+  apptraverse::test::TestVersionIndexDoesNotOpenMissingReaders();
   apptraverse::test::TestOverlayPrefersOverlayAndFallsBackToBacking();
   apptraverse::test::TestSameClassVersionPrecedence();
   apptraverse::test::TestNativeVersionedObjectUsesMixedSources();

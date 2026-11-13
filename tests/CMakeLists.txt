@@ -481,8 +481,8 @@ if(TARGET apptraverse_export_surfaces_distilled_graph)
     surfaces_distilled_load_consumer.cpp
   )
   target_link_libraries(apptraverse_surfaces_distilled_load_consumer PRIVATE
-    surfaces_demo_presentation
     apptraverse_surfaces
+    surfaces_demo_presentation
     apptraverse
   )
   target_include_directories(apptraverse_surfaces_distilled_load_consumer PRIVATE
@@ -1429,6 +1429,7 @@ add_test(
     -DSTATE_DIR=${CMAKE_CURRENT_BINARY_DIR}/presenter_platform_persist_state
     -DSAVE_EXE=$<TARGET_FILE:apptraverse_presenter_platform_persist_save>
     -DLOAD_EXE=$<TARGET_FILE:apptraverse_presenter_platform_persist_load>
+      "-DEMULATOR=${CMAKE_CROSSCOMPILING_EMULATOR}"
     -P ${CMAKE_CURRENT_LIST_DIR}/presenter_platform_persist_run.cmake
 )
 
@@ -1469,6 +1470,7 @@ add_test(
   COMMAND ${CMAKE_COMMAND}
     -DEXE=$<TARGET_FILE:apptraverse_object_origin_facet_test>
     -DSTATE_ROOT=${CMAKE_CURRENT_BINARY_DIR}/object_origin_disk_roundtrip_state
+      "-DEMULATOR=${CMAKE_CROSSCOMPILING_EMULATOR}"
     -P ${CMAKE_CURRENT_LIST_DIR}/object_origin_disk_roundtrip_run.cmake
 )
 set_tests_properties(apptraverse_object_origin_disk_roundtrip_test
@@ -1767,12 +1769,17 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
   set(_android_headless_supply "${_android_headless_supply_dir}/embedded_distilled_window_catalog_android_supply.h")
   add_custom_command(OUTPUT "${_android_headless_supply}"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${_android_headless_supply_dir}"
-    COMMAND $<TARGET_FILE:apptraverse_export_window_catalog_distilled_graph_android>
+    COMMAND $<TARGET_FILE:apptraverse_android_supply_exporter>
             "${_android_headless_supply}"
-    DEPENDS apptraverse_export_window_catalog_distilled_graph_android
+    DEPENDS apptraverse_android_supply_exporter
+            "$<TARGET_FILE:apptraverse_android_supply_exporter>"
     VERBATIM)
-  target_sources(apptraverse_window_catalog_android_embedded_session_test PRIVATE
-    "${_android_headless_supply}")
+  # One producer owns the output. Multiple VS projects must not run exporters
+  # concurrently against the same intermediate directory.
+  add_custom_target(apptraverse_android_headless_supply
+    DEPENDS "${_android_headless_supply}")
+  add_dependencies(apptraverse_window_catalog_android_embedded_session_test
+    apptraverse_android_headless_supply)
   target_include_directories(apptraverse_window_catalog_android_embedded_session_test BEFORE PRIVATE
     "${_android_headless_supply_dir}")
   add_test(NAME apptraverse_window_catalog_android_embedded_session_test
@@ -1781,8 +1788,9 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
     PROPERTIES LABELS "window_catalog;android_embedded")
   add_executable(apptraverse_window_catalog_android_portable_user_fixture
     window_catalog_portable_user_fixture.cpp
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/android/window_catalog_graph_android.cpp
-    "${_android_headless_supply}")
+    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/android/window_catalog_graph_android.cpp)
+  add_dependencies(apptraverse_window_catalog_android_portable_user_fixture
+    apptraverse_android_headless_supply)
   target_link_libraries(apptraverse_window_catalog_android_portable_user_fixture PRIVATE
     surfaces_demo_window_catalog_common apptraverse apptraverse_ui_android_presenters)
   target_include_directories(apptraverse_window_catalog_android_portable_user_fixture PRIVATE
@@ -1896,4 +1904,35 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
 endif()
 
 # Apple WindowCatalog runs the same model/proxy/mirror path as the application.
+foreach(_catalog_test IN ITEMS apptraverse_window_catalog_win32_acceptance_test
+                               apptraverse_window_catalog_win32_close_timing_diagnostic_test)
+  if(TARGET ${_catalog_test})
+    target_compile_definitions(${_catalog_test} PRIVATE
+      "APPTRAVERSE_TEST_DEMO_DIR=R\"($<TARGET_FILE_DIR:win32_window_catalog_demo>)\"")
+  endif()
+endforeach()
+if(TARGET apptraverse_minimal_app_win32_acceptance_test)
+  target_compile_definitions(apptraverse_minimal_app_win32_acceptance_test PRIVATE
+    "APPTRAVERSE_TEST_DEMO_DIR=R\"($<TARGET_FILE_DIR:win32_minimal_app>)\"")
+endif()
+
 include(${CMAKE_CURRENT_SOURCE_DIR}/macos_window_catalog_acceptance_targets.cmake)
+
+# These are Node-driven model fixtures and build-time supply exporters. Their
+# files must use the host filesystem; browser UI targets live outside tests/.
+if(EMSCRIPTEN)
+  get_property(_model_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+  foreach(_target IN LISTS _model_test_targets)
+    get_target_property(_kind ${_target} TYPE)
+    if(_kind STREQUAL "EXECUTABLE")
+      target_link_options(${_target} PRIVATE -sNODERAWFS=1 -sENVIRONMENT=node
+        -sALLOW_MEMORY_GROWTH=1 -sMAXIMUM_MEMORY=268435456
+        -sPROXY_TO_PTHREAD=1 -sEXIT_RUNTIME=1)
+    endif()
+  endforeach()
+  get_property(_model_tests DIRECTORY PROPERTY TESTS)
+  foreach(_test IN LISTS _model_tests)
+    set_property(TEST ${_test} APPEND PROPERTY ENVIRONMENT
+      "APPTRAVERSE_FIXTURE_NODE=${CMAKE_CROSSCOMPILING_EMULATOR}")
+  endforeach()
+endif()

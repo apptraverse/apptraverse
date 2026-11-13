@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -13,13 +14,17 @@
 #include "apptraverse/object_macros.h"
 
 #ifndef APPTRAVERSE_EVENT_EXE_REVISION
-#error APPTRAVERSE_EVENT_EXE_REVISION is required
+#  error APPTRAVERSE_EVENT_EXE_REVISION is required
 #endif
 static_assert(APPTRAVERSE_EVENT_EXE_REVISION == 0 ||
               APPTRAVERSE_EVENT_EXE_REVISION == 1 ||
               APPTRAVERSE_EVENT_EXE_REVISION == 2);
 
 namespace apptraverse::test::event_downgrade {
+[[noreturn]] void Fail(std::string const& message) {
+  std::cerr << "FAIL: " << message << "\n";
+  std::exit(1);
+}
 
 constexpr ae::ObjId::Type kEventObjId = 93001;
 
@@ -125,9 +130,8 @@ class OtherEvent : public IntermediateEvent {
 };
 
 class OtherEventAlt : public IntermediateEvent {
-  APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::test::event_downgrade::OtherEventAlt", OtherEventAlt,
-      IntermediateEvent, 0)
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::event_downgrade::OtherEventAlt",
+                           OtherEventAlt, IntermediateEvent, 0)
 
  protected:
   OtherEventAlt() = default;
@@ -213,7 +217,7 @@ void RequireEmptyStateDir(std::filesystem::path const& state_dir) {
   if (std::filesystem::exists(state_dir) &&
       (!std::filesystem::is_directory(state_dir) ||
        !std::filesystem::is_empty(state_dir))) {
-    throw std::runtime_error("write op requires an empty directory");
+    Fail("write op requires an empty directory");
   }
 }
 
@@ -222,7 +226,7 @@ int SaveEventRoot(ae::DomainGraph& graph, DirectoryDomainStorage& storage,
   storage.BeginSaveSession();
   if (!graph.SaveRoot(event, ae::ObjId{kEventObjId}).IsOk() ||
       storage.SaveSessionHadFailure()) {
-    throw std::runtime_error("save event failed");
+    Fail("save event failed");
   }
   return 0;
 }
@@ -237,13 +241,13 @@ int Run(int argc, char** argv) {
     } else if (argument == "--op" && i + 1 < argc) {
       operation = argv[++i];
     } else {
-      throw std::runtime_error("invalid or incomplete argument");
+      Fail("invalid or incomplete argument");
     }
   }
   if (state_dir.empty() ||
       (operation != "write-unknown" && operation != "write-chain" &&
        operation != "resave" && operation != "load-verify")) {
-    throw std::runtime_error(
+    Fail(
         "usage: --state-dir PATH --op "
         "write-unknown|write-chain|resave|load-verify");
   }
@@ -262,8 +266,8 @@ int Run(int argc, char** argv) {
     event->payload = 0xA1B2C3D4u;
     SaveEventRoot(graph, storage, event);
     std::cout << "{\"ok\":true,\"scenario\":\"flat\",\"probe_class_id\":"
-              << DowngradeProbeEvent::kClassId << ",\"object_id\":"
-              << kEventObjId << "}\n";
+              << DowngradeProbeEvent::kClassId
+              << ",\"object_id\":" << kEventObjId << "}\n";
     return 0;
   }
   if (operation == "write-chain") {
@@ -275,14 +279,14 @@ int Run(int argc, char** argv) {
     event->payload = 0xDEADBEEFu;
     SaveEventRoot(graph, storage, event);
     std::cout << "{\"ok\":true,\"scenario\":\"chain\",\"probe_class_id\":"
-              << NewEvent::kClassId << ",\"intermediate_class_id\":"
-              << IntermediateEvent::kClassId << ",\"object_id\":" << kEventObjId
-              << "}\n";
+              << NewEvent::kClassId
+              << ",\"intermediate_class_id\":" << IntermediateEvent::kClassId
+              << ",\"object_id\":" << kEventObjId << "}\n";
     return 0;
   }
 #else
   if (operation == "write-unknown" || operation == "write-chain") {
-    throw std::runtime_error("EXE A cannot write B-only events");
+    Fail("EXE A cannot write B-only events");
   }
 #endif
 
@@ -328,9 +332,9 @@ int Run(int argc, char** argv) {
     }
 
     std::cout << "{\"ok\":true,\"stage\":\"load-verify\",\"object_id\":"
-              << kEventObjId << ",\"loaded_class_id\":"
-              << loaded->GetClassId() << ",\"obj_base_class_id\":"
-              << ae::Obj::kClassId << ",\"class_ids\":[";
+              << kEventObjId << ",\"loaded_class_id\":" << loaded->GetClassId()
+              << ",\"obj_base_class_id\":" << ae::Obj::kClassId
+              << ",\"class_ids\":[";
     for (std::size_t i = 0; i < layers.size(); ++i) {
       if (i != 0) {
         std::cout << ',';
@@ -345,13 +349,13 @@ int Run(int argc, char** argv) {
       std::cout << ",\"scenario\":\"chain\",\"new_event_class_id\":"
                 << NewEvent::kClassId
                 << ",\"intermediate_class_id\":" << IntermediateEvent::kClassId
-                << ",\"step\":" << event->step << ",\"payload\":"
-                << event->payload;
+                << ",\"step\":" << event->step
+                << ",\"payload\":" << event->payload;
     } else if (loaded->GetClassId() == DowngradeProbeEvent::kClassId) {
       auto const* event = static_cast<DowngradeProbeEvent*>(&*loaded);
       std::cout << ",\"scenario\":\"flat\",\"probe_class_id\":"
-                << DowngradeProbeEvent::kClassId << ",\"payload\":"
-                << event->payload;
+                << DowngradeProbeEvent::kClassId
+                << ",\"payload\":" << event->payload;
     } else {
       std::cout << ",\"scenario\":\"unexpected\"";
     }
@@ -362,16 +366,11 @@ int Run(int argc, char** argv) {
     return 0;
   }
 
-  throw std::runtime_error("unhandled operation");
+  Fail("unhandled operation");
 }
 
 }  // namespace apptraverse::test::event_downgrade
 
 int main(int argc, char** argv) {
-  try {
-    return apptraverse::test::event_downgrade::Run(argc, argv);
-  } catch (std::exception const& ex) {
-    std::cerr << ex.what() << "\n";
-    return 1;
-  }
+  return apptraverse::test::event_downgrade::Run(argc, argv);
 }

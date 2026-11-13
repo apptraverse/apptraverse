@@ -1,5 +1,5 @@
 #ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
+#  define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
 
@@ -15,14 +15,14 @@
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 
 #include "apptraverse/directory_domain_storage.h"
-#include "apptraverse/single_file_user_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/embedded_distilled_domain.h"
 #include "apptraverse/object_macros.h"
-#include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/object_serialization.h"
+#include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/platform/windows/win_ui_frame.h"
 #include "apptraverse/platform/windows/win_ui_presenters.h"
+#include "apptraverse/single_file_user_storage.h"
 #include "apptraverse/ui/ui_desktop_window.h"
 #include "apptraverse/ui/ui_presented_window_lifecycle.h"
 #include "apptraverse/ui/ui_presenters.h"
@@ -30,22 +30,22 @@
 #include "minimal_app_controls.h"
 #include "minimal_app_persistence.h"
 #include "minimal_app_prepare.h"
-#include "minimal_application.h"
 #include "minimal_app_registration.h"
+#include "minimal_application.h"
 
 #if defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
-#include "embedded_distilled_minimal_app_supply.h"
+#  include "embedded_distilled_minimal_app_supply.h"
 #endif
 
 namespace apptraverse::test {
 namespace {
-#define CHECK(cond)                                                          \
-  do {                                                                       \
-    if (!(cond)) {                                                           \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"       \
-                << __LINE__ << '\n';                                         \
-      std::exit(1);                                                          \
-    }                                                                        \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      std::exit(1);                                                    \
+    }                                                                  \
   } while (false)
 
 constexpr wchar_t kDesktopClass[] = L"AppTraverseUiDesktopWindow";
@@ -66,8 +66,7 @@ Frame ReadFrame(HWND hwnd) {
 }
 
 bool FramesNear(Frame const& a, Frame const& b, int tolerance = 3) {
-  return std::abs(a.x - b.x) <= tolerance &&
-         std::abs(a.y - b.y) <= tolerance &&
+  return std::abs(a.x - b.x) <= tolerance && std::abs(a.y - b.y) <= tolerance &&
          std::abs(a.client_width - b.client_width) <= tolerance &&
          std::abs(a.client_height - b.client_height) <= tolerance;
 }
@@ -99,23 +98,7 @@ std::filesystem::path ExeDir() {
 }
 
 std::filesystem::path DemoExe(char const* name) {
-  std::error_code ec;
-  auto try_path = [&](std::filesystem::path const& p) {
-    auto abs = std::filesystem::weakly_canonical(p, ec);
-    if (!ec && std::filesystem::exists(abs)) {
-      return abs;
-    }
-    return std::filesystem::path{};
-  };
-  if (auto p = try_path(ExeDir() / name); !p.empty()) {
-    return p;
-  }
-  if (auto p = try_path(ExeDir() / ".." / "examples" / "minimal_app" / "windows" /
-                        name);
-      !p.empty()) {
-    return p;
-  }
-  return ExeDir() / name;
+  return std::filesystem::path{APPTRAVERSE_TEST_DEMO_DIR} / name;
 }
 
 std::filesystem::path RuntimeDemoExe() {
@@ -127,8 +110,8 @@ std::filesystem::path RuntimeDemoExe() {
 }
 
 std::filesystem::path FreshStateDir() {
-  auto dir = std::filesystem::temp_directory_path() /
-             "apptraverse_test" / "minimal_app_win32_acceptance";
+  auto dir = std::filesystem::temp_directory_path() / "apptraverse_test" /
+             "minimal_app_win32_acceptance";
   std::error_code ec;
   std::filesystem::remove_all(dir, ec);
   std::filesystem::create_directories(dir, ec);
@@ -155,10 +138,9 @@ void CopyStateDir(std::filesystem::path const& from,
 }
 
 std::string ReadAllBytes(std::filesystem::path const& path) {
-  HANDLE file =
-      CreateFileW(path.wstring().c_str(), GENERIC_READ,
-                  FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
-                  FILE_ATTRIBUTE_NORMAL, nullptr);
+  HANDLE file = CreateFileW(path.wstring().c_str(), GENERIC_READ,
+                            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
   CHECK(file != INVALID_HANDLE_VALUE);
   DWORD size = GetFileSize(file, nullptr);
   CHECK(size != INVALID_FILE_SIZE);
@@ -188,10 +170,9 @@ struct ChildRunResult {
   std::string stderr_text;
 };
 
-ChildRunResult RunLoadOnlyCaptureStderr(
-    std::filesystem::path const& exe,
-    std::filesystem::path const& state_dir,
-    DWORD timeout_ms = 30000) {
+ChildRunResult RunLoadOnlyCaptureStderr(std::filesystem::path const& exe,
+                                        std::filesystem::path const& state_dir,
+                                        DWORD timeout_ms = 30000) {
   auto err_path = state_dir;
   err_path += L".stderr.txt";
   std::error_code ec;
@@ -205,9 +186,9 @@ ChildRunResult RunLoadOnlyCaptureStderr(
   SECURITY_ATTRIBUTES sa{};
   sa.nLength = sizeof(sa);
   sa.bInheritHandle = TRUE;
-  HANDLE errf = CreateFileW(err_path.wstring().c_str(), GENERIC_WRITE,
-                            FILE_SHARE_READ, &sa, CREATE_ALWAYS,
-                            FILE_ATTRIBUTE_NORMAL, nullptr);
+  HANDLE errf =
+      CreateFileW(err_path.wstring().c_str(), GENERIC_WRITE, FILE_SHARE_READ,
+                  &sa, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
   CHECK(errf != INVALID_HANDLE_VALUE);
   HANDLE nul = CreateFileW(L"NUL", GENERIC_READ | GENERIC_WRITE,
                            FILE_SHARE_READ | FILE_SHARE_WRITE, &sa,
@@ -221,9 +202,9 @@ ChildRunResult RunLoadOnlyCaptureStderr(
   si.hStdOutput = nul;
   si.hStdError = errf;
   PROCESS_INFORMATION pi{};
-  BOOL ok = CreateProcessW(exe.wstring().c_str(), cmd_buf.data(), nullptr,
-                           nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr,
-                           &si, &pi);
+  BOOL ok =
+      CreateProcessW(exe.wstring().c_str(), cmd_buf.data(), nullptr, nullptr,
+                     TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
   CloseHandle(errf);
   CloseHandle(nul);
   CHECK(ok);
@@ -262,8 +243,7 @@ struct ProfileDomain {
 
   explicit ProfileDomain(std::filesystem::path const& state_dir)
       : user_storage_profile{state_dir},
-        overlay{user_storage,
-                backing,
+        overlay{user_storage, backing,
                 EmbeddedSupplyConstantIdSet(
                     embedded_distilled::minimal::kEmbeddedGraph)},
         domain{overlay} {
@@ -277,7 +257,9 @@ struct ProfileDomain {
   ae::Domain domain;
 
   explicit ProfileDomain(std::filesystem::path const& state_dir)
-      : storage_profile{state_dir}, domain{storage} { CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile)); }
+      : storage_profile{state_dir}, domain{storage} {
+    CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
+  }
 #endif
   bool SaveFile() {
 #if defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
@@ -286,7 +268,6 @@ struct ProfileDomain {
     return apptraverse::SaveUserStorageFile(storage, storage_profile);
 #endif
   }
-
 };
 
 void WriteProfileMissingMainWindow(std::filesystem::path const& state_dir) {
@@ -309,8 +290,8 @@ void WriteProfileMissingMainWindow(std::filesystem::path const& state_dir) {
     app->base.Save();
   }
   ae::DomainGraph graph{&domain};
-  CHECK(graph.SaveRoot(app, example::minimal::MinimalApplicationRootId())
-            .IsOk());
+  CHECK(
+      graph.SaveRoot(app, example::minimal::MinimalApplicationRootId()).IsOk());
   CHECK(profile.SaveFile());
 }
 
@@ -339,8 +320,10 @@ void WriteProfileMissingPresenter(std::filesystem::path const& state_dir) {
   CHECK(profile.SaveFile());
 }
 
-void WriteProfileMissingPresenterObject(std::filesystem::path const& state_dir) {
-  ae::RamDomainStorage user_storage; auto const user_storage_profile = state_dir;
+void WriteProfileMissingPresenterObject(
+    std::filesystem::path const& state_dir) {
+  ae::RamDomainStorage user_storage;
+  auto const user_storage_profile = state_dir;
   CHECK(apptraverse::LoadUserStorageFile(user_storage, user_storage_profile));
   user_storage.Remove(example::minimal::MinimalPresenterId());
   CHECK(apptraverse::SaveUserStorageFile(user_storage, user_storage_profile));
@@ -405,10 +388,10 @@ void SelectListRow(HWND main, int index) {
       FindMainChildControl(main, example::minimal::kMinimalRowListControlId);
   CHECK(list != nullptr);
   SendMessageW(list, LB_SETCURSEL, static_cast<WPARAM>(index), 0);
-  SendMessageW(main, WM_COMMAND,
-               MAKEWPARAM(example::minimal::kMinimalRowListControlId,
-                          LBN_SELCHANGE),
-               reinterpret_cast<LPARAM>(list));
+  SendMessageW(
+      main, WM_COMMAND,
+      MAKEWPARAM(example::minimal::kMinimalRowListControlId, LBN_SELCHANGE),
+      reinterpret_cast<LPARAM>(list));
 }
 
 int ListSelection(HWND main) {
@@ -421,13 +404,13 @@ int ListSelection(HWND main) {
 }
 
 void ClickApplyButton(HWND main) {
-  HWND const button =
-      FindMainChildControl(main, example::minimal::kMinimalApplyButtonControlId);
+  HWND const button = FindMainChildControl(
+      main, example::minimal::kMinimalApplyButtonControlId);
   CHECK(button != nullptr);
-  SendMessageW(main, WM_COMMAND,
-               MAKEWPARAM(example::minimal::kMinimalApplyButtonControlId,
-                          BN_CLICKED),
-               reinterpret_cast<LPARAM>(button));
+  SendMessageW(
+      main, WM_COMMAND,
+      MAKEWPARAM(example::minimal::kMinimalApplyButtonControlId, BN_CLICKED),
+      reinterpret_cast<LPARAM>(button));
 }
 
 bool MainWindowShowsAppliedState(HWND main) {
@@ -435,8 +418,8 @@ bool MainWindowShowsAppliedState(HWND main) {
   if (title.find(L"Applied") == std::wstring::npos) {
     return false;
   }
-  HWND const button =
-      FindMainChildControl(main, example::minimal::kMinimalApplyButtonControlId);
+  HWND const button = FindMainChildControl(
+      main, example::minimal::kMinimalApplyButtonControlId);
   if (button == nullptr || IsWindowEnabled(button)) {
     return false;
   }
@@ -445,9 +428,8 @@ bool MainWindowShowsAppliedState(HWND main) {
 }
 
 void WaitMainWindowAppliedState(HWND main) {
-  CHECK(WaitUntil(std::chrono::seconds{30}, [&] {
-    return MainWindowShowsAppliedState(main);
-  }));
+  CHECK(WaitUntil(std::chrono::seconds{30},
+                  [&] { return MainWindowShowsAppliedState(main); }));
 }
 
 struct MainWindowControlCounts {
@@ -612,7 +594,8 @@ void ProbePersistedGraph(std::filesystem::path const& state_dir,
   CHECK(window.presenter->title.is_valid());
   CHECK(window.presenter->locale.is_valid());
   CHECK(window.presenter->title->Resolve(0) == expected_title_utf8);
-  CHECK(window.presenter->window.id() == example::minimal::MinimalMainWindowId());
+  CHECK(window.presenter->window.id() ==
+        example::minimal::MinimalMainWindowId());
 
   CHECK(application->base.is_valid());
   CHECK(application->base.is_loaded());
@@ -669,18 +652,19 @@ void ProbePersistedEmbeddedUserCommitReady(
   CHECK(loaded->row_list->base.is_valid());
   example::minimal::MinimalAppList& list =
       static_cast<example::minimal::MinimalAppList&>(*loaded->row_list);
-  list.HandleListRowSelectionChanged(static_cast<std::size_t>(commit_selection));
+  list.HandleListRowSelectionChanged(
+      static_cast<std::size_t>(commit_selection));
   CHECK(list.selection_index == commit_selection);
 }
 
 void ExpectEmbeddedBackingUnchanged() {
   ae::RamDomainStorage reference;
-  InstallEmbeddedDistilledBacking(
-      reference, embedded_distilled::minimal::kEmbeddedGraph);
+  InstallEmbeddedDistilledBacking(reference,
+                                  embedded_distilled::minimal::kEmbeddedGraph);
   ae::RamDomainStorage::ObjClassData const snapshot = reference.state;
   ae::RamDomainStorage probe;
-  InstallEmbeddedDistilledBacking(
-      probe, embedded_distilled::minimal::kEmbeddedGraph);
+  InstallEmbeddedDistilledBacking(probe,
+                                  embedded_distilled::minimal::kEmbeddedGraph);
   CHECK(probe.state == snapshot);
 }
 #endif
@@ -703,9 +687,8 @@ std::filesystem::path RunAcceptanceEmbeddedTwoCycle() {
   Frame const cycle1_frame{220, 140, 720, 460};
   ApplyFrame(main, cycle1_frame.x, cycle1_frame.y, cycle1_frame.client_width,
              cycle1_frame.client_height);
-  CHECK(WaitUntil(std::chrono::seconds{15}, [&] {
-    return FramesNear(ReadFrame(main), cycle1_frame);
-  }));
+  CHECK(WaitUntil(std::chrono::seconds{15},
+                  [&] { return FramesNear(ReadFrame(main), cycle1_frame); }));
   CloseGracefully(main, pi);
   CHECK(!std::filesystem::is_empty(state_dir));
   ExpectEmbeddedBackingUnchanged();
@@ -718,9 +701,8 @@ std::filesystem::path RunAcceptanceEmbeddedTwoCycle() {
   CHECK(WaitForMainWindowNamedControls(main, std::chrono::seconds{15}));
   CHECK(FramesNear(ReadFrame(main), cycle1_frame));
   SelectListRow(main, 1);
-  CHECK(WaitUntil(std::chrono::seconds{15}, [&] {
-    return ListSelection(main) == 1;
-  }));
+  CHECK(WaitUntil(std::chrono::seconds{15},
+                  [&] { return ListSelection(main) == 1; }));
   ClickApplyButton(main);
   WaitMainWindowAppliedState(main);
   CloseGracefully(main, pi);
@@ -736,9 +718,8 @@ std::filesystem::path RunAcceptanceEmbeddedTwoCycle() {
   CHECK(FramesNear(ReadFrame(main), cycle1_frame));
   CHECK(MainWindowShowsAppliedState(main));
   SelectListRow(main, 0);
-  CHECK(WaitUntil(std::chrono::seconds{15}, [&] {
-    return ListSelection(main) == 0;
-  }));
+  CHECK(WaitUntil(std::chrono::seconds{15},
+                  [&] { return ListSelection(main) == 0; }));
   CloseGracefully(main, pi);
   ExpectEmbeddedBackingUnchanged();
   ProbePersistedEmbeddedUserCommitReady(state_dir, 0, "Applied", 1);
@@ -767,9 +748,8 @@ std::filesystem::path RunAcceptanceFrameColdLoad() {
 
   ApplyFrame(main, 220, 140, 720, 460);
   Frame const saved = ReadFrame(main);
-  CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
-    return FramesNear(ReadFrame(main), saved);
-  }));
+  CHECK(WaitUntil(std::chrono::seconds{10},
+                  [&] { return FramesNear(ReadFrame(main), saved); }));
 
   CloseGracefully(main, pi);
   ProbePersistedGraph(state_dir, saved);
@@ -831,8 +811,8 @@ void RunRequiredGraphNegativeTests(std::filesystem::path const& good_state,
     CopyStateDir(good_state, dir);
     WriteProfileMissingPresenter(dir);
     auto const result = RunLoadOnlyCaptureStderr(load_only, dir);
-    ExpectFatalLoadOnly(result,
-                        "fatal: LoadPresentedWindow required presenter missing");
+    ExpectFatalLoadOnly(
+        result, "fatal: LoadPresentedWindow required presenter missing");
   }
 
   {
@@ -858,12 +838,17 @@ void RunRequiredGraphNegativeTests(std::filesystem::path const& good_state,
 }
 
 #if defined(APPTRAVERSE_TEST_DEBUG_BOOTSTRAP)
-void TestDebugAlwaysCreatesFreshGraph(std::filesystem::path const& existing_profile) {
+void TestDebugAlwaysCreatesFreshGraph(
+    std::filesystem::path const& existing_profile) {
   auto const previous_user = ReadAllBytes(existing_profile / "user.bin");
   for (int run = 0; run < 2; ++run) {
     std::size_t before = 0;
-    for (auto const& entry : std::filesystem::directory_iterator(existing_profile)) {
-      if (entry.is_directory() && entry.path().filename().string().starts_with("debug-run-")) { ++before; }
+    for (auto const& entry :
+         std::filesystem::directory_iterator(existing_profile)) {
+      if (entry.is_directory() &&
+          entry.path().filename().string().starts_with("debug-run-")) {
+        ++before;
+      }
     }
     auto pi = StartDemo(DemoExe("win32_minimal_app.exe"), existing_profile);
     HWND main = WaitMainWindow(pi.dwProcessId, std::chrono::seconds{30});
@@ -877,11 +862,14 @@ void TestDebugAlwaysCreatesFreshGraph(std::filesystem::path const& existing_prof
     CloseGracefully(main, pi);
     CHECK(ReadAllBytes(existing_profile / "user.bin") == previous_user);
     std::size_t after = 0;
-    for (auto const& entry : std::filesystem::directory_iterator(existing_profile)) {
-      if (entry.is_directory() && entry.path().filename().string().starts_with("debug-run-")) {
+    for (auto const& entry :
+         std::filesystem::directory_iterator(existing_profile)) {
+      if (entry.is_directory() &&
+          entry.path().filename().string().starts_with("debug-run-")) {
         ++after;
         CHECK(std::filesystem::exists(entry.path() / "user" / "user.bin"));
-        CHECK(std::filesystem::exists(entry.path() / "embedded_distilled_minimal_app_supply.h"));
+        CHECK(std::filesystem::exists(
+            entry.path() / "embedded_distilled_minimal_app_supply.h"));
       }
     }
     CHECK(after == before + 1);
@@ -895,8 +883,8 @@ void RunAcceptanceAndRequiredGraphNegatives() {
   TestDebugAlwaysCreatesFreshGraph(good_state);
 #endif
 #if !defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
-  RunRequiredGraphNegativeTests(
-      good_state, DemoExe("win32_minimal_app_load_only.exe"));
+  RunRequiredGraphNegativeTests(good_state,
+                                DemoExe("win32_minimal_app_load_only.exe"));
 #endif
 }
 

@@ -1,11 +1,12 @@
 #ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
+#  define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
 #ifdef RegisterClass
-#undef RegisterClass
+#  undef RegisterClass
 #endif
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -14,27 +15,26 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <set>
 #include <string>
 #include <thread>
-#include <set>
 #include <vector>
-#include <algorithm>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/obj.h"
 
 #include "apptraverse/directory_domain_storage.h"
-#include "apptraverse/single_file_user_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/embedded_distilled_domain.h"
-#include "apptraverse/overlay_domain_storage.h"
-#include "embedded_distilled_window_catalog_supply.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/object_serialization.h"
+#include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "apptraverse/runtime_node.h"
+#include "apptraverse/single_file_user_storage.h"
 #include "apptraverse/ui/ui_presented_window_lifecycle.h"
+#include "embedded_distilled_window_catalog_supply.h"
 
 #include "window_catalog_actions.h"
 #include "window_catalog_graph.h"
@@ -82,14 +82,14 @@ ActiveDemoRegistry& ActiveDemos() {
   return registry;
 }
 
-#define CHECK(cond)                                                          \
-  do {                                                                       \
-    if (!(cond)) {                                                           \
-      ActiveDemos().TerminateAll();                                          \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"       \
-                << __LINE__ << '\n';                                         \
-      std::exit(1);                                                          \
-    }                                                                        \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      ActiveDemos().TerminateAll();                                    \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      std::exit(1);                                                    \
+    }                                                                  \
   } while (false)
 
 constexpr std::uint32_t kListControlId = 5001;
@@ -105,23 +105,7 @@ std::filesystem::path ExeDir() {
 }
 
 std::filesystem::path DemoExe(char const* name) {
-  std::error_code ec;
-  auto const try_path = [&](std::filesystem::path const& p) {
-    auto abs = std::filesystem::weakly_canonical(p, ec);
-    if (!ec && std::filesystem::exists(abs)) {
-      return abs;
-    }
-    return std::filesystem::path{};
-  };
-  if (auto p = try_path(ExeDir() / name); !p.empty()) {
-    return p;
-  }
-  if (auto p = try_path(ExeDir() / ".." / "examples" / "surfaces_demo" /
-                        "windows" / name);
-      !p.empty()) {
-    return p;
-  }
-  return ExeDir() / name;
+  return std::filesystem::path{APPTRAVERSE_TEST_DEMO_DIR} / name;
 }
 
 std::filesystem::path RuntimeDemoExe() {
@@ -149,8 +133,7 @@ CatalogFrame ReadCatalogFrame(HWND hwnd) {
 
 bool FramesNearEqual(CatalogFrame const& a, CatalogFrame const& b,
                      int tolerance = 3) {
-  return std::abs(a.x - b.x) <= tolerance &&
-         std::abs(a.y - b.y) <= tolerance &&
+  return std::abs(a.x - b.x) <= tolerance && std::abs(a.y - b.y) <= tolerance &&
          std::abs(a.client_width - b.client_width) <= tolerance &&
          std::abs(a.client_height - b.client_height) <= tolerance;
 }
@@ -193,8 +176,7 @@ struct ActiveDemoProcess {
 };
 
 std::filesystem::path FreshStateDir(char const* tag) {
-  auto dir = std::filesystem::temp_directory_path() / "apptraverse_test" /
-             tag;
+  auto dir = std::filesystem::temp_directory_path() / "apptraverse_test" / tag;
   std::error_code ec;
   std::filesystem::remove_all(dir, ec);
   std::filesystem::create_directories(dir, ec);
@@ -300,11 +282,9 @@ void ClickControl(HWND parent, std::uint32_t control_id) {
   // A real click activates its window before dispatching the command. Establish
   // that precondition explicitly; synthetic WM_COMMAND does not activate it.
   SetForegroundWindow(parent);
-  CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
-    return GetForegroundWindow() == parent;
-  }));
-  SendMessageW(parent, WM_COMMAND,
-               MAKEWPARAM(control_id, BN_CLICKED),
+  CHECK(WaitUntil(std::chrono::seconds{5},
+                  [&] { return GetForegroundWindow() == parent; }));
+  SendMessageW(parent, WM_COMMAND, MAKEWPARAM(control_id, BN_CLICKED),
                reinterpret_cast<LPARAM>(child));
 }
 
@@ -328,8 +308,7 @@ std::wstring ListBoxItem(HWND list, int index) {
     return {};
   }
   std::wstring buf(static_cast<std::size_t>(len + 1), L'\0');
-  SendMessageW(list, LB_GETTEXT, index,
-               reinterpret_cast<LPARAM>(buf.data()));
+  SendMessageW(list, LB_GETTEXT, index, reinterpret_cast<LPARAM>(buf.data()));
   buf.resize(static_cast<std::size_t>(len));
   return buf;
 }
@@ -344,9 +323,8 @@ HWND FindTopLevelWithTitle(DWORD pid, std::wstring const& needle) {
 }
 
 void WaitChromeReady(HWND main) {
-  CHECK(WaitUntil(std::chrono::seconds{20}, [&] {
-    return CountChildClass(main, L"Button") >= 4;
-  }));
+  CHECK(WaitUntil(std::chrono::seconds{20},
+                  [&] { return CountChildClass(main, L"Button") >= 4; }));
 }
 
 void EnsureCatalogMainWindow(DWORD pid, HWND& main) {
@@ -363,8 +341,7 @@ void SelectListIndex(HWND main, int index) {
   HWND const list = GetDlgItem(main, static_cast<int>(kListControlId));
   CHECK(list != nullptr);
   SendMessageW(list, LB_SETCURSEL, index, 0);
-  SendMessageW(main, WM_COMMAND,
-               MAKEWPARAM(kListControlId, LBN_SELCHANGE),
+  SendMessageW(main, WM_COMMAND, MAKEWPARAM(kListControlId, LBN_SELCHANGE),
                reinterpret_cast<LPARAM>(list));
 }
 
@@ -386,9 +363,8 @@ bool ListRowsMatch(HWND main, std::vector<std::wstring> const& expected) {
 }
 
 void ExpectListRows(HWND main, std::vector<std::wstring> const& expected) {
-  if (!WaitUntil(std::chrono::seconds{15}, [&] {
-        return ListRowsMatch(main, expected);
-      })) {
+  if (!WaitUntil(std::chrono::seconds{15},
+                 [&] { return ListRowsMatch(main, expected); })) {
     HWND const list = GetDlgItem(main, static_cast<int>(kListControlId));
     LRESULT const count = list ? SendMessageW(list, LB_GETCOUNT, 0, 0) : LB_ERR;
     std::cerr << "ExpectListRows mismatch: expected " << expected.size()
@@ -459,7 +435,8 @@ void CloseProcessGracefully(HWND main, PROCESS_INFORMATION& pi) {
 }
 
 std::string ProbeRowPrimaryUtf8(WindowCatalog const& catalog,
-                                WindowHolder const& holder, int language_index) {
+                                WindowHolder const& holder,
+                                int language_index) {
   return ResolveWindowCatalogHolderListRowText(holder, catalog, language_index);
 }
 
@@ -493,10 +470,9 @@ void InstallEmbeddedSupplyConstantLayers(ae::RamDomainStorage& supply) {
       continue;
     }
     ae::ObjectData bytes(layer.bytes, layer.bytes + layer.size);
-    supply.SaveData(
-        ae::DomainQuery{ae::ObjId{layer.object_id}, layer.class_id,
-                        layer.version},
-        std::move(bytes));
+    supply.SaveData(ae::DomainQuery{ae::ObjId{layer.object_id}, layer.class_id,
+                                    layer.version},
+                    std::move(bytes));
   }
 }
 
@@ -507,9 +483,8 @@ void ProbeProfileListRows(
   ProfileGraphStorage storage{state_dir};
   ae::Domain domain{storage.overlay};
   auto catalog = LoadApplication<WindowCatalog>(
-      domain,
-      ae::ObjId{window_catalog_demo::ToObjId(
-          window_catalog_demo::ObjId::Catalog)});
+      domain, ae::ObjId{window_catalog_demo::ToObjId(
+                  window_catalog_demo::ObjId::Catalog)});
   CHECK(catalog->persisted.list.is_valid());
   CHECK(catalog->persisted.list->rows.size() == expected_rows);
   if (expected_holder_prefix != nullptr) {
@@ -591,10 +566,9 @@ void CopyStateDir(std::filesystem::path const& from,
 }
 
 std::string ReadAllBytes(std::filesystem::path const& path) {
-  HANDLE file =
-      CreateFileW(path.wstring().c_str(), GENERIC_READ,
-                  FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
-                  FILE_ATTRIBUTE_NORMAL, nullptr);
+  HANDLE file = CreateFileW(path.wstring().c_str(), GENERIC_READ,
+                            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
   CHECK(file != INVALID_HANDLE_VALUE);
   DWORD size = GetFileSize(file, nullptr);
   CHECK(size != INVALID_FILE_SIZE);
@@ -624,11 +598,10 @@ struct ChildRunResult {
   std::string stderr_text;
 };
 
-ChildRunResult RunLoadOnlyCaptureStderr(
-    std::filesystem::path const& exe,
-    std::filesystem::path const& state_dir,
-    char const* scenario,
-    DWORD timeout_ms = 30000) {
+ChildRunResult RunLoadOnlyCaptureStderr(std::filesystem::path const& exe,
+                                        std::filesystem::path const& state_dir,
+                                        char const* scenario,
+                                        DWORD timeout_ms = 30000) {
   auto err_path = state_dir;
   err_path += L".stderr.txt";
   std::error_code ec;
@@ -642,9 +615,9 @@ ChildRunResult RunLoadOnlyCaptureStderr(
   SECURITY_ATTRIBUTES sa{};
   sa.nLength = sizeof(sa);
   sa.bInheritHandle = TRUE;
-  HANDLE errf = CreateFileW(err_path.wstring().c_str(), GENERIC_WRITE,
-                            FILE_SHARE_READ, &sa, CREATE_ALWAYS,
-                            FILE_ATTRIBUTE_NORMAL, nullptr);
+  HANDLE errf =
+      CreateFileW(err_path.wstring().c_str(), GENERIC_WRITE, FILE_SHARE_READ,
+                  &sa, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
   CHECK(errf != INVALID_HANDLE_VALUE);
   HANDLE nul = CreateFileW(L"NUL", GENERIC_READ | GENERIC_WRITE,
                            FILE_SHARE_READ | FILE_SHARE_WRITE, &sa,
@@ -658,9 +631,9 @@ ChildRunResult RunLoadOnlyCaptureStderr(
   si.hStdOutput = nul;
   si.hStdError = errf;
   PROCESS_INFORMATION pi{};
-  BOOL ok = CreateProcessW(exe.wstring().c_str(), cmd_buf.data(), nullptr,
-                           nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr,
-                           &si, &pi);
+  BOOL ok =
+      CreateProcessW(exe.wstring().c_str(), cmd_buf.data(), nullptr, nullptr,
+                     TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
   CloseHandle(errf);
   CloseHandle(nul);
   CHECK(ok);
@@ -693,7 +666,8 @@ void ExpectFatalLoadOnly(ChildRunResult const& result, char const* needle) {
 }
 
 void ExpectUserOnlyMissingRootLayer(std::filesystem::path const& user_dir) {
-  ae::RamDomainStorage user; auto const user_profile = user_dir;
+  ae::RamDomainStorage user;
+  auto const user_profile = user_dir;
   CHECK(apptraverse::LoadUserStorageFile(user, user_profile));
   ae::DomainQuery const query{
       CatalogRootObjId(), WindowCatalog::kClassId,
@@ -702,10 +676,12 @@ void ExpectUserOnlyMissingRootLayer(std::filesystem::path const& user_dir) {
   CHECK(load.result == ae::DomainLoadResult::kEmpty);
 }
 
-void ExpectEmbeddedOverlayUserTombstone(
-    std::filesystem::path const& user_dir, ae::ObjId object_id,
-    std::uint32_t class_id, char const* probe_name) {
-  ae::RamDomainStorage user_only; auto const user_only_profile = user_dir;
+void ExpectEmbeddedOverlayUserTombstone(std::filesystem::path const& user_dir,
+                                        ae::ObjId object_id,
+                                        std::uint32_t class_id,
+                                        char const* probe_name) {
+  ae::RamDomainStorage user_only;
+  auto const user_only_profile = user_dir;
   CHECK(apptraverse::LoadUserStorageFile(user_only, user_only_profile));
   ae::DomainQuery const query{object_id, class_id, 0};
   ae::DomainLoad const user_load = user_only.Load(query);
@@ -713,7 +689,8 @@ void ExpectEmbeddedOverlayUserTombstone(
 
   ae::RamDomainStorage backing;
   InstallEmbeddedDistilledBacking(backing, WindowCatalogEmbeddedGraph());
-  ae::RamDomainStorage user; auto const user_profile = user_dir;
+  ae::RamDomainStorage user;
+  auto const user_profile = user_dir;
   CHECK(apptraverse::LoadUserStorageFile(user, user_profile));
   OverlayDomainStorage overlay{
       user, backing, EmbeddedSupplyConstantIdSet(WindowCatalogEmbeddedGraph())};
@@ -729,22 +706,26 @@ void ExpectEmbeddedOverlayUserTombstone(
             << '\n';
 }
 
-void WriteProfileMissingPresenterObject(std::filesystem::path const& state_dir) {
-  ae::RamDomainStorage storage; auto const storage_profile = state_dir;
+void WriteProfileMissingPresenterObject(
+    std::filesystem::path const& state_dir) {
+  ae::RamDomainStorage storage;
+  auto const storage_profile = state_dir;
   CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   storage.Remove(CatalogMainWindowPresenterObjId());
   CHECK(apptraverse::SaveUserStorageFile(storage, storage_profile));
 }
 
 void WriteProfileMissingListObject(std::filesystem::path const& state_dir) {
-  ae::RamDomainStorage storage; auto const storage_profile = state_dir;
+  ae::RamDomainStorage storage;
+  auto const storage_profile = state_dir;
   CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   storage.Remove(CatalogListObjId());
   CHECK(apptraverse::SaveUserStorageFile(storage, storage_profile));
 }
 
 void AssertListObjectAbsent(std::filesystem::path const& state_dir) {
-  ae::RamDomainStorage storage; auto const storage_profile = state_dir;
+  ae::RamDomainStorage storage;
+  auto const storage_profile = state_dir;
   CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   CHECK(storage.Enumerate(CatalogListObjId()).empty());
 }
@@ -763,7 +744,8 @@ ae::ObjId LoadCatalogLocaleObjId(std::filesystem::path const& state_dir) {
 ae::ObjId WriteProfileMissingLocaleObject(
     std::filesystem::path const& state_dir) {
   ae::ObjId const locale_id = LoadCatalogLocaleObjId(state_dir);
-  ae::RamDomainStorage storage; auto const storage_profile = state_dir;
+  ae::RamDomainStorage storage;
+  auto const storage_profile = state_dir;
   CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   storage.Remove(locale_id);
   CHECK(apptraverse::SaveUserStorageFile(storage, storage_profile));
@@ -772,7 +754,8 @@ ae::ObjId WriteProfileMissingLocaleObject(
 
 void AssertLocaleObjectAbsent(std::filesystem::path const& state_dir,
                               ae::ObjId locale_id) {
-  ae::RamDomainStorage storage; auto const storage_profile = state_dir;
+  ae::RamDomainStorage storage;
+  auto const storage_profile = state_dir;
   CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   CHECK(storage.Enumerate(locale_id).empty());
 }
@@ -791,7 +774,8 @@ ae::ObjId LoadAddButtonPresenterObjId(std::filesystem::path const& state_dir) {
 ae::ObjId WriteProfileMissingAddButtonPresenterObject(
     std::filesystem::path const& state_dir) {
   ae::ObjId const presenter_id = LoadAddButtonPresenterObjId(state_dir);
-  ae::RamDomainStorage storage; auto const storage_profile = state_dir;
+  ae::RamDomainStorage storage;
+  auto const storage_profile = state_dir;
   CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   storage.Remove(presenter_id);
   CHECK(apptraverse::SaveUserStorageFile(storage, storage_profile));
@@ -800,7 +784,8 @@ ae::ObjId WriteProfileMissingAddButtonPresenterObject(
 
 void AssertPresenterObjectAbsent(std::filesystem::path const& state_dir,
                                  ae::ObjId presenter_id) {
-  ae::RamDomainStorage storage; auto const storage_profile = state_dir;
+  ae::RamDomainStorage storage;
+  auto const storage_profile = state_dir;
   CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   CHECK(storage.Enumerate(presenter_id).empty());
 }
@@ -819,7 +804,8 @@ ae::ObjId LoadAddButtonObjId(std::filesystem::path const& state_dir) {
 ae::ObjId WriteProfileMissingAddButtonObject(
     std::filesystem::path const& state_dir) {
   ae::ObjId const button_id = LoadAddButtonObjId(state_dir);
-  ae::RamDomainStorage storage; auto const storage_profile = state_dir;
+  ae::RamDomainStorage storage;
+  auto const storage_profile = state_dir;
   CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   storage.Remove(button_id);
   CHECK(apptraverse::SaveUserStorageFile(storage, storage_profile));
@@ -864,7 +850,8 @@ void RunLocalizedTextSupplyConstantTests(
 void RunRequiredChromePresenterNegativeTests(
     std::filesystem::path const& good_state,
     std::filesystem::path const& load_only) {
-  auto const dir = NegativeStateDir("missing_chrome_add_button_presenter_object");
+  auto const dir =
+      NegativeStateDir("missing_chrome_add_button_presenter_object");
   CopyStateDir(good_state, dir);
   ae::ObjId const presenter_id =
       WriteProfileMissingAddButtonPresenterObject(dir);
@@ -885,9 +872,9 @@ void RunRequiredListLocaleNegativeTests(
     CopyStateDir(good_state, dir);
     WriteProfileMissingListObject(dir);
     AssertListObjectAbsent(dir);
-    ExpectEmbeddedOverlayUserTombstone(
-        dir, CatalogListObjId(), CatalogListContainer::kClassId,
-        "missing_list_object");
+    ExpectEmbeddedOverlayUserTombstone(dir, CatalogListObjId(),
+                                       CatalogListContainer::kClassId,
+                                       "missing_list_object");
     auto const result =
         RunLoadOnlyCaptureStderr(load_only, dir, "missing_list_object");
     ExpectFatalLoadOnly(result, "fatal: LoadApplication failed");
@@ -898,9 +885,9 @@ void RunRequiredListLocaleNegativeTests(
     CopyStateDir(good_state, dir);
     ae::ObjId const locale_id = WriteProfileMissingLocaleObject(dir);
     AssertLocaleObjectAbsent(dir, locale_id);
-    ExpectEmbeddedOverlayUserTombstone(
-        dir, locale_id, ui::UiLocaleSettings::kClassId,
-        "missing_locale_object");
+    ExpectEmbeddedOverlayUserTombstone(dir, locale_id,
+                                       ui::UiLocaleSettings::kClassId,
+                                       "missing_locale_object");
     auto const result =
         RunLoadOnlyCaptureStderr(load_only, dir, "missing_locale_object");
     ExpectFatalLoadOnly(result, "fatal: LoadApplication failed");
@@ -923,8 +910,8 @@ void RunRequiredMainWindowNegativeTests(
         dir, CatalogMainWindowPresenterObjId(),
         ui::windows::WinDesktopWindowPresenter::kClassId,
         "missing_presenter_object");
-    auto const result = RunLoadOnlyCaptureStderr(
-        load_only, dir, "missing_presenter_object");
+    auto const result =
+        RunLoadOnlyCaptureStderr(load_only, dir, "missing_presenter_object");
     ExpectFatalLoadOnly(result, "fatal: LoadApplication failed");
   }
 }
@@ -937,13 +924,11 @@ void OpenExistingCatalogWindowAndWaitForFocus(HWND main, HWND child) {
   // Open is asynchronous. Observing the child's existing focus would not
   // acknowledge this command, which could then restore a later minimization.
   SetForegroundWindow(main);
-  CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
-    return GetForegroundWindow() == main;
-  }));
+  CHECK(WaitUntil(std::chrono::seconds{10},
+                  [&] { return GetForegroundWindow() == main; }));
   ClickControl(main, kOpenControlId);
-  CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
-    return CatalogChildHasForeground(child);
-  }));
+  CHECK(WaitUntil(std::chrono::seconds{10},
+                  [&] { return CatalogChildHasForeground(child); }));
 }
 
 std::string Utf8FromWide(std::wstring const& text) {
@@ -983,8 +968,8 @@ void ExpectSameTopLevelWithTitle(DWORD pid, HWND expected,
     return;
   }
   std::cerr << "top_level_identity step=" << step << " title=\""
-            << Utf8FromWide(title) << "\" outcome="
-            << ClassifyTopLevelIdentity(expected, found, title)
+            << Utf8FromWide(title)
+            << "\" outcome=" << ClassifyTopLevelIdentity(expected, found, title)
             << " expected=" << expected
             << " expected_is_window=" << (IsWindow(expected) != FALSE)
             << " expected_visible=" << (IsWindowVisible(expected) != FALSE)
@@ -1030,9 +1015,8 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
     }));
   }
   ExpectListRows(main, {L"Window 1", L"Window 2"});
-  CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
-    return TopLevelWindowsForPid(pid).size() == 3;
-  }));
+  CHECK(WaitUntil(std::chrono::seconds{10},
+                  [&] { return TopLevelWindowsForPid(pid).size() == 3; }));
 
   HWND child1 = FindTopLevelWithTitle(pid, L"Window 1");
   HWND child2 = FindTopLevelWithTitle(pid, L"Window 2");
@@ -1053,9 +1037,8 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
   ExpectSameTopLevelWithTitle(pid, child2, L"Window 2", "after_close_window1");
 
   SelectListIndex(main, 0);
-  CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
-    return ControlEnabled(main, kOpenControlId);
-  }));
+  CHECK(WaitUntil(std::chrono::seconds{5},
+                  [&] { return ControlEnabled(main, kOpenControlId); }));
   ClickControl(main, kOpenControlId);
   HWND child1_reopened = nullptr;
   CHECK(WaitUntil(std::chrono::seconds{15}, [&] {
@@ -1065,9 +1048,8 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
   CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
     return FramesNearEqual(ReadCatalogFrame(child1_reopened), saved_frame);
   }));
-  CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
-    return CatalogChildHasForeground(child1_reopened);
-  }));
+  CHECK(WaitUntil(std::chrono::seconds{10},
+                  [&] { return CatalogChildHasForeground(child1_reopened); }));
   OpenExistingCatalogWindowAndWaitForFocus(main, child1_reopened);
   ExpectSameTopLevelWithTitle(pid, child1_reopened, L"Window 1",
                               "after_second_open_window1");
@@ -1099,9 +1081,8 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
     CHECK(TopLevelWindowsForPid(load_pid).size() == 2);
 
     SelectListIndex(main, 0);
-    CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
-      return ControlEnabled(main, kOpenControlId);
-    }));
+    CHECK(WaitUntil(std::chrono::seconds{5},
+                    [&] { return ControlEnabled(main, kOpenControlId); }));
     ClickControl(main, kOpenControlId);
     HWND child1_loaded = nullptr;
     CHECK(WaitUntil(std::chrono::seconds{15}, [&] {
@@ -1168,8 +1149,7 @@ void RunLanguageAndFocusAcceptance() {
     }
     std::cerr << "catalog_main_wait_failed pid=" << pi.dwProcessId
               << " process_exited=" << (exit_code != STILL_ACTIVE)
-              << " exit_code=" << exit_code
-              << " top_level_visible="
+              << " exit_code=" << exit_code << " top_level_visible="
               << TopLevelWindowsForPid(pi.dwProcessId).size() << '\n';
   }
   CHECK(main != nullptr);
@@ -1189,13 +1169,11 @@ void RunLanguageAndFocusAcceptance() {
     return TopLevelWindowsForPid(pi.dwProcessId).size() >= 4;
   }));
 
-  HWND const child2_before =
-      FindTopLevelWithTitle(pi.dwProcessId, L"Window 2");
+  HWND const child2_before = FindTopLevelWithTitle(pi.dwProcessId, L"Window 2");
   CHECK(child2_before != nullptr);
   SendMessageW(child2_before, WM_CLOSE, 0, 0);
-  CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
-    return !IsWindow(child2_before);
-  }));
+  CHECK(WaitUntil(std::chrono::seconds{10},
+                  [&] { return !IsWindow(child2_before); }));
   SelectListIndex(main, 1);
   ClickControl(main, kOpenControlId);
   HWND child2_reopened = nullptr;
@@ -1204,17 +1182,15 @@ void RunLanguageAndFocusAcceptance() {
     return child2_reopened != nullptr;
   }));
   CHECK(child2_reopened != child2_before);
-  CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
-    return CatalogChildHasForeground(child2_reopened);
-  }));
+  CHECK(WaitUntil(std::chrono::seconds{10},
+                  [&] { return CatalogChildHasForeground(child2_reopened); }));
 
   OpenExistingCatalogWindowAndWaitForFocus(main, child2_reopened);
 
   ShowWindow(child2_reopened, SW_MINIMIZE);
   {
-    bool const iconic = WaitUntil(std::chrono::seconds{5}, [&] {
-      return IsIconic(child2_reopened);
-    });
+    bool const iconic = WaitUntil(std::chrono::seconds{5},
+                                  [&] { return IsIconic(child2_reopened); });
     if (!iconic) {
       WINDOWPLACEMENT placement{};
       placement.length = sizeof(placement);
@@ -1232,9 +1208,8 @@ void RunLanguageAndFocusAcceptance() {
   }
   SelectListIndex(main, 1);
   ClickControl(main, kOpenControlId);
-  CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
-    return !IsIconic(child2_reopened);
-  }));
+  CHECK(WaitUntil(std::chrono::seconds{5},
+                  [&] { return !IsIconic(child2_reopened); }));
 
   ClickControl(main, kLanguageControlId);
   ExpectChromeRu(main);
@@ -1250,11 +1225,11 @@ void RunLanguageAndFocusAcceptance() {
 }
 
 void RelocateStoredLayerVersion0To1(std::filesystem::path const& state_dir,
-                                    ae::ObjId obj_id,
-                                    std::uint32_t class_id) {
+                                    ae::ObjId obj_id, std::uint32_t class_id) {
   ae::DomainQuery const query_v0{obj_id, class_id, 0};
   ae::DomainQuery const query_v1{obj_id, class_id, 1};
-  ae::RamDomainStorage storage; auto const storage_profile = state_dir;
+  ae::RamDomainStorage storage;
+  auto const storage_profile = state_dir;
   CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   auto& versions = storage.state.at(obj_id)->at(class_id);
   CHECK(versions.count(0) == 1);
@@ -1274,7 +1249,8 @@ std::filesystem::path SelfTestExe() {
 void DiagnoseUnsupportedSchemaOverlayFallback(
     std::filesystem::path const& user_dir) {
   ae::DomainQuery const v0{CatalogRootObjId(), WindowCatalog::kClassId, 0};
-  ae::RamDomainStorage user; auto const user_profile = user_dir;
+  ae::RamDomainStorage user;
+  auto const user_profile = user_dir;
   CHECK(apptraverse::LoadUserStorageFile(user, user_profile));
   CHECK(user.Load(v0).result == ae::DomainLoadResult::kEmpty);
   ae::DomainQuery const v1{CatalogRootObjId(), WindowCatalog::kClassId, 1};
@@ -1285,10 +1261,11 @@ void DiagnoseUnsupportedSchemaOverlayFallback(
   OverlayDomainStorage overlay{
       user, backing, EmbeddedSupplyConstantIdSet(WindowCatalogEmbeddedGraph())};
   ae::DomainLoad const overlay_v0 = overlay.Load(v0);
-  std::cerr << "unsupported_schema_overlay_probe v0_after_user_v1_only result="
-            << static_cast<int>(overlay_v0.result)
-            << " (embedded subprocess would not fatal; USER-only probe required)"
-            << '\n';
+  std::cerr
+      << "unsupported_schema_overlay_probe v0_after_user_v1_only result="
+      << static_cast<int>(overlay_v0.result)
+      << " (embedded subprocess would not fatal; USER-only probe required)"
+      << '\n';
   CHECK(overlay_v0.result == ae::DomainLoadResult::kLoaded);
 }
 
@@ -1301,8 +1278,7 @@ ChildRunResult RunUserOnlyLoadProbeCaptureStderr(
   std::error_code ec;
   std::filesystem::remove(err_path, ec);
 
-  std::wstring cmd = L"\"" + exe.wstring() +
-                     L"\" --user-only-load-probe \"" +
+  std::wstring cmd = L"\"" + exe.wstring() + L"\" --user-only-load-probe \"" +
                      std::wstring(scenario, scenario + std::strlen(scenario)) +
                      L"\" \"" + state_dir.wstring() + L"\"";
   std::vector<wchar_t> cmd_buf(cmd.begin(), cmd.end());
@@ -1311,9 +1287,9 @@ ChildRunResult RunUserOnlyLoadProbeCaptureStderr(
   SECURITY_ATTRIBUTES sa{};
   sa.nLength = sizeof(sa);
   sa.bInheritHandle = TRUE;
-  HANDLE errf = CreateFileW(err_path.wstring().c_str(), GENERIC_WRITE,
-                            FILE_SHARE_READ, &sa, CREATE_ALWAYS,
-                            FILE_ATTRIBUTE_NORMAL, nullptr);
+  HANDLE errf =
+      CreateFileW(err_path.wstring().c_str(), GENERIC_WRITE, FILE_SHARE_READ,
+                  &sa, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
   CHECK(errf != INVALID_HANDLE_VALUE);
   HANDLE nul = CreateFileW(L"NUL", GENERIC_READ | GENERIC_WRITE,
                            FILE_SHARE_READ | FILE_SHARE_WRITE, &sa,
@@ -1327,9 +1303,9 @@ ChildRunResult RunUserOnlyLoadProbeCaptureStderr(
   si.hStdOutput = nul;
   si.hStdError = errf;
   PROCESS_INFORMATION pi{};
-  BOOL ok = CreateProcessW(exe.wstring().c_str(), cmd_buf.data(), nullptr,
-                           nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr,
-                           &si, &pi);
+  BOOL ok =
+      CreateProcessW(exe.wstring().c_str(), cmd_buf.data(), nullptr, nullptr,
+                     TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
   CloseHandle(errf);
   CloseHandle(nul);
   CHECK(ok);
@@ -1359,8 +1335,8 @@ void ExpectUnsupportedSchemaLoadOnly(char const* scenario,
       std::string::npos;
   if (result.exit_code == 0 || !load_failed) {
     std::cerr << "unsupported-schema scenario: " << scenario << '\n'
-              << "child exit: dec=" << result.exit_code << " hex=0x"
-              << std::hex << result.exit_code << std::dec << '\n'
+              << "child exit: dec=" << result.exit_code << " hex=0x" << std::hex
+              << result.exit_code << std::dec << '\n'
               << "load_failed=" << load_failed << '\n'
               << "captured stderr:\n"
               << result.stderr_text << '\n';
@@ -1387,7 +1363,8 @@ bool EnumerateContainsClass(ae::RamDomainStorage& storage, ae::ObjId obj_id,
 
 void CopyStoredLayer(std::filesystem::path const& state_dir,
                      ae::DomainQuery const& from, ae::DomainQuery const& to) {
-  ae::RamDomainStorage storage; auto const storage_profile = state_dir;
+  ae::RamDomainStorage storage;
+  auto const storage_profile = state_dir;
   CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   auto bytes = storage.state.at(from.id)->at(from.class_id).at(from.version);
   storage.SaveData(to, std::move(bytes));
@@ -1401,17 +1378,18 @@ void AddUnknownStoredClassLayerAlongsideRoot(
   ae::DomainQuery const src{root, WindowCatalog::kClassId, 0};
   ae::DomainQuery const dst{root, unknown, 0};
   CopyStoredLayer(state_dir, src, dst);
-  ae::RamDomainStorage storage; auto const storage_profile = state_dir;
+  ae::RamDomainStorage storage;
+  auto const storage_profile = state_dir;
   CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   CHECK(EnumerateContainsClass(storage, root, WindowCatalog::kClassId));
   CHECK(EnumerateContainsClass(storage, root, unknown));
 }
 
 void RelocateStoredClassDirectory(std::filesystem::path const& state_dir,
-                                  ae::ObjId obj_id,
-                                  std::uint32_t from_class_id,
+                                  ae::ObjId obj_id, std::uint32_t from_class_id,
                                   std::uint32_t to_class_id) {
-  ae::RamDomainStorage storage; auto const storage_profile = state_dir;
+  ae::RamDomainStorage storage;
+  auto const storage_profile = state_dir;
   CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   auto& classes = *storage.state.at(obj_id);
   CHECK(classes.count(from_class_id) == 1);
@@ -1431,8 +1409,8 @@ void RunRequiredUnknownClassIdNegativeTests(
     auto const dir = NegativeStateDir("unknown_class_id_alongside_root");
     CopyStateDir(good_state, dir);
     AddUnknownStoredClassLayerAlongsideRoot(dir);
-    auto const result =
-        RunUserOnlyLoadProbeCaptureStderr(dir, "unknown_class_id_alongside_root");
+    auto const result = RunUserOnlyLoadProbeCaptureStderr(
+        dir, "unknown_class_id_alongside_root");
     ExpectUnsupportedSchemaLoadOnly("unknown_class_id_alongside_root", result);
   }
 
@@ -1502,9 +1480,8 @@ void RunDeleteAndColdReloadAcceptance() {
   ExpectListRows(main, {L"Window 1", L"Window 2"});
 
   SelectListIndex(main, 0);
-  CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
-    return ControlEnabled(main, kDeleteControlId);
-  }));
+  CHECK(WaitUntil(std::chrono::seconds{5},
+                  [&] { return ControlEnabled(main, kDeleteControlId); }));
   ClickControl(main, kDeleteControlId);
   CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
     HWND const list = GetDlgItem(main, static_cast<int>(kListControlId));
@@ -1534,7 +1511,8 @@ void RunDeleteAndColdReloadAcceptance() {
 
   {
     ActiveDemoProcess restart{StartDemo(demo, state_dir)};
-    main = WaitCatalogMainWindow(restart.pi.dwProcessId, std::chrono::seconds{30});
+    main =
+        WaitCatalogMainWindow(restart.pi.dwProcessId, std::chrono::seconds{30});
     CHECK(main != nullptr);
     WaitChromeReady(main);
     ExpectListRows(main, {L"Window 2", L"Window 3"});
@@ -1548,10 +1526,10 @@ void RunAcceptanceAndRequiredMainWindowNegatives() {
   // Normal Debug deliberately ignores previous USER, unlike the load consumer.
   auto const debug_state = FreshStateDir("window_catalog_debug_always_fresh");
   for (int run = 0; run != 2; ++run) {
-    ActiveDemoProcess debug{StartDemo(
-        DemoExe("win32_window_catalog_demo.exe"), debug_state)};
-    HWND main = WaitCatalogMainWindow(debug.pi.dwProcessId,
-                                     std::chrono::seconds{30});
+    ActiveDemoProcess debug{
+        StartDemo(DemoExe("win32_window_catalog_demo.exe"), debug_state)};
+    HWND main =
+        WaitCatalogMainWindow(debug.pi.dwProcessId, std::chrono::seconds{30});
     CHECK(main != nullptr);
     WaitChromeReady(main);
     ExpectListRows(main, {});
@@ -1595,7 +1573,8 @@ void RunAcceptanceAndRequiredMainWindowNegatives() {
 int main(int argc, char** argv) {
   apptraverse::EnsureWindowCatalogGraphRegistration();
   if (argc >= 4 && std::strcmp(argv[1], "--user-only-load-probe") == 0) {
-    ae::RamDomainStorage user; auto const user_profile = argv[3];
+    ae::RamDomainStorage user;
+    auto const user_profile = argv[3];
     if (!apptraverse::LoadUserStorageFile(user, user_profile)) return 2;
     ae::RamDomainStorage supply;
     apptraverse::test::InstallEmbeddedSupplyConstantLayers(supply);

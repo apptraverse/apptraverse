@@ -1,8 +1,8 @@
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <memory>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -12,19 +12,23 @@
 #include "aether-objects/obj/obj.h"
 
 #include "apptraverse/directory_domain_storage.h"
-#include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/event_for.h"
 #include "apptraverse/journal_retention_policy.h"
 #include "apptraverse/node_for.h"
 #include "apptraverse/object_macros.h"
+#include "apptraverse/overlay_domain_storage.h"
 
 #ifndef APPTRAVERSE_EVENT_VERSION_EXE_REVISION
-#error APPTRAVERSE_EVENT_VERSION_EXE_REVISION is required
+#  error APPTRAVERSE_EVENT_VERSION_EXE_REVISION is required
 #endif
 static_assert(APPTRAVERSE_EVENT_VERSION_EXE_REVISION == 0 ||
               APPTRAVERSE_EVENT_VERSION_EXE_REVISION == 1);
 
 namespace apptraverse::test::event_version {
+[[noreturn]] void Fail(std::string const& message) {
+  std::cerr << "FAIL: " << message << "\n";
+  std::exit(1);
+}
 
 #if APPTRAVERSE_EVENT_VERSION_EXE_REVISION == 0
 constexpr unsigned kDocSchema = 0;
@@ -88,9 +92,8 @@ class VersionProbeDocument : public NodeFor<VersionProbeDocument> {
 };
 
 class SchemaBumpEvent : public EventFor<VersionProbeDocument, SchemaBumpEvent> {
-  APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::test::event_version::SchemaBumpEvent", SchemaBumpEvent,
-      Event, kEventSchema)
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::event_version::SchemaBumpEvent",
+                           SchemaBumpEvent, Event, kEventSchema)
 
  protected:
   SchemaBumpEvent() = default;
@@ -138,8 +141,8 @@ APPTRAVERSE_REGISTER(VersionProbeDocument);
 APPTRAVERSE_REGISTER(SchemaBumpEvent);
 
 void VersionProbeDocument::Apply(SchemaBumpEvent const& event) {
-  tally = static_cast<std::uint32_t>(
-      static_cast<std::int32_t>(tally) + event.delta);
+  tally = static_cast<std::uint32_t>(static_cast<std::int32_t>(tally) +
+                                     event.delta);
 #if APPTRAVERSE_EVENT_VERSION_EXE_REVISION >= 1
   if (event.extension_delta_set) {
     extension = static_cast<std::uint32_t>(
@@ -154,7 +157,7 @@ void RequireEmptyStateDir(std::filesystem::path const& state_dir) {
   if (std::filesystem::exists(state_dir) &&
       (!std::filesystem::is_directory(state_dir) ||
        !std::filesystem::is_empty(state_dir))) {
-    throw std::runtime_error("operation requires an empty state directory");
+    Fail("operation requires an empty state directory");
   }
 }
 
@@ -163,7 +166,7 @@ void SaveDocument(DirectoryDomainStorage& storage,
   storage.BeginSaveSession();
   doc.Save();
   if (storage.SaveSessionHadFailure()) {
-    throw std::runtime_error("document Save failed");
+    Fail("document Save failed");
   }
 }
 
@@ -172,14 +175,14 @@ VersionProbeDocument::ptr LoadDocument(ae::Domain& domain) {
       ae::CreateWith{domain}.with_id(kDocId));
   doc.Load();
   if (!doc.is_loaded()) {
-    throw std::runtime_error("document Load failed");
+    Fail("document Load failed");
   }
   return doc;
 }
 
 std::int32_t ParseDelta(std::string const& text) {
   if (text.empty()) {
-    throw std::runtime_error("missing --delta");
+    Fail("missing --delta");
   }
   return static_cast<std::int32_t>(std::stol(text));
 }
@@ -259,9 +262,8 @@ void WriteInspect(VersionProbeDocument::ptr const& doc,
 }
 
 void WriteReplayResult(VersionProbeDocument::ptr const& doc,
-                       DirectoryDomainStorage& storage,
-                       std::string_view stage, bool replay_ok,
-                       std::uint32_t tally_after_first,
+                       DirectoryDomainStorage& storage, std::string_view stage,
+                       bool replay_ok, std::uint32_t tally_after_first,
                        std::uint32_t extension_after_first,
                        std::uint32_t tally_after_second,
                        std::uint32_t extension_after_second) {
@@ -276,10 +278,10 @@ void WriteReplayResult(VersionProbeDocument::ptr const& doc,
             << ",\"document_id\":" << kDocId
             << ",\"document_class_id\":" << VersionProbeDocument::kClassId
             << ",\"event_class_id\":" << SchemaBumpEvent::kClassId
-            << ",\"tally\":" << doc->tally << ",\"journal_len\":"
-            << doc->journal.size() << ",\"tally_after_first_replay\":"
-            << tally_after_first << ",\"tally_after_second_replay\":"
-            << tally_after_second;
+            << ",\"tally\":" << doc->tally
+            << ",\"journal_len\":" << doc->journal.size()
+            << ",\"tally_after_first_replay\":" << tally_after_first
+            << ",\"tally_after_second_replay\":" << tally_after_second;
 #if APPTRAVERSE_EVENT_VERSION_EXE_REVISION >= 1
   std::cout << ",\"extension\":" << doc->extension
             << ",\"extension_after_first_replay\":" << extension_after_first
@@ -303,8 +305,8 @@ void ExportV1Package(ae::Domain& domain, DirectoryDomainStorage& storage,
                      bool include_base_v1) {
   auto base = VersionProbeDocument::ptr::Create(
       ae::CreateWith{domain}.with_id(kBaseId));
-  auto doc = VersionProbeDocument::ptr::Create(
-      ae::CreateWith{domain}.with_id(kDocId));
+  auto doc =
+      VersionProbeDocument::ptr::Create(ae::CreateWith{domain}.with_id(kDocId));
   doc->base = base;
   doc->tally = 0;
   doc->extension = 640;
@@ -313,14 +315,14 @@ void ExportV1Package(ae::Domain& domain, DirectoryDomainStorage& storage,
   storage.BeginSaveSession();
   ae::DomainGraph graph{&domain};
   if (!graph.SaveVersion(ae::Version<1>{}, *doc, ae::ObjId{kDocId}).IsOk()) {
-    throw std::runtime_error("SaveVersion document v1 failed");
+    Fail("SaveVersion document v1 failed");
   }
   if (include_base_v1 &&
       !graph.SaveVersion(ae::Version<1>{}, *base, ae::ObjId{kBaseId}).IsOk()) {
-    throw std::runtime_error("SaveVersion base v1 failed");
+    Fail("SaveVersion base v1 failed");
   }
   if (storage.SaveSessionHadFailure()) {
-    throw std::runtime_error("export v1 package save session failed");
+    Fail("export v1 package save session failed");
   }
 }
 #endif
@@ -377,12 +379,12 @@ int Run(int argc, char** argv) {
     } else if (argument == "--extension-delta" && i + 1 < argc) {
       extension_delta = ParseDelta(argv[++i]);
     } else {
-      throw std::runtime_error("invalid or incomplete argument");
+      Fail("invalid or incomplete argument");
     }
   }
 
   if (state_dir.empty()) {
-    throw std::runtime_error("missing --state-dir");
+    Fail("missing --state-dir");
   }
 
   EnsureRegistration();
@@ -391,10 +393,8 @@ int Run(int argc, char** argv) {
   std::unique_ptr<OverlayDomainStorage> overlay;
   ae::IDomainStorage* domain_storage = &storage;
   if (!backing_dir.empty()) {
-    backing_storage =
-        std::make_unique<DirectoryDomainStorage>(backing_dir);
-    overlay = std::make_unique<OverlayDomainStorage>(
-        storage, *backing_storage);
+    backing_storage = std::make_unique<DirectoryDomainStorage>(backing_dir);
+    overlay = std::make_unique<OverlayDomainStorage>(storage, *backing_storage);
     domain_storage = overlay.get();
   }
   ae::Domain domain{*domain_storage};
@@ -449,11 +449,11 @@ int Run(int argc, char** argv) {
 
   if (operation == "install-doc-v1-from-user") {
     if (!std::filesystem::is_directory(state_dir)) {
-      throw std::runtime_error("state directory does not exist");
+      Fail("state directory does not exist");
     }
     auto doc = LoadDocument(domain);
     if (doc->extension != 640) {
-      throw std::runtime_error("document v1 extension not loaded (missing layer?)");
+      Fail("document v1 extension not loaded (missing layer?)");
     }
     WriteInspect(doc, storage, "install-doc-v1-from-user");
     return 0;
@@ -465,11 +465,11 @@ int Run(int argc, char** argv) {
     if (!base.is_loaded()) {
       base.Load();
     }
-#if APPTRAVERSE_EVENT_VERSION_EXE_REVISION >= 1
+#  if APPTRAVERSE_EVENT_VERSION_EXE_REVISION >= 1
     if (base->extension != 640) {
-      throw std::runtime_error("base v1 extension missing or not 640");
+      Fail("base v1 extension missing or not 640");
     }
-#endif
+#  endif
     WriteInspect(doc, storage, "probe-v1-state");
     return 0;
   }
@@ -487,12 +487,12 @@ int Run(int argc, char** argv) {
     return 0;
   }
 
-  if (operation == "replay-from-base" || operation == "replay-from-base-fault") {
+  if (operation == "replay-from-base" ||
+      operation == "replay-from-base-fault") {
     auto doc = LoadDocument(domain);
     bool const fault = operation == "replay-from-base-fault";
     std::uint32_t t1{}, t2{}, e1{}, e2{};
-    bool const replay_ok =
-        RunReplayFromBase(doc, fault, t1, e1, t2, e2);
+    bool const replay_ok = RunReplayFromBase(doc, fault, t1, e1, t2, e2);
     WriteReplayResult(doc, storage, operation, replay_ok, t1, e1, t2, e2);
     return replay_ok ? 0 : 2;
   }
@@ -543,7 +543,7 @@ int Run(int argc, char** argv) {
   }
 #endif
 
-  throw std::runtime_error(
+  Fail(
       "usage: --state-dir PATH --op "
       "create|inspect|reload|probe-v1-state|replay-from-base|"
       "replay-from-base-fault|replay-from-base-save|commit-v0|compact-zero|"
@@ -554,10 +554,5 @@ int Run(int argc, char** argv) {
 }  // namespace apptraverse::test::event_version
 
 int main(int argc, char** argv) {
-  try {
-    return apptraverse::test::event_version::Run(argc, argv);
-  } catch (std::exception const& ex) {
-    std::cerr << ex.what() << "\n";
-    return 1;
-  }
+  return apptraverse::test::event_version::Run(argc, argv);
 }

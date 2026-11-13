@@ -9,6 +9,7 @@ import argparse
 import json
 from pathlib import Path
 import subprocess
+from fixture_process import run_fixture
 
 
 def main():
@@ -56,7 +57,7 @@ def main():
     # Do not let a previous passing probe supply settings removed from the preset.
     command += ["-UCMAKE_BUILD_TYPE", "-UCMAKE_CONFIGURATION_TYPES"]
     command += [f"-D{key}={value}" for key, value in preset.get("cacheVariables", {}).items()]
-    subprocess.run(command, check=True)
+    run_fixture(command, check=True)
     report = dict(line.split("=", 1) for line in
                   (binary / "catalog-Debug.txt").read_text(encoding="utf-8").splitlines())
     required = "APPTRAVERSE_WINDOW_CATALOG_DEBUG_BOOTSTRAP"

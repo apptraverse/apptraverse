@@ -10,35 +10,8 @@ get_filename_component(APPTRAVERSE_REPO_ROOT "${APPTRAVERSE_CMAKE_DIR}/.." ABSOL
 # directory hash follows this list of file names, not their contents, so a
 # changed patch needs a new file name.
 set(APPTRAVERSE_AETHER_OBJECTS_PATCH_NAMES
-  local-persistent-load
-  domain-storage-access
-  reject-unknown-stored-class
-  objptr-reset-flags
-  force-materialize
-  should-save-version-scope
-  origin-s0
-  obj-layer-factory
-  get-most-related-stored-factory-v2
-  domain-registered-objects
-  clone-save-remap
-  clone-canonical-scope
-  clone-reference-visitor
-  emscripten-domain-buffer-split
-  nested-obj-archive-deseri
-  graph-load-instance-identity
-  origin-layer-lookup
-  historical-base-snapshot-scope
-  domain-hierarchy-v1
-  scoped-layer-hydration-v1
-  force-materialize-object-layer-v1
-  historical-materialized-version-scope-v1
-  storage-constant-query-v1
-  object-scope-metadata-v1
-  domain-local-storage-precedence-v1
-  scoped-object-reference-visitor-v1
-  domain-ancestor-factory-v1
-  domain-scoped-object-id-sequence-v1
-  ptr-releasing-edge-v1
+  native-graph-current-v1
+  fast-version-index-v1
 )
 set(APPTRAVERSE_AETHER_OBJECTS_PATCHES)
 foreach(patch_name IN LISTS APPTRAVERSE_AETHER_OBJECTS_PATCH_NAMES)
@@ -46,9 +19,9 @@ foreach(patch_name IN LISTS APPTRAVERSE_AETHER_OBJECTS_PATCH_NAMES)
     "${APPTRAVERSE_CMAKE_DIR}/patches/aether-objects-${patch_name}.patch")
 endforeach()
 
-# Pinned SHA verified with a clean CPM cache (GraphSerializationScope + LoadStoredLayers).
+# Current telemetry-capable Objects base plus the complete native graph extension.
 set(APPTRAVERSE_AETHER_OBJECTS_GIT_TAG
-  "79283b667cabf689da1059d618fe2a22abf51db4")
+  "fa4cd4d0f0bb1b79b03e58eb723651091deb20e9")
 set(APPTRAVERSE_AETHER_MISCPP_GIT_TAG "main")
 set(APPTRAVERSE_AETHER_NUMERIC_GIT_TAG "main")
-set(APPTRAVERSE_AETHER_TELE_GIT_TAG "64183232c1c6d8ad6119f75ff7e833f43467de57")
+set(APPTRAVERSE_AETHER_TELE_GIT_TAG "main")

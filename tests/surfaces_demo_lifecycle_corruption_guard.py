@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+from fixture_process import run_fixture
 import tempfile
 
 from application_evolution_matrix import CheckFailed, digest, manifest, unchanged
@@ -17,7 +18,7 @@ SURFACE1_OBJECT_ID = 3
 
 
 def run_gui(exe, state_dir, automation, timeout):
-    return subprocess.run(
+    return run_fixture(
         [str(exe), "--state-dir", str(state_dir), "--session-automation", automation],
         capture_output=True,
         text=True,
@@ -28,7 +29,7 @@ def run_gui(exe, state_dir, automation, timeout):
 
 
 def inspect(exe, state_dir, timeout):
-    completed = subprocess.run(
+    completed = run_fixture(
         [str(exe), "--state-dir", str(state_dir), "--session-inspect"],
         capture_output=True,
         text=True,

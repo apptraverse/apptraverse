@@ -5,6 +5,7 @@ import argparse
 import json
 import shutil
 import subprocess
+from fixture_process import run_fixture, copy_fixture
 import sys
 import tempfile
 from pathlib import Path
@@ -40,8 +41,8 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="surfaces-distilled-") as tmp:
         root = Path(tmp)
         exe = root / consumer.name
-        shutil.copy2(consumer, exe)
-        completed = subprocess.run(
+        copy_fixture(consumer, exe)
+        completed = run_fixture(
             [str(exe)],
             cwd=root,
             capture_output=True,

@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+from fixture_process import run_fixture
 import tempfile
 
 from application_evolution_matrix import CheckFailed, digest, manifest
@@ -47,7 +48,7 @@ class LifecycleMatrix:
             "--session-automation",
             automation,
         ]
-        completed = subprocess.run(
+        completed = run_fixture(
             command,
             capture_output=True,
             text=True,
@@ -78,7 +79,7 @@ class LifecycleMatrix:
             str(self.state_dir),
             "--session-inspect",
         ]
-        completed = subprocess.run(
+        completed = run_fixture(
             command,
             capture_output=True,
             text=True,

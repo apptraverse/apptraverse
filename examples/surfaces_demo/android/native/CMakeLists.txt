@@ -40,14 +40,26 @@ add_subdirectory(${APPTRAVERSE_ROOT} ${CMAKE_CURRENT_BINARY_DIR}/apptraverse)
 set(_wc_supply_header
   "${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_distilled_window_catalog_android_supply.h")
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 # Short path: nested MSVC link paths must stay under MAX_PATH on Windows.
 # Keep the incremental host build stable across Gradle native configurations.
 # Export once to its own directory, then copy into each NDK configuration.
-set(_wc_host_export_dir "${APPTRAVERSE_ROOT}/b/wc-ahe/${ANDROID_ABI}-${APPTRAVERSE_WINDOW_CATALOG_DEBUG_FRESH}")
+set(_wc_host_generator_key default)
+if(CMAKE_HOST_WIN32)
+  get_filename_component(_wc_cmake_bin "${CMAKE_COMMAND}" DIRECTORY)
+  set(_wc_ninja "${_wc_cmake_bin}/ninja.exe")
+  if(EXISTS "${_wc_ninja}")
+    set(_wc_host_generator_key ninja)
+  endif()
+endif()
+# Standalone NDK CMake and AGP may select different host generators. Their
+# caches cannot share a directory even when ABI and application policy match.
+set(_wc_host_export_dir "${APPTRAVERSE_ROOT}/b/wc-ahe/${ANDROID_ABI}-${APPTRAVERSE_WINDOW_CATALOG_DEBUG_FRESH}-${_wc_host_generator_key}")
 set(_wc_host_supply_header
   "${_wc_host_export_dir}/generated/embedded_distilled_window_catalog_android_supply.h")
 file(MAKE_DIRECTORY "${_wc_host_export_dir}/generated")
 set(_wc_host_export_args
+  -DCMAKE_BUILD_TYPE=Debug
   -DBUILD_TESTING=OFF
   -DAPPTRAVERSE_BUILD_LINUX_GUI=OFF
   -DAPPTRAVERSE_BUILD_EXAMPLES=ON
@@ -55,8 +67,6 @@ set(_wc_host_export_args
 # Visual Studio generators do not always expose standalone custom targets to
 # MSBuild the way Ninja does; match minimal_app's intent with a Ninja host build.
 if(CMAKE_HOST_WIN32)
-  get_filename_component(_wc_cmake_bin "${CMAKE_COMMAND}" DIRECTORY)
-  set(_wc_ninja "${_wc_cmake_bin}/ninja.exe")
   if(EXISTS "${_wc_ninja}")
     list(APPEND _wc_host_export_args "-G" "Ninja"
       "-DCMAKE_BUILD_TYPE=Debug"
@@ -86,12 +96,12 @@ add_custom_command(
   COMMENT "Configure build-host WindowCatalog Android supply exporter")
 if(CMAKE_HOST_WIN32 AND EXISTS "${_wc_ninja}")
   set(_wc_supply_build_cmd
-    "${CMAKE_COMMAND}" --build "${_wc_host_export_dir}" --parallel
+    "${CMAKE_COMMAND}" --build "${_wc_host_export_dir}" --parallel 4
     --target apptraverse_android_window_catalog_supply)
 else()
   set(_wc_supply_build_cmd
     "${CMAKE_COMMAND}" --build "${_wc_host_export_dir}"
-    --config Debug --parallel --target apptraverse_android_window_catalog_supply)
+    --config Debug --parallel 4 --target apptraverse_android_window_catalog_supply)
 endif()
 add_custom_target(window_catalog_android_supply
   COMMAND ${_wc_supply_build_cmd}
@@ -101,6 +111,19 @@ add_custom_target(window_catalog_android_supply
   BYPRODUCTS "${_wc_supply_header}"
   VERBATIM
   COMMENT "Build-host export of the Android WindowCatalog supply")
+else()
+  set(APPTRAVERSE_ANDROID_WINDOW_CATALOG_DEBUG_SUPPLY_HEADER "" CACHE FILEPATH
+      "Android WindowCatalog supply prepared by Debug")
+  if(NOT EXISTS "${APPTRAVERSE_ANDROID_WINDOW_CATALOG_DEBUG_SUPPLY_HEADER}")
+    message(FATAL_ERROR "Provide the existing Debug Android WindowCatalog supply header for a shipping consumer")
+  endif()
+  add_custom_command(OUTPUT "${_wc_supply_header}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${APPTRAVERSE_ANDROID_WINDOW_CATALOG_DEBUG_SUPPLY_HEADER}"
+            "${_wc_supply_header}"
+    DEPENDS "${APPTRAVERSE_ANDROID_WINDOW_CATALOG_DEBUG_SUPPLY_HEADER}" VERBATIM)
+  add_custom_target(window_catalog_android_supply DEPENDS "${_wc_supply_header}")
+endif()
 
 add_library(window_catalog_android STATIC
   ../window_catalog_android_lifecycle.cpp

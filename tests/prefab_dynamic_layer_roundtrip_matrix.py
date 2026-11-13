@@ -5,6 +5,7 @@ import argparse
 import json
 import shutil
 import subprocess
+from fixture_process import run_fixture
 from pathlib import Path
 
 from application_evolution_matrix import CheckFailed, manifest, unchanged
@@ -24,7 +25,7 @@ def run(exe, state_root, op, *, active_release=None, width=None):
         cmd.extend(["--active-release", str(active_release)])
     if width is not None:
         cmd.extend(["--width", str(width)])
-    completed = subprocess.run(
+    completed = run_fixture(
         cmd,
         capture_output=True,
         text=True,
@@ -97,7 +98,7 @@ def s1_layer_entries(manifest_map, obj_ids, class_id):
 
 def generate_package(tool: Path, out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    code = subprocess.run(
+    code = run_fixture(
         [str(tool), str(out_path)],
         capture_output=True,
         text=True,
