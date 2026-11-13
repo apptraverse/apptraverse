@@ -3564,3 +3564,18 @@ CTest8/8 PASS, six complete three-peer native GUI scenarios PASS, and actual
 TCP outage/forced restart/both-side cold restart/order/dedup/journal collapse
 acceptance PASS (23.83s including cleanup). No adaptive transport is applied.
 [Scope, failure evidence and remaining limits](../validation/shared-node-p2pstream-tcp-2026-11-13.md).
+
+
+### 2026-11-13 — chat launch roles and UID-only connection
+
+- Windows Debug build PASS: `shared_node_chat`, `apptraverse_shared_chat_win32_test`.
+- Explicit real-Aether Win32 acceptance PASS: automatic `--host`, automatic
+  `--client HOST-UID`, manual client Join, one visible ID field per role, Copy
+  clipboard value equals host UID, Unicode/all-peer messages, offline delivery,
+  same-profile client restart and clean shutdown (three processes).
+- Room discovery uses retried request/reply frames. Only the selected host may
+  supply the expected SharedNode room; the user supplies only its Aether UID.
+  Old UID/room invitations are no longer accepted. No SDK pin/schema changes.
+- Host/client default profiles are separate; existing USER sessions are retained.
+- Apple runtime validation was not run on this Windows host. Both endpoints
+  need the updated ChatSession protocol for UID-only discovery.

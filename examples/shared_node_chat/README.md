@@ -1,7 +1,7 @@
 # SharedNode chat
 
 Minimal Windows demonstration: one host creates a room, participants join by
-invitation, and each participant sends its own Events directly to every peer.
+the host Aether ID, and each participant sends its own Events directly to every peer.
 Fixed English labels; no localization or extra chat features.
 
 Enable `APPTRAVERSE_BUILD_AETHER_LINK=ON` and
@@ -24,18 +24,31 @@ mode in Debug, including the same USER file across restarts.
 ```
 
 This opens Host, Alice and Bob with separate persistent profiles under
-`.artifacts/shared-chat-demo`. Click **Host room** in one window, copy its
-**Room invite** into the other windows and click **Join**. Enter sends a
-message. Room, history and pending delivery obligations are persisted in the
-native USER graph (`user.bin`). Reopening the same profile restores the SDK
-identity and existing room. Messages committed during an outage synchronize
-when the peer reconnects, including after a forced process restart.
+`.artifacts/shared-chat-demo`. The Host creates its room automatically. Click
+**Copy** beside its **My Aether ID**, paste that ID into a client's **Host Aether
+ID** field, and click **Join** (or press Enter). No room number is exposed.
+Each role has one visible ID field and one action button.
 
 For individual processes:
 
 ```powershell
-./build/shared-node-debug/examples/shared_node_chat/shared_node_chat.exe --profile .artifacts/chat-alice --name Alice
+./build/shared-node-debug/examples/shared_node_chat/shared_node_chat.exe --host
+./build/shared-node-debug/examples/shared_node_chat/shared_node_chat.exe --client ff1f6401-bbee-4d06-b4e2-551ee3a9198e
+./build/shared-node-debug/examples/shared_node_chat/shared_node_chat.exe --client --profile .artifacts/chat-alice --name Alice
 ```
+
+`--host` automatically creates a room after Aether initialization. `--client
+HOST-AETHER-ID` automatically resolves and joins the host's room. `--client`
+without an ID (also the default when no role is supplied) allows manual entry.
+The roles are mutually exclusive. `--profile PATH` and `--name NAME` remain
+optional; default profiles are `shared-chat-host-state` and
+`shared-chat-client-state`, respectively. Existing profile sessions are restored.
+Messages committed during an outage synchronize after reconnection/restart.
+
+Room resolution uses retried request/reply frames on the existing Aether link;
+only replies from the selected host are accepted. The room object ID remains an
+internal SharedNode identifier. Both peers need this protocol revision for
+UID-only connection; older `UID/room-number` invitations are no longer accepted.
 
 Each concurrently running process requires its own profile. Keep profiles
 private: they contain SDK identity credentials.

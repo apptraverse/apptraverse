@@ -316,7 +316,9 @@ Participant::ptr MakeParticipant(ae::Domain& domain, std::string uid,
   return person;
 }
 
-enum class ChatFrameKind : std::uint8_t { Sync = 1, JoinRequest = 2 };
+enum class ChatFrameKind : std::uint8_t {
+  Sync = 1, JoinRequest = 2, ResolveRequest = 3, ResolveReply = 4
+};
 // Application routing, not an alternative graph format: both this frame and
 // the enclosed SharedNode messages use the SDK's ordinary BinaryArchive.
 struct ChatFrame {
@@ -343,14 +345,20 @@ bool DecodeFrame(std::vector<std::uint8_t> const& bytes, ChatFrame& frame) {
            frame.name.empty()) ||
           (frame.kind == ChatFrameKind::JoinRequest && frame.room.is_valid() &&
            !frame.name.empty() && frame.name.size() <= 256 &&
-           frame.bytes.empty()));
+           frame.bytes.empty()) ||
+          (frame.kind == ChatFrameKind::ResolveRequest &&
+           !frame.room.is_valid() && frame.name.empty() && frame.bytes.empty()) ||
+          (frame.kind == ChatFrameKind::ResolveReply &&
+           frame.room.is_valid() && frame.name.empty() && frame.bytes.empty()));
 }
 
 class ChatLink final : public IByteLink {
  public:
   using Join = std::function<void(std::string const&, ae::ObjId, std::string)>;
-  ChatLink(AetherByteLink& native, Join on_join)
-      : native_{native}, on_join_{std::move(on_join)} {
+  using Resolve = std::function<void(std::string const&, ae::ObjId)>;
+  ChatLink(AetherByteLink& native, Join on_join, Resolve on_resolve)
+      : native_{native}, on_join_{std::move(on_join)},
+        on_resolve_{std::move(on_resolve)} {
     native_.SetReceiver([this](auto const& source, auto const& bytes) {
       ChatFrame frame;
       if (!DecodeFrame(bytes, frame)) {
@@ -358,6 +366,9 @@ class ChatLink final : public IByteLink {
       }
       if (frame.kind == ChatFrameKind::JoinRequest) {
         on_join_(source, frame.room, std::move(frame.name));
+      } else if (frame.kind == ChatFrameKind::ResolveRequest ||
+                 frame.kind == ChatFrameKind::ResolveReply) {
+        on_resolve_(source, frame.room);
       } else if (receiver_) {
         receiver_(source, frame.bytes);
       }
@@ -386,10 +397,19 @@ class ChatLink final : public IByteLink {
     std::vector<std::uint8_t> encoded;
     return EncodeFrame(frame, encoded) && native_.Send(host, encoded);
   }
+  bool ResolveRoom(std::string const& peer, ae::ObjId room = {}) {
+    ChatFrame frame;
+    frame.kind = room.is_valid() ? ChatFrameKind::ResolveReply
+                                : ChatFrameKind::ResolveRequest;
+    frame.room = room;
+    std::vector<std::uint8_t> encoded;
+    return EncodeFrame(frame, encoded) && native_.Send(peer, encoded);
+  }
 
  private:
   AetherByteLink& native_;
   Join on_join_;
+  Resolve on_resolve_;
   Receiver receiver_;
 };
 
@@ -437,6 +457,7 @@ struct ChatSession::Impl {
   bool finished{false};
   bool view_dirty{true};
   std::string status;
+  std::string resolving_host;
   ae::RamDomainStorage storage;
   ae::RamDomainStorage backing;
   std::unique_ptr<OverlayDomainStorage> model_storage;
@@ -562,6 +583,9 @@ struct ChatSession::Impl {
         *native,
         [this](auto const& source, ae::ObjId room, std::string person_name) {
           OnJoinRequest(source, room, std::move(person_name));
+        },
+        [this](auto const& source, ae::ObjId room) {
+          OnResolveRoom(source, room);
         });
     sync = std::make_unique<SharedSyncRuntime>(
         *domain, *model_storage, *link,
@@ -575,7 +599,7 @@ struct ChatSession::Impl {
       return false;
     }
     SetStatus(app->room.is_valid() ? "Session restored"
-                                   : "Create a room or paste an invitation");
+                                   : "Enter the host Aether ID");
     BindExpected();
     return true;
   }
@@ -598,33 +622,45 @@ struct ChatSession::Impl {
       SetError("Could not commit the room in memory");
       return;
     }
-    SetStatus("Room created. Share the invitation");
+    SetStatus("Room created. Share your Aether ID");
   }
 
   void JoinRoom(std::string invite) {
     if (failed || !sync || CurrentRoom() || app->expected.is_valid()) {
       return;
     }
-    invite = Trim(std::move(invite));
-    auto const slash = invite.find('/');
-    std::uint32_t id = 0;
-    if (slash != 36 || slash + 1 >= invite.size()) {
-      SetStatus("Invalid invitation");
+    auto host = Trim(std::move(invite));
+    std::transform(host.begin(), host.end(), host.begin(), [](unsigned char c) {
+      return c >= 'A' && c <= 'F' ? static_cast<char>(c + ('a' - 'A'))
+                                : static_cast<char>(c);
+    });
+    if (host.size() != 36 || host == native->EndpointId() ||
+        !native->WatchPeer(host)) {
+      SetStatus("Invalid host Aether ID");
       return;
     }
-    auto const host = invite.substr(0, slash);
-    auto const number = invite.substr(slash + 1);
-    auto const parsed =
-        std::from_chars(number.data(), number.data() + number.size(), id);
-    if (parsed.ec != std::errc{} ||
-        parsed.ptr != number.data() + number.size() || id == 0 ||
-        host == native->EndpointId() || !native->WatchPeer(host)) {
-      SetStatus("Invalid invitation");
+    resolving_host = std::move(host);
+    next_join_request = 0;
+    SetStatus("Finding the host room...");
+  }
+
+  void OnResolveRoom(std::string const& source, ae::ObjId room_id) {
+    if (failed || !sync) return;
+    if (!room_id.is_valid()) {
+      auto* room = CurrentRoom();
+      if (room && room->host_uid == native->EndpointId()) {
+        link->ResolveRoom(source, room->obj_id);
+      }
       return;
     }
-    app->Expect(ae::ObjId{id}, host);
+    // Only the selected host can supply the room to expect. Do not accept
+    // unsolicited snapshots or discovery replies from other participants.
+    if (source != resolving_host || CurrentRoom() || app->expected.is_valid())
+      return;
+    app->Expect(room_id, source);
+    resolving_host.clear();
     if (!CommitMemory()) {
-      SetError("Could not commit the invitation in memory");
+      SetError("Could not commit the host selection");
       return;
     }
     BindExpected();
@@ -725,7 +761,7 @@ struct ChatSession::Impl {
                                    !path.linked_tcp_endpoint;
         }
       }
-      next.invite = room->host_uid + "/" + std::to_string(room->obj_id.id());
+      next.invite = room->host_uid;
       for (auto const& person : room->participants) {
         auto const& uid = person->link->endpoint_uid;
         auto const availability =
@@ -743,7 +779,9 @@ struct ChatSession::Impl {
         next.messages.push_back(message.author_name + ": " + message.text);
       }
     } else if (app.is_valid() && app->expected.is_valid()) {
-      next.invite = app->source + "/" + std::to_string(app->expected.id());
+      next.invite = app->source;
+    } else if (!resolving_host.empty()) {
+      next.invite = resolving_host;
     }
     {
       std::lock_guard lock{view_mutex};
@@ -845,7 +883,10 @@ struct ChatSession::Impl {
           view_dirty = true;
           next_presence_publication = now + 250000ULL;
         }
-        if (app->expected.is_valid() && now >= next_join_request) {
+        if (!resolving_host.empty() && now >= next_join_request) {
+          link->ResolveRoom(resolving_host);
+          next_join_request = now + 1000000ULL;
+        } else if (app->expected.is_valid() && now >= next_join_request) {
           link->RequestJoin(app->source, app->expected, app->name);
           next_join_request = now + 1000000ULL;
         }
