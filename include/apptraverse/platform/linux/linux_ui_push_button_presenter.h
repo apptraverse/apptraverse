@@ -3,13 +3,14 @@
 
 #include <gtk/gtk.h>
 
+#include "apptraverse/ui/ui_native_presenter_schema.h"
 #include "apptraverse/ui/ui_presenters.h"
 
 namespace apptraverse::ui::linux {
 
 class LinuxPushButtonPresenter : public UiPushButtonPresenter {
   APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::ui::linux::LinuxPushButtonPresenter",
+      ::apptraverse::ui::native_schema::kPushButton,
       LinuxPushButtonPresenter, UiPushButtonPresenter, 0)
 
  protected:

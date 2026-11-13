@@ -13,6 +13,10 @@ int RunWindowCatalogAndroidModel(WindowCatalogAndroidEmbeddedProfile& profile,
                                  ApplicationPublishedCallback on_published) {
   ApplicationModelSessionHooks<apptraverse::WindowCatalog> hooks;
   hooks.prepare = PrepareWindowCatalogForRun;
+  hooks.before_incremental = [](apptraverse::WindowCatalog& catalog) {
+    // Page visibility is derived from the published order, not a focus sidecar.
+    catalog.pending_focus_window = {};
+  };
   hooks.persist = [&profile](apptraverse::WindowCatalog& catalog) {
     return PersistWindowCatalogEmbeddedUserOverlayFromDomain(*catalog.domain,
                                                              profile);

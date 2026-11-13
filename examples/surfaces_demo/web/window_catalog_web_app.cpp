@@ -144,7 +144,6 @@ void WebWindowCatalogApp::Start(std::filesystem::path state_dir) {
     hooks.prepare = PrepareWindowCatalogForRun;
     hooks.before_incremental = [](WindowCatalog& catalog) {
       catalog.pending_focus_window = {};
-      catalog.pending_mobile_active_window = {};
     };
     hooks.persist = [this](WindowCatalog& catalog) -> int {
       return PersistWindowCatalogEmbeddedUserOverlay(catalog, user_storage_, state_dir_);
@@ -225,7 +224,7 @@ void WebWindowCatalogApp::MobileSwipe(int delta) {
     return;
   }
   host_->model_proxy().Invoke(
-      CatalogRootId(), &WindowCatalog::SubmitMobileSwipeFromUi, delta);
+      CatalogRootId(), &WindowCatalog::SubmitWindowNavigationFromUi, delta);
 }
 
 void WebWindowCatalogApp::MobilePageShown(unsigned window_obj_id) {
@@ -234,7 +233,7 @@ void WebWindowCatalogApp::MobilePageShown(unsigned window_obj_id) {
     return;
   }
   host_->model_proxy().Invoke(CatalogRootId(),
-                              &WindowCatalog::SubmitMobileActiveFromUi,
+                              &WindowCatalog::SubmitActiveWindowFromUi,
                               ae::ObjId{window_obj_id});
 }
 
@@ -271,10 +270,7 @@ void WebWindowCatalogApp::ChildViewportChanged(unsigned window_id, int width, in
 
 void WebWindowCatalogApp::PublishMobilePages(ae::Obj& application_root) {
   auto& catalog = static_cast<WindowCatalog&>(application_root);
-  if (!catalog.persisted.mobile_pager) {
-    return;
-  }
-  std::vector<CatalogWindow::ptr> const ring = catalog.BuildMobileRing();
+  std::vector<CatalogWindow::ptr> const ring = catalog.BuildWindowNavigationRing();
   std::string ids;
   for (std::size_t i = 0; i < ring.size(); ++i) {
     if (i != 0) {
@@ -282,7 +278,7 @@ void WebWindowCatalogApp::PublishMobilePages(ae::Obj& application_root) {
     }
     ids += std::to_string(ring[i].id().id());
   }
-  CatalogWindow::ptr const active = catalog.ResolveMobileActiveWindow();
+  CatalogWindow::ptr const active = catalog.ResolveActiveWindow();
   EM_ASM({ AtCatalog.setPages(UTF8ToString($0), $1); }, ids.c_str(),
          active.id().id());
 }

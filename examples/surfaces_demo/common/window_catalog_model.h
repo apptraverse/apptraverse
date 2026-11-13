@@ -79,7 +79,7 @@ class CatalogWindow : public NodeFor<CatalogWindow, ui::UiDesktopWindow> {
 
   }
 
-  // Mobile pager child windows only: Close lives in the window prefab graph.
+  // Close action and content presenter are linked by the portable window prefab.
   ae::ObjPtr<example::surfaces::CatalogCloseButton> close_button;
 
   ui::UiPushButtonPresenter::ptr close_button_presenter;
@@ -154,9 +154,7 @@ class SetWindowCatalogSelectionEvent;
 
 class SetWindowCatalogOpenEvent;
 
-class SetWindowCatalogDesktopZOrderEvent;
-
-class SetWindowCatalogMobileActiveEvent;
+class SetWindowCatalogOrderEvent;
 
 class SetWindowCatalogMainClientViewportEvent;
 
@@ -251,11 +249,9 @@ struct WindowCatalogPersisted {
 
   CatalogWindow::ptr window_prefab;
 
-  std::vector<CatalogWindow::ptr> desktop_z_order;
-
-  bool mobile_pager;
-
-  CatalogWindow::ptr mobile_active_window;
+  // Complete open-window order: index zero is active on every platform.
+  // Lazy identity links do not retain another owner of the live window graph.
+  std::vector<CatalogWindow::ptr> window_order;
 
   // Main-window client viewport last reported by a presenter (0 = unknown
   // width/height). Drives adaptive chrome layout of the list and the four main
@@ -264,9 +260,9 @@ struct WindowCatalogPersisted {
 
   AE_REFLECT_MEMBERS(next_window_number, selected, list, main_window, locale,
 
-                     texts, buttons, presenters, window_prefab, desktop_z_order,
+                     texts, buttons, presenters, window_prefab, window_order,
 
-                     mobile_pager, mobile_active_window, main_client_viewport)
+                     main_client_viewport)
 
 };
 
@@ -304,7 +300,7 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
   WindowCatalogPersisted persisted;
 
-  [[nodiscard]] CatalogWindow::ptr ResolveMobileActiveWindow();
+  [[nodiscard]] CatalogWindow::ptr ResolveActiveWindow();
 
   [[nodiscard]] bool CanApply(AddWindowCatalogEntryEvent const& event) const;
 
@@ -316,9 +312,7 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
 
   void Apply(SetWindowCatalogOpenEvent const& event);
 
-  void Apply(SetWindowCatalogDesktopZOrderEvent const& event);
-
-  void Apply(SetWindowCatalogMobileActiveEvent const& event);
+  void Apply(SetWindowCatalogOrderEvent const& event);
 
   void Apply(SetWindowCatalogMainClientViewportEvent const& event);
 
@@ -331,19 +325,23 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
                                                std::int32_t height,
                                                std::int32_t density_dpi = 160);
 
-  void SetDesktopZOrderFromObjIds(std::vector<std::uint32_t> ordered_ids);
+  // Native reports address the surviving catalog. Their child can close or
+  // leave the catalog while the UI callback is queued on the model thread.
+  void SubmitHolderChildWindowFrameFromUi(std::uint32_t window_obj_id,
+      std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height,
+      bool updates_restore_geometry);
+  void SubmitWindowScreenFromUi(std::uint32_t window_obj_id,
+      std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height);
 
-  void SetMobileActiveWindow(CatalogWindow::ptr window);
+  void SetWindowOrderFromObjIds(std::vector<std::uint32_t> ordered_ids);
 
-  [[nodiscard]] std::vector<CatalogWindow::ptr> BuildMobileRing() const;
+  void ActivateWindow(CatalogWindow::ptr window);
 
-  [[nodiscard]] CatalogWindow::ptr MobileRingPredecessor(
+  [[nodiscard]] std::vector<CatalogWindow::ptr> BuildWindowNavigationRing() const;
 
-      CatalogWindow const& window) const;
+  void SubmitActiveWindowFromUi(ae::ObjId window_obj_id);
 
-  void SubmitMobileActiveFromUi(ae::ObjId window_obj_id);
-
-  void SubmitMobileSwipeFromUi(int delta);
+  void SubmitWindowNavigationFromUi(int delta);
 
   void AddWindow();
 
@@ -357,6 +355,8 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   void OpenHolderByIdFromUi(ae::ObjId holder_id);
 
   void DeleteSelected();
+
+  void NotifyChildCloseButtonFromUi(std::uint32_t window_obj_id);
 
   void UserCloseWindow(ae::ObjId window_obj_id);
 
@@ -387,8 +387,6 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   // Model-thread one-shot focus request (runtime-only); copied to UI on publish.
 
   CatalogWindow::ptr pending_focus_window;
-
-  CatalogWindow::ptr pending_mobile_active_window;
 
 };
 
@@ -508,17 +506,17 @@ class SetWindowCatalogOpenEvent
 
 };
 
-class SetWindowCatalogDesktopZOrderEvent
-    : public EventFor<WindowCatalog, SetWindowCatalogDesktopZOrderEvent> {
+class SetWindowCatalogOrderEvent
+    : public EventFor<WindowCatalog, SetWindowCatalogOrderEvent> {
   APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::example::surfaces::SetWindowCatalogDesktopZOrderEvent",
-      SetWindowCatalogDesktopZOrderEvent, Event, 0)
+      "apptraverse::example::surfaces::SetWindowCatalogOrderEvent",
+      SetWindowCatalogOrderEvent, Event, 0)
 
  protected:
-  SetWindowCatalogDesktopZOrderEvent() = default;
+  SetWindowCatalogOrderEvent() = default;
 
  public:
-  explicit SetWindowCatalogDesktopZOrderEvent(ae::ObjProp prop)
+  explicit SetWindowCatalogOrderEvent(ae::ObjProp prop)
       : EventFor{prop} {}
 
   AE_OBJECT_REFLECT(AE_MMBR(ordered))
@@ -534,24 +532,6 @@ class SetWindowCatalogDesktopZOrderEvent
   }
 
   std::vector<CatalogWindow::ptr> ordered;
-};
-
-class SetWindowCatalogMobileActiveEvent
-    : public EventFor<WindowCatalog, SetWindowCatalogMobileActiveEvent> {
-  APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::example::surfaces::SetWindowCatalogMobileActiveEvent",
-      SetWindowCatalogMobileActiveEvent, Event, 0)
-
- protected:
-  SetWindowCatalogMobileActiveEvent() = default;
-
- public:
-  explicit SetWindowCatalogMobileActiveEvent(ae::ObjProp prop)
-      : EventFor{prop} {}
-
-  AE_OBJECT_REFLECT(AE_MMBR(window))
-
-  CatalogWindow::ptr window;
 };
 
 class SetWindowCatalogMainClientViewportEvent
@@ -600,7 +580,7 @@ class SetWindowCatalogSelectionEvent
 
 namespace example::surfaces {
 
-// Child-window Close button (mobile pager). Defined here so CatalogWindow can
+// Child-window Close action. Defined here so CatalogWindow can
 // own it as part of the window prefab graph.
 class CatalogCloseButton : public ui::UiPushButton {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::surfaces::CatalogCloseButton",
@@ -627,6 +607,7 @@ class CatalogCloseButton : public ui::UiPushButton {
   WindowCatalog::ptr catalog;
   CatalogWindow::ptr window;
 
+  void QueueClickFromUi(ModelObjectProxy& proxy) const override;
   void HandlePushButtonClicked() override;
 };
 
@@ -637,7 +618,7 @@ void AssignInitialCatalogWindowBounds(CatalogWindow& window,
                                       std::uint32_t number);
 
 void EnsureWindowCatalogModelRegistration();
-// Desktop supply has native Close, without a mobile in-content Close button.
+// Common model schema used by all native and paged presentations.
 void EnsureWindowCatalogDesktopModelRegistration();
 
 }  // namespace apptraverse

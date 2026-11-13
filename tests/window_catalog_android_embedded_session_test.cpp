@@ -111,7 +111,6 @@ void TestAndroidEmbeddedBackingUserColdLoadWithoutNormalize() {
     ae::Domain domain{overlay};
     auto catalog = LoadApplication<WindowCatalog>(domain, kCatalogId);
     CHECK(std::filesystem::is_empty(user_dir));
-    CHECK(catalog->persisted.mobile_pager);
     CHECK(catalog->persisted.texts.label_close.is_valid());
     catalog_base_id = catalog->base.id();
     CHECK(catalog_base_id.is_valid());
@@ -141,7 +140,6 @@ void TestAndroidEmbeddedBackingUserColdLoadWithoutNormalize() {
             embedded_distilled::window_catalog::kEmbeddedGraph)};
     ae::Domain cold_domain{cold_overlay};
     auto catalog = LoadApplication<WindowCatalog>(cold_domain, kCatalogId);
-    CHECK(catalog->persisted.mobile_pager);
     catalog->persisted.list.Load();
     CHECK(catalog->persisted.list->rows.size() == 2);
     CHECK(AsHolder(catalog->persisted.list->rows[0])->obj_id == holder0_id);
@@ -165,11 +163,33 @@ void TestAndroidEmbeddedBackingUserColdLoadWithoutNormalize() {
   }
 }
 
+void TestAndroidClosePresentationFollowsBackend() {
+  ae::RamDomainStorage backing;
+  InstallEmbeddedDistilledBacking(
+      backing, embedded_distilled::window_catalog::kEmbeddedGraph);
+  ae::RamDomainStorage user;
+  OverlayDomainStorage overlay{
+      user, backing, EmbeddedSupplyConstantIdSet(
+                         embedded_distilled::window_catalog::kEmbeddedGraph)};
+  ae::Domain domain{overlay};
+  auto catalog = LoadApplication<WindowCatalog>(domain, kCatalogId);
+  PrepareWindowCatalogForRun(*catalog);
+  catalog->AddWindow();
+  auto* holder = AsHolder(catalog->persisted.list->rows[0]);
+  auto const& close = *holder->window->close_button_presenter;
+  CHECK(close.EnabledForPresentation());
+  catalog->ActivateWindow(catalog->persisted.main_window);
+  CHECK(close.EnabledForPresentation());
+  catalog->ActivateWindow(holder->window);
+  CHECK(close.EnabledForPresentation());
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
 int main() {
   apptraverse::EnsureWindowCatalogAndroidGraphRegistration();
+  apptraverse::test::TestAndroidClosePresentationFollowsBackend();
   apptraverse::test::TestAndroidEmbeddedBackingUserColdLoadWithoutNormalize();
   std::cout << "window_catalog_android_embedded_session_test OK\n";
   return 0;

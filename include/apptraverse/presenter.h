@@ -42,6 +42,8 @@ class Presenter : public ae::Obj {
   // Default: always ready. Child presenters override when they need a parent
   // HWND created by another presenter's OnLoad.
   virtual bool ReadyForPresentation() const { return true; }
+  // Explicit model policy, distinct from waiting for a required parent.
+  virtual bool EnabledForPresentation() const { return true; }
 
   // Platform input dispatch (Win32 WM_COMMAND control id + notification).
   // Default: unhandled. Runtime-only; not reflected. Does not take HWND.

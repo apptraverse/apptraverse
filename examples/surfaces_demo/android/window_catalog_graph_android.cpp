@@ -18,7 +18,6 @@ void AndroidCatalogListContainerPresenter::SubmitListRowActivatedFromUi(
   model_proxy->Invoke(catalog->obj_id, &WindowCatalog::OpenHolderByIdFromUi,
                       *row_id);
 }
-APPTRAVERSE_REGISTER(AndroidCatalogMainWindowPresenter);
 APPTRAVERSE_REGISTER(CatalogDesktopWindowPresenter);
 APPTRAVERSE_REGISTER(AndroidCatalogListContainerPresenter);
 }  // namespace apptraverse::example::surfaces
@@ -29,7 +28,6 @@ void EnsureWindowCatalogAndroidGraphRegistration() {
   EnsureWindowCatalogModelRegistration();
   ui::android::EnsureAndroidUiPresenterRegistration();
   (void)&example::surfaces::g_apptraverse_registrar_AndroidCatalogListContainerPresenter;
-  (void)&example::surfaces::g_apptraverse_registrar_AndroidCatalogMainWindowPresenter;
   (void)&example::surfaces::g_apptraverse_registrar_CatalogDesktopWindowPresenter;
 }
 }  // namespace apptraverse

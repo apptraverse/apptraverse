@@ -1,3 +1,4 @@
+#include "apptraverse/noninteractive_crt.h"
 #include <fstream>
 #include <filesystem>
 #include <iostream>
@@ -1711,8 +1712,8 @@ void TestCatalogPresentedWindowGraph() {
 std::vector<ae::ObjId::Type> DesktopZOrderRawIds(
     apptraverse::WindowCatalog const& catalog) {
   std::vector<ae::ObjId::Type> ids;
-  ids.reserve(catalog.persisted.desktop_z_order.size());
-  for (auto const& window_ref : catalog.persisted.desktop_z_order) {
+  ids.reserve(catalog.persisted.window_order.size());
+  for (auto const& window_ref : catalog.persisted.window_order) {
     ids.push_back(window_ref.id().id());
   }
   return ids;
@@ -1721,7 +1722,7 @@ std::vector<ae::ObjId::Type> DesktopZOrderRawIds(
 void TestCatalogDesktopZOrderPersistence() {
   ae::ObjId const catalog_id{
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
-  auto const dir = TestDir("apptraverse_window_catalog_desktop_z_order");
+  auto const dir = TestDir("apptraverse_window_catalog_window_order");
   DirectoryDomainStorage storage{dir};
   ae::Domain domain{storage};
   auto catalog = BuildWindowCatalogGraph(domain);
@@ -1755,12 +1756,12 @@ void TestCatalogDesktopZOrderPersistence() {
   std::vector<std::uint32_t> const artificial_order{
       window2_id.id(), window0_id.id(), window1_id.id(), main_window_id.id()};
   CHECK(artificial_order[0] != window0_id.id());
-  catalog->SetDesktopZOrderFromObjIds(artificial_order);
+  catalog->SetWindowOrderFromObjIds(artificial_order);
 
   std::vector<ae::ObjId::Type> const saved_z_order =
       DesktopZOrderRawIds(*catalog);
   CHECK(saved_z_order == artificial_order);
-  for (auto const& window_ref : catalog->persisted.desktop_z_order) {
+  for (auto const& window_ref : catalog->persisted.window_order) {
     CHECK(!window_ref.is_loaded());
   }
 
@@ -1771,7 +1772,7 @@ void TestCatalogDesktopZOrderPersistence() {
   RestoreLoadedCatalogWindows(*cold_catalog);
 
   CHECK(DesktopZOrderRawIds(*cold_catalog) == saved_z_order);
-  for (auto const& window_ref : cold_catalog->persisted.desktop_z_order) {
+  for (auto const& window_ref : cold_catalog->persisted.window_order) {
     CHECK(!window_ref.is_loaded());
   }
 
@@ -1993,6 +1994,7 @@ void TestLiveReachableNodesCoverOpenCatalogWindow() {
 }  // namespace apptraverse::test
 
 int main() {
+  apptraverse::EnableNoninteractiveCrt();
   apptraverse::EnsureWindowCatalogGraphRegistration();
   apptraverse::test::TestCatalogPresentedWindowDistilledBaseReplay();
   apptraverse::test::TestCatalogPresentedWindowGraph();

@@ -11,12 +11,6 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
       [](ae::Domain& build_domain, ae::ObjId presenter_id,
          WindowCatalog::ptr const& catalog)
           -> ui::UiDesktopWindowPresenter::ptr {
-        if (presenter_id.id() ==
-            window_catalog_demo::ToObjId(
-                window_catalog_demo::ObjId::MainWindowPresenter)) {
-          return example::surfaces::AndroidCatalogMainWindowPresenter::ptr::
-              Create(ae::CreateWith{build_domain}.with_id(presenter_id));
-        }
         example::surfaces::CatalogDesktopWindowPresenter::ptr presenter =
             example::surfaces::CatalogDesktopWindowPresenter::ptr::Create(
                 ae::CreateWith{build_domain}.with_id(presenter_id));
@@ -40,7 +34,6 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
   };
 
   WindowCatalogGraphOptions options;
-  options.mobile_pager = true;
   options.mobile_close_in_prefab = true;
   return BuildWindowCatalogGraph(domain, factory, options);
 }

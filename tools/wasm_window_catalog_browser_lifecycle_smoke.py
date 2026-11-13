@@ -196,6 +196,7 @@ def main() -> int:
             observe(page, errors, messages)
             load(page, url)
             expect(page.locator(ROWS)).to_have_count(0)
+            main_id = active_id(page)
             assert durable_snapshot(page) == []
             control(page, 5002).click()
             child_page(page)
@@ -238,15 +239,18 @@ def main() -> int:
             expect_one_file(saved)
             print('PASS: real reload drained the last queued Add command')
 
-            # Actual navigation away must save a closed child's lazy state.
+            # Main was active when Add2 opened: closing the top window returns
+            # to main in the shared MRU order, not the prior catalog row.
+            # Actual navigation away must save that order and closed lazy state.
             page.locator(ACTIVE + ' button').click()
             expect(page.locator(ROWS)).to_have_text(['Окно 1', 'Окно 2 (закрыто)'])
-            child_page(page, 'Окно 1')
+            expect(page.locator('#page-title')).to_have_text('Каталог окон')
+            assert active_id(page) == main_id
             assert durable_snapshot(page) == saved, 'child Close wrote IndexedDB'
             page.goto('about:blank')
             load(page, url)
-            child_page(page, 'Окно 1')
-            assert active_id(page) == first_id
+            expect(page.locator('#page-title')).to_have_text('Каталог окон')
+            assert active_id(page) == main_id
             expect(page.locator(ROWS)).to_have_text(['Окно 1', 'Окно 2 (закрыто)'])
             main_page(page)
             page.locator(ROWS).nth(1).dblclick()

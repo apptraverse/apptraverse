@@ -1,13 +1,14 @@
 #ifndef APPTRAVERSE_PLATFORM_MACOS_MACOS_UI_PRESENTERS_H_
 #define APPTRAVERSE_PLATFORM_MACOS_MACOS_UI_PRESENTERS_H_
 
+#include "apptraverse/ui/ui_native_presenter_schema.h"
 #include "apptraverse/ui/ui_presenters.h"
 
 namespace apptraverse::ui::macos {
 
 class MacDesktopWindowPresenter : public UiDesktopWindowPresenter {
   APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::ui::macos::MacDesktopWindowPresenter",
+      ::apptraverse::ui::native_schema::kWindow,
       MacDesktopWindowPresenter, UiDesktopWindowPresenter, 0)
 
  protected:
@@ -35,13 +36,15 @@ class MacDesktopWindowPresenter : public UiDesktopWindowPresenter {
                                 std::int32_t client_width,
                                 std::int32_t client_height,
                                 bool updates_restore_geometry) override;
+  void SubmitScreenFromNative(std::int32_t x, std::int32_t y,
+                              std::int32_t width, std::int32_t height) override;
   void ReportNativeScreenToModel(std::int32_t x, std::int32_t y,
                                  std::int32_t width, std::int32_t height);
 };
 
 class MacPushButtonPresenter : public UiPushButtonPresenter {
   APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::ui::macos::MacPushButtonPresenter",
+      ::apptraverse::ui::native_schema::kPushButton,
       MacPushButtonPresenter, UiPushButtonPresenter, 0)
 
  protected:
@@ -68,7 +71,7 @@ class MacPushButtonPresenter : public UiPushButtonPresenter {
 
 class MacListContainerPresenter : public UiListContainerPresenter {
   APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::ui::macos::MacListContainerPresenter",
+      ::apptraverse::ui::native_schema::kList,
       MacListContainerPresenter, UiListContainerPresenter, 0)
 
  protected:

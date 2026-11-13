@@ -73,7 +73,79 @@ class TestClickButton : public NodeFor<TestClickButton, UiPushButton> {
 
 APPTRAVERSE_REGISTER(TestClickButton);
 
+class ConditionalPresenter : public Presenter {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::ConditionalPresenter",
+                           ConditionalPresenter, Presenter, 0)
+ protected:
+  ConditionalPresenter() = default;
+ public:
+  explicit ConditionalPresenter(ae::ObjProp prop) : Presenter{prop} {}
+  bool shown{false};
+  int loads{0};
+  int unloads{0};
+  bool EnabledForPresentation() const override { return shown; }
+  void OnLoad() override { ++loads; }
+  void OnUnload() override { ++unloads; }
+};
+APPTRAVERSE_REGISTER(ConditionalPresenter);
+
+void TestConditionalPresentationLifecycle() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto presenter = ConditionalPresenter::ptr::Create(ae::CreateWith{domain});
+  InitializeNewPresenters(*presenter);
+  CHECK(!presenter->presentation_loaded && presenter->loads == 0);
+  presenter->shown = true;
+  InitializeNewPresenters(*presenter);
+  InitializeNewPresenters(*presenter);
+  CHECK(presenter->presentation_loaded && presenter->loads == 1);
+  presenter->shown = false;
+  InitializeNewPresenters(*presenter);
+  InitializeNewPresenters(*presenter);
+  CHECK(!presenter->presentation_loaded && presenter->unloads == 1);
+  presenter->shown = true;
+  InitializeNewPresenters(*presenter);
+  CHECK(presenter->presentation_loaded && presenter->loads == 2);
+  UnloadPresenters(*presenter);
+  CHECK(presenter->unloads == 2);
+}
+
+class SelectiveWindowPresenter : public UiWindowPresenter {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::SelectiveWindowPresenter",
+                           SelectiveWindowPresenter, UiWindowPresenter, 0)
+ protected:
+  SelectiveWindowPresenter() = default;
+ public:
+  explicit SelectiveWindowPresenter(ae::ObjProp prop) : UiWindowPresenter{prop} {}
+  ae::ObjId native_action_control;
+  bool PresentsChildControl(Presenter const& child) const override {
+    return child.obj_id != native_action_control;
+  }
+};
+APPTRAVERSE_REGISTER(SelectiveWindowPresenter);
+
+void TestParentOwnsChildPresentationPolicy() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto desktop = SelectiveWindowPresenter::ptr::Create(ae::CreateWith{domain});
+  auto paged = UiWindowPresenter::ptr::Create(ae::CreateWith{domain});
+  auto close = UiPushButtonPresenter::ptr::Create(ae::CreateWith{domain});
+  auto ordinary = UiPushButtonPresenter::ptr::Create(ae::CreateWith{domain});
+  desktop->native_action_control = close.id();
+  close->window_presenter = desktop;
+  ordinary->window_presenter = desktop;
+  CHECK(!close->EnabledForPresentation());
+  CHECK(ordinary->EnabledForPresentation());
+  // The same control needs no model policy or changes to become visible.
+  close->window_presenter = paged;
+  CHECK(close->EnabledForPresentation());
+  close->window_presenter = desktop;
+  CHECK(!close->EnabledForPresentation());
+}
+
 void EnsureTestRegistration() {
+  (void)&g_apptraverse_registrar_SelectiveWindowPresenter;
+  (void)&g_apptraverse_registrar_ConditionalPresenter;
   (void)&g_apptraverse_registrar_TestClickButton;
   (void)&apptraverse::test::g_apptraverse_registrar_DerivedUiLocalizationString;
 }
@@ -1693,6 +1765,8 @@ int main(int argc, char** argv) {
   apptraverse::ui::EnsureUiPresenterRegistration();
   EnsureTestRegistration();
 
+  TestConditionalPresentationLifecycle();
+  TestParentOwnsChildPresentationPolicy();
   TestExplicitEmptyLocalization();
   TestImmediateCompactionKeepsInactiveLanguageLazy();
   TestPushButtonMaterializationNotifiesOnChange();

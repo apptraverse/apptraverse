@@ -1,4 +1,5 @@
 #include "window_catalog_localization.h"
+#include "window_catalog_ids.h"
 
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_localization_string.h"
@@ -53,7 +54,8 @@ ui::UiLocalizationString::ptr MakeCatalogLocalizedString(ae::Domain& domain,
 void InstallWindowCatalogLocalization(WindowCatalog& catalog,
                                       ae::Domain& domain) {
   catalog.persisted.locale =
-      ui::UiLocaleSettings::ptr::Create(ae::CreateWith{domain});
+      ui::UiLocaleSettings::ptr::Create(ae::CreateWith{domain}.with_id(
+          window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Locale)));
   catalog.persisted.locale->BootstrapLanguageIndex(0);
   InitializeRuntimeNode(*catalog.persisted.locale, catalog);
 

@@ -1,6 +1,7 @@
 #ifndef APPTRAVERSE_PLATFORM_ANDROID_ANDROID_UI_WINDOW_PRESENTER_H_
 #define APPTRAVERSE_PLATFORM_ANDROID_ANDROID_UI_WINDOW_PRESENTER_H_
 
+#include "apptraverse/ui/ui_native_presenter_schema.h"
 #include "apptraverse/ui/ui_presenters.h"
 
 namespace apptraverse::ui::android {
@@ -10,7 +11,7 @@ struct AndroidPresentationHost;
 
 class AndroidDesktopWindowPresenter : public UiDesktopWindowPresenter {
   APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::ui::android::AndroidDesktopWindowPresenter",
+      ::apptraverse::ui::native_schema::kWindow,
       AndroidDesktopWindowPresenter, UiDesktopWindowPresenter, 0)
 
  protected:

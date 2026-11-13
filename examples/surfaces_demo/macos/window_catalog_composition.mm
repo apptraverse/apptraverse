@@ -56,7 +56,7 @@ ATMacApplicationBridge* ATCreateWindowCatalogApplicationBridge(
          std::function<void()> request_stop) {
         auto& catalog = static_cast<apptraverse::WindowCatalog&>(root);
         proxy.Invoke(catalog.obj_id,
-                     &apptraverse::WindowCatalog::SetDesktopZOrderFromObjIds,
+                     &apptraverse::WindowCatalog::SetWindowOrderFromObjIds,
                      apptraverse::ui::macos::CaptureMacDesktopZOrder(root));
         request_stop();
       };
@@ -69,7 +69,7 @@ ATMacApplicationBridge* ATCreateWindowCatalogApplicationBridge(
             catalog.persisted.main_window.id() == closed_window.obj_id;
         if (closes_application) {
           proxy.Invoke(catalog.obj_id,
-                       &apptraverse::WindowCatalog::SetDesktopZOrderFromObjIds,
+                       &apptraverse::WindowCatalog::SetWindowOrderFromObjIds,
                        apptraverse::ui::macos::CaptureMacDesktopZOrder(root));
           request_stop();
         } else {
@@ -93,10 +93,12 @@ ATMacApplicationBridge* ATCreateWindowCatalogApplicationBridge(
   callbacks.after_initial = [](ae::Obj& root) {
     auto& catalog = static_cast<apptraverse::WindowCatalog&>(root);
     std::vector<std::uint32_t> ids;
-    for (auto const& window : catalog.persisted.desktop_z_order) {
+    for (auto const& window : catalog.persisted.window_order) {
       ids.push_back(window.id().id());
     }
     apptraverse::ui::macos::RestoreMacDesktopZOrder(root, ids);
+    apptraverse::ui::macos::FocusMacDesktopWindow(
+        root, catalog.ResolveActiveWindow().id());
   };
   return apptraverse::ui::macos::MakeMacApplicationBridge(
       std::move(callbacks), delegate);

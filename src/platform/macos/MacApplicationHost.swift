@@ -470,6 +470,12 @@ public final class MacApplicationHost: NSObject,
         return false
     }
 
+    public func windowDidBecomeKey(_ notification: Notification) {
+        guard !terminating else { return }
+        guard let adapter = adapter(for: notification) else { return }
+        bridge.activateWindow(adapter.id)
+    }
+
     public func windowDidMove(_ notification: Notification) {
         guard !terminating else { return }
         adapter(for: notification)?.reportFrame()

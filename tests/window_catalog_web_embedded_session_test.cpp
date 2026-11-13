@@ -67,7 +67,6 @@ void ExpectNoLocalizationSupplyBodiesInUser(
 }
 
 void ExpectEmbeddedBackingIntegrityAfterLoad(WindowCatalog const& catalog) {
-  CHECK(catalog.persisted.mobile_pager);
   CHECK(catalog.persisted.texts.label_close.is_valid());
   CHECK(catalog.persisted.main_window.is_valid());
   CHECK(catalog.persisted.list.is_valid());
@@ -124,6 +123,15 @@ void TestWebEmbeddedBackingUserColdLoadWithoutNormalize() {
     holder0_id = AsHolder(catalog->persisted.list->rows[0])->obj_id;
     holder1_id = AsHolder(catalog->persisted.list->rows[1])->obj_id;
     open_window_id = AsHolder(catalog->persisted.list->rows[1])->window.id();
+    // The Web presenter owns the in-page Close control for every window,
+    // independent of which window is currently active.
+    auto& close = *AsHolder(catalog->persisted.list->rows[1])
+                       ->window->close_button_presenter;
+    CHECK(close.EnabledForPresentation());
+    catalog->ActivateWindow(catalog->persisted.main_window);
+    CHECK(close.EnabledForPresentation());
+    catalog->ActivateWindow(AsHolder(catalog->persisted.list->rows[1])->window);
+    CHECK(close.EnabledForPresentation());
     CHECK(std::filesystem::is_empty(user_dir));
     ShutdownSaveCatalog(*catalog, user_storage, user_dir);
     ExpectNoLocalizationSupplyBodiesInUser(*catalog, overlay, user_storage);

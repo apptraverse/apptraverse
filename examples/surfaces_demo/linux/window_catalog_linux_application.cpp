@@ -14,6 +14,10 @@ namespace {
 
 ui::linux::LinuxDesktopWindowPresenter& FindChildWindowPresenter(
     WindowCatalog& catalog, ae::ObjId window_id) {
+  if (window_id == catalog.persisted.main_window.id()) {
+    return static_cast<ui::linux::LinuxDesktopWindowPresenter&>(
+        *catalog.persisted.main_window->presenter);
+  }
   catalog.persisted.list.Load();
   for (auto const& row : catalog.persisted.list->rows) {
     row.Load();
@@ -51,7 +55,7 @@ WindowCatalogLinuxApplication::MakeHostCallbacks() {
           auto const z_order =
               example::surfaces::CaptureCatalogDesktopZOrderTopToBottom(catalog);
           if (!z_order.empty()) {
-            proxy.Invoke(catalog.obj_id, &WindowCatalog::SetDesktopZOrderFromObjIds,
+            proxy.Invoke(catalog.obj_id, &WindowCatalog::SetWindowOrderFromObjIds,
                          z_order);
           }
           session_.runtime.RequestStop();
@@ -68,12 +72,15 @@ WindowCatalogLinuxApplication::MakeHostCallbacks() {
     if (!pending_focus_.is_valid()) { return; }
     auto& catalog = static_cast<WindowCatalog&>(application_root);
     auto& presenter = FindChildWindowPresenter(catalog, pending_focus_);
+    example::surfaces::RestoreCatalogDesktopZOrder(catalog);
     gtk_window_present(GTK_WINDOW(presenter.TopLevelWindow()));
     pending_focus_ = {};
   };
   callbacks.after_initial = [](ae::Obj& application_root) {
     auto& catalog = static_cast<WindowCatalog&>(application_root);
     example::surfaces::RestoreCatalogDesktopZOrder(catalog);
+    auto& active = FindChildWindowPresenter(catalog, catalog.persisted.window_order.front().id());
+    gtk_window_present(GTK_WINDOW(active.TopLevelWindow()));
   };
   callbacks.prepare_ui_presenters = [this](ae::Obj& ui_root) {
     WireWindowCatalogMainNativeFrameQueue(ui_root,

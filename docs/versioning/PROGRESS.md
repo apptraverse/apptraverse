@@ -1,3 +1,7 @@
+## SharedNode upstream main update — 2026-11-12
+
+AppTraverse main integrated; SDK and telemetry pinned to current upstream main. Ten core/object Debug tests PASS. Full SDK/adapter integration BLOCKED by missing Objects telemetry API and obsolete native presence API/test references. No new cloud/chat PASS. See [validation](../validation/shared-node-main-update-2026-11-12.md).
+
 # AppTraverse — прогресс версионирования поставок
 
 ## SharedNode backpressure latency cause — 2026-11-12 — FIXED / VERIFIED
@@ -234,6 +238,86 @@ Debug using exactly main's pinned 27-patch object dependency. This is the native
 serialization/memory first slice; ACK/retry, live import reconciliation,
 heartbeat, version compatibility and compaction are subsequent stages.
 [Scope, commands and evidence](../validation/shared-node-native-memory-2026-11-11.md).
+## Unified WindowCatalog order and activation — 2026-11-11 — PASS
+
+One lazy-identity `window_order` holds all open windows; index 0 is active.
+Removed model mobile mode, separate active-page state and corresponding events.
+Open/Activate/Close/Delete and stable Next/Previous navigation use common rules.
+Native activation is queued to the model, with model-side deduplication and no
+replayed native focus. Explicit Open/Activate can still request focus. Desktop
+hosts show all windows; paged hosts show index 0. GTK mapping no longer activates
+restored windows in construction order.
+
+Verified incremental Debug: Windows 8 focused + 2 native tests; Linux final
+16/16; Android 7/7; Web embedded/functional/lifecycle; four-platform matrix
+52/52 with 32 unchanged read-only USER files. Actual Windows imports of Android
+and Web USER verify native top window matches active_id, Close/reopen/restart.
+All four new supplies match. This updates prototype S0 without migration;
+old profiles preserved. Apple source updated, runtime not run; MinSizeRel not
+rebuilt. [Changes, diagnostic attempts and evidence](../validation/window-catalog-unified-window-order-2026-11-11.md).
+
+## Presenter-owned Close control — 2026-11-11 — PASS
+
+Removed model-driven button visibility. Existing Windows/Linux/macOS catalog
+window presenters suppress their prefab-linked content Close control; paged
+presenters keep it. Both paths retain the same model Close command. No saved
+fields, class IDs or graph links changed, and all four supplies retain their
+previous canonical hash. Other `mobile_pager` navigation behavior remains
+outside this bounded change.
+
+Verified incremental Debug: Windows 5 focused tests and both foreign-USER native
+GUI scenarios; Linux 16/16; Android emulator 7/7; Web embedded, functional and
+headed lifecycle; four-platform matrix 52/52 with 32 unchanged read-only inputs.
+Original Android APK and default USER preserved. Apple source policy updated;
+Apple runtime and MinSizeRel not run for this change.
+[Implementation, scope and evidence](../validation/window-catalog-presenter-close-policy-2026-11-11.md).
+
+## Native desktop Close presentation — 2026-11-11 — PASS
+
+Desktop windows retain native caption Close and no longer create the in-content
+Close control. Paged hosts retain that button. The portable model/presenter graph
+and supply bytes are unchanged. Explicit model-driven presentation participation
+is separate from parent readiness; broken enabled graphs still fail activation.
+
+Verified incremental Debug: Windows 3 focused tests plus two real foreign-USER
+GUI close/reopen/restart cases, Linux 16/16, Android 7/7, Web embedded/functional/
+lifecycle, and the 52-process USER matrix. Apple uses the shared source path;
+Apple runtime and MinSizeRel were not run. Android's original APK and USER were
+restored unchanged. [Implementation and evidence](../validation/window-catalog-native-desktop-close-2026-11-11.md).
+
+## Portable WindowCatalog USER — 2026-11-11 — PASS
+
+Branch `feature/cross-platform-user-state`, based on `main` at `8b592f9`.
+The same `user.bin` now transfers between independently built Windows, Linux,
+Android and Web consumers of the matching schema/supply revision. Common native
+presenter role schemas and domain-scoped initial IDs produce identical BACKING
+data (247 layers, 60 scopes). No conversion, migration or runtime graph repair.
+
+The shared model remains `UiWindow -> UiPresentedWindow -> UiDesktopWindow ->
+CatalogWindow`; desktop restoration survives paged presentation. Host mode is
+reported by a model event. Close/Delete clear cross-mode selection references.
+Native inputs target the surviving catalog when their child may already be
+closed. Separate regressions cover retained/materialized closed windows and
+duplicate queued Close. A pure `ae::Ptr` reproducer confirms the releasing-edge
+collector fix; the allocator and collector changes are AppTraverse patches 28/29
+on the unchanged upstream pin, not a separate Æther publication.
+
+Final acceptance: **52/52** four-platform seed/transfer/edit/return processes,
+**32/32** unchanged read-only USER hashes (actual remote Android bytes included),
+**40/40 Windows Debug**, **16/16 Linux**, **7/7 Android instrumentation**, and Web
+functional/embedded/headed lifecycle PASS. Actual native/browser transfers and
+cold restarts passed; Windows verified the files returned by Android and Web.
+Android and Windows GUI tests retain their assertions and now state the actual
+input-focus prerequisites. The original Android APK and USER were preserved.
+
+WindowCatalog's portable Close/mobile factories are now required runtime schema;
+the binary checker still excludes distillation and unrelated factories. This
+supersedes the older catalog-specific mobile-factory exclusion below. No new
+Release/MinSizeRel, ARM-device or Apple runtime result is claimed. Older
+experimental profiles are not migrated; `main` is unchanged by this task.
+
+[Final validation and evidence](../validation/window-catalog-portable-user-2026-11-11.md)
+· [Completed plan and progress](../cross-platform-user-state-plan-progress.md).
 
 ## Windows/headless contract follow-up — 2026-11-10 — PASS
 

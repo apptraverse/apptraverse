@@ -24,7 +24,7 @@ inline void InitializeRuntimeNode(Node& node) {
   assert(factory != nullptr);
   assert(factory->create != nullptr);
   ae::Ptr<ae::Obj> raw = factory->create();
-  ae::ObjId const id = ae::ObjId::GenerateUnique();
+  ae::ObjId const id = node.domain->GenerateObjectId();
   raw->domain = node.domain;
   raw->obj_id = id;
   node.domain->AddObject(id, raw);

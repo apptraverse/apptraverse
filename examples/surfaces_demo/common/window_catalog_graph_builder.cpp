@@ -26,9 +26,10 @@ constexpr std::uint32_t kLanguageControlId = 5005;
 ui::UiPushButtonPresenter::ptr MakeButtonPresenter(
     ae::Domain& domain, WindowCatalog& catalog, ui::UiPushButton::ptr button,
     WindowCatalogPresenterFactory const& factory,
-    WindowCatalogChromeRect const& rect, std::uint32_t control_id) {
+    WindowCatalogChromeRect const& rect, std::uint32_t control_id,
+    ae::ObjId presenter_id) {
   ui::UiPushButtonPresenter::ptr presenter =
-      factory.create_button(domain, ae::ObjId{});
+      factory.create_button(domain, presenter_id);
   presenter->button = button;
   presenter->window_presenter =
       static_cast<ui::UiPresentedWindow&>(*catalog.persisted.main_window)
@@ -53,11 +54,17 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   using window_catalog_demo::ObjId;
   using window_catalog_demo::ToObjId;
 
+  // One supply identity space across independently built platform binaries.
+  // Child prefab domains inherit this allocator; runtime clones resume normal
+  // IDs after the scope ends. The range is disjoint from fixed IDs and from
+  // ObjId::GenerateUnique's runtime range (10000 and above).
+  ae::Domain::ObjectIdSequence supply_ids{domain, ae::ObjId{1000},
+                                         ae::ObjId{9999}};
+
   auto catalog = WindowCatalog::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::Catalog)));
 
   catalog->persisted.next_window_number = 1;
-  catalog->persisted.mobile_pager = options.mobile_pager;
   catalog->persisted.main_client_viewport = {kMainClientWidth, kMainClientHeight, 160};
 
   auto list = CatalogListContainer::ptr::Create(
@@ -127,15 +134,16 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   catalog->persisted.presenters.list_presenter = list_presenter;
   catalog->persisted.presenters.add_button_presenter =
       MakeButtonPresenter(domain, *catalog, add_button, factory, chrome.add,
-                          kAddControlId);
+                          kAddControlId, ae::ObjId{ToObjId(ObjId::AddButtonPresenter)});
   catalog->persisted.presenters.open_button_presenter = MakeButtonPresenter(
-      domain, *catalog, open_button, factory, chrome.open, kOpenControlId);
+      domain, *catalog, open_button, factory, chrome.open, kOpenControlId,
+      ae::ObjId{ToObjId(ObjId::OpenButtonPresenter)});
   catalog->persisted.presenters.delete_button_presenter = MakeButtonPresenter(
       domain, *catalog, delete_button, factory, chrome.delete_button,
-      kDeleteControlId);
+      kDeleteControlId, ae::ObjId{ToObjId(ObjId::DeleteButtonPresenter)});
   catalog->persisted.presenters.language_button_presenter = MakeButtonPresenter(
       domain, *catalog, language_button, factory, chrome.language,
-      kLanguageControlId);
+      kLanguageControlId, ae::ObjId{ToObjId(ObjId::LanguageButtonPresenter)});
 
   catalog->RefreshChromeButtonEnabledState();
 
@@ -188,18 +196,14 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
 
   list->catalog = catalog;
   catalog->persisted.list = list;
-  InitializeRuntimeNode(*catalog);
-
-  catalog->persisted.desktop_z_order.push_back(catalog->persisted.main_window);
+  catalog->persisted.window_order.push_back(CatalogWindow::ptr::Declare(
+      ae::CreateWith{domain}.with_id(main_window.id()).with_flags(lazy_prefab_flags)));
 
   catalog->persisted.main_client_viewport.width = kMainClientWidth;
   catalog->persisted.main_client_viewport.height = kMainClientHeight;
   catalog->persisted.main_client_viewport.density_dpi = 160;
-  catalog->persisted.mobile_pager = options.mobile_pager;
-  if (catalog->persisted.mobile_pager) {
-    catalog->persisted.mobile_active_window = catalog->persisted.main_window;
-  }
 
+  InitializeRuntimeNode(*catalog);
   return catalog;
 }
 

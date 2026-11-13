@@ -3,6 +3,7 @@
 
 #include <emscripten/val.h>
 
+#include "apptraverse/ui/ui_native_presenter_schema.h"
 #include "apptraverse/ui/ui_presenters.h"
 
 namespace apptraverse::ui::web {
@@ -10,7 +11,7 @@ namespace apptraverse::ui::web {
 struct WebDesktopWindowDomRefs;
 
 class WebDesktopWindowPresenter : public UiDesktopWindowPresenter {
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::web::WebDesktopWindowPresenter",
+  APPTRAVERSE_NAMED_OBJECT(::apptraverse::ui::native_schema::kWindow,
                            WebDesktopWindowPresenter,
                            UiDesktopWindowPresenter, 0)
 

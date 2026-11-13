@@ -5,13 +5,14 @@
 
 #include <gtk/gtk.h>
 
+#include "apptraverse/ui/ui_native_presenter_schema.h"
 #include "apptraverse/ui/ui_presenters.h"
 
 namespace apptraverse::ui::linux {
 
 class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
   APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::ui::linux::LinuxDesktopWindowPresenter",
+      ::apptraverse::ui::native_schema::kWindow,
       LinuxDesktopWindowPresenter, UiDesktopWindowPresenter, 0)
 
  protected:
@@ -63,6 +64,7 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
   static gboolean OnDeleteEvent(GtkWidget* widget, GdkEvent* event,
                                 gpointer user_data);
+  static void OnActiveChanged(GObject* object, GParamSpec*, gpointer user_data);
   static gboolean OnConfigure(GtkWidget* widget, GdkEventConfigure* event,
                               gpointer user_data);
   static gboolean OnMapEvent(GtkWidget* widget, GdkEvent* event,
@@ -72,6 +74,7 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
   GtkWidget* window_{nullptr};
   GtkWidget* client_mount_{nullptr};
+  gulong active_handler_{0};
   gulong delete_handler_{0};
   gulong map_handler_{0};
   gulong configure_handler_{0};

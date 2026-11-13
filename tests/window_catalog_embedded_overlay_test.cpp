@@ -7,6 +7,7 @@
 #include "aether-objects/obj/domain.h"
 
 #include "apptraverse/directory_domain_storage.h"
+#include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/application_model_runtime.h"
 #include "apptraverse/application_model_session.h"
@@ -22,6 +23,7 @@
 #include "window_catalog_ids.h"
 #include "window_catalog_list_row_text.h"
 #include "window_catalog_model.h"
+#include "window_catalog_prepare.h"
 #include "window_catalog_supply_constant_ids.h"
 
 namespace apptraverse::test {
@@ -172,6 +174,20 @@ void TestColdLoadEmptyUserFromEmbeddedBacking() {
   ExpectNoPrefabBodiesInUser(user_dir);
 }
 
+// Exercise the actual desktop factory loaded from portable supply/USER.
+// Active-window changes must never select the desktop content Close control.
+void ExpectDesktopClosePolicy(WindowCatalog& catalog, CatalogWindow& window) {
+  auto& close = *window.close_button_presenter;
+  auto& add = *static_cast<ui::UiPushButtonPresenter*>(
+      catalog.persisted.presenters.add_button_presenter.operator->());
+  catalog.ActivateWindow(catalog.persisted.main_window);
+  CHECK(!close.EnabledForPresentation());
+  CHECK(add.EnabledForPresentation());
+  catalog.ActivateWindow(CatalogWindow::ptr::MakeFromThis(&window));
+  CHECK(!close.EnabledForPresentation());
+  CHECK(add.EnabledForPresentation());
+}
+
 void TestUserOverlayPersistsAddWindow() {
   ae::ObjId const catalog_id{
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
@@ -211,6 +227,7 @@ void TestUserOverlayPersistsAddWindow() {
     CHECK(presenter->object_scope().root_id == first_window_id);
     CHECK(!presenter->object_scope().is_constant);
     CHECK(presenter->locale.id() == catalog->persisted.locale.id());
+    ExpectDesktopClosePolicy(*catalog, *holder->window);
     CHECK(!catalog->persisted.window_prefab.is_loaded());
     catalog->CloseHolderWindow(*holder);
     catalog->persisted.locale.Load();
@@ -267,6 +284,8 @@ void TestUserOverlayPersistsAddWindow() {
             *AsHolder(replay_catalog->persisted.list->rows[0]), *replay_catalog,
             0) == "Window 1");
 
+  ExpectDesktopClosePolicy(*replay_catalog,
+      *AsHolder(replay_catalog->persisted.list->rows[0])->window);
   replay_catalog->AddWindow();
   CHECK(replay_catalog->persisted.list->rows.size() == 2);
   WindowHolder* holder2 = AsHolder(replay_catalog->persisted.list->rows[1]);
@@ -392,6 +411,7 @@ void TestEmbeddedModelSessionRoundTrip() {
 }  // namespace apptraverse::test
 
 int main() {
+  apptraverse::EnableNoninteractiveCrt();
   apptraverse::EnsureWindowCatalogGraphRegistration();
   apptraverse::test::TestColdLoadEmptyUserFromEmbeddedBacking();
   apptraverse::test::TestUserOverlayPersistsAddWindow();

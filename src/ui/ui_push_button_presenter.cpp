@@ -9,11 +9,15 @@ bool UiPushButtonPresenter::ReadyForPresentation() const {
   return window_presenter->presentation_loaded;
 }
 
+bool UiPushButtonPresenter::EnabledForPresentation() const {
+  return window_presenter->PresentsChildControl(*this);
+}
+
 void UiPushButtonPresenter::NotifyClickedFromUi() {
   if (!button->enabled()) {
     return;
   }
-  model_proxy->Invoke(button->obj_id, &UiPushButton::NotifyClicked);
+  button->QueueClickFromUi(*model_proxy);
 }
 
 void UiPushButtonPresenter::SimulateClickForTest() {

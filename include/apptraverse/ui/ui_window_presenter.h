@@ -42,6 +42,10 @@ class UiWindowPresenter : public Presenter {
   ae::ObjPtr<class UiLocalizationString> title;
   ae::ObjPtr<UiLocaleSettings> locale;
 
+  // Presentation policy only: a native window can provide an action itself.
+  // The prefab links remain intact even when its content control is omitted.
+  virtual bool PresentsChildControl(Presenter const&) const { return true; }
+
   virtual void* NativeChildParentHandle() const { return nullptr; }
 
   virtual UiControlLayout ResolveChildLayout(UiControlLayout requested) const {

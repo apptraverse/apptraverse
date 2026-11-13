@@ -7,6 +7,10 @@
 
 #include "apptraverse/ui/ui_localization_string.h"
 
+namespace apptraverse {
+class ModelObjectProxy;
+}
+
 namespace apptraverse::ui {
 
 class UiPushButtonClickedEvent;
@@ -37,6 +41,8 @@ class UiPushButton : public NodeFor<UiPushButton> {
   ae::ObjPtr<UiLocalizationString> label;
   bool enabled() const { return enabled_; }
 
+  // Runtime input binding; called on the UI mirror, queues model work only.
+  virtual void QueueClickFromUi(ModelObjectProxy& proxy) const;
   void NotifyClicked();
   void BootstrapSetEnabled(bool enabled) { enabled_ = enabled; }
   virtual void HandlePushButtonClicked();

@@ -1,0 +1,100 @@
+--- a/src/aether-objects/obj/domain.h
++++ b/src/aether-objects/obj/domain.h
+@@ -229,6 +229,11 @@
+   void set_parent_domain(Domain* parent) { parent_domain_ = parent; }
+   Domain* parent_domain() const { return parent_domain_; }
+ 
++  // Default runtime allocation is random. A scoped producer may allocate an
++  // explicit identity range; descendant domains share that producer's cursor.
++  class ObjectIdSequence;
++  ObjId GenerateObjectId();
++
+   void SetObjectScope(ObjId root_id) {
+     object_scope_ = ObjectScope{root_id,
+         parent_domain_ ? parent_domain_->object_scope().root_id : ObjId{}, false};
+@@ -256,8 +261,33 @@
+   Env* env_{};
+   Domain* parent_domain_{nullptr};
+   ObjectScope object_scope_{};
++  ObjectIdSequence* object_id_sequence_{nullptr};
+ 
+   std::shared_ptr<DomainRegisteredObjects> registered_objects_;
++};
++
++// Producer-only allocation policy. Its lifetime cannot outlive its Domain.
++// Nested policies restore the previous policy; separate domains never share
++// allocator state unless explicitly related through parent_domain.
++class Domain::ObjectIdSequence {
++  friend class Domain;
++
++ public:
++  ObjectIdSequence(Domain& domain, ObjId first, ObjId last)
++      : domain_{domain}, previous_{domain.object_id_sequence_},
++        next_{first.id()}, last_{last.id()} {
++    assert(first.is_valid() && first.id() <= last.id());
++    domain_.object_id_sequence_ = this;
++  }
++  ~ObjectIdSequence() { domain_.object_id_sequence_ = previous_; }
++  ObjectIdSequence(ObjectIdSequence const&) = delete;
++  ObjectIdSequence& operator=(ObjectIdSequence const&) = delete;
++
++ private:
++  Domain& domain_;
++  ObjectIdSequence* previous_;
++  std::uint64_t next_;
++  std::uint32_t last_;
+ };
+ 
+ template <typename T>
+--- a/src/aether-objects/obj/domain.cpp
++++ b/src/aether-objects/obj/domain.cpp
+@@ -17,6 +17,7 @@
+ #include "aether-objects/obj/obj.h"
+ 
+ #include <algorithm>
++#include <cstdlib>
+ 
+ #include "aether-objects/obj/domain.h"
+ 
+@@ -221,6 +222,19 @@
+     }
+   }
+   return {};
++}
++
++ObjId Domain::GenerateObjectId() {
++  for (Domain* current = this; current != nullptr;
++       current = current->parent_domain_) {
++    auto* sequence = current->object_id_sequence_;
++    if (sequence == nullptr) continue;
++    if (sequence->next_ == 0 || sequence->next_ > sequence->last_) {
++      std::abort();
++    }
++    return ObjId{static_cast<ObjId::Type>(sequence->next_++)};
++  }
++  return ObjId::GenerateUnique();
+ }
+ 
+ void Domain::AddObject(ObjId id, Ptr<Obj> const& obj) {
+--- a/src/aether-objects/obj/obj.h
++++ b/src/aether-objects/obj/obj.h
+@@ -93,7 +93,8 @@
+   static_assert(obj_ptr_internal::IsObjType<T>::value,
+                 "T Must be an object type");
+   auto* domain = create_arg.domain;
+-  auto obj_id = create_arg.obj_id.value_or(ObjId::GenerateUnique());
++  auto obj_id = create_arg.obj_id.has_value()
++                    ? *create_arg.obj_id : domain->GenerateObjectId();
+   auto flags = create_arg.flags.value_or(ObjFlags{});
+   static_assert(
+       std::is_constructible_v<T, ObjProp, TArgs...>,
+@@ -109,7 +110,8 @@
+   static_assert(obj_ptr_internal::IsObjType<T>::value,
+                 "T Must be an object type");
+   auto* domain = create_arg.domain;
+-  auto obj_id = create_arg.obj_id.value_or(ObjId::GenerateUnique());
++  auto obj_id = create_arg.obj_id.has_value()
++                    ? *create_arg.obj_id : domain->GenerateObjectId();
+   auto flags = create_arg.flags.value_or(ObjFlags::kUnloaded);
+   return ObjPtr<T>(domain, obj_id, flags);
+ }

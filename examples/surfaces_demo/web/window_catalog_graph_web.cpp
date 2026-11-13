@@ -16,7 +16,7 @@ EM_JS(void, ApptraverseCatalogTagWindowElement,
 });
 }
 
-void WebCatalogWindowPresenter::OnLoad() {
+void CatalogDesktopWindowPresenter::OnLoad() {
   WebDesktopWindowPresenter::OnLoad();
   auto const id = desktop_window().id();
   ApptraverseCatalogTagWindowElement(ClientMountHandle(), id.id(),
@@ -32,7 +32,6 @@ void WebCatalogListContainerPresenter::SubmitListRowActivatedFromUi(std::size_t 
   if (!id) return;
   model_proxy->Invoke(catalog->obj_id, &WindowCatalog::OpenHolderByIdFromUi, *id);
 }
-APPTRAVERSE_REGISTER(WebCatalogWindowPresenter);
 APPTRAVERSE_REGISTER(CatalogDesktopWindowPresenter);
 APPTRAVERSE_REGISTER(WebCatalogListContainerPresenter);
 }  // namespace apptraverse::example::surfaces
@@ -42,7 +41,6 @@ void EnsureWebWindowCatalogGraphRegistration() {
   EnsureCoreObjectRegistration();
   EnsureWindowCatalogModelRegistration();
   ui::web::EnsureWebUiPresenterRegistration();
-  (void)&example::surfaces::g_apptraverse_registrar_WebCatalogWindowPresenter;
   (void)&example::surfaces::g_apptraverse_registrar_CatalogDesktopWindowPresenter;
   (void)&example::surfaces::g_apptraverse_registrar_WebCatalogListContainerPresenter;
 }

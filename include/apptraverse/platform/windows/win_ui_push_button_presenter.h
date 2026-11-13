@@ -6,12 +6,13 @@
 #endif
 #include <windows.h>
 
+#include "apptraverse/ui/ui_native_presenter_schema.h"
 #include "apptraverse/ui/ui_presenters.h"
 
 namespace apptraverse::ui::windows {
 
 class WinPushButtonPresenter : public UiPushButtonPresenter {
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::windows::WinPushButtonPresenter",
+  APPTRAVERSE_NAMED_OBJECT(::apptraverse::ui::native_schema::kPushButton,
                            WinPushButtonPresenter, UiPushButtonPresenter, 0)
 
  protected:
@@ -20,6 +21,12 @@ class WinPushButtonPresenter : public UiPushButtonPresenter {
  public:
   explicit WinPushButtonPresenter(ae::ObjProp prop)
       : UiPushButtonPresenter{prop}, hwnd_{nullptr} {}
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) { dnv(base_); }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const { dnv(base_); }
 
   void OnLoad() override;
   void OnModelChanged() override;

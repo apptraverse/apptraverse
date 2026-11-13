@@ -56,7 +56,7 @@ void MacDesktopWindowPresenter::ReportNativeFrameToModel(
       });
 }
 
-void MacDesktopWindowPresenter::ReportNativeScreenToModel(
+void MacDesktopWindowPresenter::SubmitScreenFromNative(
     std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height) {
   ae::ObjId const id = window.id();
   model_proxy->EnqueueModelWork([id, x, y, width, height](ae::Domain& domain) {
@@ -64,6 +64,11 @@ void MacDesktopWindowPresenter::ReportNativeScreenToModel(
     if (!object) return;
     object.as<UiDesktopWindow>()->SubmitScreenFromNative(x, y, width, height);
   });
+}
+
+void MacDesktopWindowPresenter::ReportNativeScreenToModel(
+    std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height) {
+  SubmitScreenFromNative(x, y, width, height);
 }
 
 void MacDesktopWindowPresenter::OnUnload() {

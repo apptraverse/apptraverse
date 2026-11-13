@@ -59,7 +59,6 @@ struct CatalogProfile {
     hooks.prepare = apptraverse::PrepareWindowCatalogForRun;
     hooks.before_incremental = [](apptraverse::WindowCatalog& catalog) {
       catalog.pending_focus_window = {};
-      catalog.pending_mobile_active_window = {};
     };
     hooks.persist = [this](apptraverse::WindowCatalog& catalog) {
       apptraverse::SaveWindowCatalogPersistentSnapshot(catalog);
@@ -112,9 +111,9 @@ struct CatalogProfile {
   callbacks.mobile_presentation = [](ae::Obj& root) {
     auto& catalog = static_cast<apptraverse::WindowCatalog&>(root);
     apptraverse::ui::ios::IosMobilePresentation result;
-    for (auto const& window : catalog.BuildMobileRing())
+    for (auto const& window : catalog.BuildWindowNavigationRing())
       result.windows.push_back(window.id());
-    result.active_window = catalog.ResolveMobileActiveWindow().id();
+    result.active_window = catalog.ResolveActiveWindow().id();
     return result;
   };
   callbacks.on_viewport = [](ae::Obj& root, apptraverse::ModelObjectProxy& proxy,
@@ -127,7 +126,7 @@ struct CatalogProfile {
           &apptraverse::WindowCatalog::SubmitMainClientViewportFromUi,
           width, height, std::int32_t{160});
     }
-    for (auto const& window : catalog.BuildMobileRing()) {
+    for (auto const& window : catalog.BuildWindowNavigationRing()) {
       if (window.id() == catalog.persisted.main_window.id()) continue;
       if (window->client_width() == width && window->client_height() == height)
         continue;
@@ -138,12 +137,12 @@ struct CatalogProfile {
   };
   callbacks.on_mobile_swipe = [](ae::Obj& root,
       apptraverse::ModelObjectProxy& proxy, int delta) {
-    proxy.Invoke(root.obj_id, &apptraverse::WindowCatalog::SubmitMobileSwipeFromUi,
+    proxy.Invoke(root.obj_id, &apptraverse::WindowCatalog::SubmitWindowNavigationFromUi,
                  delta);
   };
   callbacks.on_mobile_page = [](ae::Obj& root,
       apptraverse::ModelObjectProxy& proxy, ae::ObjId window) {
-    proxy.Invoke(root.obj_id, &apptraverse::WindowCatalog::SubmitMobileActiveFromUi,
+    proxy.Invoke(root.obj_id, &apptraverse::WindowCatalog::SubmitActiveWindowFromUi,
                  window);
   };
   return apptraverse::ui::ios::MakeIosApplicationBridge(std::move(callbacks), delegate);

@@ -32,8 +32,20 @@
 #include "window_catalog_list_row_text.h"
 #include "window_catalog_prepare.h"
 #include "window_catalog_model.h"
+#include "window_catalog_list_presenter_mixin.h"
 
 namespace apptraverse::test {
+class ActivationTestPresenter : public example::surfaces::WindowCatalogDesktopPresenterMixin<ui::UiDesktopWindowPresenter> {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::test::ActivationTestPresenter",
+      ActivationTestPresenter, ui::UiDesktopWindowPresenter, 0)
+ protected:
+  ActivationTestPresenter() = default;
+ public:
+  explicit ActivationTestPresenter(ae::ObjProp prop)
+      : WindowCatalogDesktopPresenterMixin{prop} {}
+};
+APPTRAVERSE_REGISTER(ActivationTestPresenter);
+
 namespace {
 
 #define CHECK(cond)                                                          \
@@ -44,6 +56,34 @@ namespace {
       std::exit(1);                                                          \
     }                                                                        \
   } while (false)
+
+void TestIndependentSuppliesHaveStableIdentitiesAndBytes() {
+  ae::RamDomainStorage first;
+  ae::RamDomainStorage second;
+  {
+    ae::Domain domain{first};
+    auto catalog = BuildHeadlessWindowCatalogGraph(domain);
+    FinalizeDistilledGraph(*catalog);
+    SaveDistilledRoot(*catalog);
+    CHECK(domain.GenerateObjectId().id() >= 10000);
+  }
+  for (int i = 0; i < 37; ++i) {
+    (void)ae::ObjId::GenerateUnique();
+  }
+  {
+    ae::Domain domain{second};
+    auto catalog = BuildHeadlessWindowCatalogGraph(domain);
+    FinalizeDistilledGraph(*catalog);
+    SaveDistilledRoot(*catalog);
+  }
+  CHECK(!first.state.empty());
+  CHECK(first.state == second.state);
+  CHECK(first.object_scopes == second.object_scopes);
+  for (auto const& [id, layers] : first.state) {
+    CHECK(id.id() < 10000);
+    CHECK(layers.has_value());
+  }
+}
 
 void ShutdownSaveCatalog(WindowCatalog& catalog,
                          DirectoryDomainStorage& storage) {
@@ -230,11 +270,10 @@ void TestAddedHolderReplayPreservesInitialLinks() {
   CHECK(ResolveWindowCatalogHolderListRowText(holder, *catalog, 0) == row_text);
 }
 
-void TestMobileRingLoadsLazyListAndSkipsClosedWindows() {
+void TestWindowNavigationLoadsLazyListAndSkipsClosedWindows() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   WindowCatalogGraphOptions options;
-  options.mobile_pager = true;
   auto catalog = BuildHeadlessWindowCatalogGraph(domain, options);
   FinalizeDistilledGraph(*catalog);
   PrepareWindowCatalogForRun(*catalog);
@@ -253,7 +292,7 @@ void TestMobileRingLoadsLazyListAndSkipsClosedWindows() {
 
   auto ring_ids = [&] {
     std::vector<ae::ObjId> ids;
-    for (auto const& window : catalog->BuildMobileRing()) {
+    for (auto const& window : catalog->BuildWindowNavigationRing()) {
       ids.push_back(window.id());
     }
     return ids;
@@ -268,23 +307,20 @@ void TestMobileRingLoadsLazyListAndSkipsClosedWindows() {
   CHECK(catalog->persisted.list.is_loaded());
   CHECK(!b->window.is_loaded());
 
-  CHECK(catalog->MobileRingPredecessor(*a->window).id() == main_id);
-  CHECK(catalog->MobileRingPredecessor(*c->window).id() == a_id);
-  CHECK(catalog->MobileRingPredecessor(*catalog->persisted.main_window).id() == c_id);
-  catalog->SetMobileActiveWindow(catalog->persisted.main_window);
-  catalog->SubmitMobileSwipeFromUi(1);
-  CHECK(catalog->ResolveMobileActiveWindow().id() == a_id);
-  catalog->SubmitMobileSwipeFromUi(1);
-  CHECK(catalog->ResolveMobileActiveWindow().id() == c_id);
-  catalog->SubmitMobileSwipeFromUi(1);
-  CHECK(catalog->ResolveMobileActiveWindow().id() == main_id);
-  catalog->SubmitMobileActiveFromUi(b_id);
-  CHECK(catalog->ResolveMobileActiveWindow().id() == main_id);
+  catalog->ActivateWindow(catalog->persisted.main_window);
+  catalog->SubmitWindowNavigationFromUi(1);
+  CHECK(catalog->ResolveActiveWindow().id() == a_id);
+  catalog->SubmitWindowNavigationFromUi(1);
+  CHECK(catalog->ResolveActiveWindow().id() == c_id);
+  catalog->SubmitWindowNavigationFromUi(1);
+  CHECK(catalog->ResolveActiveWindow().id() == main_id);
+  catalog->SubmitActiveWindowFromUi(b_id);
+  CHECK(catalog->ResolveActiveWindow().id() == main_id);
 
   // Native ordering can still contain a closed window or duplicate/stale IDs.
-  catalog->SetDesktopZOrderFromObjIds(
+  catalog->SetWindowOrderFromObjIds(
       {c_id.id(), b_id.id(), 0, a_id.id(), c_id.id(), main_id.id()});
-  auto const& order = catalog->persisted.desktop_z_order;
+  auto const& order = catalog->persisted.window_order;
   CHECK(order.size() == 3);
   CHECK(order[0].id() == c_id);
   CHECK(order[1].id() == a_id);
@@ -1126,7 +1162,6 @@ void TestMobileCloseButtonAndAdaptiveLayout() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   WindowCatalogGraphOptions options;
-  options.mobile_pager = true;
   options.mobile_close_in_prefab = true;
   auto catalog = BuildHeadlessWindowCatalogGraph(domain, options);
   FinalizeDistilledGraph(*catalog);
@@ -1295,10 +1330,395 @@ void TestMobileCloseButtonAndAdaptiveLayout() {
 }  // namespace
 }  // namespace apptraverse::test
 
+namespace apptraverse::test {
+void TestQueuedCloseClicksRespectWindowLifetime() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto catalog = BuildHeadlessWindowCatalogGraph(domain);
+  FinalizeDistilledGraph(*catalog);
+  PrepareWindowCatalogForRun(*catalog);
+  catalog->AddWindow();
+  auto* holder = AsHolder(catalog->persisted.list->rows[0]);
+  auto const id = holder->window.id();
+  auto const button_id = holder->window->close_button.id();
+  std::deque<ModelObjectProxy::ModelWork> work;
+  ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork item) {
+    work.push_back(std::move(item));
+  }};
+  auto run_one = [&] {
+    CHECK(!work.empty());
+    auto item = std::move(work.front());
+    work.pop_front();
+    item(domain);
+  };
+  auto queue_click = [&] {
+    auto& presenter = *holder->window->close_button_presenter;
+    presenter.model_proxy = &proxy;
+    presenter.NotifyClickedFromUi();
+  };
+  queue_click();
+  queue_click();
+  CHECK(work.size() == 2);
+  run_one();
+  CHECK(!catalog->IsHolderWindowOpen(*holder));
+  CHECK(!domain.Find(id));
+  CHECK(!domain.Find(button_id));
+  auto const closed_generation = catalog->Generation();
+  run_one();
+  CHECK(catalog->Generation() == closed_generation);
+  CHECK(!domain.Find(id));
+
+  catalog->OpenHolderWindow(*holder);
+  holder->window->close_button->MaterializeEnabled(false);
+  queue_click();
+  CHECK(work.empty());
+  holder->window->close_button->MaterializeEnabled(true);
+  queue_click();
+  holder->window->close_button->MaterializeEnabled(false);
+  run_one();  // The model also checks the current enabled state.
+  CHECK(catalog->IsHolderWindowOpen(*holder));
+  holder->window->close_button->MaterializeEnabled(true);
+
+  ae::Ptr<CatalogWindow> retained = holder->window.Load();
+  queue_click();
+  queue_click();
+  run_one();
+  CHECK(domain.Find(id));
+  CHECK(!catalog->IsHolderWindowOpen(*holder));
+  auto const retained_generation = catalog->Generation();
+  run_one();
+  CHECK(catalog->Generation() == retained_generation);
+  CHECK(!holder->window.is_loaded());
+  retained = {};
+  CHECK(!domain.Find(id));
+
+  catalog->OpenHolderWindow(*holder);
+  queue_click();
+  catalog->SelectHolder(WindowHolder::ptr::MakeFromThis(holder));
+  catalog->DeleteSelected();
+  run_one();
+  CHECK(catalog->persisted.list->rows.empty());
+  CHECK(!domain.Find(id));
+  CHECK(work.empty());
+}
+
+void TestQueuedNativeReportsRespectWindowMembership() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto catalog = BuildHeadlessWindowCatalogGraph(domain);
+  FinalizeDistilledGraph(*catalog);
+  PrepareWindowCatalogForRun(*catalog);
+  catalog->AddWindow();
+  auto* holder = AsHolder(catalog->persisted.list->rows[0]);
+  auto const id = holder->window.id();
+  std::deque<ModelObjectProxy::ModelWork> work;
+  ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork item) {
+    work.push_back(std::move(item));
+  }};
+  auto drain = [&] {
+    while (!work.empty()) {
+      auto item = std::move(work.front());
+      work.pop_front();
+      item(domain);
+    }
+  };
+  auto report = [&](std::int32_t x) {
+    proxy.Invoke(catalog.id(), &WindowCatalog::SubmitHolderChildWindowFrameFromUi,
+        id.id(), x, std::int32_t{-110}, std::int32_t{660}, std::int32_t{420}, true);
+    proxy.Invoke(catalog.id(), &WindowCatalog::SubmitWindowScreenFromUi,
+        id.id(), std::int32_t{-1920}, std::int32_t{-200},
+        std::int32_t{1920}, std::int32_t{1080});
+  };
+  report(-800);
+  drain();
+  CHECK(holder->window->x() == -800);
+  CHECK(holder->window->y() == -110);
+  CHECK(holder->window->restore_client_width() == 660);
+  CHECK(holder->window->close_button_presenter->layout_y ==
+        ComputeWindowCatalogChildCloseLayout(660, 420, 160).y);
+
+  ae::Ptr<CatalogWindow> retained = holder->window.Load();
+  report(999);
+  catalog->UserCloseWindow(id);
+  CHECK(!holder->window.is_loaded());
+  CHECK(domain.Find(id));  // Mere object existence is not a live-window check.
+  drain();
+  CHECK(retained->x() == -800);
+  CHECK(retained->y() == -110);
+  CHECK(!holder->window.is_loaded());
+  retained = {};
+  CHECK(!domain.Find(id));
+  report(1000);
+  drain();
+  CHECK(!domain.Find(id));
+  CHECK(!holder->window.is_loaded());
+
+  // Reading a closed window's saved state must not make stale UI events live.
+  holder->window.Load();
+  CHECK(holder->window.is_loaded());
+  CHECK(!catalog->IsHolderWindowOpen(*holder));
+  report(1002);
+  proxy.Invoke(catalog.id(), &WindowCatalog::SubmitHolderChildWindowClientSizeFromUi,
+      id.id(), std::int32_t{900}, std::int32_t{700}, std::int32_t{160});
+  drain();
+  CHECK(holder->window->x() == -800);
+  CHECK(holder->window->y() == -110);
+  CHECK(holder->window->client_width() == 660);
+  CHECK(holder->window->client_height() == 420);
+  CHECK(!catalog->IsHolderWindowOpen(*holder));
+  holder->window.Reset();
+
+  catalog->OpenHolderWindow(*holder);
+  report(1001);
+  catalog->SelectHolder(WindowHolder::ptr::MakeFromThis(holder));
+  catalog->DeleteSelected();
+  drain();
+  CHECK(catalog->persisted.list->rows.empty());
+  CHECK(!domain.Find(id));
+
+  // The main window uses the same stable screen route but is not a list row.
+  auto const main_id = catalog->persisted.main_window.id();
+  proxy.Invoke(catalog.id(), &WindowCatalog::SubmitWindowScreenFromUi,
+      main_id.id(), std::int32_t{-1920}, std::int32_t{0},
+      std::int32_t{3840}, std::int32_t{1080});
+  drain();
+  CHECK(catalog->persisted.main_window.is_loaded());
+}
+
+void TestNativeActivationRoutesThroughModelQueue() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto catalog = BuildHeadlessWindowCatalogGraph(domain);
+  FinalizeDistilledGraph(*catalog);
+  PrepareWindowCatalogForRun(*catalog);
+  catalog->AddWindow();
+  auto* first = AsHolder(catalog->persisted.list->rows[0]);
+  auto const first_id = first->window.id();
+  catalog->AddWindow();
+  auto const second_id = AsHolder(catalog->persisted.list->rows[1])->window.id();
+  std::deque<ModelObjectProxy::ModelWork> queued;
+  ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork work) {
+    queued.push_back(std::move(work));
+  }};
+  auto presenter = ActivationTestPresenter::ptr::Create(ae::CreateWith{domain});
+  presenter->catalog = catalog;
+  presenter->window = first->window;
+  presenter->model_proxy = &proxy;
+  presenter->presentation_loaded = false;
+  presenter->NotifyActivatedFromUi();
+  CHECK(queued.empty());  // Native creation must not replace the saved active window.
+  presenter->presentation_loaded = true;
+  presenter->NotifyActivatedFromUi();
+  CHECK(queued.size() == 1);
+  CHECK(catalog->ResolveActiveWindow().id() == second_id);
+  auto drain = [&] {
+    while (!queued.empty()) {
+      auto work = std::move(queued.front()); queued.pop_front(); work(domain);
+    }
+  };
+  drain();
+  CHECK(catalog->persisted.window_order.front().id() == first_id);
+  catalog->ClearPendingFocusWindow();
+  auto const generation = catalog->Generation();
+  presenter->NotifyActivatedFromUi();
+  CHECK(queued.size() == 1);  // Native echoes are checked against live model state.
+  drain();
+  CHECK(catalog->Generation() == generation);
+  CHECK(!catalog->pending_focus_window.is_valid());
+  // The mirror still shows A when native activation rapidly reports B then A.
+  // Filtering the second notification against that mirror would leave B active.
+  presenter->window = AsHolder(catalog->persisted.list->rows[1])->window;
+  presenter->NotifyActivatedFromUi();
+  presenter->window = first->window;
+  presenter->NotifyActivatedFromUi();
+  CHECK(queued.size() == 2);
+  drain();
+  CHECK(catalog->ResolveActiveWindow().id() == first_id);
+  CHECK(!catalog->pending_focus_window.is_valid());
+  catalog->ClearPendingFocusWindow();
+  catalog->ActivateWindow(first->window);  // Explicit Open/Activate still refocuses.
+  CHECK(catalog->pending_focus_window.id() == first_id);
+  presenter->window = catalog->persisted.main_window;
+  presenter->NotifyActivatedFromUi();
+  CHECK(queued.size() == 1);
+  drain();
+  CHECK(catalog->ResolveActiveWindow().id() == catalog->persisted.main_window.id());
+  presenter->window = first->window;
+  presenter->NotifyActivatedFromUi();
+  CHECK(queued.size() == 1);
+  presenter->window = {};  // Release the test's UI reference before model close.
+  catalog->UserCloseWindow(first_id);
+  drain();
+  CHECK(catalog->ResolveActiveWindow().id() == catalog->persisted.main_window.id());
+  CHECK(!first->window.is_loaded());
+  CHECK(!domain.Find(first_id));
+}
+
+void TestUnifiedWindowOrderLifecycleAndColdRestore() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto catalog = BuildHeadlessWindowCatalogGraph(domain);
+  FinalizeDistilledGraph(*catalog);
+  PrepareWindowCatalogForRun(*catalog);
+  auto const main_id = catalog->persisted.main_window.id();
+  auto expect = [](WindowCatalog& cat, std::vector<ae::ObjId> const& expected) {
+    CHECK(cat.persisted.window_order.size() == expected.size());
+    CHECK(!expected.empty());
+    for (std::size_t i = 0; i < expected.size(); ++i) {
+      CHECK(cat.persisted.window_order[i].id() == expected[i]);
+      CHECK(!cat.persisted.window_order[i].is_loaded());
+    }
+    CHECK(cat.ResolveActiveWindow().id() == expected.front());
+  };
+  expect(*catalog, {main_id});
+  catalog->AddWindow();
+  auto* a = AsHolder(catalog->persisted.list->rows[0]);
+  auto const a_id = a->window.id();
+  catalog->AddWindow();
+  auto* b = AsHolder(catalog->persisted.list->rows[1]);
+  auto const b_id = b->window.id();
+  catalog->AddWindow();
+  auto* c = AsHolder(catalog->persisted.list->rows[2]);
+  auto const c_id = c->window.id();
+  expect(*catalog, {c_id, b_id, a_id, main_id});
+  catalog->ActivateWindow(a->window);
+  catalog->ActivateWindow(a->window);
+  expect(*catalog, {a_id, c_id, b_id, main_id});
+  catalog->UserCloseWindow(b_id);  // Background close must not change focus.
+  expect(*catalog, {a_id, c_id, main_id});
+  CHECK(!domain.Find(b_id));
+  catalog->SubmitActiveWindowFromUi(b_id);  // Late native activation is ignored.
+  catalog->SubmitActiveWindowFromUi(ae::ObjId{0});
+  expect(*catalog, {a_id, c_id, main_id});
+  catalog->UserCloseWindow(a_id);
+  expect(*catalog, {c_id, main_id});
+  CHECK(!domain.Find(a_id));
+  catalog->OpenHolderWindow(*b);
+  expect(*catalog, {b_id, c_id, main_id});
+  // Partial native observations cannot erase still-open windows.
+  catalog->SetWindowOrderFromObjIds({main_id.id(), main_id.id(), a_id.id()});
+  expect(*catalog, {main_id, b_id, c_id});
+  catalog->ActivateWindow(b->window);
+  catalog->SelectHolder(WindowHolder::ptr::MakeFromThis(b));
+  catalog->DeleteSelected();
+  expect(*catalog, {main_id, c_id});
+  CHECK(!domain.Find(b_id));
+  catalog->ActivateWindow(c->window);
+  SaveWindowCatalogPersistentSnapshot(*catalog);
+  ae::Domain cold_domain{storage};
+  auto cold = LoadApplication<WindowCatalog>(cold_domain, catalog.id());
+  PrepareWindowCatalogForRun(*cold);
+  expect(*cold, {c_id, main_id});
+  CHECK(!AsHolder(cold->persisted.list->rows[0])->window.is_loaded());
+  cold->AddWindow();
+  auto const d_id = AsHolder(cold->persisted.list->rows[2])->window.id();
+  cold->ActivateWindow(cold->persisted.main_window);
+  expect(*cold, {main_id, d_id, c_id});
+  // Navigation uses stable catalog order, even as each activation reorders z.
+  cold->SubmitWindowNavigationFromUi(1);
+  expect(*cold, {c_id, main_id, d_id});
+  cold->SubmitWindowNavigationFromUi(1);
+  expect(*cold, {d_id, c_id, main_id});
+  cold->SubmitWindowNavigationFromUi(1);
+  expect(*cold, {main_id, d_id, c_id});
+  cold->SubmitWindowNavigationFromUi(-1);
+  expect(*cold, {d_id, main_id, c_id});
+}
+
+void TestViewportPreservesPortableState() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  WindowCatalogGraphOptions options;
+  options.mobile_close_in_prefab = true;
+  auto catalog = BuildHeadlessWindowCatalogGraph(domain, options);
+  FinalizeDistilledGraph(*catalog);
+  PrepareWindowCatalogForRun(*catalog);
+  catalog->AddWindow();
+  auto* first = AsHolder(catalog->persisted.list->rows[0]);
+  first->window->RequestFrame(-310, -90, 720, 460);
+  auto const first_id = first->window.id();
+  // The generic headless presenter includes the button without platform policy.
+  // Only a native desktop presenter suppresses its redundant content control.
+  auto& close_presenter = *first->window->close_button_presenter;
+  close_presenter.window_presenter->presentation_loaded = true;
+  CHECK(close_presenter.EnabledForPresentation());
+  catalog->AddWindow();
+  auto* second = AsHolder(catalog->persisted.list->rows[1]);
+  catalog->UserCloseWindow(second->window.id());
+  CHECK(!second->window.is_loaded());
+
+  PrepareWindowCatalogForRun(*catalog);
+  CHECK(close_presenter.EnabledForPresentation());
+  catalog->ActivateWindow(first->window);
+  catalog->SubmitHolderChildWindowClientSizeFromUi(first_id.id(), 1080, 2400, 480);
+  CHECK(first->window->client_width() == 1080);
+  CHECK(first->window->restore_client_width() == 720);
+  CHECK(first->window->x() == -310);
+  SaveWindowCatalogPersistentSnapshot(*catalog);
+
+  ae::Domain cold_domain{storage};
+  auto cold = LoadApplication<WindowCatalog>(cold_domain, catalog.id());
+  PrepareWindowCatalogForRun(*cold);
+  CHECK(cold->ResolveActiveWindow().id() == first_id);
+  auto* cold_first = AsHolder(cold->persisted.list->rows[0]);
+  auto* cold_second = AsHolder(cold->persisted.list->rows[1]);
+  auto& cold_close = *cold_first->window->close_button_presenter;
+  cold_close.window_presenter->presentation_loaded = true;
+  CHECK(cold_close.EnabledForPresentation());
+  CHECK(cold_first->window.id() == first_id);
+  CHECK(cold_first->window->x() == -310);
+  CHECK(cold_first->window->y() == -90);
+  CHECK(cold_first->window->restore_client_width() == 720);
+  CHECK(cold_first->window->restore_client_height() == 460);
+  CHECK(!cold_second->window.is_loaded());
+  // Native desktop client measurement reflows the shared Close graph without
+  // destroying the saved restore geometry or activating a closed window.
+  cold->SubmitHolderChildWindowClientSizeFromUi(first_id.id(), 720, 460, 160);
+  CHECK(cold_first->window->client_width() == 720);
+  auto const layout = ComputeWindowCatalogChildCloseLayout(720, 460, 160);
+  CHECK(cold_first->window->close_button_presenter->layout_y == layout.y);
+  CHECK(!cold_second->window.is_loaded());
+  PrepareWindowCatalogForRun(*cold);
+  CHECK(cold_close.EnabledForPresentation());
+  CHECK(cold->ResolveActiveWindow().id() == first_id);
+  cold->OpenHolderWindow(*cold_second);
+  CHECK(cold_second->window->close_button->window.id() == cold_second->window.id());
+  cold->ActivateWindow(cold_first->window);
+  PrepareWindowCatalogForRun(*cold);
+  cold->SetWindowOrderFromObjIds({first_id.id(), cold->persisted.main_window.id().id()});
+  cold->UserCloseWindow(first_id);
+  CHECK(!cold_first->window.is_loaded());
+  CHECK(!cold_domain.Find(first_id));
+  CHECK(cold->ResolveActiveWindow().id() == cold->persisted.main_window.id());
+  CHECK(cold->persisted.window_order.size() == 2);
+  SaveWindowCatalogPersistentSnapshot(*cold);
+  ae::Domain returned_domain{storage};
+  auto returned = LoadApplication<WindowCatalog>(returned_domain, cold.id());
+  PrepareWindowCatalogForRun(*returned);
+  CHECK(!AsHolder(returned->persisted.list->rows[0])->window.is_loaded());
+  CHECK(returned->ResolveActiveWindow().id() == returned->persisted.main_window.id());
+  auto* returned_second = AsHolder(returned->persisted.list->rows[1]);
+  auto const second_id = returned_second->window.id();
+  returned->ActivateWindow(returned_second->window);
+  PrepareWindowCatalogForRun(*returned);
+  returned->SelectHolder(WindowHolder::ptr::MakeFromThis(returned_second));
+  returned->DeleteSelected();
+  CHECK(returned->persisted.list->rows.size() == 1);
+  CHECK(!returned_domain.Find(second_id));
+  CHECK(returned->ResolveActiveWindow().id() == returned->persisted.main_window.id());
+}
+}  // namespace apptraverse::test
+
 int main() {
   apptraverse::EnsureHeadlessWindowCatalogGraphRegistration();
+  apptraverse::test::TestQueuedCloseClicksRespectWindowLifetime();
+  apptraverse::test::TestQueuedNativeReportsRespectWindowMembership();
+  apptraverse::test::TestViewportPreservesPortableState();
+  apptraverse::test::TestUnifiedWindowOrderLifecycleAndColdRestore();
+  apptraverse::test::TestNativeActivationRoutesThroughModelQueue();
+  apptraverse::test::TestIndependentSuppliesHaveStableIdentitiesAndBytes();
   apptraverse::test::TestAddedHolderReplayPreservesInitialLinks();
-  apptraverse::test::TestMobileRingLoadsLazyListAndSkipsClosedWindows();
+  apptraverse::test::TestWindowNavigationLoadsLazyListAndSkipsClosedWindows();
   apptraverse::test::TestQueuedCatalogActionsKeepRowIdentity();
   apptraverse::test::TestHeadlessDeleteClearsSelectionIndexRam();
   apptraverse::test::TestHeadlessDeleteSelectionAbPersistAndColdLoad();

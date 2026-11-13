@@ -118,7 +118,6 @@ add_library(surfaces_demo_window_catalog_common STATIC
   common/window_catalog_desktop_registration.cpp
   common/window_catalog_core_registration.cpp
   common/window_catalog_events_registration.cpp
-  common/window_catalog_mobile_events_registration.cpp
   common/window_catalog_actions.cpp
   common/window_catalog_close_button.cpp
   common/window_catalog_graph_builder.cpp

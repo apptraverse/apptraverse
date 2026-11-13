@@ -62,6 +62,9 @@ LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
   if (presenter == nullptr) {
     return DefWindowProcW(hwnd, msg, wparam, lparam);
   }
+  if (msg == WM_ACTIVATE && LOWORD(wparam) != WA_INACTIVE) {
+    presenter->NotifyActivatedFromUi();
+  }
   if (msg == WM_COMMAND) {
     HWND const child = reinterpret_cast<HWND>(lparam);
     if (presenter->RouteChildCommand(static_cast<std::uint32_t>(LOWORD(wparam)),

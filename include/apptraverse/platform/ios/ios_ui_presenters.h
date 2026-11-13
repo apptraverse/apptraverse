@@ -1,13 +1,14 @@
 #ifndef APPTRAVERSE_PLATFORM_IOS_IOS_UI_PRESENTERS_H_
 #define APPTRAVERSE_PLATFORM_IOS_IOS_UI_PRESENTERS_H_
 
+#include "apptraverse/ui/ui_native_presenter_schema.h"
 #include "apptraverse/ui/ui_presenters.h"
 
 namespace apptraverse::ui::ios {
 
 class IosDesktopWindowPresenter : public UiDesktopWindowPresenter {
   APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::ui::ios::IosDesktopWindowPresenter",
+      ::apptraverse::ui::native_schema::kWindow,
       IosDesktopWindowPresenter, UiDesktopWindowPresenter, 0)
 
  protected:
@@ -34,7 +35,7 @@ class IosDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
 class IosPushButtonPresenter : public UiPushButtonPresenter {
   APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::ui::ios::IosPushButtonPresenter",
+      ::apptraverse::ui::native_schema::kPushButton,
       IosPushButtonPresenter, UiPushButtonPresenter, 0)
 
  protected:
@@ -54,7 +55,6 @@ class IosPushButtonPresenter : public UiPushButtonPresenter {
     dnv(base_);
   }
 
-  void NotifyClickedFromUi() override;
   void OnLoad() override;
   void OnModelChanged() override;
   void OnUnload() override;
@@ -62,7 +62,7 @@ class IosPushButtonPresenter : public UiPushButtonPresenter {
 
 class IosListContainerPresenter : public UiListContainerPresenter {
   APPTRAVERSE_NAMED_OBJECT(
-      "apptraverse::ui::ios::IosListContainerPresenter",
+      ::apptraverse::ui::native_schema::kList,
       IosListContainerPresenter, UiListContainerPresenter, 0)
 
  protected:

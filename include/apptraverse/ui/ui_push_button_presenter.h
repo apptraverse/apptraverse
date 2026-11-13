@@ -44,6 +44,7 @@ class UiPushButtonPresenter : public Presenter {
   std::uint32_t control_id;
 
   bool ReadyForPresentation() const override;
+  bool EnabledForPresentation() const override;
 
   // Native click → ModelObjectProxy → UiPushButton::HandlePushButtonClicked.
   void NotifyClickedFromUi() override;

@@ -37,6 +37,8 @@ set(APPTRAVERSE_AETHER_OBJECTS_PATCH_NAMES
   domain-local-storage-precedence-v1
   scoped-object-reference-visitor-v1
   domain-ancestor-factory-v1
+  domain-scoped-object-id-sequence-v1
+  ptr-releasing-edge-v1
 )
 set(APPTRAVERSE_AETHER_OBJECTS_PATCHES)
 foreach(patch_name IN LISTS APPTRAVERSE_AETHER_OBJECTS_PATCH_NAMES)
@@ -49,4 +51,4 @@ set(APPTRAVERSE_AETHER_OBJECTS_GIT_TAG
   "79283b667cabf689da1059d618fe2a22abf51db4")
 set(APPTRAVERSE_AETHER_MISCPP_GIT_TAG "main")
 set(APPTRAVERSE_AETHER_NUMERIC_GIT_TAG "main")
-set(APPTRAVERSE_AETHER_TELE_GIT_TAG "main")
+set(APPTRAVERSE_AETHER_TELE_GIT_TAG "64183232c1c6d8ad6119f75ff7e833f43467de57")

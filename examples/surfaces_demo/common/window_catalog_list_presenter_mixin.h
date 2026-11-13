@@ -49,6 +49,23 @@ class WindowCatalogDesktopPresenterMixin : public BaseDesktopPresenter {
 
   WindowCatalog::ptr catalog;
 
+  void NotifyActivatedFromUi() override {
+    // Ignore native creation; deduplicate against current model state, not a
+    // possibly stale mirror (rapid A -> B -> A must preserve both changes).
+    if (!this->presentation_loaded) {
+      return;
+    }
+    this->model_proxy->Invoke(catalog.id(), &WindowCatalog::SubmitActiveWindowFromUi,
+                              this->window.id());
+  }
+
+  void SubmitScreenFromNative(std::int32_t x, std::int32_t y,
+                              std::int32_t width, std::int32_t height) override {
+    this->model_proxy->Invoke(
+        catalog.id(), &WindowCatalog::SubmitWindowScreenFromUi,
+        this->window.id().id(), x, y, width, height);
+  }
+
   void AttachSessionMainNativeFrameQueue(
       ::apptraverse::WindowCatalogMainNativeFrameQueue* queue,
       ae::ObjId catalog_obj_id, ae::ObjId catalog_main_window_id) {

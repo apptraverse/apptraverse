@@ -11,6 +11,7 @@
 #include <windows.h>
 
 
+#include "apptraverse/ui/ui_native_presenter_schema.h"
 #include "apptraverse/ui/ui_presenters.h"
 
 #include "apptraverse/platform/windows/win_ui_push_button_presenter.h"
@@ -35,7 +36,7 @@ class WinWindowPresenter : public UiWindowPresenter {
 
 class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::windows::WinDesktopWindowPresenter",
+  APPTRAVERSE_NAMED_OBJECT(::apptraverse::ui::native_schema::kWindow,
 
                            WinDesktopWindowPresenter,
 
@@ -129,7 +130,7 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
 class WinListContainerPresenter : public UiListContainerPresenter {
 
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::windows::WinListContainerPresenter",
+  APPTRAVERSE_NAMED_OBJECT(::apptraverse::ui::native_schema::kList,
 
                            WinListContainerPresenter, UiListContainerPresenter,
 
@@ -144,6 +145,12 @@ class WinListContainerPresenter : public UiListContainerPresenter {
   explicit WinListContainerPresenter(ae::ObjProp prop)
 
       : UiListContainerPresenter{prop}, hwnd_{nullptr} {}
+
+  template <typename Dnv>
+  void Load(ae::Version<0>, Dnv& dnv) { dnv(base_); }
+
+  template <typename Dnv>
+  void Save(ae::Version<0>, Dnv& dnv) const { dnv(base_); }
 
   void OnLoad() override;
 
