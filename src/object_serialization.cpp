@@ -922,9 +922,7 @@ void WritePersistentCheckpointScratchLayers(ae::RamDomainStorage const& scratch,
       continue;
     }
     for (auto const& [class_id, versions] : *class_map_opt) {
-      if (IsRuntimeOnlyClassId(class_id) ||
-          ae::Registry::GetRegistry().GenerationDistance(Presenter::kClassId,
-                                                         class_id) >= 0) {
+      if (IsRuntimeOnlyClassId(class_id)) {
         continue;
       }
       for (auto const& [version, data] : versions) {

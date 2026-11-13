@@ -9,11 +9,9 @@ namespace apptraverse {
 namespace {
 
 bool ClassIdUsesTransientPartition(std::uint32_t class_id) {
-  if (IsRuntimeOnlyClassId(class_id)) {
-    return true;
-  }
-  return ae::Registry::GetRegistry().GenerationDistance(Presenter::kClassId,
-                                                        class_id) >= 0;
+  // Portable presenters are canonical objects. Only explicitly registered
+  // runtime classes belong to the transient partition.
+  return IsRuntimeOnlyClassId(class_id);
 }
 
 }  // namespace
