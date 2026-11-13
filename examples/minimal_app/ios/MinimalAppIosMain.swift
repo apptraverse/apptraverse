@@ -13,6 +13,7 @@ private func userDirectory() -> URL {
 
 @main
 struct MinimalAppIosApp: App {
+    init() { ATRegisterMinimalIosApplication() }
     @StateObject private var host = IosApplicationHost { delegate in
         ATCreateMinimalApplicationBridge(userDirectory().path, delegate)
     }

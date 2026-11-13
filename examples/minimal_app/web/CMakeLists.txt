@@ -54,6 +54,7 @@ add_executable(web_minimal_app
 target_compile_definitions(web_minimal_app PRIVATE
   APPTRAVERSE_ENABLE_DISTILLATION
   EMSCRIPTEN_HAS_UNBOUND_TYPE_NAMES=0
+  $<$<CONFIG:Debug>:APPTRAVERSE_DEBUG_FRESH_START>
 )
 
 apptraverse_embed_distilled_supply(
@@ -98,6 +99,17 @@ set_target_properties(web_minimal_app PROPERTIES
   OUTPUT_NAME "web_minimal_app"
   SUFFIX ".html"
 )
+
+# Explicit current-supply consumer for cold USER validation. Ordinary Debug
+# starts isolated state; this target intentionally loads the configured USER.
+add_executable(web_minimal_app_load_only minimal_app_web_main.cpp minimal_app_web_app.cpp)
+foreach(_property INCLUDE_DIRECTORIES COMPILE_OPTIONS LINK_OPTIONS LINK_LIBRARIES)
+  get_target_property(_value web_minimal_app ${_property})
+  set_property(TARGET web_minimal_app_load_only PROPERTY ${_property} "${_value}")
+endforeach()
+target_compile_definitions(web_minimal_app_load_only PRIVATE EMSCRIPTEN_HAS_UNBOUND_TYPE_NAMES=0)
+add_dependencies(web_minimal_app_load_only web_minimal_app)
+set_target_properties(web_minimal_app_load_only PROPERTIES SUFFIX ".html")
 
 add_executable(apptraverse_web_presenter_lifecycle_test
   web_presenter_lifecycle_test.cpp

@@ -14,6 +14,7 @@
 #include "apptraverse/ui/ui_presenters.h"
 
 #include "android_log.h"
+#include "android_jni_util.h"
 #include "window_catalog_graph_android.h"
 #include "window_catalog_native_runtime.h"
 #include "window_catalog_ui_bridge.h"
@@ -38,11 +39,8 @@ jlong NativeCreate(JNIEnv* env, jclass, jstring files_dir, jstring state_subdir,
     return 0;
   }
 
-  auto const* files_chars = env->GetStringUTFChars(files_dir, nullptr);
-  auto const* subdir_chars = env->GetStringUTFChars(state_subdir, nullptr);
-  auto state_dir = std::filesystem::path{files_chars} / subdir_chars;
-  env->ReleaseStringUTFChars(files_dir, files_chars);
-  env->ReleaseStringUTFChars(state_subdir, subdir_chars);
+  auto state_dir = std::filesystem::path{ui::android::JstringToUtf8(env, files_dir)} /
+                   ui::android::JstringToUtf8(env, state_subdir);
 
   auto* runtime = new WindowCatalogNativeRuntime(
       std::move(state_dir), std::move(wc_bridge), std::move(android_bridge));

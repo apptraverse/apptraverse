@@ -41,10 +41,12 @@ void WinPushButtonPresenter::OnLoad() {
 }
 
 void WinPushButtonPresenter::SyncFromMirror() {
-  SetWindowTextW(
+  if (!SetWindowTextW(
       hwnd_, Utf8ToWide(button->label->Resolve(
                         window_presenter->locale->language_index()))
-                 .c_str());
+                 .c_str())) {
+    FatalWin32("SetWindowTextW Ui push button", GetLastError());
+  }
   EnableWindow(hwnd_, button->enabled() ? TRUE : FALSE);
   ApplyLayout();
 }

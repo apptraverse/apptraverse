@@ -32,7 +32,7 @@ std::string RunAndroidPendingBackgroundSaveRaceProbe() {
   std::filesystem::remove_all(probe_state_dir, ec);
   std::filesystem::create_directories(probe_state_dir, ec);
 
-  DirectoryDomainStorage user_storage{probe_state_dir};
+  ae::RamDomainStorage user_storage;
   apptraverse::ApplicationModelRuntime runtime;
   apptraverse::ui::android::AndroidPresentationHost presentation_host{};
   presentation_host.content_root = reinterpret_cast<jobject>(1);
@@ -48,13 +48,13 @@ std::string RunAndroidPendingBackgroundSaveRaceProbe() {
           run_model_ready = true;
         }
         phase_cv.notify_all();
-        return RunMinimalApplicationModel(user_storage, runtime,
+        return RunMinimalApplicationModel(user_storage, probe_state_dir, runtime,
                                           std::move(on_published));
       };
   callbacks.persist_model = [&user_storage](ae::Domain& domain) -> int {
     WaitAndroidCheckpointPersistTestGateIfEnabled();
     int const result =
-        PersistMinimalApplicationEmbeddedUserOverlayFromDomain(domain, user_storage);
+        PersistAndroidMinimalUser(domain, user_storage, probe_state_dir);
     {
       std::lock_guard<std::mutex> lock{phase_mu};
       ++persist_completed;

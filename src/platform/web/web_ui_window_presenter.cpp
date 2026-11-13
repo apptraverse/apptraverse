@@ -44,10 +44,8 @@ EM_JS(void, ApptraverseSetDesktopWindowGeometry, (emscripten::EM_VAL window_el,
   style.width = w + 'px';
   style.height = h + 'px';
   var client = el.firstChild;
-  if (client) {
-    client.style.width = w + 'px';
-    client.style.height = h + 'px';
-  }
+  client.style.width = w + 'px';
+  client.style.height = h + 'px';
 });
 
 struct WebDesktopWindowDomRefs {

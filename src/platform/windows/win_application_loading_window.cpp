@@ -57,8 +57,12 @@ LRESULT CALLBACK WinApplicationLoadingWindow::WndProc(HWND hwnd, UINT msg,
                                                       LPARAM lparam) {
   if (msg == WM_NCCREATE) {
     auto* cs = reinterpret_cast<CREATESTRUCTW*>(lparam);
-    SetWindowLongPtrW(hwnd, GWLP_USERDATA,
-                      reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
+    SetLastError(ERROR_SUCCESS);
+    if (SetWindowLongPtrW(hwnd, GWLP_USERDATA,
+                         reinterpret_cast<LONG_PTR>(cs->lpCreateParams)) == 0 &&
+        GetLastError() != ERROR_SUCCESS) {
+      FatalWin32("SetWindowLongPtrW loading window", GetLastError());
+    }
     return DefWindowProcW(hwnd, msg, wparam, lparam);
   }
   auto* self = reinterpret_cast<WinApplicationLoadingWindow*>(
@@ -74,8 +78,13 @@ LRESULT WinApplicationLoadingWindow::Handle(HWND hwnd, UINT msg, WPARAM wparam,
   if (msg == WM_PAINT) {
     PAINTSTRUCT ps{};
     HDC hdc = BeginPaint(hwnd, &ps);
+    if (hdc == nullptr) {
+      FatalWin32("BeginPaint loading window", GetLastError());
+    }
     RECT client{};
-    GetClientRect(hwnd, &client);
+    if (!GetClientRect(hwnd, &client)) {
+      FatalWin32("GetClientRect loading window", GetLastError());
+    }
     DrawTextW(hdc, paint_text_.c_str(), -1, &client,
               DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     EndPaint(hwnd, &ps);

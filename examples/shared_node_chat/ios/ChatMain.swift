@@ -20,13 +20,19 @@ final class PhoneChatHost: ObservableObject {
         presenter = ChatPresenter(profile: profile, name: value("--name") ?? "iPhone", role: role,
                                   initialHost: value("--client") ?? "")
     }
+    deinit {
+        if backgroundTask != .invalid { UIApplication.shared.endBackgroundTask(backgroundTask) }
+        presenter.stop()
+    }
     func start() {
         guard !started else { return }
+        guard presenter.start() else {
+            preconditionFailure("Cannot open chat profile.")
+        }
         started = true
-        if !presenter.start() { presenter.inputError = "Cannot open chat profile." }
     }
     func checkpoint() {
-        guard started, presenter.ready, backgroundTask == .invalid else { return }
+        guard started, backgroundTask == .invalid else { return }
         // Keep only enough background execution time to drain the model queue
         // and persist USER. Never stop/recreate the session on deactivation.
         checkpointGeneration &+= 1

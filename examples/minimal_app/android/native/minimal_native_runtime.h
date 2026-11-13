@@ -7,7 +7,7 @@
 #include <jni.h>
 
 #include "apptraverse/application_model_runtime.h"
-#include "apptraverse/directory_domain_storage.h"
+#include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "apptraverse/platform/android/android_application_host.h"
 #include "apptraverse/platform/android/android_presentation_host.h"
 #include "apptraverse/platform/android/android_ui_bridge.h"
@@ -29,7 +29,8 @@ class MinimalNativeRuntime {
   void RequestBackgroundSave();
 
  private:
-  DirectoryDomainStorage user_storage_;
+  std::filesystem::path state_dir_;
+  ae::RamDomainStorage user_storage_;
   ApplicationModelRuntime runtime_;
   ui::android::AndroidPresentationHost presentation_host_{};
   android::AndroidUiBridge ui_bridge_;

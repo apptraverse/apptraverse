@@ -3,8 +3,12 @@
 #include <utility>
 
 #include "android_log.h"
+#include "android_jni_util.h"
+#include <cstdlib>
 
 namespace apptraverse::android {
+using ui::android::CheckedJni;
+using ui::android::FailJni;
 
 WindowCatalogUiBridge::WindowCatalogUiBridge(
     JavaVM* vm, jobject global_object, jclass global_class,
@@ -55,8 +59,10 @@ void WindowCatalogUiBridge::Reset() {
     class_ = nullptr;
     return;
   }
-  JNIEnv* env = AttachedEnv();
-  if (env != nullptr) {
+  bool attached_here = false;
+  JNIEnv* env = AttachedEnv(attached_here);
+  if (env == nullptr) { LogError("WindowCatalog JNI attach failed"); std::abort(); }
+  {
     if (object_ != nullptr) {
       env->DeleteGlobalRef(object_);
     }
@@ -66,10 +72,12 @@ void WindowCatalogUiBridge::Reset() {
   }
   object_ = nullptr;
   class_ = nullptr;
+  if (attached_here) vm_->DetachCurrentThread();
   vm_ = nullptr;
 }
 
-JNIEnv* WindowCatalogUiBridge::AttachedEnv() const {
+JNIEnv* WindowCatalogUiBridge::AttachedEnv(bool& attached_here) const {
+  attached_here = false;
   if (vm_ == nullptr) {
     return nullptr;
   }
@@ -83,33 +91,31 @@ JNIEnv* WindowCatalogUiBridge::AttachedEnv() const {
     if (vm_->AttachCurrentThread(&env, nullptr) != 0) {
       return nullptr;
     }
+    attached_here = true;
     return env;
   }
   return nullptr;
 }
 
 void WindowCatalogUiBridge::PostPublication(int kind) const {
-  JNIEnv* env = AttachedEnv();
-  if (env == nullptr) {
-    return;
-  }
+  bool attached_here = false;
+  JNIEnv* env = AttachedEnv(attached_here);
+  if (env == nullptr) { LogError("WindowCatalog JNI attach failed"); std::abort(); }
   env->CallVoidMethod(object_, on_publication_, static_cast<jint>(kind));
   if (env->ExceptionCheck()) {
-    env->ExceptionDescribe();
-    env->ExceptionClear();
-    LogError("WindowCatalogUiBridge publication callback failed");
+    FailJni(env, "WindowCatalog publication");
   }
+  if (attached_here) vm_->DetachCurrentThread();
 }
 
 void WindowCatalogUiBridge::PostMobilePages(
     std::vector<std::int64_t> const& window_ids,
     std::int64_t active_id) const {
-  JNIEnv* env = AttachedEnv();
-  if (env == nullptr) {
-    return;
-  }
-  jlongArray ids = env->NewLongArray(static_cast<jsize>(window_ids.size()));
-  if (ids != nullptr && !window_ids.empty()) {
+  bool attached_here = false;
+  JNIEnv* env = AttachedEnv(attached_here);
+  if (env == nullptr) { LogError("WindowCatalog JNI attach failed"); std::abort(); }
+  jlongArray ids = CheckedJni(env, "page IDs", [&] { return env->NewLongArray(static_cast<jsize>(window_ids.size())); });
+  if (!window_ids.empty()) {
     env->SetLongArrayRegion(ids, 0, static_cast<jsize>(window_ids.size()),
                             window_ids.data());
   }
@@ -119,52 +125,50 @@ void WindowCatalogUiBridge::PostMobilePages(
     env->DeleteLocalRef(ids);
   }
   if (env->ExceptionCheck()) {
-    env->ExceptionDescribe();
-    env->ExceptionClear();
-    LogError("WindowCatalogUiBridge mobile pages callback failed");
+    FailJni(env, "WindowCatalog mobile pages");
   }
+  if (attached_here) vm_->DetachCurrentThread();
 }
 
 void WindowCatalogUiBridge::PostBackgroundSaveFinished(
     int persist_result) const {
-  JNIEnv* env = AttachedEnv();
-  if (env == nullptr) {
-    return;
-  }
+  bool attached_here = false;
+  JNIEnv* env = AttachedEnv(attached_here);
+  if (env == nullptr) { LogError("WindowCatalog JNI attach failed"); std::abort(); }
   env->CallVoidMethod(object_, on_background_save_finished_,
                       static_cast<jint>(persist_result));
   if (env->ExceptionCheck()) {
-    env->ExceptionDescribe();
-    env->ExceptionClear();
+    FailJni(env, "WindowCatalog save callback");
   }
+  if (attached_here) vm_->DetachCurrentThread();
 }
 
 WindowCatalogUiBridge MakeWindowCatalogUiBridge(JNIEnv* env,
                                                 jobject ui_bridge) {
   if (ui_bridge == nullptr) {
-    return {};
+    FailJni(env, "WindowCatalog bridge creation");
   }
   JavaVM* vm = nullptr;
-  if (env->GetJavaVM(&vm) != JNI_OK || vm == nullptr) {
-    return {};
+  if (CheckedJni(env, "GetJavaVM", [&] { return env->GetJavaVM(&vm); }) != JNI_OK || vm == nullptr) {
+    FailJni(env, "WindowCatalog bridge creation");
   }
-  jclass local_class = env->GetObjectClass(ui_bridge);
+  jclass local_class = CheckedJni(env, "GetObjectClass", [&] { return env->GetObjectClass(ui_bridge); });
   if (local_class == nullptr) {
-    return {};
+    FailJni(env, "WindowCatalog bridge creation");
   }
-  jmethodID on_publication = env->GetMethodID(local_class, "onPublication", "(I)V");
+  jmethodID on_publication = CheckedJni(env, "GetMethodID", [&] { return env->GetMethodID(local_class, "onPublication", "(I)V"); });
   jmethodID on_mobile_pages =
-      env->GetMethodID(local_class, "onMobilePages", "([JJ)V");
-  jmethodID on_background_save_finished = env->GetMethodID(
-      local_class, "onBackgroundSaveFinished", "(I)V");
+      CheckedJni(env, "GetMethodID", [&] { return env->GetMethodID(local_class, "onMobilePages", "([JJ)V"); });
+  jmethodID on_background_save_finished = CheckedJni(env, "GetMethodID", [&] { return env->GetMethodID(
+      local_class, "onBackgroundSaveFinished", "(I)V"); });
   if (on_publication == nullptr || on_mobile_pages == nullptr ||
       on_background_save_finished == nullptr) {
-    env->DeleteLocalRef(local_class);
-    return {};
+    CheckedJni(env, "DeleteLocalRef", [&] { return env->DeleteLocalRef(local_class); });
+    FailJni(env, "WindowCatalog bridge creation");
   }
-  jobject global_object = env->NewGlobalRef(ui_bridge);
-  jclass global_class = static_cast<jclass>(env->NewGlobalRef(local_class));
-  env->DeleteLocalRef(local_class);
+  jobject global_object = CheckedJni(env, "NewGlobalRef", [&] { return env->NewGlobalRef(ui_bridge); });
+  jclass global_class = static_cast<jclass>(CheckedJni(env, "NewGlobalRef", [&] { return env->NewGlobalRef(local_class); }));
+  CheckedJni(env, "DeleteLocalRef", [&] { return env->DeleteLocalRef(local_class); });
   return WindowCatalogUiBridge{vm, global_object, global_class, on_publication,
                                on_mobile_pages, on_background_save_finished};
 }

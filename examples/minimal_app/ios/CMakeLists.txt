@@ -1,3 +1,22 @@
+# Swift must use the same device/simulator SDK as the C++ backend.
+if(CMAKE_OSX_SYSROOT MATCHES "[Ii][Pp]hone[Ss]imulator")
+  set(_apptraverse_ios_swift_platform iphonesimulator)
+  set(_apptraverse_ios_swift_target_suffix "-simulator")
+else()
+  set(_apptraverse_ios_swift_platform iphoneos)
+  set(_apptraverse_ios_swift_target_suffix "")
+endif()
+
+option(APPTRAVERSE_MINIMAL_APPLE_DEBUG_FRESH
+  "Use a fresh MinimalApp USER in ordinary Apple Debug; OFF is a load-only test consumer" ON)
+set(_minimal_apple_needs_supply ON)
+if(CMAKE_BUILD_TYPE STREQUAL "Debug" AND APPTRAVERSE_MINIMAL_APPLE_DEBUG_FRESH
+    AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(_minimal_apple_needs_supply OFF)
+endif()
+set(_minimal_apple_debug_fresh
+  "$<AND:$<CONFIG:Debug>,$<BOOL:${APPTRAVERSE_MINIMAL_APPLE_DEBUG_FRESH}>>")
+
 enable_language(OBJCXX)
 
 if(NOT CMAKE_Swift_COMPILER)
@@ -9,11 +28,11 @@ if(NOT CMAKE_Swift_COMPILER)
 endif()
 set(CMAKE_Swift_FLAGS "-sdk ${CMAKE_OSX_SYSROOT}")
 set(CMAKE_Swift_COMPILER_TARGET
-  ${CMAKE_OSX_ARCHITECTURES}-apple-ios${CMAKE_OSX_DEPLOYMENT_TARGET}-simulator
+  ${CMAKE_OSX_ARCHITECTURES}-apple-ios${CMAKE_OSX_DEPLOYMENT_TARGET}${_apptraverse_ios_swift_target_suffix}
 )
 enable_language(Swift)
 
-if(NOT APPTRAVERSE_IOS_HOST_EXPORTER)
+if(_minimal_apple_needs_supply AND NOT APPTRAVERSE_IOS_HOST_EXPORTER)
   message(FATAL_ERROR
     "APPTRAVERSE_IOS_HOST_EXPORTER must point to the macOS-built "
     "apptraverse_export_minimal_distilled_graph_ios executable")
@@ -31,20 +50,28 @@ file(MAKE_DIRECTORY "${_ios_supply_dir}")
 set(_ios_supply_header
   ${_ios_supply_dir}/embedded_distilled_minimal_app_ios_supply.h)
 
+if(_minimal_apple_needs_supply)
 add_custom_command(
   OUTPUT "${_ios_supply_header}"
   COMMAND "${APPTRAVERSE_IOS_HOST_EXPORTER}" "${_ios_supply_header}"
   VERBATIM
   COMMENT "Embed distilled iOS MinimalApp supply via macOS host exporter")
+endif()
 
 add_library(minimal_app_ios_composition STATIC
   minimal_app_ios_composition.mm
-  minimal_app_lifecycle_ios.cpp
-  "${_ios_supply_header}")
+  minimal_app_lifecycle_ios.cpp)
+if(_minimal_apple_needs_supply)
+  target_sources(minimal_app_ios_composition PRIVATE
+    "$<$<NOT:${_minimal_apple_debug_fresh}>:${_ios_supply_header}>")
+endif()
+target_compile_definitions(minimal_app_ios_composition PRIVATE
+  "$<${_minimal_apple_debug_fresh}:APPTRAVERSE_MINIMAL_APPLE_DEBUG_FRESH>")
 target_include_directories(minimal_app_ios_composition PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${_ios_supply_dir})
 target_link_libraries(minimal_app_ios_composition PUBLIC
+  "$<${_minimal_apple_debug_fresh}:minimal_app_ios_graph>"
   minimal_app_common apptraverse_ui_ios_bridge
   "-framework Foundation")
 set_source_files_properties(minimal_app_ios_composition.mm PROPERTIES
@@ -80,7 +107,7 @@ target_compile_options(apptraverse_minimal_app_ios PRIVATE
   $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-rtti>)
 
 get_filename_component(_swift_bin_dir ${CMAKE_Swift_COMPILER} DIRECTORY)
-set(_swift_runtime_dir ${_swift_bin_dir}/../lib/swift/iphonesimulator)
+set(_swift_runtime_dir ${_swift_bin_dir}/../lib/swift/${_apptraverse_ios_swift_platform})
 target_link_options(apptraverse_minimal_app_ios PRIVATE
   -L${CMAKE_OSX_SYSROOT}/usr/lib/swift
   -L${_swift_runtime_dir}

@@ -12,9 +12,7 @@ EM_JS(void, ApptraverseAppendDomChild, (emscripten::EM_VAL parent,
 
 EM_JS(void, ApptraverseRemoveDomNode, (emscripten::EM_VAL node), {
   var el = Emval.toValue(node);
-  if (el && el.remove) {
-    el.remove();
-  }
+  el.remove();
 });
 
 void ReleaseOwnedEmvalHandle(emscripten::EM_VAL handle) {

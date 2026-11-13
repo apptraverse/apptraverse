@@ -31,7 +31,7 @@ std::string RunAndroidEarlyBackgroundSaveProbe() {
   std::filesystem::remove_all(state_dir, ec);
   std::filesystem::create_directories(state_dir, ec);
 
-  DirectoryDomainStorage user_storage{state_dir};
+  ae::RamDomainStorage user_storage;
   apptraverse::ApplicationModelRuntime runtime;
   apptraverse::ui::android::AndroidPresentationHost presentation_host{};
   presentation_host.content_root = reinterpret_cast<jobject>(1);
@@ -41,18 +41,18 @@ std::string RunAndroidEarlyBackgroundSaveProbe() {
 
   apptraverse::android::AndroidApplicationHostCallbacks callbacks;
   callbacks.run_model =
-      [&runtime, &user_storage](apptraverse::ApplicationPublishedCallback on_published) {
+      [&runtime, &user_storage, &state_dir](apptraverse::ApplicationPublishedCallback on_published) {
         {
           std::lock_guard<std::mutex> lock{ready_mu};
           run_model_ready = true;
         }
         ready_cv.notify_all();
-        return RunMinimalApplicationModel(user_storage, runtime,
+        return RunMinimalApplicationModel(user_storage, state_dir, runtime,
                                           std::move(on_published));
       };
-  callbacks.persist_model = [&user_storage](ae::Domain& domain) -> int {
+  callbacks.persist_model = [&user_storage, &state_dir](ae::Domain& domain) -> int {
     int const result =
-        PersistMinimalApplicationEmbeddedUserOverlayFromDomain(domain, user_storage);
+        PersistAndroidMinimalUser(domain, user_storage, state_dir);
     persist_calls.fetch_add(1, std::memory_order_release);
     ready_cv.notify_all();
     return result;

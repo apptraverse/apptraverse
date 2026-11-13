@@ -3599,3 +3599,13 @@ acceptance PASS (23.83s including cleanup). No adaptive transport is applied.
 - Host/client default profiles are separate; existing USER sessions are retained.
 - Apple runtime validation was not run on this Windows host. Both endpoints
   need the updated ChatSession protocol for UID-only discovery.
+
+
+### 2026-11-13 — Backend canon source audit and Debug validation
+
+- Audited current backend source including macOS/iOS; fixed native failure handling, mandatory graph-link consumption, JNI scalar UTF-8 and bridge ownership. Surface chrome layout policy now belongs to the shared model.
+- MinimalApp Linux/Android/Web/Apple lifecycle uses RAM USER and a single user.bin at the platform boundary; fresh Debug and explicit current-supply load-only paths are separated. No old-profile migration or repair was added. Apple source paths also distinguish iPhone and simulator Swift targets.
+- Apple host ownership/teardown and SharedNode chat draft acknowledgement corrected by source review. ChatSession offers a model commit callback; the explicit Windows commit/rejection acceptance passed. This is not an Apple runtime acceptance.
+- Fresh Windows Debug build and CTest PASS: 79/79 (264.39 s). Explicit chat commit acceptance PASS. Linux GTK WindowCatalog acceptance PASS (62.37 s) and MinimalApp fresh/cold single-USER GUI smoke PASS in a private Xvfb/Openbox namespace; the first WSLg geometry run failed and remains separate evidence.
+- Web Debug/Chromium GUI PASS for WindowCatalog and MinimalApp, including lifecycle and current-supply cold restoration. Android x86_64/API34 WindowCatalog GUI PASS 7/7; MinimalApp fresh and load-only Debug builds plus actual Activity lifecycle/cold restore PASS. No non-Windows headless business suite was run.
+- Apple SDK builds/runtime, ARM devices, alternate browsers, Release/MinSizeRel and old Viewer application migration are not validated by this entry. Source inspection and executed tests remain distinct. Full evidence is in the Codex backend-canon audit outputs for this date.

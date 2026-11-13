@@ -35,9 +35,14 @@ T& FromToken(uint64_t token) {
 }
 
 NSString* ToNSString(std::string const& text) {
-  return [[NSString alloc] initWithBytes:text.data()
-                                  length:text.size()
-                                encoding:NSUTF8StringEncoding];
+  NSString* result = [[NSString alloc] initWithBytes:text.data()
+                                              length:text.size()
+                                            encoding:NSUTF8StringEncoding];
+  if (result == nil) {
+    apptraverse::WriteFatalStderr("cannot create native text from UTF-8 publication\n");
+    std::abort();
+  }
+  return result;
 }
 
 class IosNativeViews final
@@ -241,7 +246,14 @@ class IosNativeViews final
           });
         });
     dispatch_async(dispatch_get_main_queue(), ^{
-      [self.delegate bridgeModelDidFinish:self];
+      id<ATIosApplicationBridgeDelegate> delegate = self.delegate;
+      if (delegate != nil) {
+        [delegate bridgeModelDidFinish:self];
+      } else {
+        // The Swift host can be released before the model finishes. Break the
+        // model/proxy lifetime only after the worker has actually returned.
+        [self finishTeardown];
+      }
     });
   });
 }
@@ -288,6 +300,13 @@ class IosNativeViews final
 }
 
 - (void)consumePublication:(ATIosPublicationKind)kind {
+  if (self.delegate == nil) {
+    // Host destruction is a teardown state, not a partially loaded UI. Drain
+    // the publication slot so the stopped model can finish without a host.
+    [self requestStop];
+    _runtime->AbandonUnconsumedPublicationsForTeardown();
+    return;
+  }
   std::vector<std::uint8_t> publication =
       _runtime->TakePublishedCopyForUiApply(
           kind == ATIosPublicationKindInitial
@@ -391,12 +410,12 @@ class IosNativeViews final
 }
 
 - (void)submitMobileSwipe:(NSInteger)delta {
-  if (_stopping || !_uiSession) return;
+  if (_stopping || !_uiSession || !_callbacks.on_mobile_swipe) return;
   _callbacks.on_mobile_swipe(_uiSession->root(), *_proxy, static_cast<int>(delta));
 }
 
 - (void)submitMobilePage:(uint64_t)token {
-  if (_stopping || !_uiSession) return;
+  if (_stopping || !_uiSession || !_callbacks.on_mobile_page) return;
   auto& presenter = FromToken<IosDesktopWindowPresenter>(token);
   _callbacks.on_mobile_page(_uiSession->root(), *_proxy, presenter.window.id());
 }

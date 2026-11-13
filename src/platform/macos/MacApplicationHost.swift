@@ -417,6 +417,8 @@ public final class MacApplicationHost: NSObject,
         self.bridgeFactory = bridgeFactory
     }
 
+    deinit { bridge?.requestStop() }
+
     @discardableResult public func run() -> Int32 {
         let application = NSApplication.shared
         application.delegate = self

@@ -21,14 +21,7 @@
 namespace apptraverse {
 
 inline wchar_t const kSurfacesWindowClass[] = L"AppTraverseSurfacesWindow";
-inline constexpr int kSurfaceChromeMargin = 12;
-inline constexpr int kSurfaceAddButtonLayoutX = kSurfaceChromeMargin;
-inline constexpr int kSurfaceAddButtonLayoutY = kSurfaceChromeMargin;
-inline constexpr int kSurfaceAddButtonLayoutWidth = 88;
-inline constexpr int kSurfaceAddButtonLayoutHeight = 28;
-inline constexpr int kSurfaceAddButtonId = 1001;
-inline constexpr int kSurfaceCloseButtonId = 1002;
-inline constexpr int kSurfaceLanguageButtonId = 1003;
+
 
 void RegisterSurfacesWin32Classes();
 void UnregisterSurfacesWin32Classes();

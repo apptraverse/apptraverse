@@ -359,7 +359,11 @@ public final class IosApplicationHost: NSObject, ObservableObject,
                                   name: UIApplication.didBecomeActiveNotification, object: nil)
     }
 
-    deinit { NotificationCenter.default.removeObserver(self) }
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+        endBackgroundTask()
+        bridge?.requestStop()
+    }
 
     @objc private func applicationWillResignActive() { sceneWillDeactivate() }
     @objc private func applicationDidEnterBackground() { sceneDidEnterBackground() }

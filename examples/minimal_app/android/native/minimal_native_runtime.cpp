@@ -10,7 +10,11 @@ namespace apptraverse::example::minimal {
 
 MinimalNativeRuntime::MinimalNativeRuntime(std::filesystem::path state_dir,
                                              android::AndroidUiBridge ui_bridge)
-    : user_storage_{std::move(state_dir)}, ui_bridge_{std::move(ui_bridge)} {}
+    : state_dir_{std::move(state_dir)}, ui_bridge_{std::move(ui_bridge)} {
+#if defined(APPTRAVERSE_DEBUG_FRESH_START)
+  state_dir_ /= "debug-run-" + std::to_string(ae::ObjId::GenerateUnique().id());
+#endif
+}
 
 MinimalNativeRuntime::~MinimalNativeRuntime() {
   if (host_) {
@@ -23,7 +27,7 @@ void MinimalNativeRuntime::SetPresentationRoot(JNIEnv* env, jobject activity,
   if (!host_) {
     android::AndroidApplicationHostCallbacks callbacks;
     callbacks.run_model = [this](ApplicationPublishedCallback on_published) {
-      return RunMinimalApplicationModel(user_storage_, runtime_,
+      return RunMinimalApplicationModel(user_storage_, state_dir_, runtime_,
                                         std::move(on_published));
     };
     callbacks.after_initial = [](ae::Obj&) {
@@ -31,8 +35,7 @@ void MinimalNativeRuntime::SetPresentationRoot(JNIEnv* env, jobject activity,
     };
     callbacks.persist_model = [this](ae::Domain& domain) -> int {
       WaitAndroidCheckpointPersistTestGateIfEnabled();
-      return PersistMinimalApplicationEmbeddedUserOverlayFromDomain(
-          domain, user_storage_);
+      return PersistAndroidMinimalUser(domain, user_storage_, state_dir_);
     };
     host_ = std::make_unique<android::AndroidApplicationHost>(
         runtime_, presentation_host_, std::move(ui_bridge_), std::move(callbacks));
@@ -54,7 +57,7 @@ void MinimalNativeRuntime::RequestBackgroundSave() {
   if (!host_) {
     return;
   }
-  host_->RequestBackgroundSave();
+  host_->FlushPendingBackgroundSaves();
 }
 
 }  // namespace apptraverse::example::minimal

@@ -4,6 +4,9 @@
 #include <utility>
 
 #include "apptraverse/platform/macos/macos_application_bridge.h"
+#include "apptraverse/platform/macos/macos_ui_presenters.h"
+#include "apptraverse/ui/ui_presenters.h"
+#include "apptraverse/object_macros.h"
 #include "minimal_app_desktop_close.h"
 #include "minimal_app_lifecycle_macos.h"
 #include "minimal_application.h"
@@ -34,4 +37,11 @@ ATMacApplicationBridge* ATCreateMinimalApplicationBridge(
       };
   return apptraverse::ui::macos::MakeMacApplicationBridge(
       std::move(callbacks), delegate);
+}
+
+void ATRegisterMinimalMacApplication(void) {
+  apptraverse::EnsureObjectRegistration();
+  apptraverse::ui::EnsureUiPresenterRegistration();
+  apptraverse::ui::macos::EnsureMacUiPresenterRegistration();
+  apptraverse::example::minimal::EnsureMinimalApplicationRegistration();
 }

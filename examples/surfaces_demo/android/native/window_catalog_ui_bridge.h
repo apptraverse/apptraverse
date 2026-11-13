@@ -32,7 +32,7 @@ class WindowCatalogUiBridge {
 
  private:
   void Reset();
-  JNIEnv* AttachedEnv() const;
+  JNIEnv* AttachedEnv(bool& attached_here) const;
 
   JavaVM* vm_{nullptr};
   jobject object_{nullptr};

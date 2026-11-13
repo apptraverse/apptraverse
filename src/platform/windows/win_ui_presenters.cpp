@@ -1,5 +1,7 @@
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 
+#include <algorithm>
+
 #include "apptraverse/platform/windows/win_presentation_host.h"
 #include "apptraverse/platform/windows/win_ui_frame.h"
 #include "apptraverse/platform/windows/win_ui_utf8.h"
@@ -16,7 +18,12 @@ constexpr std::uint16_t kLbnSelchange = 1;
 constexpr std::uint16_t kLbnDblclk = 2;
 
 void SetUserData(HWND hwnd, void* value) {
-  SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(value));
+  SetLastError(ERROR_SUCCESS);
+  auto const previous =
+      SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(value));
+  if (previous == 0 && GetLastError() != ERROR_SUCCESS) {
+    FatalWin32("SetWindowLongPtrW Ui presenter", GetLastError());
+  }
 }
 
 Presenter* PresenterFromChildHwnd(HWND child) {
@@ -142,11 +149,12 @@ void WinDesktopWindowPresenter::OnLoad() {
   ReportNativeFrameToModel(initial.x, initial.y, initial.client_width,
                            initial.client_height, true);
   MONITORINFO monitor{sizeof(MONITORINFO)};
-  if (GetMonitorInfoW(MonitorFromWindow(hwnd_, MONITOR_DEFAULTTONEAREST), &monitor)) {
-    auto const& work = monitor.rcWork;
-    SubmitScreenFromNative(work.left, work.top, work.right - work.left,
-                           work.bottom - work.top);
+  if (!GetMonitorInfoW(MonitorFromWindow(hwnd_, MONITOR_DEFAULTTONEAREST), &monitor)) {
+    FatalWin32("GetMonitorInfoW Ui desktop window", GetLastError());
   }
+  auto const& work = monitor.rcWork;
+  SubmitScreenFromNative(work.left, work.top, work.right - work.left,
+                         work.bottom - work.top);
 }
 
 WinDesktopWindowPresenter::ClientFrame
@@ -191,8 +199,10 @@ void WinDesktopWindowPresenter::ApplyRequestedFrameFromMirror() {
   int outer_h = 0;
   ClientSizeToOuter(mirror.client_width, mirror.client_height, outer_w,
                     outer_h);
-  SetWindowPos(hwnd_, nullptr, mirror.x, mirror.y, outer_w, outer_h,
-               SWP_NOZORDER | SWP_NOACTIVATE);
+  if (!SetWindowPos(hwnd_, nullptr, mirror.x, mirror.y, outer_w, outer_h,
+                    SWP_NOZORDER | SWP_NOACTIVATE)) {
+    FatalWin32("SetWindowPos Ui desktop window", GetLastError());
+  }
   applying_native_frame_ = false;
 }
 
@@ -242,7 +252,9 @@ bool WinDesktopWindowPresenter::RouteChildCommand(std::uint32_t command_id,
 }
 
 void WinDesktopWindowPresenter::OnModelChanged() {
-  SetWindowTextW(hwnd_, ResolveTitleText().c_str());
+  if (!SetWindowTextW(hwnd_, ResolveTitleText().c_str())) {
+    FatalWin32("SetWindowTextW Ui desktop window", GetLastError());
+  }
 }
 
 void WinDesktopWindowPresenter::OnUnload() {
@@ -322,8 +334,10 @@ std::vector<std::wstring> ReadListBoxStrings(HWND hwnd) {
       FatalWin32("LB_GETTEXTLEN Ui list", ERROR_INVALID_DATA);
     }
     std::wstring text(static_cast<std::size_t>(len) + 1, L'\0');
-    SendMessageW(hwnd, LB_GETTEXT, static_cast<WPARAM>(i),
-                 reinterpret_cast<LPARAM>(text.data()));
+    if (SendMessageW(hwnd, LB_GETTEXT, static_cast<WPARAM>(i),
+                     reinterpret_cast<LPARAM>(text.data())) == LB_ERR) {
+      FatalWin32("LB_GETTEXT Ui list", ERROR_INVALID_DATA);
+    }
     text.resize(static_cast<std::size_t>(len));
     out.push_back(std::move(text));
   }
@@ -340,12 +354,29 @@ void ApplyPublishedListSelection(HWND hwnd, bool notify_list_selection_change,
   LRESULT const current_sel = SendMessageW(hwnd, LB_GETCURSEL, 0, 0);
   if (desired >= 0 && desired < static_cast<std::int32_t>(row_count)) {
     if (current_sel != desired) {
-      SendMessageW(hwnd, LB_SETCURSEL, static_cast<WPARAM>(desired), 0);
+      if (SendMessageW(hwnd, LB_SETCURSEL, static_cast<WPARAM>(desired), 0) == LB_ERR) {
+        FatalWin32("LB_SETCURSEL Ui list", ERROR_INVALID_DATA);
+      }
     }
     return;
   }
   if (desired == -1 && current_sel != LB_ERR) {
+    // Clearing the selection returns LB_ERR even on success.
     SendMessageW(hwnd, LB_SETCURSEL, static_cast<WPARAM>(-1), 0);
+  }
+}
+
+void RestoreListSelection(HWND hwnd, LRESULT selection) {
+  if (SendMessageW(hwnd, LB_SETCURSEL, static_cast<WPARAM>(selection), 0) == LB_ERR) {
+    FatalWin32("LB_SETCURSEL Ui list restore", ERROR_INVALID_DATA);
+  }
+}
+
+void RestoreListTop(HWND hwnd, LRESULT previous_top, std::size_t row_count) {
+  if (previous_top < 0 || row_count == 0) return;
+  auto const top = std::min(previous_top, static_cast<LRESULT>(row_count - 1));
+  if (SendMessageW(hwnd, LB_SETTOPINDEX, static_cast<WPARAM>(top), 0) == LB_ERR) {
+    FatalWin32("LB_SETTOPINDEX Ui list", ERROR_INVALID_DATA);
   }
 }
 
@@ -381,39 +412,41 @@ void WinListContainerPresenter::SyncFromMirror() {
       if (current[i] == desired[i]) {
         continue;
       }
-      SendMessageW(hwnd_, LB_DELETESTRING, static_cast<WPARAM>(i), 0);
-      SendMessageW(hwnd_, LB_INSERTSTRING, static_cast<WPARAM>(i),
-                   reinterpret_cast<LPARAM>(desired[i].c_str()));
+      if (SendMessageW(hwnd_, LB_DELETESTRING, static_cast<WPARAM>(i), 0) == LB_ERR) {
+        FatalWin32("LB_DELETESTRING Ui list", ERROR_INVALID_DATA);
+      }
+      if (SendMessageW(hwnd_, LB_INSERTSTRING, static_cast<WPARAM>(i),
+                       reinterpret_cast<LPARAM>(desired[i].c_str())) < 0) {
+        FatalWin32("LB_INSERTSTRING Ui list", ERROR_NOT_ENOUGH_MEMORY);
+      }
     }
     if (notify_list_selection_change) {
       ApplyPublishedListSelection(hwnd_, notify_list_selection_change,
                                   container.operator->(), desired.size());
     } else if (previous_sel != LB_ERR && previous_sel >= 0 &&
                previous_sel < static_cast<LRESULT>(desired.size())) {
-      SendMessageW(hwnd_, LB_SETCURSEL, static_cast<WPARAM>(previous_sel), 0);
+      RestoreListSelection(hwnd_, previous_sel);
     }
-    if (previous_top != LB_ERR && previous_top >= 0) {
-      SendMessageW(hwnd_, LB_SETTOPINDEX, static_cast<WPARAM>(previous_top), 0);
-    }
+    RestoreListTop(hwnd_, previous_top, desired.size());
     apply_layout();
     return;
   }
 
   SendMessageW(hwnd_, LB_RESETCONTENT, 0, 0);
   for (auto const& text : desired) {
-    SendMessageW(hwnd_, LB_ADDSTRING, 0,
-                 reinterpret_cast<LPARAM>(text.c_str()));
+    if (SendMessageW(hwnd_, LB_ADDSTRING, 0,
+                     reinterpret_cast<LPARAM>(text.c_str())) < 0) {
+      FatalWin32("LB_ADDSTRING Ui list", ERROR_NOT_ENOUGH_MEMORY);
+    }
   }
   if (notify_list_selection_change) {
     ApplyPublishedListSelection(hwnd_, notify_list_selection_change,
                                 container.operator->(), desired.size());
   } else if (previous_sel != LB_ERR && previous_sel >= 0 &&
              previous_sel < static_cast<LRESULT>(desired.size())) {
-    SendMessageW(hwnd_, LB_SETCURSEL, static_cast<WPARAM>(previous_sel), 0);
+    RestoreListSelection(hwnd_, previous_sel);
   }
-  if (previous_top != LB_ERR && previous_top >= 0) {
-    SendMessageW(hwnd_, LB_SETTOPINDEX, static_cast<WPARAM>(previous_top), 0);
-  }
+  RestoreListTop(hwnd_, previous_top, desired.size());
   apply_layout();
 }
 

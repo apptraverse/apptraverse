@@ -13,6 +13,7 @@
 
 namespace apptraverse::example::surfaces {
 namespace {
+using ui::android::CheckedJni;
 
 ui::UiPresentedWindow& Presented(CatalogWindow& window) {
   return static_cast<ui::UiPresentedWindow&>(window);
@@ -27,28 +28,25 @@ ui::android::AndroidDesktopWindowPresenter* AndroidPresenterForWindow(
 void SetMountVisible(ui::android::AndroidPresentationHost& host,
                      jobject mount, bool visible) {
   JNIEnv* env = ui::android::RequireUiThreadEnv(host);
-  jclass view_class = env->FindClass("android/view/View");
+  jclass view_class = CheckedJni(env, "FindClass", [&] { return env->FindClass("android/view/View"); });
   jmethodID set_visibility =
-      env->GetMethodID(view_class, "setVisibility", "(I)V");
+      CheckedJni(env, "GetMethodID", [&] { return env->GetMethodID(view_class, "setVisibility", "(I)V"); });
   jint const visibility = visible ? 0 : 8;
-  env->CallVoidMethod(mount, set_visibility, visibility);
-  env->DeleteLocalRef(view_class);
+  CheckedJni(env, "CallVoidMethod", [&] { return env->CallVoidMethod(mount, set_visibility, visibility); });
+  CheckedJni(env, "DeleteLocalRef", [&] { return env->DeleteLocalRef(view_class); });
 }
 
 void SetActivityTitle(ui::android::AndroidPresentationHost& host,
                       char const* title_utf8) {
-  if (host.activity == nullptr) {
-    return;
-  }
   JNIEnv* env = ui::android::RequireUiThreadEnv(host);
   jclass ui_class =
-      env->FindClass("com/apptraverse/ui/android/AppTraverseAndroidUi");
-  jmethodID set_title = env->GetStaticMethodID(
-      ui_class, "setActivityTitle", "(Landroid/app/Activity;Ljava/lang/String;)V");
+      CheckedJni(env, "FindClass", [&] { return env->FindClass("com/apptraverse/ui/android/AppTraverseAndroidUi"); });
+  jmethodID set_title = CheckedJni(env, "GetStaticMethodID", [&] { return env->GetStaticMethodID(
+      ui_class, "setActivityTitle", "(Landroid/app/Activity;Ljava/lang/String;)V"); });
   jstring jtitle = ui::android::Utf8ToJstring(env, title_utf8);
-  env->CallStaticVoidMethod(ui_class, set_title, host.activity, jtitle);
-  env->DeleteLocalRef(jtitle);
-  env->DeleteLocalRef(ui_class);
+  CheckedJni(env, "CallStaticVoidMethod", [&] { return env->CallStaticVoidMethod(ui_class, set_title, host.activity, jtitle); });
+  CheckedJni(env, "DeleteLocalRef", [&] { return env->DeleteLocalRef(jtitle); });
+  CheckedJni(env, "DeleteLocalRef", [&] { return env->DeleteLocalRef(ui_class); });
 }
 
 std::string ResolveWindowTitle(CatalogWindow& window) {

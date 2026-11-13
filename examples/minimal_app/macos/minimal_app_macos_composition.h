@@ -3,6 +3,7 @@
 #import "apptraverse/platform/macos/ATMacApplicationBridge.h"
 
 NS_ASSUME_NONNULL_BEGIN
+FOUNDATION_EXPORT void ATRegisterMinimalMacApplication(void);
 
 FOUNDATION_EXPORT ATMacApplicationBridge*
 ATCreateMinimalApplicationBridge(

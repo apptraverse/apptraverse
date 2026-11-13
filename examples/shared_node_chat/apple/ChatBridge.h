@@ -10,6 +10,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)createRoom;
 - (void)joinRoom:(NSString*)invite;
 - (void)send:(NSString*)text;
+- (void)send:(NSString*)text committed:(void (^)(BOOL))completion;
 @end
 NS_ASSUME_NONNULL_END
 #if TARGET_OS_OSX

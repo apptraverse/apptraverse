@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(apptraverse_minimal_app_native LANGUAGES C CXX)
+if(APPTRAVERSE_CMAKE_INITIAL_CACHE)
+  include("${APPTRAVERSE_CMAKE_INITIAL_CACHE}")
+endif()
+option(APPTRAVERSE_MINIMAL_DEBUG_FRESH "Start an isolated fresh Debug USER" ON)
 
 if(NOT ANDROID)
   message(FATAL_ERROR "Minimal App Android native build requires ANDROID")
@@ -36,11 +40,15 @@ set(_minimal_supply_header
   "${_minimal_supply_dir}/embedded_distilled_minimal_app_supply.h")
 # Outside the Gradle .cxx tree so host (MSBuild) object paths stay short.
 set(_minimal_host_export_dir
-  "${APPTRAVERSE_ROOT}/build/android-host-export/${CMAKE_BUILD_TYPE}-${ANDROID_ABI}")
+  "${APPTRAVERSE_ROOT}/b/mahe/${CMAKE_BUILD_TYPE}-${ANDROID_ABI}")
 set(_minimal_host_export_args
+  -DCMAKE_BUILD_TYPE=Debug
   -DBUILD_TESTING=OFF
   -DAPPTRAVERSE_BUILD_LINUX_GUI=OFF
   "-DAPPTRAVERSE_ANDROID_MINIMAL_SUPPLY_HEADER=${_minimal_supply_header}")
+if(APPTRAVERSE_CMAKE_INITIAL_CACHE)
+  list(APPEND _minimal_host_export_args "-C" "${APPTRAVERSE_CMAKE_INITIAL_CACHE}")
+endif()
 if(CPM_SOURCE_CACHE)
   list(APPEND _minimal_host_export_args "-DCPM_SOURCE_CACHE=${CPM_SOURCE_CACHE}")
 endif()
@@ -52,11 +60,12 @@ add_custom_command(
   OUTPUT "${_minimal_host_export_dir}/CMakeCache.txt"
   COMMAND "${CMAKE_COMMAND}" -S "${APPTRAVERSE_ROOT}"
           -B "${_minimal_host_export_dir}" ${_minimal_host_export_args}
+  DEPENDS "${CMAKE_CURRENT_LIST_FILE}" ${APPTRAVERSE_CMAKE_INITIAL_CACHE}
   VERBATIM
   COMMENT "Configure build-host MinimalApp supply exporter")
 add_custom_target(minimal_app_android_supply
   COMMAND "${CMAKE_COMMAND}" --build "${_minimal_host_export_dir}"
-          --config Debug --parallel --target apptraverse_android_minimal_supply
+          --config Debug --parallel 1 --target apptraverse_android_minimal_supply
   DEPENDS "${_minimal_host_export_dir}/CMakeCache.txt"
   BYPRODUCTS "${_minimal_supply_header}"
   VERBATIM
@@ -89,6 +98,10 @@ add_library(apptraverse_minimal_app SHARED
   jni_bridge.cpp
   minimal_native_runtime.cpp
 )
+if(APPTRAVERSE_MINIMAL_DEBUG_FRESH)
+  target_compile_definitions(apptraverse_minimal_app PRIVATE
+    $<$<CONFIG:Debug>:APPTRAVERSE_DEBUG_FRESH_START>)
+endif()
 
 target_include_directories(apptraverse_minimal_app PRIVATE
   ${CMAKE_CURRENT_LIST_DIR}

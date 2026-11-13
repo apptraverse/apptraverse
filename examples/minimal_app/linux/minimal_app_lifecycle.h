@@ -10,8 +10,7 @@ namespace apptraverse::example::minimal {
 int RunMinimalApplicationModel(
     std::filesystem::path const& state_dir,
     ApplicationModelRuntime& runtime,
-    ApplicationPublishedCallback on_published,
-    bool allow_distilled_bootstrap = true);
+    ApplicationPublishedCallback on_published);
 
 }  // namespace apptraverse::example::minimal
 

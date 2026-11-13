@@ -17,28 +17,6 @@ namespace apptraverse {
 
 namespace {
 
-constexpr int kMargin = kSurfaceChromeMargin;
-constexpr int kGap = 8;
-constexpr int kAddW = kSurfaceAddButtonLayoutWidth;
-constexpr int kAddH = kSurfaceAddButtonLayoutHeight;
-constexpr int kLangW = 48;
-constexpr int kLangH = 28;
-constexpr int kCloseW = 200;
-constexpr int kCloseH = 28;
-constexpr int kHorizontalChromeMinWidth =
-    kMargin + kAddW + kGap + kLangW + kGap + kCloseW + kMargin;
-
-bool ChromeButtonsUseHorizontalRow(SurfaceWindowPresenter const& window) {
-  if (!window.surface) {
-    return true;
-  }
-  Surface const& surface = *window.surface;
-  if (surface.presentation_width < kHorizontalChromeMinWidth) {
-    return false;
-  }
-  return surface.presentation_width >= surface.presentation_height;
-}
-
 void SetHwndUserData(HWND hwnd, void* value) {
   SetLastError(0);
   LONG_PTR const previous =
@@ -62,35 +40,6 @@ Win32SurfaceWindowPresenter* AsWin32Window(SurfaceWindowPresenter* base) {
     return nullptr;
   }
   return static_cast<Win32SurfaceWindowPresenter*>(base);
-}
-
-void SurfaceButtonLayout(SurfaceWindowPresenter const& window,
-                         std::uint32_t control_id, int* x, int* y, int* w,
-                         int* h) {
-  *x = kMargin;
-  *y = kMargin;
-  if (control_id == static_cast<std::uint32_t>(kSurfaceAddButtonId)) {
-    *w = kAddW;
-    *h = kAddH;
-    return;
-  }
-  if (control_id == static_cast<std::uint32_t>(kSurfaceLanguageButtonId)) {
-    *w = kLangW;
-    *h = kLangH;
-    if (ChromeButtonsUseHorizontalRow(window)) {
-      *x = kMargin + kAddW + kGap;
-    } else {
-      *y = kMargin + kAddH + kGap;
-    }
-    return;
-  }
-  *w = kCloseW;
-  *h = kCloseH;
-  if (ChromeButtonsUseHorizontalRow(window)) {
-    *x = kMargin + kAddW + kGap + kLangW + kGap;
-  } else {
-    *y = kMargin + kAddH + kGap + kLangH + kGap;
-  }
 }
 
 LRESULT CALLBACK SurfaceHostWndProc(HWND hwnd, UINT msg, WPARAM wparam,
@@ -142,7 +91,7 @@ LRESULT CALLBACK SurfaceHostWndProc(HWND hwnd, UINT msg, WPARAM wparam,
 void ComputeSurfaceChromeButtonLayout(SurfaceWindowPresenter const& window,
                                       std::uint32_t control_id, int* x,
                                       int* y, int* w, int* h) {
-  SurfaceButtonLayout(window, control_id, x, y, w, h);
+  window.surface->ComputeChromeButtonLayout(control_id, x, y, w, h);
 }
 
 bool TryParseSurfaceChildBnClicked(HWND parent_hwnd, WPARAM wparam,
@@ -217,7 +166,7 @@ void UnregisterSurfacesWin32Classes() {
 }
 
 void Win32SurfaceWindowPresenter::SyncWindowTitle() {
-  if (hwnd == nullptr || !locale || !window_title_prefix || !surface) {
+  if (hwnd == nullptr) {
     return;
   }
 #if APPTRAVERSE_SURFACE_DEMO_REVISION == 1
@@ -227,7 +176,9 @@ void Win32SurfaceWindowPresenter::SyncWindowTitle() {
   std::string const title = FormatSurfaceWindowTitle(
       *window_title_prefix, locale->language_index(), surface->number);
 #endif
-  SetWindowTextW(hwnd, ui::windows::Utf8ToWide(title).c_str());
+  if (!SetWindowTextW(hwnd, ui::windows::Utf8ToWide(title).c_str())) {
+    FatalWin32("SetWindowTextW Surface title", GetLastError());
+  }
 }
 
 void Win32SurfaceWindowPresenter::OnLoad() {
@@ -249,8 +200,8 @@ void Win32SurfaceWindowPresenter::OnModelChanged() { SyncWindowTitle(); }
 
 void Win32SurfaceWindowPresenter::OnUnload() {
   child_command_handler = nullptr;
-  SetHwndUserData(hwnd, nullptr);
   if (hwnd != nullptr) {
+    SetHwndUserData(hwnd, nullptr);
     if (DestroyWindow(hwnd) == 0) {
       DWORD const err = GetLastError();
       FatalWin32("DestroyWindow Surface", err);
@@ -270,23 +221,25 @@ void Win32SurfaceWindowPresenter::QueueCurrentBounds() {
 }
 
 void Win32SurfaceButtonPresenter::SyncCaption() {
-  if (hwnd == nullptr || !locale || !label) {
+  if (hwnd == nullptr) {
     return;
   }
-  SetWindowTextW(
+  if (!SetWindowTextW(
       hwnd, ui::windows::Utf8ToWide(label->Resolve(locale->language_index()))
-                .c_str());
+                .c_str())) {
+    FatalWin32("SetWindowTextW Surface button", GetLastError());
+  }
 }
 
 void Win32SurfaceButtonPresenter::ApplyLayout() {
-  if (hwnd == nullptr || !window_presenter || !window_presenter->surface) {
+  if (hwnd == nullptr) {
     return;
   }
   int x = 0;
   int y = 0;
   int w = 0;
   int h = 0;
-  SurfaceButtonLayout(*window_presenter, control_id, &x, &y, &w, &h);
+  window_presenter->surface->ComputeChromeButtonLayout(control_id, &x, &y, &w, &h);
 
   if (SetWindowPos(hwnd, nullptr, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE) ==
       0) {
@@ -341,24 +294,26 @@ void Win32SurfaceButtonPresenter::NotifyClickedFromUi() {
 }
 
 void Win32SurfaceLanguageButtonPresenter::SyncCaption() {
-  if (hwnd == nullptr || !locale || !language_switch_label) {
+  if (hwnd == nullptr) {
     return;
   }
-  SetWindowTextW(hwnd,
+  if (!SetWindowTextW(hwnd,
                  ui::windows::Utf8ToWide(language_switch_label->Resolve(
                                            locale->language_index()))
-                     .c_str());
+                     .c_str())) {
+    FatalWin32("SetWindowTextW Surface language button", GetLastError());
+  }
 }
 
 void Win32SurfaceLanguageButtonPresenter::ApplyLayout() {
-  if (hwnd == nullptr || !window_presenter || !window_presenter->surface) {
+  if (hwnd == nullptr) {
     return;
   }
   int x = 0;
   int y = 0;
   int w = 0;
   int h = 0;
-  SurfaceButtonLayout(*window_presenter, control_id, &x, &y, &w, &h);
+  window_presenter->surface->ComputeChromeButtonLayout(control_id, &x, &y, &w, &h);
 
   if (SetWindowPos(hwnd, nullptr, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE) ==
       0) {

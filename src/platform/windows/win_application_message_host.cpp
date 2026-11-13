@@ -126,8 +126,12 @@ LRESULT CALLBACK WinApplicationMessageHost::NotifyWndProc(HWND hwnd, UINT msg,
                                                           LPARAM lparam) {
   if (msg == WM_NCCREATE) {
     auto* cs = reinterpret_cast<CREATESTRUCTW*>(lparam);
-    SetWindowLongPtrW(hwnd, GWLP_USERDATA,
-                      reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
+    SetLastError(ERROR_SUCCESS);
+    if (SetWindowLongPtrW(hwnd, GWLP_USERDATA,
+                         reinterpret_cast<LONG_PTR>(cs->lpCreateParams)) == 0 &&
+        GetLastError() != ERROR_SUCCESS) {
+      FatalWin32("SetWindowLongPtrW publication host", GetLastError());
+    }
     return DefWindowProcW(hwnd, msg, wparam, lparam);
   }
   auto* host = reinterpret_cast<WinApplicationMessageHost*>(

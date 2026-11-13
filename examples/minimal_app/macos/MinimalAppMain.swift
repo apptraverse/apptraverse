@@ -14,10 +14,11 @@ private func userDirectory() -> URL {
 @main
 private enum MinimalAppMain {
     static func main() {
+        ATRegisterMinimalMacApplication()
         let directory = userDirectory()
         let host = MacApplicationHost { delegate in
             ATCreateMinimalApplicationBridge(directory.path, delegate)
         }
-        host.run()
+        exit(host.run())
     }
 }

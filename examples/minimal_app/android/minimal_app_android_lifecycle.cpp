@@ -9,6 +9,7 @@
 #include "apptraverse/application_model_session.h"
 #include "apptraverse/embedded_application_model_session.h"
 #include "apptraverse/object_macros.h"
+#include "apptraverse/single_file_user_storage.h"
 #include "apptraverse/platform/android/android_ui_registration.h"
 #include "apptraverse/ui/ui_presenters.h"
 
@@ -17,16 +18,16 @@
 #include "minimal_app_prepare.h"
 
 namespace apptraverse::example::minimal {
-namespace {
-
-bool UserProfilePresent(std::filesystem::path const& state_dir) {
-  return std::filesystem::exists(state_dir) &&
-         !std::filesystem::is_empty(state_dir);
+int PersistAndroidMinimalUser(ae::Domain& domain, ae::RamDomainStorage& user_storage,
+                              std::filesystem::path const& state_dir) {
+  auto application = domain.Find(MinimalApplicationRootId()).as<MinimalApplication>();
+  int const saved = SaveMinimalApplicationEmbeddedUserState(*application);
+  if (saved != 0) return saved;
+  return SaveUserStorageFile(user_storage, state_dir) ? 0 : 1;
 }
 
-}  // namespace
-
-int RunMinimalApplicationModel(DirectoryDomainStorage& user_storage,
+int RunMinimalApplicationModel(ae::RamDomainStorage& user_storage,
+                               std::filesystem::path const& state_dir,
                                ApplicationModelRuntime& runtime,
                                ApplicationPublishedCallback on_published) {
   EnsureObjectRegistration();
@@ -34,7 +35,8 @@ int RunMinimalApplicationModel(DirectoryDomainStorage& user_storage,
   ui::android::EnsureAndroidUiPresenterRegistration();
   EnsureMinimalApplicationRegistration();
 
-  bool const user_profile_present = UserProfilePresent(user_storage.root());
+  if (!LoadUserStorageFile(user_storage, state_dir)) return 1;
+  bool const user_profile_present = !user_storage.state.empty();
   if (user_profile_present) {
     apptraverse::android::LogInfo("MINIMAL_APP_LOADED_FROM_PROFILE");
   } else {
@@ -42,15 +44,9 @@ int RunMinimalApplicationModel(DirectoryDomainStorage& user_storage,
   }
 
   ApplicationModelSessionHooks<MinimalApplication> hooks;
-  hooks.prepare = [user_profile_present](MinimalApplication& application) {
-    PrepareMinimalApplicationForRun(application);
-    if (user_profile_present) {
-      NormalizeMinimalApplicationAfterEmbeddedUserLoad(application);
-    }
-  };
-  hooks.persist = [&user_storage](MinimalApplication& application) -> int {
-    return PersistMinimalApplicationEmbeddedUserOverlay(application,
-                                                        user_storage);
+  hooks.prepare = PrepareMinimalApplicationForRun;
+  hooks.persist = [&user_storage, &state_dir](MinimalApplication& application) -> int {
+    return PersistAndroidMinimalUser(*application.domain, user_storage, state_dir);
   };
 
   return RunEmbeddedApplicationModelSession(

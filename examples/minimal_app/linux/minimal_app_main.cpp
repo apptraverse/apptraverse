@@ -44,7 +44,7 @@ int main(int argc, char** argv) {
           automation, [&] { runtime.RequestStop(); }, &runtime);
   callbacks.run_model = [&](apptraverse::ApplicationPublishedCallback on_published) {
     model_exit_status = apptraverse::example::minimal::RunMinimalApplicationModel(
-        state_dir, runtime, on_published, true);
+        state_dir, runtime, on_published);
     if (model_exit_status == 0) {
       std::cerr << "MINIMAL_APP_SHUTDOWN_PERSIST_OK\n";
     } else {

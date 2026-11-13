@@ -1,6 +1,7 @@
 #import "apptraverse/platform/macos/ATMacApplicationBridge.h"
 
 #include <cstdint>
+#include <cstdlib>
 #include <memory>
 #include <thread>
 #include <utility>
@@ -8,6 +9,7 @@
 
 #include "apptraverse/application_ui_session.h"
 #include "apptraverse/model_object_proxy.h"
+#include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/platform/macos/macos_application_bridge.h"
 #include "apptraverse/platform/macos/macos_ui_native_views.h"
 #include "apptraverse/platform/macos/macos_ui_presenters.h"
@@ -31,9 +33,14 @@ T& FromToken(uint64_t token) {
 }
 
 NSString* ToNSString(std::string const& text) {
-  return [[NSString alloc] initWithBytes:text.data()
-                                  length:text.size()
-                                encoding:NSUTF8StringEncoding];
+  NSString* result = [[NSString alloc] initWithBytes:text.data()
+                                              length:text.size()
+                                            encoding:NSUTF8StringEncoding];
+  if (result == nil) {
+    apptraverse::WriteFatalStderr("cannot create native text from UTF-8 publication\n");
+    std::abort();
+  }
+  return result;
 }
 
 class MacNativeViews final
@@ -247,12 +254,26 @@ class MacNativeViews final
           });
         });
     dispatch_async(dispatch_get_main_queue(), ^{
-      [self.delegate bridgeModelDidFinish:self];
+      id<ATMacApplicationBridgeDelegate> delegate = self.delegate;
+      if (delegate != nil) {
+        [delegate bridgeModelDidFinish:self];
+      } else {
+        // The Swift host can be released before the model finishes. Break the
+        // model/proxy lifetime only after the worker has actually returned.
+        [self finishTeardown];
+      }
     });
   });
 }
 
 - (void)consumePublication:(ATMacPublicationKind)kind {
+  if (self.delegate == nil) {
+    // Host destruction is a teardown state, not a partially loaded UI. Drain
+    // the publication slot so the stopped model can finish without a host.
+    [self requestStop];
+    _runtime->AbandonUnconsumedPublicationsForTeardown();
+    return;
+  }
   std::vector<std::uint8_t> publication =
       _runtime->TakePublishedCopyForUiApply(
           kind == ATMacPublicationKindInitial
@@ -383,7 +404,7 @@ class MacNativeViews final
 - (void)requestStop {
   if (_stopping) return;
   _stopping = true;
-  if (_callbacks.on_application_quit && _uiSession) {
+  if (self.delegate != nil && _callbacks.on_application_quit && _uiSession) {
     _callbacks.on_application_quit(_uiSession->root(), *_proxy,
                                   [self] { _runtime->RequestStop(); });
   } else {

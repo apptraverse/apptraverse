@@ -4,6 +4,7 @@ plugins {
 
 def compileSdkVersion = (project.findProperty("apptraverse.compileSdk") ?: "34") as Integer
 def cmakeVersion = project.findProperty("apptraverse.cmakeVersion") ?: "4.1.2"
+def cmakeInitialCache = project.findProperty("apptraverse.cmakeInitialCache")
 def abiFilterList = ((project.findProperty("apptraverse.abiFilters") ?: "x86_64") as String)
     .split(",")
     .collect { it.trim() }
@@ -34,6 +35,7 @@ android {
                   "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
                   "-DCPM_aether-miscpp_SOURCE=C:/cpm-cache/aether-miscpp/108b"
         targets "apptraverse_minimal_app"
+        if (cmakeInitialCache) arguments "-DAPPTRAVERSE_CMAKE_INITIAL_CACHE=${cmakeInitialCache}"
       }
     }
   }
@@ -42,6 +44,7 @@ android {
     main {
       java.srcDirs += ["../../../../src/platform/android/java"]
     }
+    debugLoadOnly.manifest.srcFile "src/debug/AndroidManifest.xml"
   }
 
   externalNativeBuild {
@@ -73,6 +76,11 @@ android {
           keepDebugSymbols += "**/*.so"
         }
       }
+    }
+    debugLoadOnly {
+      initWith debug
+      matchingFallbacks = ["debug"]
+      externalNativeBuild.cmake.arguments "-DAPPTRAVERSE_MINIMAL_DEBUG_FRESH=OFF"
     }
     release {
       minifyEnabled false

@@ -26,6 +26,8 @@ struct IosApplicationBridgeCallbacks {
   std::function<IosMobilePresentation(ae::Obj&)> mobile_presentation;
   std::function<void(ae::Obj&, ModelObjectProxy&, std::int32_t, std::int32_t)>
       on_viewport;
+  // Optional for consumers whose model presents a single page rather than a
+  // navigation ring (for example MinimalApp's current main/detail window).
   std::function<void(ae::Obj&, ModelObjectProxy&, int)> on_mobile_swipe;
   std::function<void(ae::Obj&, ModelObjectProxy&, ae::ObjId)> on_mobile_page;
   std::function<int(ApplicationModelRuntime&, ApplicationPublishedCallback)>

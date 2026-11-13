@@ -41,9 +41,17 @@ def require_markers(text: str, markers: list[str]) -> None:
         sys.exit(1)
 
 
+def require_single_user_file(profile: Path) -> None:
+    entries = sorted(path.name for path in profile.iterdir())
+    if entries != ["user.bin"] or (profile / "user.bin").stat().st_size == 0:
+        print(f"FAIL: expected one non-empty USER file, found {entries}", file=sys.stderr)
+        sys.exit(1)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("exe", type=Path)
+    parser.add_argument("--fresh-exe", type=Path)
     parser.add_argument("--timeout-s", type=int, default=120)
     args = parser.parse_args()
     exe = args.exe.resolve()
@@ -53,7 +61,19 @@ def main() -> int:
 
     profile = Path(tempfile.mkdtemp(prefix="apptraverse_l3_linux_"))
     detail_profile = Path(tempfile.mkdtemp(prefix="apptraverse_l3_linux_detail_"))
+    fresh_profile = Path(tempfile.mkdtemp(prefix="apptraverse_l3_linux_fresh_"))
     try:
+        if args.fresh_exe:
+            for _ in range(2):
+                code, output = run_phase(args.fresh_exe.resolve(), fresh_profile,
+                                         "l3_save", args.timeout_s)
+                if code != 0:
+                    print(f"FAIL: fresh Debug exit {code}\n{output}", file=sys.stderr)
+                    return 1
+                require_markers(output, ["MINIMAL_APP_FRESH_DEBUG_GRAPH",
+                                         "MINIMAL_APP_L3_SAVE_READY",
+                                         "MINIMAL_APP_SHUTDOWN_PERSIST_OK"])
+                require_single_user_file(fresh_profile)
         code, out0 = run_phase(exe, detail_profile, "l3_detail_close", args.timeout_s)
         if code != 0:
             print(f"FAIL: l3_detail_close exit {code}", file=sys.stderr)
@@ -138,9 +158,12 @@ def main() -> int:
                 "MINIMAL_APP_SHUTDOWN_STOPPED",
             ],
         )
+        require_single_user_file(profile)
+        require_single_user_file(detail_profile)
     finally:
         shutil.rmtree(profile, ignore_errors=True)
         shutil.rmtree(detail_profile, ignore_errors=True)
+        shutil.rmtree(fresh_profile, ignore_errors=True)
 
     print("PASS: linux_minimal_app L3 two-cycle embedded USER smoke")
     return 0

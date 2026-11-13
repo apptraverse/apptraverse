@@ -7,7 +7,8 @@
 #include <emscripten/em_js.h>
 
 #include "apptraverse/application_model_session.h"
-#include "apptraverse/directory_domain_storage.h"
+#include "aether-objects/domain_storage/ram_domain_storage.h"
+#include "apptraverse/single_file_user_storage.h"
 #include "apptraverse/embedded_application_model_session.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/application_model_runtime.h"
@@ -29,7 +30,8 @@ constexpr char kIdbfsMountPath[] = "/persistent";
 constexpr char kProfilePath[] = "/persistent/minimal_app_web_embedded_user";
 
 std::unique_ptr<web::WebApplicationHost> g_host;
-std::unique_ptr<DirectoryDomainStorage> g_durable_storage;
+ae::RamDomainStorage g_user_storage;
+std::filesystem::path g_profile_path{kProfilePath};
 ApplicationModelRuntime g_runtime;
 ui::web::WebPresentationHost g_presentation_host;
 
@@ -118,13 +120,9 @@ int PersistMinimalApplicationFromDomain(ae::Domain& domain) {
     std::abort();
   }
   auto& application = static_cast<MinimalApplication&>(*held);
-  return PersistMinimalApplicationEmbeddedUserOverlay(application,
-                                                      *g_durable_storage);
-}
-
-bool UserProfilePresent(std::filesystem::path const& state_dir) {
-  return std::filesystem::exists(state_dir) &&
-         !std::filesystem::is_empty(state_dir);
+  int const saved = SaveMinimalApplicationEmbeddedUserState(application);
+  if (saved != 0) return saved;
+  return SaveUserStorageFile(g_user_storage, g_profile_path) ? 0 : 1;
 }
 
 }  // namespace
@@ -135,6 +133,13 @@ EMSCRIPTEN_KEEPALIVE void ApptraverseMinimalAppRequestSave() {
   if (g_host) {
     g_host->RequestSave();
   }
+}
+
+EMSCRIPTEN_KEEPALIVE void ApptraverseMinimalAppPageHidden() {
+  if (!g_host || !g_host->ui_session() ||
+      g_host->lifecycle() != web::WebApplicationHostLifecycle::kRunning) return;
+  if (!g_host->PersistForPageLifecycle((g_profile_path / "user.bin").generic_string()))
+    SetSaveStatus("Save failed");
 }
 
 EMSCRIPTEN_KEEPALIVE void ApptraverseMinimalAppRequestShutdown() {
@@ -156,36 +161,34 @@ void StartWebMinimalApplication() {
     host.mount = ApptraverseGetAppMountElement();
   };
   callbacks.run_model = [](ApplicationPublishedCallback on_published) -> int {
-    if (!g_durable_storage) {
-      g_durable_storage =
-          std::make_unique<DirectoryDomainStorage>(kProfilePath);
-    }
-    bool const user_profile_present = UserProfilePresent(kProfilePath);
-    if (user_profile_present) {
+#if defined(APPTRAVERSE_DEBUG_FRESH_START)
+    g_profile_path /= "debug-run-" + std::to_string(ae::ObjId::GenerateUnique().id());
+    EM_ASM({ console.log('MINIMAL_APP_DEBUG_FRESH_USER'); });
+#else
+    if (!LoadUserStorageFile(g_user_storage, g_profile_path)) return 1;
+    if (!g_user_storage.state.empty()) {
       EM_ASM({ console.log('MINIMAL_APP_LOADED_FROM_PROFILE'); });
     } else {
       EM_ASM({ console.log('MINIMAL_APP_LOADED_FROM_EMBEDDED_BACKING'); });
     }
+#endif
 
     ApplicationModelSessionHooks<MinimalApplication> hooks;
-    hooks.prepare = [user_profile_present](MinimalApplication& application) {
-      PrepareMinimalApplicationForRun(application);
-      if (user_profile_present) {
-        NormalizeMinimalApplicationAfterEmbeddedUserLoad(application);
-      }
-    };
+    hooks.prepare = PrepareMinimalApplicationForRun;
     hooks.persist = [](MinimalApplication& application) -> int {
-      return PersistMinimalApplicationEmbeddedUserOverlay(application,
-                                                          *g_durable_storage);
+      return PersistMinimalApplicationFromDomain(*application.domain);
     };
-
     int const session_result = RunEmbeddedApplicationModelSession(
-        *g_durable_storage, embedded_distilled::minimal::kEmbeddedGraph,
+        g_user_storage, embedded_distilled::minimal::kEmbeddedGraph,
         g_runtime, std::move(on_published), hooks);
-    g_durable_storage.reset();
     return session_result;
   };
   callbacks.request_stop = [] { g_runtime.RequestStop(); };
+  callbacks.capture_model_state = [](ae::Domain& domain, std::vector<std::uint8_t>& bytes) {
+    auto application = domain.Find(MinimalApplicationRootId()).as<MinimalApplication>();
+    return SaveMinimalApplicationEmbeddedUserState(*application) == 0 &&
+           SerializeUserStorage(g_user_storage, bytes);
+  };
   callbacks.after_initial = [](ae::Obj&) { HideLoadingAndSignalRenderOk(); };
   callbacks.persist_model = [](ae::Domain& domain) -> int {
     return PersistMinimalApplicationFromDomain(domain);

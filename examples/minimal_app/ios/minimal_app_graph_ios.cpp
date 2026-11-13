@@ -6,7 +6,6 @@
 namespace apptraverse::example::minimal {
 
 MinimalApplication::ptr BuildIosMinimalApplicationGraph(ae::Domain& domain) {
-  ui::ios::EnsureIosUiPresenterRegistration();
   MinimalPresenterFactories factories;
   factories.create_window = [](ae::Domain& build_domain,
                                ae::ObjId presenter_id) {

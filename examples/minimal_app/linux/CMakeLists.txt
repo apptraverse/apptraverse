@@ -28,8 +28,11 @@ target_include_directories(apptraverse_export_minimal_distilled_graph_linux PRIV
 )
 
 add_executable(linux_minimal_app ${_minimal_app_linux_sources})
+target_sources(linux_minimal_app PRIVATE
+  "$<$<CONFIG:Debug>:${CMAKE_CURRENT_SOURCE_DIR}/minimal_app_graph_linux.cpp>")
 target_compile_definitions(linux_minimal_app PRIVATE
   APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL
+  "$<$<CONFIG:Debug>:APPTRAVERSE_DEBUG_FRESH_START>"
 )
 apptraverse_embed_distilled_supply(
   linux_minimal_app
@@ -46,3 +49,15 @@ target_include_directories(linux_minimal_app PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/../common
 )
+
+# Explicit restore consumer for lifecycle/cold-load acceptance. Ordinary Debug
+# always starts from supply and never loads an earlier USER.
+add_executable(linux_minimal_app_load_only ${_minimal_app_linux_sources})
+target_compile_definitions(linux_minimal_app_load_only PRIVATE
+  APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
+target_link_libraries(linux_minimal_app_load_only PRIVATE
+  minimal_app_common apptraverse_ui_linux PkgConfig::GTK3)
+target_include_directories(linux_minimal_app_load_only PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/../common
+  "${CMAKE_CURRENT_BINARY_DIR}/generated_distilled/linux_minimal_app")
+add_dependencies(linux_minimal_app_load_only linux_minimal_app)

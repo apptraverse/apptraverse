@@ -296,8 +296,17 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     set(CMAKE_Swift_COMPILER "${_apptraverse_swiftc_path}")
   endif()
   set(CMAKE_Swift_FLAGS "-sdk ${CMAKE_OSX_SYSROOT}")
+  # A simulator target cannot be linked into a physical-device application.
+  string(TOLOWER "${CMAKE_OSX_SYSROOT}" _apptraverse_ios_sysroot)
+  if(_apptraverse_ios_sysroot MATCHES "iphonesimulator")
+    set(_apptraverse_ios_swift_platform iphonesimulator)
+    set(_apptraverse_ios_target_suffix -simulator)
+  else()
+    set(_apptraverse_ios_swift_platform iphoneos)
+    set(_apptraverse_ios_target_suffix "")
+  endif()
   set(CMAKE_Swift_COMPILER_TARGET
-    ${CMAKE_OSX_ARCHITECTURES}-apple-ios${CMAKE_OSX_DEPLOYMENT_TARGET}-simulator)
+    ${CMAKE_OSX_ARCHITECTURES}-apple-ios${CMAKE_OSX_DEPLOYMENT_TARGET}${_apptraverse_ios_target_suffix})
   enable_language(Swift)
 
   add_library(apptraverse_ui_ios_bridge STATIC
@@ -333,7 +342,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     "-framework Foundation"
     "-framework SwiftUI")
   get_filename_component(_ios_swift_bin_dir ${CMAKE_Swift_COMPILER} DIRECTORY)
-  set(_ios_swift_runtime_dir ${_ios_swift_bin_dir}/../lib/swift/iphonesimulator)
+  set(_ios_swift_runtime_dir ${_ios_swift_bin_dir}/../lib/swift/${_apptraverse_ios_swift_platform})
   target_link_options(apptraverse_ui_ios INTERFACE
     -L${CMAKE_OSX_SYSROOT}/usr/lib/swift
     -L${_ios_swift_runtime_dir}

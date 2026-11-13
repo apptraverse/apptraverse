@@ -11,6 +11,7 @@
 #include "apptraverse/platform/android/android_ui_push_button_presenter.h"
 
 #include "android_log.h"
+#include "android_jni_util.h"
 
 #include "apptraverse/object_macros.h"
 #include "apptraverse/platform/android/android_ui_registration.h"
@@ -48,11 +49,8 @@ jlong NativeCreate(JNIEnv* env, jclass, jstring files_dir, jstring state_subdir,
     return 0;
   }
 
-  char const* files_chars = env->GetStringUTFChars(files_dir, nullptr);
-  char const* sub_chars = env->GetStringUTFChars(state_subdir, nullptr);
-  auto state_dir = std::filesystem::path{files_chars} / sub_chars;
-  env->ReleaseStringUTFChars(files_dir, files_chars);
-  env->ReleaseStringUTFChars(state_subdir, sub_chars);
+  auto state_dir = std::filesystem::path{ui::android::JstringToUtf8(env, files_dir)} /
+                   ui::android::JstringToUtf8(env, state_subdir);
 
   auto* runtime = new MinimalNativeRuntime(std::move(state_dir), std::move(bridge));
   return reinterpret_cast<jlong>(runtime);

@@ -82,6 +82,10 @@
         }
       }],
       onRuntimeInitialized: function() {
+        document.addEventListener('visibilitychange', function() {
+          if (document.visibilityState === 'hidden') Module._ApptraverseMinimalAppPageHidden();
+        });
+        window.addEventListener('pagehide', function() { Module._ApptraverseMinimalAppPageHidden(); });
         document.getElementById('save-button').addEventListener('click', function() {
           Module._ApptraverseMinimalAppRequestSave();
         });

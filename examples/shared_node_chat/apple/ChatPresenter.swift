@@ -15,7 +15,9 @@ final class ChatPresenter: ObservableObject {
     private var initialActionSent = false
     @Published var uid = "Connecting..."
     @Published var invite = ""
-    @Published var input = ""
+    @Published var input = "" { didSet { inputRevision &+= 1 } }
+    private var inputRevision: UInt64 = 0
+    private var sendPending = false
     @Published var status = "Connecting to Aether..."
     @Published var inputError = ""
     @Published var participants: [String] = []
@@ -47,12 +49,23 @@ final class ChatPresenter: ObservableObject {
     }
     func join() { if !stopped && ready && !inRoom { bridge.joinRoom(invite) } }
     func send() {
-        guard !stopped && ready && inRoom,
+        guard !stopped && !sendPending && ready && inRoom,
               !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         guard input.utf8.count <= 8192 else {
             inputError = "Message is too long (maximum 8192 UTF-8 bytes)."; return
         }
-        inputError = ""; bridge.send(input); input = ""
+        let submittedRevision = inputRevision
+        inputError = ""; sendPending = true
+        bridge.send(input, committed: { [weak self] accepted in
+            guard let self else { return }
+            self.sendPending = false
+            guard !self.stopped else { return }
+            if accepted {
+                if self.inputRevision == submittedRevision { self.input = "" }
+            } else {
+                self.inputError = "Could not save the message."
+            }
+        })
     }
     func refresh() {
         guard !stopped else { return }

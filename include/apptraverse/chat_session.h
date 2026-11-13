@@ -63,6 +63,9 @@ class ChatSession {
   // Only the host UID is user-visible; room object IDs stay in the protocol.
   void JoinRoom(std::string host_uid);
   void Send(std::string text);
+  // Completion runs on the model worker after the local model commit.
+  // A UI may clear its unchanged draft only when committed is true.
+  void Send(std::string text, std::function<void(bool)> committed);
   ChatView View() const;
 
  private:

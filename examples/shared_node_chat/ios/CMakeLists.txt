@@ -1,3 +1,12 @@
+# Swift must use the same device/simulator SDK as the C++ backend.
+if(CMAKE_OSX_SYSROOT MATCHES "[Ii][Pp]hone[Ss]imulator")
+  set(_apptraverse_ios_swift_platform iphonesimulator)
+  set(_apptraverse_ios_swift_target_suffix "-simulator")
+else()
+  set(_apptraverse_ios_swift_platform iphoneos)
+  set(_apptraverse_ios_swift_target_suffix "")
+endif()
+
 set_source_files_properties(../apple/ChatBridge.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc -fno-objc-exceptions")
 add_library(apptraverse_chat_ios_bridge STATIC ../apple/ChatBridge.mm)
 target_link_libraries(apptraverse_chat_ios_bridge PRIVATE apptraverse_shared_chat_session "-framework Foundation")
@@ -18,5 +27,5 @@ target_link_libraries(shared_node_chat PRIVATE apptraverse_chat_ios_swift
 get_filename_component(_swift_bin_dir ${CMAKE_Swift_COMPILER} DIRECTORY)
 target_link_options(shared_node_chat PRIVATE
   -L${CMAKE_OSX_SYSROOT}/usr/lib/swift
-  -L${_swift_bin_dir}/../lib/swift/iphonesimulator
+  -L${_swift_bin_dir}/../lib/swift/${_apptraverse_ios_swift_platform}
   -Wl,-rpath,/usr/lib/swift)

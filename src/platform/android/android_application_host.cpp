@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "android_log.h"
+#include "android_jni_util.h"
 
 #include "apptraverse/noninteractive_crt.h"
 
@@ -10,14 +11,13 @@ namespace apptraverse::android {
 namespace {
 
 void DeleteGlobalRef(JavaVM* vm, jobject& ref) {
-  if (vm == nullptr || ref == nullptr) {
-    ref = nullptr;
-    return;
-  }
+  if (ref == nullptr) return;
   JNIEnv* env = nullptr;
-  if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) == JNI_OK) {
-    env->DeleteGlobalRef(ref);
+  if (vm == nullptr || vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
+    WriteFatalStderr("fatal: Android presentation reference released outside its JNI thread\n");
+    std::abort();
   }
+  env->DeleteGlobalRef(ref);
   ref = nullptr;
 }
 
@@ -68,12 +68,14 @@ AndroidApplicationHost::~AndroidApplicationHost() {
 void AndroidApplicationHost::SetPresentationRoot(JNIEnv* env, jobject activity,
                                                  jobject content_root) {
   if (presentation_host_.vm == nullptr) {
-    env->GetJavaVM(&presentation_host_.vm);
+    if (env->GetJavaVM(&presentation_host_.vm) != JNI_OK) {
+      ui::android::FailJni(env, "presentation JavaVM");
+    }
   }
   DeleteGlobalRef(presentation_host_.vm, presentation_host_.activity);
   DeleteGlobalRef(presentation_host_.vm, presentation_host_.content_root);
-  presentation_host_.activity = env->NewGlobalRef(activity);
-  presentation_host_.content_root = env->NewGlobalRef(content_root);
+  presentation_host_.activity = ui::android::CheckedJni(env, "Activity reference", [&] { return env->NewGlobalRef(activity); });
+  presentation_host_.content_root = ui::android::CheckedJni(env, "content root reference", [&] { return env->NewGlobalRef(content_root); });
   if (callbacks_.refresh_presentation_host) {
     callbacks_.refresh_presentation_host(presentation_host_);
   }
@@ -114,7 +116,10 @@ void AndroidApplicationHost::RunModelWorkerThread() {
     }
   }
 
-  (void)callbacks_.run_model(ModelThreadPublicationBridge());
+  if (callbacks_.run_model(ModelThreadPublicationBridge()) != 0) {
+    WriteFatalStderr("fatal: Android model worker failed\n");
+    std::abort();
+  }
 
   model_thread_live_.store(false, std::memory_order_release);
   LogInfo("MINIMAL_APP_ANDROID_MODEL_THREAD_EXIT");

@@ -5,7 +5,6 @@
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
 
-#include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/distilled_domain_export.h"
 #include "apptraverse/object_macros.h"
@@ -35,30 +34,13 @@ int main(int argc, char** argv) {
   apptraverse::ui::android::EnsureAndroidUiPresenterRegistration();
   apptraverse::example::minimal::EnsureMinimalApplicationRegistration();
 
-  std::filesystem::path const export_dir =
-      std::filesystem::path{argv[1]}.concat(".export_dir");
-  std::error_code remove_ec;
-  std::filesystem::remove_all(export_dir, remove_ec);
-
-  {
-    apptraverse::DirectoryDomainStorage storage{export_dir};
-    ae::Domain domain{storage};
-    auto application =
-        apptraverse::example::minimal::BuildAndroidMinimalApplicationGraph(
-            domain);
-    apptraverse::FinalizeDistilledGraph(*application);
-    apptraverse::SaveDistilledRoot(*application);
-  }
-
   ae::RamDomainStorage export_storage;
-  if (!apptraverse::LoadDirectoryDomainStorageIntoRam(export_dir,
-                                                      export_storage)) {
-    std::cerr << "failed to load distilled minimal app layers from export dir\n";
-    return 1;
-  }
+  ae::Domain domain{export_storage};
+  auto application = apptraverse::example::minimal::BuildAndroidMinimalApplicationGraph(domain);
+  apptraverse::FinalizeDistilledGraph(*application);
+  apptraverse::SaveDistilledRoot(*application);
   std::set<ae::ObjId> const object_filter =
       apptraverse::CollectStoredObjectIds(export_storage);
-  std::filesystem::remove_all(export_dir, remove_ec);
 
   if (!apptraverse::WriteEmbeddedDistilledSupplyHeader(
           argv[1], kGraphNamespace, kHeaderGuard,

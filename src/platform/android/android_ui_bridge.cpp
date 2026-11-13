@@ -1,11 +1,15 @@
 #include "apptraverse/platform/android/android_ui_bridge.h"
 
 #include "android_log.h"
+#include "android_jni_util.h"
+#include <cstdlib>
 #include "apptraverse/platform/android/android_ui_list_presenter.h"
 #include "apptraverse/platform/android/android_ui_push_button_presenter.h"
 #include "apptraverse/platform/android/android_ui_window_presenter.h"
 
 namespace apptraverse::android {
+using ui::android::CheckedJni;
+using ui::android::FailJni;
 
 namespace {
 void OnPushButton(JNIEnv*, jclass, jlong presenter) {
@@ -77,8 +81,13 @@ void AndroidUiBridge::Reset() {
     class_ = nullptr;
     return;
   }
-  JNIEnv* env = AttachedEnv();
-  if (env != nullptr) {
+  bool attached_here = false;
+  JNIEnv* env = AttachedEnv(attached_here);
+  if (env == nullptr) {
+    LogError("AndroidUiBridge: failed to attach JNIEnv to release references");
+    std::abort();
+  }
+  {
     if (object_ != nullptr) {
       env->DeleteGlobalRef(object_);
     }
@@ -88,10 +97,12 @@ void AndroidUiBridge::Reset() {
   }
   object_ = nullptr;
   class_ = nullptr;
+  if (attached_here) vm_->DetachCurrentThread();
   vm_ = nullptr;
 }
 
-JNIEnv* AndroidUiBridge::AttachedEnv() const {
+JNIEnv* AndroidUiBridge::AttachedEnv(bool& attached_here) const {
+  attached_here = false;
   if (vm_ == nullptr) {
     return nullptr;
   }
@@ -105,6 +116,7 @@ JNIEnv* AndroidUiBridge::AttachedEnv() const {
     if (vm_->AttachCurrentThread(&env, nullptr) != 0) {
       return nullptr;
     }
+    attached_here = true;
     return env;
   }
   return nullptr;
@@ -114,72 +126,70 @@ void AndroidUiBridge::PostBackgroundSaveFinished(int persist_result) const {
   if (on_background_save_finished_ == nullptr) {
     return;
   }
-  JNIEnv* env = AttachedEnv();
+  bool attached_here = false;
+  JNIEnv* env = AttachedEnv(attached_here);
   if (env == nullptr) {
     LogError("AndroidUiBridge: failed to attach JNIEnv for background save");
-    return;
+    std::abort();
   }
   env->CallVoidMethod(object_, on_background_save_finished_,
                       static_cast<jint>(persist_result));
   if (env->ExceptionCheck()) {
-    env->ExceptionDescribe();
-    env->ExceptionClear();
-    LogError("AndroidUiBridge: onNativeBackgroundSaveFinished threw");
+    FailJni(env, "onNativeBackgroundSaveFinished");
   }
+  if (attached_here) vm_->DetachCurrentThread();
 }
 
 void AndroidUiBridge::PostPublication(int kind) const {
-  JNIEnv* env = AttachedEnv();
+  bool attached_here = false;
+  JNIEnv* env = AttachedEnv(attached_here);
   if (env == nullptr) {
     LogError("AndroidUiBridge: failed to attach JNIEnv for publication");
-    return;
+    std::abort();
   }
   env->CallVoidMethod(object_, on_publication_, static_cast<jint>(kind));
   if (env->ExceptionCheck()) {
-    env->ExceptionDescribe();
-    env->ExceptionClear();
-    LogError("AndroidUiBridge: onNativePublication threw");
+    FailJni(env, "onNativePublication");
   }
+  if (attached_here) vm_->DetachCurrentThread();
 }
 
 AndroidUiBridge MakeAndroidUiBridge(JNIEnv* env, jobject ui_bridge) {
   JavaVM* vm = nullptr;
   if (env->GetJavaVM(&vm) != 0 || vm == nullptr) {
     LogError("MakeAndroidUiBridge: GetJavaVM failed");
-    return {};
+    FailJni(env, "GetJavaVM");
   }
 
-  jclass local_class = env->GetObjectClass(ui_bridge);
+  jclass local_class = CheckedJni(env, "bridge class", [&] { return env->GetObjectClass(ui_bridge); });
   jclass global_class = static_cast<jclass>(env->NewGlobalRef(local_class));
   env->DeleteLocalRef(local_class);
   if (global_class == nullptr) {
     LogError("MakeAndroidUiBridge: bridge class global ref failed");
-    return {};
+    FailJni(env, "bridge class global reference");
   }
 
   jmethodID const on_publication =
       env->GetMethodID(global_class, "onNativePublication", "(I)V");
   if (on_publication == nullptr) {
-    env->ExceptionClear();
     env->DeleteGlobalRef(global_class);
     LogError("MakeAndroidUiBridge: onNativePublication missing");
-    return {};
+    FailJni(env, "onNativePublication");
   }
 
   jmethodID const on_background_save_finished = env->GetMethodID(
       global_class, "onNativeBackgroundSaveFinished", "(I)V");
   if (on_background_save_finished == nullptr) {
-    env->ExceptionClear();
     env->DeleteGlobalRef(global_class);
     LogError("MakeAndroidUiBridge: onNativeBackgroundSaveFinished missing");
-    return {};
+    FailJni(env, "onNativeBackgroundSaveFinished");
   }
 
   jobject global_object = env->NewGlobalRef(ui_bridge);
   if (global_object == nullptr) {
     env->DeleteGlobalRef(global_class);
     LogError("MakeAndroidUiBridge: bridge instance global ref failed");
-    return {};
+    FailJni(env, "bridge instance global reference");
   }
 
   return AndroidUiBridge{vm, global_object, global_class, on_publication,

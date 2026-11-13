@@ -1,3 +1,12 @@
+# Swift must use the same device/simulator SDK as the C++ backend.
+if(CMAKE_OSX_SYSROOT MATCHES "[Ii][Pp]hone[Ss]imulator")
+  set(_apptraverse_ios_swift_platform iphonesimulator)
+  set(_apptraverse_ios_swift_target_suffix "-simulator")
+else()
+  set(_apptraverse_ios_swift_platform iphoneos)
+  set(_apptraverse_ios_swift_target_suffix "")
+endif()
+
 if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES)
 enable_language(OBJCXX)
 
@@ -18,7 +27,7 @@ if(NOT CMAKE_Swift_COMPILER)
 endif()
 set(CMAKE_Swift_FLAGS "-sdk ${CMAKE_OSX_SYSROOT}")
 set(CMAKE_Swift_COMPILER_TARGET
-  ${CMAKE_OSX_ARCHITECTURES}-apple-ios${CMAKE_OSX_DEPLOYMENT_TARGET}-simulator
+  ${CMAKE_OSX_ARCHITECTURES}-apple-ios${CMAKE_OSX_DEPLOYMENT_TARGET}${_apptraverse_ios_swift_target_suffix}
 )
 enable_language(Swift)
 
@@ -33,7 +42,7 @@ target_compile_options(surfaces_demo_ios_content PRIVATE
 
 # Holds the Swift compatibility archives the autolinked Swift objects reference.
 get_filename_component(_swift_bin_dir ${CMAKE_Swift_COMPILER} DIRECTORY)
-set(_swift_runtime_dir ${_swift_bin_dir}/../lib/swift/iphonesimulator)
+set(_swift_runtime_dir ${_swift_bin_dir}/../lib/swift/${_apptraverse_ios_swift_platform})
 
 set(_surfaces_ios_sources
   main.mm

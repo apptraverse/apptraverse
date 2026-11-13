@@ -20,6 +20,15 @@
 
 namespace apptraverse {
 
+inline constexpr int kSurfaceChromeMargin = 12;
+inline constexpr int kSurfaceAddButtonLayoutX = kSurfaceChromeMargin;
+inline constexpr int kSurfaceAddButtonLayoutY = kSurfaceChromeMargin;
+inline constexpr int kSurfaceAddButtonLayoutWidth = 88;
+inline constexpr int kSurfaceAddButtonLayoutHeight = 28;
+inline constexpr int kSurfaceAddButtonId = 1001;
+inline constexpr int kSurfaceCloseButtonId = 1002;
+inline constexpr int kSurfaceLanguageButtonId = 1003;
+
 class Surfaces;
 class Surface;
 class SurfacePresenter;
@@ -104,6 +113,9 @@ class Surface : public NodeFor<Surface> {
                         std::int32_t height);
   // Model-thread: SurfacePresentationSizeChangedEvent when values differ.
   void SetPresentationSize(std::int32_t width, std::int32_t height);
+  // Derived application geometry from the current canonical presentation size.
+  void ComputeChromeButtonLayout(std::uint32_t control_id, int* x, int* y,
+                                int* width, int* height) const;
 
   void Apply(SurfaceBoundsChangedEvent const& event);
   void Apply(SurfacePresentationSizeChangedEvent const& event);

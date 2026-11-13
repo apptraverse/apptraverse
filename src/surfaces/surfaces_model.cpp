@@ -14,6 +14,49 @@
 #include "apptraverse/ui/ui_push_button_presenter.h"
 
 namespace apptraverse {
+namespace {
+constexpr int kMargin = kSurfaceChromeMargin;
+constexpr int kGap = 8;
+constexpr int kAddW = kSurfaceAddButtonLayoutWidth;
+constexpr int kAddH = kSurfaceAddButtonLayoutHeight;
+constexpr int kLangW = 48;
+constexpr int kLangH = 28;
+constexpr int kCloseW = 200;
+constexpr int kCloseH = 28;
+constexpr int kHorizontalChromeMinWidth =
+    kMargin + kAddW + kGap + kLangW + kGap + kCloseW + kMargin;
+
+}  // namespace
+
+void Surface::ComputeChromeButtonLayout(
+    std::uint32_t control_id, int* x, int* y, int* w, int* h) const {
+  bool const horizontal = presentation_width >= kHorizontalChromeMinWidth &&
+                          presentation_width >= presentation_height;
+  *x = kMargin;
+  *y = kMargin;
+  if (control_id == static_cast<std::uint32_t>(kSurfaceAddButtonId)) {
+    *w = kAddW;
+    *h = kAddH;
+    return;
+  }
+  if (control_id == static_cast<std::uint32_t>(kSurfaceLanguageButtonId)) {
+    *w = kLangW;
+    *h = kLangH;
+    if (horizontal) {
+      *x = kMargin + kAddW + kGap;
+    } else {
+      *y = kMargin + kAddH + kGap;
+    }
+    return;
+  }
+  *w = kCloseW;
+  *h = kCloseH;
+  if (horizontal) {
+    *x = kMargin + kAddW + kGap + kLangW + kGap;
+  } else {
+    *y = kMargin + kAddH + kGap + kLangH + kGap;
+  }
+}
 
 void Surfaces::Apply(AddSurfaceEvent const& event) {
   surfaces.push_back(event.surface);

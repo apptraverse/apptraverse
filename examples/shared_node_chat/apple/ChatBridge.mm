@@ -1,11 +1,18 @@
 #import "ChatBridge.h"
 #include "apptraverse/chat_session.h"
+#include "apptraverse/noninteractive_crt.h"
+#include <cstdlib>
 #include <filesystem>
 #include <sys/file.h>
 #include <fcntl.h>
 #include <unistd.h>
 static NSString* Text(std::string const& value) {
-  return [[NSString alloc] initWithBytes:value.data() length:value.size() encoding:NSUTF8StringEncoding];
+  NSString* result = [[NSString alloc] initWithBytes:value.data() length:value.size() encoding:NSUTF8StringEncoding];
+  if (result == nil) {
+    apptraverse::WriteFatalStderr("cannot create native text from chat publication\n");
+    std::abort();
+  }
+  return result;
 }
 @implementation ATChatBridge {
   std::unique_ptr<apptraverse::chat::ChatSession> session;
@@ -34,7 +41,11 @@ static NSString* Text(std::string const& value) {
   std::filesystem::permissions(profile.fileSystemRepresentation, std::filesystem::perms::owner_all, error);
   if (error) return NO;
   lock = open([[profile stringByAppendingPathComponent:@".host.lock"] fileSystemRepresentation], O_CREAT | O_RDWR, 0600);
-  if (lock < 0 || flock(lock, LOCK_EX | LOCK_NB) != 0) return NO;
+  if (lock < 0) return NO;
+  if (flock(lock, LOCK_EX | LOCK_NB) != 0) {
+    close(lock); lock = -1;
+    return NO;
+  }
   session->Start(); return YES;
 }
 - (void)stop {
@@ -53,6 +64,12 @@ static NSString* Text(std::string const& value) {
 - (void)createRoom { if (!stopped) session->CreateRoom(); }
 - (void)joinRoom:(NSString*)invite { if (!stopped) session->JoinRoom(invite.UTF8String); }
 - (void)send:(NSString*)text { if (!stopped) session->Send(text.UTF8String); }
+- (void)send:(NSString*)text committed:(void (^)(BOOL))completion {
+  if (stopped) { completion(NO); return; }
+  session->Send(text.UTF8String, [completion](bool ok) {
+    dispatch_async(dispatch_get_main_queue(), ^{ completion(ok); });
+  });
+}
 - (NSDictionary*)snapshot {
   auto view = session->View();
   NSMutableArray* participants = [NSMutableArray array];

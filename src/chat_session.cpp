@@ -667,15 +667,15 @@ struct ChatSession::Impl {
     next_join_request = 0;
   }
 
-  void Send(std::string text) {
+  bool Send(std::string text) {
     text = Trim(std::move(text));
     auto* room = CurrentRoom();
     if (failed || !sync || !room || text.empty()) {
-      return;
+      return false;
     }
     if (text.size() > 8192) {
       SetStatus("Message is too long (8192 bytes maximum)");
-      return;
+      return false;
     }
     auto const author = std::find_if(
         room->participants.begin(), room->participants.end(),
@@ -684,16 +684,17 @@ struct ChatSession::Impl {
         });
     if (author == room->participants.end()) {
       SetError("This client is not a room participant");
-      return;
+      return false;
     }
     auto event = TextEvent::ptr::Create(ae::CreateWith{*domain});
     event->author = *author;
     event->text = std::move(text);
     if (!sync->CommitLocal(room->obj_id, std::move(event))) {
       SetError("Could not commit the message");
-      return;
+      return false;
     }
     SetStatus("Connected");
+    return true;
   }
 
   void OnJoinRequest(std::string const& source, ae::ObjId room_id,
@@ -1001,6 +1002,13 @@ void ChatSession::JoinRoom(std::string invite) {
 void ChatSession::Send(std::string text) {
   impl_->proxy.EnqueueModelWork([impl = impl_.get(), text = std::move(text)](
                                     ae::Domain&) { impl->Send(text); });
+}
+void ChatSession::Send(std::string text, std::function<void(bool)> committed) {
+  impl_->proxy.EnqueueModelWork(
+      [impl = impl_.get(), text = std::move(text),
+       committed = std::move(committed)](ae::Domain&) {
+        committed(impl->Send(text));
+      });
 }
 ChatView ChatSession::View() const {
   std::lock_guard lock{impl_->view_mutex};
