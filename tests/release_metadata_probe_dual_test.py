@@ -4,6 +4,7 @@
 import argparse
 import json
 import subprocess
+from fixture_process import run_fixture
 import sys
 from pathlib import Path
 
@@ -17,7 +18,7 @@ def read_release(config_path: Path) -> int:
 
 
 def run_probe(probe: Path, cwd: Path) -> int:
-    completed = subprocess.run(
+    completed = run_fixture(
         [str(probe)],
         cwd=cwd,
         capture_output=True,

@@ -5,6 +5,7 @@ import argparse
 import json
 import shutil
 import subprocess
+from fixture_process import run_fixture
 from pathlib import Path
 
 from application_evolution_matrix import CheckFailed, manifest
@@ -21,7 +22,7 @@ MAIN_POSX = 10
 
 
 def run(exe, state_root, op):
-    completed = subprocess.run(
+    completed = run_fixture(
         [str(exe), "--state-dir", str(state_root), "--op", op],
         capture_output=True,
         text=True,

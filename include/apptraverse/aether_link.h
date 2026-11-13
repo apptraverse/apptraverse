@@ -20,6 +20,8 @@ struct AetherLinkOptions {
   // Disabled by default: send without availability observations and let the
   // durable SharedSync ACK/retry loop establish delivery.
   bool use_presence{false};
+  // Observe status without blocking durable delivery on an Unknown result.
+  bool gate_delivery_on_presence{true};
   std::uint64_t presence_query_interval_us{1000000};
   std::uint64_t presence_result_ttl_us{5000000};
   std::uint64_t presence_query_timeout_us{5000000};
@@ -61,6 +63,12 @@ struct AetherLinkStatistics {
   std::uint64_t malformed_messages{0};
   std::uint64_t write_failures{0};
   std::uint64_t session_replacements{0};
+  // Populated by PeerStats from the actual SDK send path.
+  bool linked_tcp_endpoint{false};
+  bool linked_udp_endpoint{false};
+  std::size_t recommended_element_size{0};
+  std::size_t maximum_element_size{0};
+  bool writable{false};
 };
 
 // Model-thread adapter. The context, Client and its AetherApp must outlive it.
@@ -76,7 +84,7 @@ struct AetherLinkStatistics {
 class AetherByteLink final : public IByteLink {
  public:
   AetherByteLink(ae::AeContext const& context, ae::Client::ptr client,
-                  AetherLinkOptions options = {});
+                 AetherLinkOptions options = {});
   ~AetherByteLink() override;
   AetherByteLink(AetherByteLink const&) = delete;
   AetherByteLink& operator=(AetherByteLink const&) = delete;
@@ -88,6 +96,7 @@ class AetherByteLink final : public IByteLink {
   bool Send(std::string const& destination,
             std::vector<std::uint8_t> const& bytes) override;
   LinkAvailability Availability(std::string const& destination) const override;
+  LinkAvailability ObservedPresence(std::string const& destination) const;
   AetherLinkStatistics const& stats() const;
   AetherLinkStatistics PeerStats(std::string const& destination) const;
 

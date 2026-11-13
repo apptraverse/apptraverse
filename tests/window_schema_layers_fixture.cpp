@@ -6,13 +6,11 @@
 
 #include <memory>
 
-#include <stdexcept>
+#include <cstdlib>
 
 #include <string>
 
 #include <string_view>
-
-
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 
@@ -20,21 +18,17 @@
 
 #include "aether-objects/obj/obj.h"
 
-
-
 #include "apptraverse/directory_domain_storage.h"
 
 #include "apptraverse/object_macros.h"
 
 #include "apptraverse/overlay_domain_storage.h"
 
-
-
 // Two independent EXEs, one ClassId, independent version slots.
 
 #ifndef APPTRAVERSE_WINDOW_EXE_REVISION
 
-#error APPTRAVERSE_WINDOW_EXE_REVISION is required
+#  error APPTRAVERSE_WINDOW_EXE_REVISION is required
 
 #endif
 
@@ -44,35 +38,24 @@ static_assert(APPTRAVERSE_WINDOW_EXE_REVISION == 0 ||
 
               APPTRAVERSE_WINDOW_EXE_REVISION == 2);
 
-
-
 namespace apptraverse::test::window_layers {
-
-
+[[noreturn]] void Fail(std::string const& message) {
+  std::cerr << "FAIL: " << message << "\n";
+  std::exit(1);
+}
 
 constexpr std::uint32_t kWindowId = 92001;
 
-
-
 class Window : public ae::Obj {
-
   APPTRAVERSE_NAMED_OBJECT("apptraverse::test::window_layers::Window", Window,
 
                            ae::Obj, APPTRAVERSE_WINDOW_EXE_REVISION)
 
-
-
  protected:
-
   Window() = default;
 
-
-
  public:
-
   explicit Window(ae::ObjProp prop) : Obj{prop} {}
-
-
 
 #if APPTRAVERSE_WINDOW_EXE_REVISION == 2
 
@@ -90,95 +73,61 @@ class Window : public ae::Obj {
 
 #endif
 
-
-
   template <typename Dnv>
 
   void Load(ae::Version<0>, Dnv& dnv) {
-
     dnv(base_, x, y);
-
   }
-
-
 
   template <typename Dnv>
 
   void Save(ae::Version<0>, Dnv& dnv) const {
-
     dnv(base_, x, y);
-
   }
-
-
 
 #if APPTRAVERSE_WINDOW_EXE_REVISION == 1
 
   template <typename Dnv>
 
   void Load(ae::Version<1>, Dnv& dnv) {
-
     dnv(base_, width, height);
-
   }
-
-
 
   template <typename Dnv>
 
   void Save(ae::Version<1>, Dnv& dnv) const {
-
     dnv(base_, width, height);
-
   }
 
 #endif
-
-
 
 #if APPTRAVERSE_WINDOW_EXE_REVISION == 2
 
   template <typename Dnv>
 
   void Load(ae::Version<1>, Dnv& dnv) {
-
     dnv(base_, width, height);
-
   }
-
-
 
   template <typename Dnv>
 
   void Save(ae::Version<1>, Dnv& dnv) const {
-
     dnv(base_, width, height);
-
   }
-
-
 
   template <typename Dnv>
 
   void Load(ae::Version<2>, Dnv& dnv) {
-
     dnv(base_, border_width);
-
   }
-
-
 
   template <typename Dnv>
 
   void Save(ae::Version<2>, Dnv& dnv) const {
-
     dnv(base_, border_width);
-
   }
 
 #endif
-
-
 
   std::int32_t x{0};
 
@@ -197,16 +146,12 @@ class Window : public ae::Obj {
   std::uint32_t border_width;
 
 #endif
-
 };
-
-
 
 APPTRAVERSE_REGISTER(Window);
 
-
-
-#if APPTRAVERSE_WINDOW_EXE_REVISION == 0 || APPTRAVERSE_WINDOW_EXE_REVISION == 1 || \
+#if APPTRAVERSE_WINDOW_EXE_REVISION == 0 || \
+    APPTRAVERSE_WINDOW_EXE_REVISION == 1 || \
     APPTRAVERSE_WINDOW_EXE_REVISION == 2
 
 // Obj/S0 without an origin, as the standard save writes it: null ObjPtr
@@ -223,27 +168,19 @@ constexpr std::uint8_t kEmbeddedWindowV0Layer[] = {
 
 };
 
-
-
 void WriteEmbeddedLayer(ae::RamDomainStorage& storage,
 
                         ae::DomainQuery const& query,
 
                         std::uint8_t const* data, std::size_t size) {
-
   std::unique_ptr<ae::IDomainStorageWriter> writer = storage.Store(query);
 
   if (!writer->Write(ae::seri::DataWriteTag{data, size})) {
-
-    throw std::runtime_error("embedded layer write failed");
-
+    Fail("embedded layer write failed");
   }
-
 }
 
 #endif
-
-
 
 #if APPTRAVERSE_WINDOW_EXE_REVISION == 1 || APPTRAVERSE_WINDOW_EXE_REVISION == 2
 
@@ -255,22 +192,20 @@ constexpr std::uint8_t kEmbeddedWindowV1Layer[] = {
 
 #endif
 
-
-
 #if APPTRAVERSE_WINDOW_EXE_REVISION == 2
 
 constexpr std::uint8_t kEmbeddedWindowV2Layer[] = {
 
-    0x04, 0x00, 0x00, 0x00,
+    0x04,
+    0x00,
+    0x00,
+    0x00,
 
 };
 
 #endif
 
-
-
 int Run(int argc, char** argv) {
-
   std::filesystem::path state_dir;
 
   std::filesystem::path backing_dir;
@@ -280,39 +215,29 @@ int Run(int argc, char** argv) {
   std::string operation;
 
   for (int i = 1; i < argc; ++i) {
-
     std::string_view const argument{argv[i]};
 
     if (argument == "--state-dir" && i + 1 < argc) {
-
       state_dir = argv[++i];
 
     } else if (argument == "--backing-dir" && i + 1 < argc) {
-
       backing_dir = argv[++i];
 
     } else if (argument == "--embedded-backing") {
-
       embedded_backing = true;
 
     } else if (argument == "--op" && i + 1 < argc) {
-
       operation = argv[++i];
 
     } else {
-
-      throw std::runtime_error("invalid or incomplete argument");
-
+      Fail("invalid or incomplete argument");
     }
-
   }
 
   if (embedded_backing && !backing_dir.empty()) {
-
-    throw std::runtime_error(
+    Fail(
 
         "--embedded-backing and --backing-dir are mutually exclusive");
-
   }
 
   if (state_dir.empty() ||
@@ -324,33 +249,26 @@ int Run(int argc, char** argv) {
        operation != "resize" && operation != "move-resize" &&
 
        operation != "change-border" && operation != "reconcile")) {
-
-    throw std::runtime_error(
+    Fail(
 
         "usage: --state-dir PATH --op "
 
-        "create|package|inspect|move|resize|move-resize|change-border|reconcile");
-
+        "create|package|inspect|move|resize|move-resize|change-border|"
+        "reconcile");
   }
-
-
 
   bool const new_state = operation == "create" || operation == "package";
 
   if (new_state) {
-
     if (std::filesystem::exists(state_dir) &&
 
         (!std::filesystem::is_directory(state_dir) ||
 
          !std::filesystem::is_empty(state_dir))) {
-
-      throw std::runtime_error("new state/package directory must be empty");
-
+      Fail("new state/package directory must be empty");
     }
 
   } else if (!std::filesystem::is_directory(state_dir)) {
-
     bool const embedded_empty_state_ok =
 
         embedded_backing &&
@@ -374,14 +292,9 @@ int Run(int argc, char** argv) {
         );
 
     if (!embedded_empty_state_ok) {
-
-      throw std::runtime_error("state directory does not exist");
-
+      Fail("state directory does not exist");
     }
-
   }
-
-
 
 #if APPTRAVERSE_WINDOW_EXE_REVISION == 0
 
@@ -390,106 +303,81 @@ int Run(int argc, char** argv) {
       operation == "move-resize" || operation == "change-border" ||
 
       operation == "reconcile") {
-
-    throw std::runtime_error("v0 EXE does not support v1 fields");
-
+    Fail("v0 EXE does not support v1 fields");
   }
 
 #else
 
   if (operation == "create") {
-
-    throw std::runtime_error("create v0 user state with EXE A");
-
+    Fail("create v0 user state with EXE A");
   }
 
-#if APPTRAVERSE_WINDOW_EXE_REVISION == 1
+#  if APPTRAVERSE_WINDOW_EXE_REVISION == 1
 
   if (operation == "change-border") {
-
-    throw std::runtime_error("v1 EXE does not support v2 fields");
-
+    Fail("v1 EXE does not support v2 fields");
   }
 
-#endif
+#  endif
 
   auto const layer_exists = [&](std::uint8_t version) {
-
-    ae::DomainQuery const query{ae::ObjId{kWindowId}, Window::kClassId, version};
+    ae::DomainQuery const query{ae::ObjId{kWindowId}, Window::kClassId,
+                                version};
 
     if (DirectoryDomainStorageLayerFileExists(state_dir, query)) {
-
       return true;
-
     }
 
     if (!backing_dir.empty() &&
 
         DirectoryDomainStorageLayerFileExists(backing_dir, query)) {
-
       return true;
-
     }
 
-#if APPTRAVERSE_WINDOW_EXE_REVISION == 1
+#  if APPTRAVERSE_WINDOW_EXE_REVISION == 1
 
     if (embedded_backing && version <= 1) {
-
       return true;
-
     }
 
-#endif
+#  endif
 
-#if APPTRAVERSE_WINDOW_EXE_REVISION == 2
+#  if APPTRAVERSE_WINDOW_EXE_REVISION == 2
 
     if (embedded_backing && version <= 2) {
-
       return true;
-
     }
 
-#endif
+#  endif
 
     return false;
-
   };
 
   if (operation != "package" && !layer_exists(1)) {
-
     std::cerr << "MISSING_STATE_LAYER class=" << Window::kClassId
 
               << " version=1 (must be provided by packaged state)\n";
 
     return 2;
-
   }
 
-#if APPTRAVERSE_WINDOW_EXE_REVISION == 2
+#  if APPTRAVERSE_WINDOW_EXE_REVISION == 2
 
   if (operation != "package" && !layer_exists(2)) {
-
     std::cerr << "MISSING_STATE_LAYER class=" << Window::kClassId
 
               << " version=2 (must be provided by packaged state)\n";
 
     return 2;
-
   }
 
-#endif
+#  endif
 
 #endif
-
-
 
   if (!backing_dir.empty() && !std::filesystem::is_directory(backing_dir)) {
-
-    throw std::runtime_error("backing directory does not exist");
-
+    Fail("backing directory does not exist");
   }
-
-
 
   EnsureObjectRegistration();
 
@@ -504,7 +392,6 @@ int Run(int argc, char** argv) {
   ae::IDomainStorage* domain_storage = &user_storage;
 
   if (!backing_dir.empty()) {
-
     backing_storage =
 
         std::make_unique<DirectoryDomainStorage>(backing_dir);
@@ -516,12 +403,12 @@ int Run(int argc, char** argv) {
     domain_storage = overlay_storage.get();
 
   } else if (embedded_backing) {
-
     embedded_storage = std::make_unique<ae::RamDomainStorage>();
 
     ae::DomainQuery const v0_query{ae::ObjId{kWindowId}, Window::kClassId, 0};
 
-    ae::DomainQuery const obj_v0_query{ae::ObjId{kWindowId}, ae::Obj::kClassId, 0};
+    ae::DomainQuery const obj_v0_query{ae::ObjId{kWindowId}, ae::Obj::kClassId,
+                                       0};
 
     WriteEmbeddedLayer(*embedded_storage, obj_v0_query, kEmbeddedObjV0Layer,
                        sizeof(kEmbeddedObjV0Layer));
@@ -555,17 +442,13 @@ int Run(int argc, char** argv) {
         user_storage, *embedded_storage);
 
     domain_storage = overlay_storage.get();
-
   }
 
   ae::Domain domain{*domain_storage};
 
-
-
   ae::Ptr<Window> window;
 
   if (new_state) {
-
     auto created = Window::ptr::Create(
 
         ae::CreateWith{domain}.with_id(ae::ObjId{kWindowId}));
@@ -573,23 +456,19 @@ int Run(int argc, char** argv) {
     window = created.Load();
 
     if (operation == "create") {
-
       window->x = 10;
 
       window->y = 20;
-
     }
 
 #if APPTRAVERSE_WINDOW_EXE_REVISION == 1
 
     if (operation == "package") {
-
       // New fields arrive in a serialized v1 state, never from Load(v0).
 
       window->width = 640;
 
       window->height = 480;
-
     }
 
 #endif
@@ -597,15 +476,12 @@ int Run(int argc, char** argv) {
 #if APPTRAVERSE_WINDOW_EXE_REVISION == 2
 
     if (operation == "package") {
-
       window->border_width = 4;
-
     }
 
 #endif
 
   } else {
-
     ae::DomainGraph load_graph{&domain};
 
     ae::Ptr<ae::Obj> loaded;
@@ -613,27 +489,19 @@ int Run(int argc, char** argv) {
     if (!load_graph.LoadRoot(ae::ObjId{kWindowId}, loaded).IsOk() || !loaded ||
 
         loaded->GetClassId() != Window::kClassId) {
-
-      throw std::runtime_error("LoadRoot failed or Window ClassId changed");
-
+      Fail("LoadRoot failed or Window ClassId changed");
     }
 
     window = ae::Ptr<Window>{loaded};
-
   }
-
-
 
   if (window->obj_id.id() != kWindowId ||
 
       window->GetClassId() != Window::kClassId) {
-
-    throw std::runtime_error("Window identity changed");
-
+    Fail("Window identity changed");
   }
 
   if (operation == "move") {
-
 #if APPTRAVERSE_WINDOW_EXE_REVISION == 0
 
     window->x += 7;
@@ -647,21 +515,17 @@ int Run(int argc, char** argv) {
     window->y += 17;
 
 #endif
-
   }
 
 #if APPTRAVERSE_WINDOW_EXE_REVISION >= 1
 
   if (operation == "resize") {
-
     window->width += 100;
 
     window->height += 50;
-
   }
 
   if (operation == "move-resize") {
-
     window->x += 13;
 
     window->y += 17;
@@ -669,13 +533,10 @@ int Run(int argc, char** argv) {
     window->width += 100;
 
     window->height += 50;
-
   }
 
   if (operation == "reconcile") {
-
     window->width = static_cast<std::uint32_t>(1000 - window->x);
-
   }
 
 #endif
@@ -683,38 +544,28 @@ int Run(int argc, char** argv) {
 #if APPTRAVERSE_WINDOW_EXE_REVISION == 2
 
   if (operation == "change-border") {
-
     window->border_width += 2;
-
   }
 
 #endif
 
-
-
   if (operation != "inspect") {
-
     if (embedded_backing) {
-
-      ae::DomainQuery const obj_v0_query{ae::ObjId{kWindowId}, ae::Obj::kClassId,
+      ae::DomainQuery const obj_v0_query{ae::ObjId{kWindowId},
+                                         ae::Obj::kClassId,
 
                                          0};
 
       if (!DirectoryDomainStorageLayerFileExists(state_dir, obj_v0_query)) {
-
         std::unique_ptr<ae::IDomainStorageWriter> obj_writer =
 
             user_storage.Store(obj_v0_query);
 
         if (!obj_writer->Write(ae::seri::DataWriteTag{
                 kEmbeddedObjV0Layer, sizeof(kEmbeddedObjV0Layer)})) {
-
-          throw std::runtime_error("obj v0 seed write failed");
-
+          Fail("obj v0 seed write failed");
         }
-
       }
-
     }
 
     user_storage.BeginSaveSession();
@@ -729,7 +580,7 @@ int Run(int argc, char** argv) {
 
             ? save_graph.SaveVersion(ae::Version<2>{}, *window,
 
-                                      ae::ObjId{kWindowId})
+                                     ae::ObjId{kWindowId})
 
             : save_graph.SaveRoot(window, ae::ObjId{kWindowId});
 
@@ -741,7 +592,7 @@ int Run(int argc, char** argv) {
 
             ? save_graph.SaveVersion(ae::Version<1>{}, *window,
 
-                                      ae::ObjId{kWindowId})
+                                     ae::ObjId{kWindowId})
 
             : save_graph.SaveRoot(window, ae::ObjId{kWindowId});
 
@@ -754,29 +605,20 @@ int Run(int argc, char** argv) {
 #endif
 
     if (!result.IsOk() || user_storage.SaveSessionHadFailure()) {
-
-      throw std::runtime_error("saving Window state failed");
-
+      Fail("saving Window state failed");
     }
-
   }
-
-
 
   std::cout << "{\"exe\":\"";
 
   if constexpr (APPTRAVERSE_WINDOW_EXE_REVISION == 0) {
-
     std::cout << 'A';
 
   } else if constexpr (APPTRAVERSE_WINDOW_EXE_REVISION == 1) {
-
     std::cout << 'B';
 
   } else {
-
     std::cout << 'C';
-
   }
 
   std::cout << "\",\"class_id\":" << Window::kClassId
@@ -802,29 +644,10 @@ int Run(int argc, char** argv) {
   std::cout << "}\n";
 
   return 0;
-
 }
-
-
 
 }  // namespace apptraverse::test::window_layers
 
-
-
 int main(int argc, char** argv) {
-
-  try {
-
-    return apptraverse::test::window_layers::Run(argc, argv);
-
-  } catch (std::exception const& error) {
-
-    std::cerr << "FAIL: " << error.what() << '\n';
-
-    return 1;
-
-  }
-
+  return apptraverse::test::window_layers::Run(argc, argv);
 }
-
-

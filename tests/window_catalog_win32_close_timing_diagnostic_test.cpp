@@ -2,28 +2,28 @@
 int main() { return 2; }
 #else
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-#ifdef RegisterClass
-#undef RegisterClass
-#endif
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  include <windows.h>
+#  ifdef RegisterClass
+#    undef RegisterClass
+#  endif
 
-#include <algorithm>
-#include <chrono>
-#include <cstdint>
-#include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <iostream>
-#include <numeric>
-#include <optional>
-#include <string>
-#include <vector>
+#  include <algorithm>
+#  include <chrono>
+#  include <cstdint>
+#  include <cstdlib>
+#  include <filesystem>
+#  include <fstream>
+#  include <iostream>
+#  include <numeric>
+#  include <optional>
+#  include <string>
+#  include <vector>
 
-#include "apptraverse/noninteractive_crt.h"
-#include "apptraverse/platform/windows/win_ui_frame.h"
+#  include "apptraverse/noninteractive_crt.h"
+#  include "apptraverse/platform/windows/win_ui_frame.h"
 
 namespace apptraverse::test {
 namespace {
@@ -40,7 +40,8 @@ constexpr auto kSavedProfileChromeWait = std::chrono::seconds{45};
 using Clock = std::chrono::steady_clock;
 
 int64_t MsSince(Clock::time_point const& t0) {
-  return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - t0)
+  return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() -
+                                                               t0)
       .count();
 }
 
@@ -51,23 +52,7 @@ std::filesystem::path ExeDir() {
 }
 
 std::filesystem::path ResolveDemo(char const* name) {
-  std::error_code ec;
-  auto try_path = [&](std::filesystem::path const& p) {
-    auto abs = std::filesystem::weakly_canonical(p, ec);
-    if (!ec && std::filesystem::exists(abs)) {
-      return abs;
-    }
-    return std::filesystem::path{};
-  };
-  if (auto p = try_path(ExeDir() / name); !p.empty()) {
-    return p;
-  }
-  if (auto p = try_path(ExeDir() / ".." / "examples" / "surfaces_demo" / "windows" /
-                        name);
-      !p.empty()) {
-    return p;
-  }
-  return ExeDir() / name;
+  return std::filesystem::path{APPTRAVERSE_TEST_DEMO_DIR} / name;
 }
 
 std::filesystem::path FreshDir(std::filesystem::path const& parent,
@@ -104,8 +89,8 @@ bool WaitUntil(std::chrono::milliseconds timeout, auto predicate) {
 
 LRESULT SendMsgTimeout(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
   DWORD_PTR result = 0;
-  if (SendMessageTimeoutW(hwnd, msg, wparam, lparam, SMTO_NORMAL, kSendTimeoutMs,
-                        &result) == 0) {
+  if (SendMessageTimeoutW(hwnd, msg, wparam, lparam, SMTO_NORMAL,
+                          kSendTimeoutMs, &result) == 0) {
     return static_cast<LRESULT>(-1);
   }
   return static_cast<LRESULT>(result);
@@ -228,8 +213,7 @@ bool ClickAdd(HWND main) {
   if (add == nullptr) {
     return false;
   }
-  return SendMsgTimeout(main, WM_COMMAND,
-                        MAKEWPARAM(kAddControlId, BN_CLICKED),
+  return SendMsgTimeout(main, WM_COMMAND, MAKEWPARAM(kAddControlId, BN_CLICKED),
                         reinterpret_cast<LPARAM>(add)) != -1;
 }
 
@@ -346,7 +330,8 @@ struct CloseObservation {
   int64_t list_closed_ms{-1};
 };
 
-void ObserveChildClose(HWND main, ChildTarget const& target, CloseObservation& out) {
+void ObserveChildClose(HWND main, ChildTarget const& target,
+                       CloseObservation& out) {
   if (!target.found || target.hwnd == nullptr) {
     return;
   }
@@ -358,7 +343,7 @@ void ObserveChildClose(HWND main, ChildTarget const& target, CloseObservation& o
   out.wm_close_post = posted ? ObsStatus::Ok : ObsStatus::Timeout;
 
   while (Clock::now() < deadline) {
-  HWND const still = target.hwnd;
+    HWND const still = target.hwnd;
     if (out.hwnd_hidden == ObsStatus::NotApplicable && IsWindow(still) &&
         !IsWindowVisible(still)) {
       out.hwnd_hidden = ObsStatus::Ok;
@@ -368,11 +353,13 @@ void ObserveChildClose(HWND main, ChildTarget const& target, CloseObservation& o
       out.hwnd_destroyed = ObsStatus::Ok;
       out.hwnd_destroyed_ms = MsSince(t0);
     }
-    if (out.list_closed == ObsStatus::NotApplicable && !RowStillOpen(main, target)) {
+    if (out.list_closed == ObsStatus::NotApplicable &&
+        !RowStillOpen(main, target)) {
       out.list_closed = ObsStatus::Ok;
       out.list_closed_ms = MsSince(t0);
     }
-    if (out.hwnd_destroyed == ObsStatus::Ok && out.list_closed == ObsStatus::Ok) {
+    if (out.hwnd_destroyed == ObsStatus::Ok &&
+        out.list_closed == ObsStatus::Ok) {
       break;
     }
     Sleep(10);
@@ -428,13 +415,14 @@ bool StartDemo(ProcessRun& run, std::filesystem::path const& exe,
   SECURITY_ATTRIBUTES sa{};
   sa.nLength = sizeof(sa);
   sa.bInheritHandle = TRUE;
-  run.stdout_w = CreateFileW(
-      run.stdout_log.c_str(), GENERIC_WRITE, FILE_SHARE_READ, &sa,
-      CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-  run.stderr_w = CreateFileW(
-      run.stderr_log.c_str(), GENERIC_WRITE, FILE_SHARE_READ, &sa,
-      CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (run.stdout_w == INVALID_HANDLE_VALUE || run.stderr_w == INVALID_HANDLE_VALUE) {
+  run.stdout_w =
+      CreateFileW(run.stdout_log.c_str(), GENERIC_WRITE, FILE_SHARE_READ, &sa,
+                  CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+  run.stderr_w =
+      CreateFileW(run.stderr_log.c_str(), GENERIC_WRITE, FILE_SHARE_READ, &sa,
+                  CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (run.stdout_w == INVALID_HANDLE_VALUE ||
+      run.stderr_w == INVALID_HANDLE_VALUE) {
     return false;
   }
   std::wstring cmd = L"\"" + exe.wstring() + L"\" --state-dir \"" +
@@ -448,7 +436,8 @@ bool StartDemo(ProcessRun& run, std::filesystem::path const& exe,
   si.hStdOutput = run.stdout_w;
   si.hStdError = run.stderr_w;
   if (!CreateProcessW(nullptr, cmd_buf.data(), nullptr, nullptr, TRUE, 0,
-                      nullptr, exe.parent_path().wstring().c_str(), &si, &run.pi)) {
+                      nullptr, exe.parent_path().wstring().c_str(), &si,
+                      &run.pi)) {
     return false;
   }
   CloseHandle(run.pi.hThread);
@@ -473,7 +462,7 @@ void BurstResizeOnDemo(HWND main) {
                  SWP_NOZORDER | SWP_NOACTIVATE);
   }
   SendMessageTimeoutW(main, WM_EXITSIZEMOVE, 0, 0, SMTO_NORMAL, kSendTimeoutMs,
-                       nullptr);
+                      nullptr);
 }
 
 bool WaitMainClientSizeStable(HWND main, std::chrono::milliseconds timeout) {
@@ -503,7 +492,8 @@ struct MainExitObservation {
   DWORD exit_code{0};
 };
 
-MainExitObservation CloseMainAndWaitProcess(PROCESS_INFORMATION& pi, HWND main) {
+MainExitObservation CloseMainAndWaitProcess(PROCESS_INFORMATION& pi,
+                                            HWND main) {
   MainExitObservation out{};
   auto const t0 = Clock::now();
   PostMessageW(main, WM_CLOSE, 0, 0);
@@ -536,8 +526,8 @@ bool ProfileReachesListUi(std::filesystem::path const& exe,
   });
 }
 
-std::filesystem::path BuildRuntimeSavedSeed(std::filesystem::path const& exe,
-                                            std::filesystem::path const& run_root) {
+std::filesystem::path BuildRuntimeSavedSeed(
+    std::filesystem::path const& exe, std::filesystem::path const& run_root) {
   auto const seed_dir = run_root / "runtime_agent_fresh_seed";
   std::error_code ec;
   std::filesystem::remove_all(seed_dir, ec);
@@ -563,9 +553,10 @@ std::filesystem::path BuildRuntimeSavedSeed(std::filesystem::path const& exe,
   return seed_dir;
 }
 
-std::filesystem::path ResolveSavedProfileSeed(std::filesystem::path const& exe,
-                                              std::filesystem::path const& run_root) {
-  auto const bundled = exe.parent_path() / "surfaces_catalog_agent_fresh_embedded";
+std::filesystem::path ResolveSavedProfileSeed(
+    std::filesystem::path const& exe, std::filesystem::path const& run_root) {
+  auto const bundled =
+      exe.parent_path() / "surfaces_catalog_agent_fresh_embedded";
   if (std::filesystem::exists(bundled)) {
     auto const probe_log = FreshDir(run_root, "seed_probe_bundled_logs");
     if (ProfileReachesListUi(exe, bundled, probe_log)) {
@@ -610,7 +601,8 @@ struct ScenarioOutcome {
   std::string label;
 };
 
-void PrintMedianLine(char const* label, std::vector<CloseObservation> const& rows) {
+void PrintMedianLine(char const* label,
+                     std::vector<CloseObservation> const& rows) {
   std::vector<int64_t> destroy_ms;
   std::vector<int64_t> hidden_ms;
   std::vector<int64_t> list_ms;
@@ -640,8 +632,10 @@ ScenarioOutcome RunColdCloseScenario(std::filesystem::path const& exe,
   std::size_t obj_sys_stderr = 0;
   for (int rep = 0; rep < kRepeats; ++rep) {
     ProcessRun run;
-    std::string const prof_tag = std::string(label) + "_prof_" + std::to_string(rep);
-    std::string const log_tag = std::string(label) + "_logs_" + std::to_string(rep);
+    std::string const prof_tag =
+        std::string(label) + "_prof_" + std::to_string(rep);
+    std::string const log_tag =
+        std::string(label) + "_logs_" + std::to_string(rep);
     auto const state_dir = FreshDir(run_root, prof_tag.c_str());
     auto const log_dir = FreshDir(run_root, log_tag.c_str());
     if (!StartDemo(run, exe, state_dir, log_dir)) {
@@ -674,7 +668,8 @@ ScenarioOutcome RunColdCloseScenario(std::filesystem::path const& exe,
     MainExitObservation const main_exit = CloseMainAndWaitProcess(run.pi, main);
     obj_sys_stdout += CountObjSysLines(run.stdout_log);
     obj_sys_stderr += CountObjSysLines(run.stderr_log);
-    std::cout << label << " rep=" << rep << " wm_close=" << StatusTag(obs.wm_close_post)
+    std::cout << label << " rep=" << rep
+              << " wm_close=" << StatusTag(obs.wm_close_post)
               << " hwnd_hidden=" << StatusTag(obs.hwnd_hidden) << "@"
               << obs.hwnd_hidden_ms
               << " hwnd_destroy=" << StatusTag(obs.hwnd_destroyed) << "@"
@@ -687,7 +682,8 @@ ScenarioOutcome RunColdCloseScenario(std::filesystem::path const& exe,
     if (main_exit.exit != ObsStatus::Ok || main_exit.exit_code != 0) {
       return outcome;
     }
-    if (obs.hwnd_destroyed != ObsStatus::Ok || obs.list_closed != ObsStatus::Ok) {
+    if (obs.hwnd_destroyed != ObsStatus::Ok ||
+        obs.list_closed != ObsStatus::Ok) {
       return outcome;
     }
   }
@@ -709,11 +705,11 @@ ScenarioOutcome RunSavedProfileScenario(std::filesystem::path const& exe,
   }
   std::vector<CloseObservation> rows;
   for (int rep = 0; rep < kRepeats; ++rep) {
-    auto const state_dir =
-        CopyProfile(run_root,
-                    (std::string(label) + "_prof_" + std::to_string(rep)).c_str(),
-                    seed);
-    std::string const log_tag = std::string(label) + "_logs_" + std::to_string(rep);
+    auto const state_dir = CopyProfile(
+        run_root, (std::string(label) + "_prof_" + std::to_string(rep)).c_str(),
+        seed);
+    std::string const log_tag =
+        std::string(label) + "_logs_" + std::to_string(rep);
     auto const log_dir = FreshDir(run_root, log_tag.c_str());
     ProcessRun run;
     if (!StartDemo(run, exe, state_dir, log_dir)) {
@@ -743,15 +739,17 @@ ScenarioOutcome RunSavedProfileScenario(std::filesystem::path const& exe,
     ObserveChildClose(main, *child, obs);
     rows.push_back(obs);
     MainExitObservation const main_exit = CloseMainAndWaitProcess(run.pi, main);
-    std::cout << label << " rep=" << rep << " hwnd_destroy="
-              << StatusTag(obs.hwnd_destroyed) << "@" << obs.hwnd_destroyed_ms
-              << " list=" << StatusTag(obs.list_closed) << "@" << obs.list_closed_ms
+    std::cout << label << " rep=" << rep
+              << " hwnd_destroy=" << StatusTag(obs.hwnd_destroyed) << "@"
+              << obs.hwnd_destroyed_ms << " list=" << StatusTag(obs.list_closed)
+              << "@" << obs.list_closed_ms
               << " main_exit=" << StatusTag(main_exit.exit) << "@"
               << main_exit.ms << " code=" << main_exit.exit_code
               << " OBJ_SYS stdout=" << CountObjSysLines(run.stdout_log)
               << " stderr=" << CountObjSysLines(run.stderr_log) << '\n';
-    if (obs.hwnd_destroyed != ObsStatus::Ok || obs.list_closed != ObsStatus::Ok ||
-        main_exit.exit != ObsStatus::Ok || main_exit.exit_code != 0) {
+    if (obs.hwnd_destroyed != ObsStatus::Ok ||
+        obs.list_closed != ObsStatus::Ok || main_exit.exit != ObsStatus::Ok ||
+        main_exit.exit_code != 0) {
       return outcome;
     }
   }
@@ -772,8 +770,10 @@ bool RunAllScenarios(std::filesystem::path const& demo) {
     }
   };
   run(RunColdCloseScenario(demo, run_root, "COLD_ADD_CLOSE", false, false));
-  run(RunColdCloseScenario(demo, run_root, "BURST_CLOSE_IMMEDIATE", true, false));
-  run(RunColdCloseScenario(demo, run_root, "BURST_CLOSE_AFTER_SETTLE", true, true));
+  run(RunColdCloseScenario(demo, run_root, "BURST_CLOSE_IMMEDIATE", true,
+                           false));
+  run(RunColdCloseScenario(demo, run_root, "BURST_CLOSE_AFTER_SETTLE", true,
+                           true));
   auto const seed = ResolveSavedProfileSeed(demo, run_root);
   if (seed.empty()) {
     std::cout << "SCENARIO_FAIL SAVED_PROFILE_CLOSE\n";
@@ -784,11 +784,11 @@ bool RunAllScenarios(std::filesystem::path const& demo) {
 }
 
 void PrintBuildLoggingFacts() {
-#if defined(AE_NO_DEBUG_LOG)
+#  if defined(AE_NO_DEBUG_LOG)
   std::cout << "HARNESS_COMPILE_AE_NO_DEBUG_LOG=" << AE_NO_DEBUG_LOG << '\n';
-#else
+#  else
   std::cout << "HARNESS_COMPILE_AE_NO_DEBUG_LOG=undefined\n";
-#endif
+#  endif
   std::ifstream cache(ExeDir() / ".." / "CMakeCache.txt");
   if (cache) {
     std::string line;
@@ -807,7 +807,8 @@ int main() {
   apptraverse::EnableNoninteractiveCrt();
   auto const demo =
       apptraverse::test::ResolveDemo("win32_window_catalog_demo_load_only.exe");
-  std::cout << "CLOSE_TIMING_DIAG HARNESS_ORIGIN=088ea28e59610c3b95a66f65979293baed13354f\n";
+  std::cout << "CLOSE_TIMING_DIAG "
+               "HARNESS_ORIGIN=088ea28e59610c3b95a66f65979293baed13354f\n";
   std::cout << "DEBUG_DEMO=" << demo.string() << '\n';
   apptraverse::test::PrintBuildLoggingFacts();
   bool const ok = apptraverse::test::RunAllScenarios(demo);

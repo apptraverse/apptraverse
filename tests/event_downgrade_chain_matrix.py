@@ -4,6 +4,7 @@
 import argparse
 import json
 import subprocess
+from fixture_process import run_fixture
 import tempfile
 from pathlib import Path
 
@@ -16,7 +17,7 @@ from event_downgrade_storage_checks import (
 
 
 def run(exe, state_dir, op):
-    completed = subprocess.run(
+    completed = run_fixture(
         [str(exe), "--state-dir", str(state_dir), "--op", op],
         capture_output=True,
         text=True,

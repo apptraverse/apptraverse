@@ -5,6 +5,7 @@ import argparse
 import json
 import shutil
 import subprocess
+from fixture_process import run_fixture
 import tempfile
 from pathlib import Path
 
@@ -18,7 +19,7 @@ CHECKPOINTS = ("after_A1", "after_B1", "after_A2", "before_B2")
 
 
 def run_gui(exe, state_dir, automation, timeout):
-    return subprocess.run(
+    return run_fixture(
         [str(exe), "--state-dir", str(state_dir), "--session-automation", automation],
         capture_output=True,
         text=True,

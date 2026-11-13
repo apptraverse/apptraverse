@@ -4,6 +4,7 @@
 #include <iostream>
 #include <memory>
 #include <set>
+#include <sstream>
 #include <string>
 #include <string_view>
 
@@ -19,7 +20,7 @@
 #include "apptraverse/overlay_domain_storage.h"
 
 #ifndef APPTRAVERSE_ORIGIN_EVOLUTION_EXE_REVISION
-#error APPTRAVERSE_ORIGIN_EVOLUTION_EXE_REVISION is required
+#  error APPTRAVERSE_ORIGIN_EVOLUTION_EXE_REVISION is required
 #endif
 static_assert(APPTRAVERSE_ORIGIN_EVOLUTION_EXE_REVISION == 0 ||
               APPTRAVERSE_ORIGIN_EVOLUTION_EXE_REVISION == 1);
@@ -289,8 +290,8 @@ void WriteItem(std::ostream& out, char const* name,
 
 void WriteState(std::string_view op, ae::Domain& domain,
                 EvolutionItem::ptr const& a, EvolutionItem::ptr const& b) {
-  std::cout << "{\"ok\":true,\"op\":\"" << op << "\",\"revision\":"
-            << APPTRAVERSE_ORIGIN_EVOLUTION_EXE_REVISION
+  std::cout << "{\"ok\":true,\"op\":\"" << op
+            << "\",\"revision\":" << APPTRAVERSE_ORIGIN_EVOLUTION_EXE_REVISION
             << ",\"prefab_id\":" << kPrefabIdRaw
             << ",\"item_class_id\":" << EvolutionItem::kClassId
             << ",\"obj_class_id\":" << ae::Obj::kClassId;
@@ -404,11 +405,12 @@ void OpReplayBase(Args const& args) {
   ae::Domain domain{*stores.overlay};
   EvolutionItem::ptr a = LoadItem(domain, kInstanceAId);
   EvolutionItem::ptr b = LoadItem(domain, kInstanceBId);
-  std::cout << "{\"ok\":true,\"op\":\"replay-base\",\"revision\":"
-            << APPTRAVERSE_ORIGIN_EVOLUTION_EXE_REVISION;
-  WriteReplayItem(std::cout, "a", a);
-  WriteReplayItem(std::cout, "b", b);
-  std::cout << "}\n";
+  std::ostringstream record;
+  record << "{\"ok\":true,\"op\":\"replay-base\",\"revision\":"
+         << APPTRAVERSE_ORIGIN_EVOLUTION_EXE_REVISION;
+  WriteReplayItem(record, "a", a);
+  WriteReplayItem(record, "b", b);
+  std::cout << record.str() << "}\n";
 }
 
 void OpCompactJournal(Args const& args) {
@@ -461,10 +463,10 @@ void OpPublishUi(Args const& args) {
       ui_b_obj->GetClassId() != EvolutionItem::kClassId) {
     Fail("initial publication B");
   }
-  EvolutionItem::ptr ui_a = EvolutionItem::ptr::MakeFromThis(
-      static_cast<EvolutionItem*>(&*ui_a_obj));
-  EvolutionItem::ptr ui_b = EvolutionItem::ptr::MakeFromThis(
-      static_cast<EvolutionItem*>(&*ui_b_obj));
+  EvolutionItem::ptr ui_a =
+      EvolutionItem::ptr::MakeFromThis(static_cast<EvolutionItem*>(&*ui_a_obj));
+  EvolutionItem::ptr ui_b =
+      EvolutionItem::ptr::MakeFromThis(static_cast<EvolutionItem*>(&*ui_b_obj));
   std::uint32_t const mirror_a_tag_initial = ui_a->tag;
   std::uint32_t const mirror_b_tag_initial = ui_b->tag;
   std::uint32_t const mirror_a_value_initial = ui_a->value;

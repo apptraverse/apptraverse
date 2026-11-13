@@ -44,6 +44,7 @@ else()
 endif()
 add_custom_target(apptraverse_window_catalog_web_supply DEPENDS "${_catalog_web_supply}")
 
+if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES)
 add_executable(web_surfaces_demo
   main.cpp
   web_app.cpp
@@ -125,6 +126,8 @@ set_target_properties(web_surfaces_model_compile_check PROPERTIES
   OUTPUT_NAME "web_surfaces_model_compile_check"
   SUFFIX ".js"
 )
+
+endif()
 
 foreach(_catalog_web_app web_window_catalog_demo web_window_catalog_demo_load_only)
   add_executable(${_catalog_web_app}

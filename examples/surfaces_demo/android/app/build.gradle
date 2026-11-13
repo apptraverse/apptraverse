@@ -94,6 +94,18 @@ android {
         signingConfig signingConfigs.release
       }
     }
+    minSizeRel {
+      initWith release
+      matchingFallbacks = ["release"]
+      signingConfig signingConfigs.debug
+      minifyEnabled true
+      externalNativeBuild.cmake.arguments "-DCMAKE_BUILD_TYPE=MinSizeRel",
+          "-DAPPTRAVERSE_WINDOW_CATALOG_DEBUG_FRESH=OFF",
+          "-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON",
+          "-DCMAKE_C_FLAGS_MINSIZEREL=-Oz -DNDEBUG -ffunction-sections -fdata-sections",
+          "-DCMAKE_CXX_FLAGS_MINSIZEREL=-Oz -DNDEBUG -ffunction-sections -fdata-sections",
+          "-DCMAKE_SHARED_LINKER_FLAGS_MINSIZEREL=-flto=thin -Wl,--gc-sections,--strip-all"
+    }
   }
 
   lint {

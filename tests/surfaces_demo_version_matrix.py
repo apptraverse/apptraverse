@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+from fixture_process import run_fixture
 import tempfile
 
 from application_evolution_matrix import CheckFailed, digest, manifest, unchanged
@@ -41,7 +42,7 @@ class SurfacesDemoMatrix:
         before = manifest(directory)
         self.count += 1
         try:
-            completed = subprocess.run(
+            completed = run_fixture(
                 command,
                 capture_output=True,
                 text=True,

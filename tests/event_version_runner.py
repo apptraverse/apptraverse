@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from fixture_process import run_fixture
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -103,7 +104,7 @@ def invoke_fixture(
     before = manifest(state_dir) if check_storage_unchanged else None
     backing_before = manifest(backing_dir) if backing_dir is not None else None
     try:
-        proc = subprocess.run(
+        proc = run_fixture(
             command,
             capture_output=True,
             text=True,

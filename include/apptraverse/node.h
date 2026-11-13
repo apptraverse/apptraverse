@@ -75,16 +75,8 @@ namespace detail {
 template <typename T>
 bool CanCompactStoredObjectVersions(ae::IDomainStorage& storage,
                                     ae::ObjId object_id) {
-  for (unsigned version =
-           static_cast<unsigned>(T::kCurrentVersion.value) + 1U;
-       version <= static_cast<unsigned>(std::numeric_limits<std::uint8_t>::max());
-       ++version) {
-    ae::DomainLoad const load = storage.Load(ae::DomainQuery{
-        object_id, T::kClassId, static_cast<std::uint8_t>(version)});
-    if (load.result == ae::DomainLoadResult::kLoaded ||
-        load.result == ae::DomainLoadResult::kRemoved) {
-      return false;
-    }
+  if (storage.HasVersionAfter({object_id, T::kClassId, T::kCurrentVersion.value})) {
+    return false;
   }
   if constexpr (std::is_same_v<T, ae::Obj>) {
     return true;

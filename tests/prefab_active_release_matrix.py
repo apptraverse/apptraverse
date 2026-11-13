@@ -4,6 +4,7 @@
 import argparse
 import shutil
 import subprocess
+from fixture_process import run_fixture
 from pathlib import Path
 
 from application_evolution_matrix import CheckFailed, manifest
@@ -19,7 +20,7 @@ def run(exe, state_root, op, active_release=None):
     cmd = [str(exe), "--state-dir", str(state_root), "--op", op]
     if active_release is not None:
         cmd.extend(["--active-release", str(active_release)])
-    completed = subprocess.run(
+    completed = run_fixture(
         cmd,
         capture_output=True,
         text=True,
@@ -67,7 +68,7 @@ def assert_no_const_in_user(manifest_map, obj_id):
 
 def generate_package(tool: Path, out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    code = subprocess.run(
+    code = run_fixture(
         [str(tool), str(out_path)],
         capture_output=True,
         text=True,

@@ -1,0 +1,1318 @@
+diff --git a/src/aether-objects/domain_storage/ram_domain_storage.cpp b/src/aether-objects/domain_storage/ram_domain_storage.cpp
+index cd8169b..f58d8d6 100644
+--- a/src/aether-objects/domain_storage/ram_domain_storage.cpp
++++ b/src/aether-objects/domain_storage/ram_domain_storage.cpp
+@@ -149,6 +149,7 @@ DomainLoad RamDomainStorage::Load(DomainQuery const& query) {
+ }
+ 
+ void RamDomainStorage::Remove(ObjId const& obj_id) {
++  object_scopes.erase(obj_id);
+   auto obj_map_it = state.find(obj_id);
+   if (obj_map_it == std::end(state)) {
+     state.emplace(obj_id, std::nullopt);
+@@ -160,9 +161,10 @@ void RamDomainStorage::Remove(ObjId const& obj_id) {
+                       obj_id);
+ }
+ 
+-void RamDomainStorage::CleanUp() { state.clear(); }
++void RamDomainStorage::CleanUp() { state.clear(); object_scopes.clear(); }
+ 
+ void RamDomainStorage::SaveData(DomainQuery const& query, ObjectData&& data) {
++  if (query.object_scope) object_scopes[query.id] = *query.object_scope;
+   auto& objcect_classes = state[query.id];
+   if (!objcect_classes) {
+     objcect_classes.emplace();
+diff --git a/src/aether-objects/domain_storage/ram_domain_storage.h b/src/aether-objects/domain_storage/ram_domain_storage.h
+index af1c3ec..ecac59c 100644
+--- a/src/aether-objects/domain_storage/ram_domain_storage.h
++++ b/src/aether-objects/domain_storage/ram_domain_storage.h
+@@ -41,10 +41,19 @@ class RamDomainStorage : public IDomainStorage {
+   DomainLoad Load(DomainQuery const& query) override;
+   void Remove(ObjId const& obj_id) override;
+   void CleanUp() override;
++  std::optional<ObjectScope> ReadObjectScope(ObjId const& id) const override {
++    auto it = object_scopes.find(id);
++    return it == object_scopes.end() ? std::nullopt : std::optional<ObjectScope>{it->second};
++  }
++  bool IsConstantObject(ObjId const& id) const override {
++    auto scope = ReadObjectScope(id);
++    return scope && scope->is_constant;
++  }
+ 
+   void SaveData(DomainQuery const& query, ObjectData&& data);
+ 
+   ObjClassData state;
++  std::map<ObjId, ObjectScope> object_scopes;
+   bool write_lock = false;
+ };
+ }  // namespace ae
+diff --git a/src/aether-objects/obj/domain.cpp b/src/aether-objects/obj/domain.cpp
+index 4fdb2ab..f01bf12 100644
+--- a/src/aether-objects/obj/domain.cpp
++++ b/src/aether-objects/obj/domain.cpp
+@@ -14,17 +14,23 @@
+  * limitations under the License.
+  */
+ 
+-#include "aether-objects/obj/domain.h"
++#include "aether-objects/obj/obj.h"
+ 
+ #include <algorithm>
++#include <cstdlib>
+ 
+-#include "aether-objects/obj/obj.h"
++#include "aether-objects/obj/domain.h"
+ 
+ #include "aether-objects/log.h"
+ 
+ namespace ae {
+ 
+-DomainGraph::DomainGraph(Domain* domain) : domain(domain) { assert(domain); }
++DomainGraph::DomainGraph(Domain* domain) : DomainGraph(domain, GraphSerializationScope::LocalPersistent) {}
++
++DomainGraph::DomainGraph(Domain* domain, GraphSerializationScope scope)
++    : domain(domain), serialization_scope(scope) {
++  assert(domain);
++}
+ 
+ Ptr<Obj> DomainGraph::LoadRoot(ObjId obj_id) {
+   Ptr<Obj> ptr;
+@@ -38,23 +44,33 @@ seri::SeriResult DomainGraph::LoadRoot(ObjId obj_id, Ptr<Obj>& ptr) {
+   if (!obj_id.is_valid()) {
+     return Error{seri::read_error};
+   }
+-  // if already loaded
+-  if (ptr = domain->Find(obj_id); ptr) {
++  if (ptr = domain->FindLocal(obj_id); ptr) {
+     return Ok{seri::good};
+   }
++  // A cold local object shadows an already-loaded ancestor with the same ID.
++  // Use the explicit snapshot namespace when hydration redirects layer reads.
++  auto& lookup_storage = load_storage_ != nullptr
++                             ? *load_storage_ : domain->domain_storage();
++  if (lookup_storage.Enumerate(obj_id).empty()) {
++    if (ptr = domain->Find(obj_id); ptr) {
++      return Ok{seri::good};
++    }
++  }
+ 
+   auto* factory = domain->GetMostRelatedFactory(obj_id);
+   if (factory == nullptr) {
+     return Error{seri::read_error};
+   }
+ 
++  // Load marks belong to an instance: a previous instance with this id was
++  // released, so its marks must not skip layers of the new one.
++  cycle_detector.Remove(obj_id);
+   ptr = domain->ConstructObj(*factory, obj_id);
+-  auto result = factory->load(this, ptr, obj_id);
+-  if (result && result->IsErr()) {
+-    domain->RemoveObject(ptr.get());
+-    ptr.Reset();
++  LoadStoredLayers(ptr, obj_id);
++  if (!ptr) {
++    return Error{seri::read_error};
+   }
+-  return result.value_or(Ok{seri::good});
++  return Ok{seri::good};
+ }
+ 
+ Ptr<Obj> DomainGraph::LoadCopyImpl(ObjId ref_id, ObjId copy_id) {
+@@ -73,19 +89,33 @@ Ptr<Obj> DomainGraph::LoadCopyImpl(ObjId ref_id, ObjId copy_id) {
+   }
+ 
+   auto ptr = domain->ConstructObj(*factory, copy_id);
+-  // load new object with ref_id
+-  auto result = factory->load(this, ptr, ref_id);
+-  if (result && result->IsErr()) {
+-    domain->RemoveObject(ptr.get());
++  LoadStoredLayers(ptr, ref_id);
++  if (!ptr) {
+     return {};
+   }
+   return ptr;
+ }
+ 
++void DomainGraph::LoadStoredLayers(Ptr<Obj>& obj, ObjId storage_id) {
++  for (auto const class_id : domain->KnownStoredClasses(storage_id)) {
++    auto* layer = domain->FindClassFactory(class_id);
++    assert(layer && layer->load);
++    auto result = layer->load(this, obj, storage_id);
++    if (result && result->IsErr()) {
++      domain->RemoveObject(obj.get());
++      obj.Reset();
++      return;
++    }
++  }
++}
++
+ seri::SeriResult DomainGraph::SaveRoot(Ptr<Obj> const& ptr, ObjId obj_id) {
+   if (!ptr) {
+     return Error{seri::write_error};
+   }
++  if (clone_save_remap_ != nullptr && !CloneSaveShouldTraverse(obj_id)) {
++    return Ok{seri::good};
++  }
+   if (auto* factory = domain->FindClassFactory(ptr->GetClassId());
+       factory != nullptr) {
+     auto result = factory->save(this, ptr, obj_id);
+@@ -94,13 +124,51 @@ seri::SeriResult DomainGraph::SaveRoot(Ptr<Obj> const& ptr, ObjId obj_id) {
+   return Error{seri::write_error};
+ }
+ 
++ObjId DomainGraph::CloneSaveRemapId(ObjId id) const {
++  if (clone_save_remap_ == nullptr || !id.is_valid()) {
++    return id;
++  }
++  if (auto it = clone_save_remap_->find(id.id()); it != clone_save_remap_->end()) {
++    return ObjId{it->second};
++  }
++  return id;
++}
++
++bool DomainGraph::CloneSaveShouldTraverse(ObjId id) const {
++  if (clone_save_remap_ == nullptr) {
++    return true;
++  }
++  return clone_save_remap_->find(id.id()) != clone_save_remap_->end();
++}
++
+ DomainLoad DomainGraph::GetReader(DomainQuery const& query) {
+-  return domain->storage_->Load(query);
++  if (load_storage_ != nullptr) {
++    // An explicit snapshot owns the entire read view, including absent layers.
++    return load_storage_->Load(query);
++  }
++  for (auto* current = domain; current != nullptr;
++       current = current->parent_domain()) {
++    auto load = current->domain_storage().Load(query);
++    if (load.result != DomainLoadResult::kEmpty) {
++      return load;
++    }
++  }
++  return DomainLoad{DomainLoadResult::kEmpty, {}};
+ }
+ 
+ std::unique_ptr<IDomainStorageWriter> DomainGraph::GetWriter(
+     DomainQuery const& query) {
+-  auto writer = domain->storage_->Store(query);
++  DomainQuery store_query = query;
++  store_query.force_materialize =
++      store_query.force_materialize || force_materialize;
++  if (clone_save_remap_ != nullptr) {
++    store_query.id = CloneSaveRemapId(store_query.id);
++    if (store_query.object_scope) {
++      store_query.object_scope->root_id = CloneSaveRemapId(store_query.object_scope->root_id);
++      store_query.object_scope->parent_root_id = CloneSaveRemapId(store_query.object_scope->parent_root_id);
++    }
++  }
++  auto writer = domain->storage_->Store(store_query);
+   assert(writer && "Writer must be created!");
+   return writer;
+ }
+@@ -108,13 +176,22 @@ std::unique_ptr<IDomainStorageWriter> DomainGraph::GetWriter(
+ Domain::Domain(IDomainStorage& storage) : Domain(storage, nullptr) {}
+ 
+ Domain::Domain(IDomainStorage& storage, Env* env)
+-    : storage_{&storage}, registry_{&Registry::GetRegistry()}, env_{env} {}
++    : storage_{&storage},
++      registry_{&Registry::GetRegistry()},
++      env_{env},
++      registered_objects_{std::make_shared<DomainRegisteredObjects>()} {}
++
++void DomainRegisteredObjects::Add(ObjId id, Ptr<Obj> const& obj) {
++  by_id[id.id()] = obj;
++}
++
++void DomainRegisteredObjects::Remove(ObjId::Type id) {
++  by_id.erase(id);
++}
+ 
+ Ptr<Obj> Domain::ConstructObj(Factory const& factory, ObjId obj_id) {
+   Ptr<Obj> o = factory.create();
+   AddObject(obj_id, o);
+-  o->domain = this;
+-  o->obj_id = obj_id;
+   return o;
+ }
+ 
+@@ -126,73 +203,129 @@ bool Domain::IsExisting(uint32_t class_id) const {
+   return registry_->IsExisting(class_id);
+ }
+ 
+-Ptr<Obj> Domain::Find(ObjId obj_id) const {
+-  if (auto it = id_objects_.find(obj_id.id()); it != id_objects_.end()) {
++Ptr<Obj> Domain::FindLocal(ObjId obj_id) const {
++  if (!registered_objects_) {
++    return {};
++  }
++  if (auto it = registered_objects_->by_id.find(obj_id.id());
++      it != registered_objects_->by_id.end()) {
+     return it->second.Lock();
+   }
+   return {};
+ }
+ 
+-void Domain::AddObject(ObjId id, Ptr<Obj> const& obj) {
+-  id_objects_[id.id()] = obj;
++Ptr<Obj> Domain::Find(ObjId obj_id) const {
++  for (Domain const* current = this; current != nullptr;
++       current = current->parent_domain_) {
++    if (auto found = current->FindLocal(obj_id)) {
++      return found;
++    }
++  }
++  return {};
+ }
+ 
+-void Domain::RemoveObject(Obj* ptr) { id_objects_.erase(ptr->obj_id.id()); }
++ObjId Domain::GenerateObjectId() {
++  for (Domain* current = this; current != nullptr;
++       current = current->parent_domain_) {
++    auto* sequence = current->object_id_sequence_;
++    if (sequence == nullptr) continue;
++    if (sequence->next_ == 0 || sequence->next_ > sequence->last_) {
++      std::abort();
++    }
++    return ObjId{static_cast<ObjId::Type>(sequence->next_++)};
++  }
++  return ObjId::GenerateUnique();
++}
+ 
+-Factory* Domain::GetMostRelatedFactory(ObjId id) {
+-  auto classes = storage_->Enumerate(id);
+-#ifndef NDEBUG
+-  auto class_names = std::vector<std::string_view>{};
+-  class_names.reserve(classes.size());
+-  for (auto cid : classes) {
+-    class_names.emplace_back(registry_->ClassName(cid));
++void Domain::AddObject(ObjId id, Ptr<Obj> const& obj) {
++  if (obj) {
++    if (!obj->has_object_scope()) obj->SetObjectScope(object_scope_);
++    obj->registered_objects_ = registered_objects_;
++    obj->domain = this;
++    obj->obj_id = id;
+   }
++  registered_objects_->Add(id, obj);
++}
+ 
+-  AE_LOG_MACRO_TAGGED(::ae::objects_tele::kDomainEnumeratedNames,
+-                      "For obj {} enumerated classes [{}]", id.id(),
+-                      class_names);
+-#else
+-  AE_LOG_MACRO_TAGGED(::ae::objects_tele::kDomainEnumeratedClasses,
+-                      "For obj {} enumerated classes [{}]", id.id(), classes);
+-#endif
++void Domain::RemoveObject(Obj* ptr) {
++  if (ptr == nullptr || !ptr->registered_objects_) {
++    return;
++  }
++  ptr->registered_objects_->Remove(ptr->obj_id.id());
++}
+ 
+-  // Remove all unsupported classes.
++std::vector<std::uint32_t> Domain::KnownStoredClasses(ObjId id) {
++  auto classes = storage_->Enumerate(id);
++  // A local stored definition shadows ancestors even if none of its classes
++  // are registered in this executable. Only an absent definition falls back.
++  if (classes.empty()) {
++    return parent_domain_ != nullptr ? parent_domain_->KnownStoredClasses(id)
++                                     : std::vector<std::uint32_t>{};
++  }
+   classes.erase(
+       std::remove_if(std::begin(classes), std::end(classes),
+                      [this](auto const& c) { return !IsExisting(c); }),
+       std::end(classes));
+-
+-  if (classes.empty()) {
+-    return nullptr;
+-  }
+-
+-  // Build inheritance chain.
+-  // from base to derived.
+   std::sort(std::begin(classes), std::end(classes),
+             [this](auto left, auto right) {
++              if (left == right) {
++                return false;
++              }
+               if (registry_->GenerationDistance(right, left) > 0) {
+                 return false;
+               }
+-              if (registry_->GenerationDistance(left, right) >= 0) {
++              if (registry_->GenerationDistance(left, right) > 0) {
+                 return true;
+               }
+-              // All classes must be in one inheritance chain.
+-              assert(false);
+-              return false;
++              return left < right;
+             });
++  return classes;
++}
+ 
+-  // Find the Final class for the most derived class provided and create it.
+-  for (auto& f : registry_->factories) {
+-    if (IsLast(f.first)) {
+-      // check with most derived class
+-      int distance = registry_->GenerationDistance(classes.back(), f.first);
+-      if (distance >= 0) {
+-        return &f.second;
++Factory* Domain::GetMostRelatedFactory(ObjId id) {
++  auto const enumerated = storage_->Enumerate(id);
++  if (enumerated.empty()) {
++    return parent_domain_ != nullptr ? parent_domain_->GetMostRelatedFactory(id)
++                                     : nullptr;
++  }
++  auto classes = KnownStoredClasses(id);
++  if (classes.empty()) {
++    return nullptr;
++  }
++
++#ifndef NDEBUG
++  auto class_names = std::vector<std::string_view>{};
++  class_names.reserve(enumerated.size());
++  for (auto cid : enumerated) {
++    class_names.emplace_back(registry_->ClassName(cid));
++  }
++
++  AE_LOG_MACRO_TAGGED(::ae::objects_tele::kDomainEnumeratedNames,
++                      "For obj {} enumerated classes [{}]", id.id(),
++                      class_names);
++#else
++  AE_LOG_MACRO_TAGGED(::ae::objects_tele::kDomainEnumeratedClasses,
++                      "For obj {} enumerated classes [{}]", id.id(), enumerated);
++#endif
++
++  bool const had_unknown_stored_class = [&] {
++    for (auto const class_id : enumerated) {
++      if (!IsExisting(class_id) && class_id != Obj::kClassId) {
++        return true;
+       }
+     }
++    return false;
++  }();
++
++  if (had_unknown_stored_class) {
++    return nullptr;
++  }
++
++  if (classes.back() == Obj::kClassId) {
++    return nullptr;
+   }
+ 
+-  return nullptr;
++  return FindClassFactory(classes.back());
+ }
+ 
+ Factory* Domain::FindClassFactory(std::uint32_t class_id) {
+diff --git a/src/aether-objects/obj/domain.h b/src/aether-objects/obj/domain.h
+index 1017ff1..e40a051 100644
+--- a/src/aether-objects/obj/domain.h
++++ b/src/aether-objects/obj/domain.h
+@@ -20,9 +20,11 @@
+ #include <cassert>
+ #include <cstdint>
+ #include <map>
++#include <memory>
+ #include <optional>
+ #include <set>
+ #include <type_traits>
++#include <unordered_map>
+ 
+ #include "aether-miscpp/domain_visitor/domain_visitor.h"
+ #include "aether-miscpp/serialization/binary_archive.h"
+@@ -35,6 +37,7 @@
+ #include "aether-objects/obj/obj_id.h"
+ #include "aether-objects/obj/registry.h"
+ #include "aether-objects/obj/version_iterator.h"
++#include "aether-objects/obj/domain_buffer.h"
+ 
+ namespace ae {
+ 
+@@ -46,6 +49,15 @@ inline constexpr seri::SeriError missing_version{
+ class Obj;
+ class Domain;
+ class DomainGraph;
++class ObjectPtrBase;
++
++struct DomainRegisteredObjects {
++  std::map<ObjId::Type, PtrView<Obj>> by_id;
++
++  void Add(ObjId id, Ptr<Obj> const& obj);
++  void Remove(ObjId::Type id);
++};
++
+ template <typename T>
+ class Registrar;
+ 
+@@ -67,40 +79,33 @@ struct DomainCycleDetector {
+     return ok;
+   }
+ 
+-  std::set<Node> visited_nodes;
+-};
+-
+-struct DomainBuffer {
+-  seri::SeriResult Write(seri::SizeWriteTag data) const {
+-    if (writer == nullptr) {
+-      return Error{seri::write_error};
++  void Remove(ObjId obj_id) {
++    for (auto it = visited_nodes.begin(); it != visited_nodes.end();) {
++      if (it->id == obj_id) {
++        it = visited_nodes.erase(it);
++      } else {
++        ++it;
++      }
+     }
+-    return writer->Write(data);
+-  }
+-  seri::SeriResult Write(seri::DataWriteTag data) const {
+-    if (writer == nullptr) {
+-      return Error{seri::write_error};
+-    }
+-    return writer->Write(data);
+   }
+ 
+-  seri::SeriResult Read(seri::SizeReadTag data) const {
+-    if (reader == nullptr) {
+-      return Error{seri::read_error};
+-    }
+-    return reader->Read(data);
+-  }
+-  seri::SeriResult Read(seri::DataReadTag data) const {
+-    if (reader == nullptr) {
+-      return Error{seri::read_error};
+-    }
+-    return reader->Read(data);
+-  }
++  std::set<Node> visited_nodes;
++};
+ 
+-  ObjId id;
+-  DomainGraph* domain_graph{};
+-  IDomainStorageWriter* writer{nullptr};
+-  IDomainStorageReader* reader{nullptr};
++// Serialization intent for one DomainGraph Save/Load walk. Owned by the
++// DomainGraph instance (no process-global / thread_local policy registry).
++enum class GraphSerializationScope : std::uint8_t {
++  LocalPersistent = 0,
++  NetworkShared = 1,
++  // UI structural/incremental publication: materialized fields only; Node
++  // historical base/journal must not expand the Save walk.
++  MaterializedPublication = 2,
++  // Canonical Clone snapshot: current fields and local refs; omit Node
++  // historical base/journal.
++  CanonicalClone = 3,
++  // Historical Node base snapshot: materialized fields with layer ownership;
++  // AppTraverse omits Node base/journal like publication/clone walks.
++  HistoricalBaseSnapshot = 4,
+ };
+ 
+ /**
+@@ -110,6 +115,7 @@ struct DomainBuffer {
+ class DomainGraph {
+  public:
+   explicit DomainGraph(Domain* domain);
++  DomainGraph(Domain* domain, GraphSerializationScope scope);
+ 
+   // Load saved state of object.
+   Ptr<Obj> LoadRoot(ObjId obj_id);
+@@ -132,12 +138,72 @@ class DomainGraph {
+   template <typename T, auto V>
+   seri::SeriResult SaveVersion(Version<V> version, T const& obj, ObjId obj_id);
+ 
++  // Redirect serialized layer reads for this walk only. Identity lookup and
++  // object construction still use domain; the caller preconstructs any object
++  // absent from its storage. The supplied storage must outlive this graph.
++  // nullptr restores the ordinary domain/parent storage lookup.
++  void SetLoadStorage(IDomainStorage* storage) { load_storage_ = storage; }
++
++  // Optional operation-local reference walk. Clone finalization uses this to
++  // relocate serialized pointer fields, including fields absent from reflection.
++  // The context must outlive this DomainGraph; normal Save has no visitor.
++  using ObjectReferenceVisitorFn = void (*)(void*, ObjectPtrBase&);
++  void SetObjectReferenceVisitor(void* context, ObjectReferenceVisitorFn fn) {
++    object_reference_context_ = context;
++    object_reference_visitor_ = fn;
++  }
++  void NotifyObjectReference(ObjectPtrBase& reference) {
++    if (object_reference_visitor_ != nullptr) {
++      object_reference_visitor_(object_reference_context_, reference);
++    }
++  }
++
++
++  using CloneSaveRemapTable = std::unordered_map<ObjId::Type, ObjId::Type>;
++
++  // Per-Save clone context: remaps storage keys and serialized ObjPtr ids.
++  // Walk/cycle detection continues to use pre-remap ObjIds.
++  void SetCloneSaveRemap(CloneSaveRemapTable const* table) {
++    clone_save_remap_ = table;
++  }
++
++  using CloneReferenceVisitorFn = void (*)(void* context, ObjId id);
++
++  void SetCloneReferenceVisitor(void* context, CloneReferenceVisitorFn fn) {
++    clone_reference_visitor_context_ = context;
++    clone_reference_visitor_ = fn;
++  }
++
++  void NotifyCloneReference(ObjId id) const {
++    if (clone_reference_visitor_ != nullptr && id.is_valid()) {
++      clone_reference_visitor_(clone_reference_visitor_context_, id);
++    }
++  }
++
++  ObjId CloneSaveRemapId(ObjId id) const;
++  bool CloneSaveShouldTraverse(ObjId id) const;
++
+   Domain* domain{};
+   DomainCycleDetector cycle_detector{};
++  GraphSerializationScope serialization_scope{
++      GraphSerializationScope::LocalPersistent};
++  bool force_materialize{false};
++  // Keep preconstructed references during scoped hydration, including lazy
++  // references. Missing lazy objects remain unloaded; their flags are unchanged.
++  bool retain_loaded_references{false};
+ 
+  private:
++  void LoadStoredLayers(Ptr<Obj>& obj, ObjId storage_id);
++
+   DomainLoad GetReader(DomainQuery const& query);
+   std::unique_ptr<IDomainStorageWriter> GetWriter(DomainQuery const& query);
++
++  IDomainStorage* load_storage_{nullptr};
++  void* object_reference_context_{nullptr};
++  ObjectReferenceVisitorFn object_reference_visitor_{nullptr};
++  CloneSaveRemapTable const* clone_save_remap_{nullptr};
++  void* clone_reference_visitor_context_{nullptr};
++  CloneReferenceVisitorFn clone_reference_visitor_{nullptr};
+ };
+ 
+ inline bool IsMissingVersion(seri::SeriResult const& result) {
+@@ -155,12 +221,31 @@ class Domain {
+   /// \brief Returns this domain's optional environment.
+   Env* get_env() const { return env_; }
+ 
+-  // Search for the object by obj_id.
++  // Search local registry only.
++  Ptr<Obj> FindLocal(ObjId obj_id) const;
++  // Search local registry, then parent chain (not siblings or children).
+   Ptr<Obj> Find(ObjId obj_id) const;
+ 
++  void set_parent_domain(Domain* parent) { parent_domain_ = parent; }
++  Domain* parent_domain() const { return parent_domain_; }
++
++  // Default runtime allocation is random. A scoped producer may allocate an
++  // explicit identity range; descendant domains share that producer's cursor.
++  class ObjectIdSequence;
++  ObjId GenerateObjectId();
++
++  void SetObjectScope(ObjId root_id) {
++    object_scope_ = ObjectScope{root_id,
++        parent_domain_ ? parent_domain_->object_scope().root_id : ObjId{}, false};
++  }
++  ObjectScope object_scope() const { return object_scope_; }
++
+   void AddObject(ObjId id, Ptr<Obj> const& obj);
+   void RemoveObject(Obj* obj);
+ 
++  IDomainStorage& domain_storage() { return *storage_; }
++  IDomainStorage const& domain_storage() const { return *storage_; }
++
+  private:
+   Ptr<Obj> ConstructObj(Factory const& factory, ObjId id);
+ 
+@@ -169,12 +254,40 @@ class Domain {
+ 
+   Factory* FindClassFactory(std::uint32_t class_id);
+   Factory* GetMostRelatedFactory(ObjId id);
++  std::vector<std::uint32_t> KnownStoredClasses(ObjId id);
+ 
+   IDomainStorage* storage_;
+   Registry* registry_;
+   Env* env_{};
++  Domain* parent_domain_{nullptr};
++  ObjectScope object_scope_{};
++  ObjectIdSequence* object_id_sequence_{nullptr};
++
++  std::shared_ptr<DomainRegisteredObjects> registered_objects_;
++};
++
++// Producer-only allocation policy. Its lifetime cannot outlive its Domain.
++// Nested policies restore the previous policy; separate domains never share
++// allocator state unless explicitly related through parent_domain.
++class Domain::ObjectIdSequence {
++  friend class Domain;
+ 
+-  std::map<ObjId::Type, PtrView<Obj>> id_objects_;
++ public:
++  ObjectIdSequence(Domain& domain, ObjId first, ObjId last)
++      : domain_{domain}, previous_{domain.object_id_sequence_},
++        next_{first.id()}, last_{last.id()} {
++    assert(first.is_valid() && first.id() <= last.id());
++    domain_.object_id_sequence_ = this;
++  }
++  ~ObjectIdSequence() { domain_.object_id_sequence_ = previous_; }
++  ObjectIdSequence(ObjectIdSequence const&) = delete;
++  ObjectIdSequence& operator=(ObjectIdSequence const&) = delete;
++
++ private:
++  Domain& domain_;
++  ObjectIdSequence* previous_;
++  std::uint64_t next_;
++  std::uint32_t last_;
+ };
+ 
+ template <typename T>
+@@ -184,6 +297,18 @@ Ptr<T> DomainGraph::LoadCopy(ObjId ref_id, ObjId copy_id) {
+ 
+ template <typename T>
+ std::optional<seri::SeriResult> DomainGraph::Load(T& obj, ObjId obj_id) {
++  if constexpr (std::is_same_v<T, Obj>) {
++    if (load_storage_ != nullptr) {
++      if (auto scope = load_storage_->ReadObjectScope(obj_id)) obj.SetObjectScope(*scope);
++    } else {
++      for (auto* current = domain; current != nullptr; current = current->parent_domain()) {
++        auto scope = current->domain_storage().ReadObjectScope(obj_id);
++        if (scope) { obj.SetObjectScope(*scope); break; }
++        // A local object without metadata is not a hole in the parent namespace.
++        if (!current->domain_storage().Enumerate(obj_id).empty()) break;
++      }
++    }
++  }
+   if (!cycle_detector.Add(T::kClassId, obj_id)) {
+     return std::nullopt;
+   }
+@@ -223,6 +348,16 @@ template <typename T, auto V>
+ seri::SeriResult DomainGraph::LoadVersion(Version<V> version, T& obj,
+                                           ObjId obj_id) {
+   auto load = GetReader({obj_id, T::kClassId, V});
++  if constexpr (!std::is_same_v<std::decay_t<T>, Obj>) {
++    // A layer the node does not store is taken from its origin (one hop);
++    // Obj/S0 carrying the origin is loaded before derived layers.
++    if (load.result == DomainLoadResult::kEmpty) {
++      ObjId const origin_id = obj.Obj::origin_id();
++      if (origin_id.is_valid() && origin_id != obj_id) {
++        load = GetReader({origin_id, T::kClassId, V});
++      }
++    }
++  }
+   if (load.result == DomainLoadResult::kEmpty) {
+     return Error{domain_internal::missing_version};
+   }
+@@ -262,6 +397,18 @@ std::optional<seri::SeriResult> DomainGraph::Save(T const& obj, ObjId obj_id) {
+           if (result.IsErr()) {
+             return;
+           }
++          if constexpr (requires { obj.ShouldSaveVersion(version); }) {
++            // Historical scratch must include every materialized field,
++            // even when a normal persistent save leaves that version owned
++            // by the object's origin. Replay must not fall back to live data.
++            if (serialization_scope !=
++                    GraphSerializationScope::MaterializedPublication &&
++                serialization_scope !=
++                    GraphSerializationScope::HistoricalBaseSnapshot &&
++                !obj.ShouldSaveVersion(version)) {
++              return;
++            }
++          }
+           result = this->SaveVersion(version, obj, obj_id);
+         });
+     return result;
+@@ -284,7 +431,16 @@ struct SaveVisitor {
+ template <typename T, auto V>
+ seri::SeriResult DomainGraph::SaveVersion(Version<V> version, T const& obj,
+                                           ObjId obj_id) {
+-  auto storage_writer = GetWriter({obj_id, T::kClassId, V});
++  DomainQuery query{obj_id, T::kClassId, V};
++  if constexpr (requires { obj.object_scope(); }) {
++    query.object_scope = obj.object_scope();
++  }
++  if (serialization_scope == GraphSerializationScope::LocalPersistent) {
++    if constexpr (requires { obj.ShouldForceMaterializeLayer(T::kClassId, V); }) {
++      query.force_materialize = obj.ShouldForceMaterializeLayer(T::kClassId, V);
++    }
++  }
++  auto storage_writer = GetWriter(query);
+ 
+   auto bin_archive =
+       seri::BinaryArchive{DomainBuffer{.id = obj_id,
+@@ -320,6 +476,11 @@ struct Serializer<BinaryArchive<DomainBuffer>, T> {
+   }
+ 
+   SeriResult Deseri(Archive& arch, Meta<T> meta_val) const {
++    // Node::Load base_ only: Seri() persists ae::Obj via Save side effects, no inline bytes.
++    if (arch.buffer().reader != nullptr &&
++        std::is_same_v<std::decay_t<T>, Obj>) {
++      return Ok{good};
++    }
+     auto result =
+         arch.buffer().domain_graph->Load(meta_val.value, arch.buffer().id);
+     return result.value_or(Ok{good});
+diff --git a/src/aether-objects/obj/domain_buffer.h b/src/aether-objects/obj/domain_buffer.h
+new file mode 100644
+index 0000000..a0a9588
+--- /dev/null
++++ b/src/aether-objects/obj/domain_buffer.h
+@@ -0,0 +1,49 @@
++#ifndef AETHER_OBJECTS_OBJ_DOMAIN_BUFFER_H_
++#define AETHER_OBJECTS_OBJ_DOMAIN_BUFFER_H_
++
++#include "aether-miscpp/serialization/binary_archive.h"
++#include "aether-miscpp/serialization/serialization.h"
++
++#include "aether-objects/obj/idomain_storage.h"
++#include "aether-objects/obj/obj_id.h"
++
++namespace ae {
++
++class DomainGraph;
++
++struct DomainBuffer {
++  seri::SeriResult Write(seri::SizeWriteTag data) const {
++    if (writer == nullptr) {
++      return Error{seri::write_error};
++    }
++    return writer->Write(data);
++  }
++  seri::SeriResult Write(seri::DataWriteTag data) const {
++    if (writer == nullptr) {
++      return Error{seri::write_error};
++    }
++    return writer->Write(data);
++  }
++
++  seri::SeriResult Read(seri::SizeReadTag data) const {
++    if (reader == nullptr) {
++      return Error{seri::read_error};
++    }
++    return reader->Read(data);
++  }
++  seri::SeriResult Read(seri::DataReadTag data) const {
++    if (reader == nullptr) {
++      return Error{seri::read_error};
++    }
++    return reader->Read(data);
++  }
++
++  ObjId id;
++  DomainGraph* domain_graph{};
++  IDomainStorageWriter* writer{nullptr};
++  IDomainStorageReader* reader{nullptr};
++};
++
++}  // namespace ae
++
++#endif  // AETHER_OBJECTS_OBJ_DOMAIN_BUFFER_H_
+diff --git a/src/aether-objects/obj/idomain_storage.h b/src/aether-objects/obj/idomain_storage.h
+index 8f37928..210a916 100644
+--- a/src/aether-objects/obj/idomain_storage.h
++++ b/src/aether-objects/obj/idomain_storage.h
+@@ -19,6 +19,7 @@
+ 
+ #include <cstdint>
+ #include <memory>
++#include <optional>
+ #include <vector>
+ 
+ #include "aether-miscpp/serialization/binary_archive.h"
+@@ -36,10 +37,21 @@ enum class DomainLoadResult : std::uint8_t {
+ using ObjectData = std::vector<std::uint8_t>;
+ using ClassList = std::vector<std::uint32_t>;
+ 
++// Domain membership is object-storage metadata, independent of class S versions.
++struct ObjectScope {
++  ObjId root_id{};
++  ObjId parent_root_id{};
++  bool is_constant{false};
++  bool operator==(ObjectScope const&) const = default;
++};
++
+ struct DomainQuery {
+   ObjId id;
+   std::uint32_t class_id;
+   std::uint8_t version;
++  bool force_materialize{false};
++  std::optional<ObjectScope> object_scope{};
++  bool force_scope_metadata{false};
+ };
+ 
+ // BinaryBuffer implementation for storage writer
+@@ -74,6 +86,11 @@ struct DomainLoad {
+ class IDomainStorage {
+  public:
+   virtual ~IDomainStorage() = default;
++  // Immutable shared identity, independent of whether an object is loaded.
++  // Storage decorators forward this query to preserve clone boundaries.
++  virtual bool IsConstantObject(ObjId const& /*obj_id*/) const {
++    return false;
++  }
+   /**
+    * \brief Store an ObjectData by query.
+    */
+@@ -96,6 +113,10 @@ class IDomainStorage {
+    * \brief Clean up the whole storage.
+    */
+   virtual void CleanUp() = 0;
++  // Missing differs from an explicitly stored top-level mutable membership.
++  virtual std::optional<ObjectScope> ReadObjectScope(ObjId const&) const {
++    return std::nullopt;
++  }
+ };
+ }  // namespace ae
+ 
+diff --git a/src/aether-objects/obj/obj.cpp b/src/aether-objects/obj/obj.cpp
+index 3279321..189f28a 100644
+--- a/src/aether-objects/obj/obj.cpp
++++ b/src/aether-objects/obj/obj.cpp
+@@ -18,19 +18,65 @@
+ 
+ #include "aether-miscpp/crc.h"
+ 
++#include "aether-objects/obj/domain.h"
++#include "aether-objects/obj/registry.h"
++
+ namespace ae {
++
++Ptr<Obj> ObjLayerFactoryCreateMustNotRun() { return {}; }
++
++std::optional<seri::SeriResult> LoadObjLayer(DomainGraph* domain_graph,
++                                             Ptr<Obj>& obj, ObjId storage_id) {
++  return domain_graph->Load(static_cast<Obj&>(*obj.get()), storage_id);
++}
++
++std::optional<seri::SeriResult> SaveObjLayerUnused(DomainGraph*,
++                                                   Ptr<Obj> const&, ObjId) {
++  return Ok{seri::good};
++}
++
++void RegisterObjLayerFactory(Registry& registry) {
++  if (registry.IsExisting(Obj::kClassId)) {
++    return;
++  }
++  registry.RegisterClass(
++      Obj::kClassId, Obj::kClassId,
++      Factory{ObjLayerFactoryCreateMustNotRun, LoadObjLayer,
++              SaveObjLayerUnused,
++#ifndef NDEBUG
++              std::string{"ae::Obj"},
++              Obj::kClassId,
++              Obj::kClassId,
++#endif
++      });
++}
++
+ Obj::Obj() = default;
+ 
+-Obj::Obj(ObjProp prop) : domain{prop.domain}, obj_id{prop.id} {}
++Obj::Obj(ObjProp prop) : domain{prop.domain}, obj_id{prop.id} {
++  SetObjectScope(prop.domain->object_scope());
++}
+ 
+ Obj::~Obj() {
+-  if (domain != nullptr) {
+-    domain->RemoveObject(this);
++  if (registered_objects_) {
++    registered_objects_->Remove(obj_id.id());
+   }
+ }
+ 
+ uint32_t Obj::GetClassId() const { return kClassId; }
+ 
++void Obj::SetOriginId(ObjId origin_id) {
++  if (!origin_id.is_valid() || domain == nullptr) {
++    origin_.Reset();
++    return;
++  }
++  origin_ = Obj::ptr::Declare(
++      CreateWith{domain}.with_id(origin_id).with_flags(
++          ObjFlags::kUnloadedByDefault | ObjFlags::kUnloaded));
++}
++
++ObjId Obj::origin_id() const { return origin_.id(); }
++
+ namespace domain_visitor {
+ std::size_t GetObjIndexImpl(Obj const* obj, std::uint32_t class_id) {
+   auto res = crc32::from_buffer(
+diff --git a/src/aether-objects/obj/obj.h b/src/aether-objects/obj/obj.h
+index 94a3b04..d95a11c 100644
+--- a/src/aether-objects/obj/obj.h
++++ b/src/aether-objects/obj/obj.h
+@@ -35,13 +35,15 @@
+ #include "aether-miscpp/crc.h"
+ #include "aether-miscpp/reflect/reflect.h"
+ 
+-#include "aether-objects/obj/domain.h"
+ #include "aether-objects/obj/obj_id.h"
+ #include "aether-objects/obj/obj_ptr.h"
+ #include "aether-objects/obj/registrar.h"  // IWYU pragma:  export
+ #include "aether-objects/obj/registry.h"
+ 
+ namespace ae {
++
++class Domain;
++
+ /**
+  * \brief Base class for all objects.
+  */
+@@ -64,12 +66,66 @@ class Obj {
+ 
+   virtual std::uint32_t GetClassId() const;
+ 
+-  AE_REFLECT();
++  void SetOriginId(ObjId origin_id);
++  ObjId origin_id() const;
++
++  ObjectScope object_scope() const { return object_scope_.value_or(ObjectScope{}); }
++  bool has_object_scope() const { return object_scope_.has_value(); }
++  void SetObjectScope(ObjectScope scope) { object_scope_ = scope; }
++
++  // Obj/S0: the lazy origin reference is part of the base object schema.
++  AE_REFLECT(AE_MMBR(origin_));
+ 
+   Domain* domain{};
+   ObjId obj_id;
++  std::shared_ptr<DomainRegisteredObjects> registered_objects_;
++
++ private:
++  ObjPtr<Obj> origin_{};
++  std::optional<ObjectScope> object_scope_{};
+ };
+ 
++#include "aether-objects/obj/domain.h"
++
++template <typename T>
++template <typename... TArgs>
++ObjPtr<T> ObjPtr<T>::Create(CreateWith create_arg, TArgs&&... args) {
++  static_assert(obj_ptr_internal::IsObjType<T>::value,
++                "T Must be an object type");
++  auto* domain = create_arg.domain;
++  auto obj_id = create_arg.obj_id.has_value()
++                    ? *create_arg.obj_id : domain->GenerateObjectId();
++  auto flags = create_arg.flags.value_or(ObjFlags{});
++  static_assert(
++      std::is_constructible_v<T, ObjProp, TArgs...>,
++      "Class must be constructible with passed arguments and Domain*");
++  auto ptr = MakePtr<T>(ObjProp{domain, obj_id}, std::forward<TArgs>(args)...);
++  domain->AddObject(obj_id, ptr);
++
++  return ObjPtr<T>(domain, obj_id, flags, std::move(ptr));
++}
++
++template <typename T>
++ObjPtr<T> ObjPtr<T>::Declare(CreateWith create_arg) {
++  static_assert(obj_ptr_internal::IsObjType<T>::value,
++                "T Must be an object type");
++  auto* domain = create_arg.domain;
++  auto obj_id = create_arg.obj_id.has_value()
++                    ? *create_arg.obj_id : domain->GenerateObjectId();
++  auto flags = create_arg.flags.value_or(ObjFlags::kUnloaded);
++  return ObjPtr<T>(domain, obj_id, flags);
++}
++
++template <typename T>
++ObjPtr<T> ObjPtr<T>::Clone(ObjId obj_id) const {
++  assert(is_valid() && "Invalid clone ptr");
++  assert(obj_id.is_valid() && "Invalid object ID");
++  auto ptr = DomainGraph{domain()}.template LoadCopy<T>(id(), obj_id);
++  return ObjPtr<T>{domain(), obj_id,
++                   static_cast<std::uint8_t>(flags() & ~ObjFlags::kUnloaded),
++                   std::move(ptr)};
++}
++
+ namespace domain_visitor {
+ extern std::size_t GetObjIndexImpl(Obj const* obj, std::uint32_t class_id);
+ 
+diff --git a/src/aether-objects/obj/obj_ptr.h b/src/aether-objects/obj/obj_ptr.h
+index 167df98..1f1b5c2 100644
+--- a/src/aether-objects/obj/obj_ptr.h
++++ b/src/aether-objects/obj/obj_ptr.h
+@@ -26,7 +26,7 @@
+ #include "aether-miscpp/serialization/binary_archive.h"
+ #include "aether-miscpp/serialization/serialization.h"
+ 
+-#include "aether-objects/obj/domain.h"
++#include "aether-objects/obj/domain_buffer.h"
+ #include "aether-objects/obj/obj_id.h"
+ #include "aether-objects/obj/obj_ptr_base.h"
+ #include "aether-objects/obj/registry.h"
+@@ -205,33 +205,6 @@ class ObjPtr : public ObjectPtrBase {
+   auto WithLoaded(Func&& func) const -> decltype(auto);
+ };
+ 
+-template <typename T>
+-template <typename... TArgs>
+-ObjPtr<T> ObjPtr<T>::Create(CreateWith create_arg, TArgs&&... args) {
+-  static_assert(obj_ptr_internal::IsObjType<T>::value,
+-                "T Must be an object type");
+-  auto* domain = create_arg.domain;
+-  auto obj_id = create_arg.obj_id.value_or(ObjId::GenerateUnique());
+-  auto flags = create_arg.flags.value_or(ObjFlags{});
+-  static_assert(
+-      std::is_constructible_v<T, ObjProp, TArgs...>,
+-      "Class must be constructible with passed arguments and Domain*");
+-  auto ptr = MakePtr<T>(ObjProp{domain, obj_id}, std::forward<TArgs>(args)...);
+-  domain->AddObject(obj_id, ptr);
+-
+-  return ObjPtr<T>(domain, obj_id, flags, std::move(ptr));
+-}
+-
+-template <typename T>
+-ObjPtr<T> ObjPtr<T>::Declare(CreateWith create_arg) {
+-  static_assert(obj_ptr_internal::IsObjType<T>::value,
+-                "T Must be an object type");
+-  auto* domain = create_arg.domain;
+-  auto obj_id = create_arg.obj_id.value_or(ObjId::GenerateUnique());
+-  auto flags = create_arg.flags.value_or(ObjFlags::kUnloaded);
+-  return ObjPtr<T>(domain, obj_id, flags);
+-}
+-
+ template <typename T>
+ ObjPtr<T> ObjPtr<T>::MakeFromThis(T* self) {
+   static_assert(obj_ptr_internal::IsObjType<T>::value,
+@@ -311,16 +284,6 @@ ObjPtr<T> ObjPtr<T>::Clone() const {
+   return Clone(ObjId::GenerateUnique());
+ }
+ 
+-template <typename T>
+-ObjPtr<T> ObjPtr<T>::Clone(ObjId obj_id) const {
+-  assert(is_valid() && "Invalid clone ptr");
+-  assert(obj_id.is_valid() && "Invalid object ID");
+-  auto ptr = DomainGraph{domain()}.template LoadCopy<T>(id(), obj_id);
+-  return ObjPtr<T>{domain(), obj_id,
+-                   static_cast<std::uint8_t>(flags() & ~ObjFlags::kUnloaded),
+-                   std::move(ptr)};
+-}
+-
+ template <typename U, typename Func>
+ auto WithLoadedImpl(U&& obj_ptr, Func&& func) -> decltype(auto) {
+   auto ptr = std::forward<U>(obj_ptr).Load();
+diff --git a/src/aether-objects/obj/obj_ptr_base.cpp b/src/aether-objects/obj/obj_ptr_base.cpp
+index d10a9e0..85227b4 100644
+--- a/src/aether-objects/obj/obj_ptr_base.cpp
++++ b/src/aether-objects/obj/obj_ptr_base.cpp
+@@ -18,8 +18,8 @@
+ 
+ #include <utility>
+ 
+-#include "aether-objects/obj/domain.h"
+ #include "aether-objects/obj/obj.h"
++#include "aether-objects/obj/domain.h"
+ #include "aether-objects/obj/obj_id.h"
+ 
+ namespace ae {
+@@ -50,9 +50,19 @@ ObjectPtrBase::ObjectPtrBase(ObjectPtrBase&& ptr) noexcept
+ 
+ ObjectPtrBase::~ObjectPtrBase() = default;
+ 
+-ObjId ObjectPtrBase::id() const { return id_; }
++ObjId ObjectPtrBase::id() const {
++  if (cached_) {
++    return cached_->obj_id;
++  }
++  return id_;
++}
+ ObjFlags ObjectPtrBase::flags() const { return flags_; }
+-Domain* ObjectPtrBase::domain() const { return domain_; }
++Domain* ObjectPtrBase::domain() const {
++  if (cached_) {
++    return cached_->domain;
++  }
++  return domain_;
++}
+ 
+ void ObjectPtrBase::SetFlags(ObjFlags flags) { flags_ = flags; }
+ 
+@@ -70,6 +80,8 @@ Ptr<Obj> const& ObjectPtrBase::LoadCached() {
+   cached_ = DomainGraph{domain_}.LoadRoot(id_);
+   if (cached_) {
+     flags_ = flags_ & ~ObjFlags::kUnloaded;
++    id_ = cached_->obj_id;
++    domain_ = cached_->domain;
+   }
+   return cached_;
+ }
+@@ -85,8 +97,12 @@ void ObjectPtrBase::Save() const {
+ }
+ 
+ void ObjectPtrBase::Reset() {
++  if (cached_) {
++    id_ = cached_->obj_id;
++    domain_ = cached_->domain;
++  }
+   cached_.Reset();
+-  flags_ = flags_ & ObjFlags::kUnloaded;
++  flags_ = flags_ | ObjFlags::kUnloaded;
+ }
+ 
+ Ptr<Obj> const& ObjectPtrBase::cached() const { return cached_; }
+@@ -128,9 +144,31 @@ using ObjPtrBaseSerializer =
+ 
+ SeriResult ObjPtrBaseSerializer::Seri(Archive& archive,
+                                       Meta<ObjectPtrBase const> meta) {
+-  TRY_RESULT((archive.buffer().Write(DataTag{meta.value.id_})));
+-  TRY_RESULT((archive.buffer().Write(DataTag{meta.value.flags_})));
+-  if (meta.value.cached_) {
++  // Mutation is opt-in to a scoped operation on an owned mutable graph. The
++  // ordinary persistence/publication walk leaves this callback unset.
++  archive.buffer().domain_graph->NotifyObjectReference(
++      const_cast<ObjectPtrBase&>(meta.value));
++  if (meta.value.id_.is_valid()) {
++    archive.buffer().domain_graph->NotifyCloneReference(meta.value.id_);
++  }
++  ObjId const serialized_id =
++      archive.buffer().domain_graph->CloneSaveRemapId(meta.value.id_);
++  TRY_RESULT((archive.buffer().Write(DataTag{serialized_id})));
++  ObjFlags::Type publish_flag_bits =
++      static_cast<ObjFlags::Type>(meta.value.flags_);
++  if (archive.buffer().domain_graph->serialization_scope ==
++          GraphSerializationScope::MaterializedPublication &&
++      meta.value.cached_) {
++    ObjFlags::Type const lazy_flags =
++        static_cast<ObjFlags::Type>(ObjFlags::kUnloadedByDefault) |
++        static_cast<ObjFlags::Type>(ObjFlags::kUnloaded);
++    publish_flag_bits = static_cast<ObjFlags::Type>(
++        publish_flag_bits & static_cast<ObjFlags::Type>(~lazy_flags));
++  }
++  ObjFlags const publish_flags{publish_flag_bits};
++  TRY_RESULT((archive.buffer().Write(DataTag{publish_flags})));
++  if (meta.value.cached_ &&
++      archive.buffer().domain_graph->CloneSaveShouldTraverse(meta.value.id_)) {
+     TRY_RESULT(archive.buffer().domain_graph->SaveRoot(meta.value.cached_,
+                                                        meta.value.id_));
+   }
+@@ -142,12 +180,20 @@ SeriResult ObjPtrBaseSerializer::Deseri(Archive& archive,
+   meta.value.domain_ = archive.buffer().domain_graph->domain;
+   TRY_RESULT((archive.buffer().Read(DataTag{meta.value.id_})));
+   TRY_RESULT((archive.buffer().Read(DataTag{meta.value.flags_})));
+-  meta.value.cached_.Reset();
+   if (meta.value.is_valid() &&
+       (meta.value.flags_ & ObjFlags::kUnloadedByDefault) == 0 &&
+       (meta.value.flags_ & ObjFlags::kUnloaded) == 0) {
++    // cached_ keeps a live instance with this id alive through the lookup, so
++    // a re-read reference keeps identity instead of rebuilding the object.
+     TRY_RESULT(archive.buffer().domain_graph->LoadRoot(meta.value.id_,
+                                                        meta.value.cached_));
++  } else if (meta.value.is_valid() &&
++             archive.buffer().domain_graph->retain_loaded_references) {
++    // Preserve already constructed snapshot children without loading absent
++    // lazy references or changing their serialized flags.
++    meta.value.cached_ = meta.value.domain_->Find(meta.value.id_);
++  } else {
++    meta.value.cached_.Reset();
+   }
+   return Ok{seri::good};
+ }
+diff --git a/src/aether-objects/obj/obj_ptr_base.h b/src/aether-objects/obj/obj_ptr_base.h
+index d2fe4f2..cb15c71 100644
+--- a/src/aether-objects/obj/obj_ptr_base.h
++++ b/src/aether-objects/obj/obj_ptr_base.h
+@@ -19,12 +19,13 @@
+ 
+ #include "aether-miscpp/serialization/serialization.h"
+ 
+-#include "aether-objects/obj/domain.h"
++#include "aether-objects/obj/domain_buffer.h"
+ #include "aether-objects/obj/obj_id.h"
+ #include "aether-objects/ptr/ptr.h"
+ 
+ namespace ae {
+ 
++class Domain;
+ class Obj;
+ 
+ class ObjectPtrBase {
+diff --git a/src/aether-objects/obj/registry.cpp b/src/aether-objects/obj/registry.cpp
+index 83ec850..a0ea831 100644
+--- a/src/aether-objects/obj/registry.cpp
++++ b/src/aether-objects/obj/registry.cpp
+@@ -23,8 +23,12 @@
+ #include "aether-objects/log.h"
+ 
+ namespace ae {
++
++void RegisterObjLayerFactory(Registry& registry);
++
+ Registry& Registry::GetRegistry() {
+   static Registry registry;
++  RegisterObjLayerFactory(registry);
+   return registry;
+ }
+ 
+@@ -49,7 +53,7 @@ void Registry::RegisterClass(uint32_t cls_id, std::uint32_t base_id,
+ #endif    // !NDEBUG
+   factories.emplace(cls_id, std::move(factory));
+   // TODO: maybe remove this check
+-  if (base_id != crc32::from_literal("Obj").value) {
++  if (cls_id != base_id) {
+     relations[base_id].push_back(cls_id);
+   }
+ }
+diff --git a/src/aether-objects/ptr/ptr.cpp b/src/aether-objects/ptr/ptr.cpp
+index 5f63d9f..840c36b 100644
+--- a/src/aether-objects/ptr/ptr.cpp
++++ b/src/aether-objects/ptr/ptr.cpp
+@@ -153,11 +153,12 @@ void PtrBase::BuildDecrementGraph(RefTree& ref_tree) {
+          "reachable_ref_count overflow");
+   root.value.reachable_ref_count++;
+   auto const root_index = root.index;
+-  BuildDecrementGraphImpl(this, ref_tree, root_index);
++  BuildDecrementGraphImpl(this, ref_tree, root_index, this);
+ }
+ 
+ void PtrBase::BuildDecrementGraphImpl(PtrBase const* ptr, RefTree& tree,
+-                                      RefTree::Index head_index) {
++                                      RefTree::Index head_index,
++                                      PtrBase const* releasing) {
+   auto& head = tree.get(head_index);
+   if (head.children_expanded) {
+     return;
+@@ -167,10 +168,18 @@ void PtrBase::BuildDecrementGraphImpl(PtrBase const* ptr, RefTree& tree,
+   struct Arg {
+     RefTree& tree;
+     RefTree::Index head_index;
++    PtrBase const* releasing;
+   };
+ 
+   auto visit_children = [](void* arg, PtrBase const* child) {
+-    auto [tree, head_index] = *static_cast<Arg*>(arg);
++    auto [tree, head_index, releasing] = *static_cast<Arg*>(arg);
++    // The releasing pointer is already counted once at the root. A back-link
++    // can reach its containing object and visit the same member again. That
++    // member will disappear; it is not an edge that keeps the graph alive.
++    // Other pointers to the same target remain ordinary surviving edges.
++    if (child == releasing) {
++      return;
++    }
+     auto const pointer = reinterpret_cast<std::uintptr_t>(child->ptr_storage_);
+     auto const ref_count = child->ptr_storage_->ref_counters.main_refs;
+     auto& node = tree.Emplace(pointer, ref_count);
+@@ -181,11 +190,11 @@ void PtrBase::BuildDecrementGraphImpl(PtrBase const* ptr, RefTree& tree,
+     auto const child_index = node.index;
+     tree.get(head_index).PushChild(child_index);
+     if (!node.children_expanded) {
+-      BuildDecrementGraphImpl(child, tree, child_index);
++      BuildDecrementGraphImpl(child, tree, child_index, releasing);
+     }
+   };
+ 
+-  auto arg = Arg{tree, head_index};
++  auto arg = Arg{tree, head_index, releasing};
+ 
+   ptr->ptr_storage_->manage_table->visit_children(ptr, &arg, visit_children);
+ }
+diff --git a/src/aether-objects/ptr/ptr.h b/src/aether-objects/ptr/ptr.h
+index 813dad5..bdd6bd5 100644
+--- a/src/aether-objects/ptr/ptr.h
++++ b/src/aether-objects/ptr/ptr.h
+@@ -62,7 +62,8 @@ class PtrBase {
+   std::uint16_t DecrementGraphCount();
+   void BuildDecrementGraph(RefTree& ref_tree);
+   static void BuildDecrementGraphImpl(PtrBase const* ptr, RefTree& tree,
+-                                      RefTree::Index head_index);
++                                      RefTree::Index head_index,
++                                      PtrBase const* releasing);
+   void Destroy();
+   void Free();
+ 

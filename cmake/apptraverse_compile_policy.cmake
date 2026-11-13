@@ -12,4 +12,11 @@ if(MSVC)
 else()
   target_compile_options(apptraverse_compile_policy INTERFACE
     -fno-rtti -fno-exceptions)
+  if(EMSCRIPTEN)
+    # Emscripten selects libembind's TypeID ABI from link-driver flags. Setting
+    # these only on compilation mixes address-based no-RTTI IDs with RTTI IDs,
+    # so ordinary std::string bindings are unbound at runtime (__getTypeName OOB).
+    target_link_options(apptraverse_compile_policy INTERFACE
+      -fno-rtti -fno-exceptions)
+  endif()
 endif()

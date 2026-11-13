@@ -295,7 +295,7 @@ class Campaign:
                 "excluded": "physical input, sender edit/UTF8 extraction, actual Win32 control paint",
             },
             "environment": "same-host separate processes, real Aether cloud, existing Debug build",
-            "chat_storage": "RAM only; SDK identity profile is separate",
+            "chat_storage": "native USER graph atomically persisted to user.bin; SDK identity profile is separate",
             "idle_notifications": self.idle_notifications,
             "percentile_method": "nearest-rank", "timeouts": self.timeouts,
             "payload_bytes": self.args.payload_bytes, "seed": self.args.seed,

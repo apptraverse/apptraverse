@@ -11,6 +11,7 @@ import argparse
 import json
 import shutil
 import subprocess
+from fixture_process import run_fixture
 import tempfile
 from pathlib import Path
 from typing import Optional
@@ -36,7 +37,7 @@ def run(exe: Path, op: str, backing: Path, user: Optional[Path] = None,
         command += ["--target", target]
     if number is not None:
         command += ["--number", str(number)]
-    completed = subprocess.run(command, capture_output=True, text=True,
+    completed = run_fixture(command, capture_output=True, text=True,
                                encoding="utf-8", errors="replace", timeout=90)
     record = None
     for line in completed.stdout.splitlines():

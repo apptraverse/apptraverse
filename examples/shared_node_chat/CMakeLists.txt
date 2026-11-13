@@ -1,7 +1,3 @@
-add_library(apptraverse_shared_chat_session STATIC chat_session.cpp)
-target_link_libraries(apptraverse_shared_chat_session PUBLIC apptraverse_shared_aether)
-target_include_directories(apptraverse_shared_chat_session PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-
 add_executable(shared_node_chat WIN32
   main_windows.cpp
   ../../src/platform/windows/win_ui_utf8.cpp

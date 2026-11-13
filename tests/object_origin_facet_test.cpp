@@ -24,8 +24,7 @@
 
 namespace {
 
-using StoredLayerSet =
-    std::map<std::uint32_t, std::set<std::uint8_t>>;
+using StoredLayerSet = std::map<std::uint32_t, std::set<std::uint8_t>>;
 
 StoredLayerSet CollectStoredLayers(ae::RamDomainStorage const& storage,
                                    ae::ObjId object_id) {
@@ -235,7 +234,8 @@ void Fail(char const* message) {
   std::abort();
 }
 
-bool PrefabBodyAbsent(ae::RamDomainStorage const& storage, ae::ObjId prefab_id) {
+bool PrefabBodyAbsent(ae::RamDomainStorage const& storage,
+                      ae::ObjId prefab_id) {
   auto const it = storage.state.find(prefab_id);
   if (it == storage.state.end() || !it->second.has_value()) {
     return true;
@@ -273,11 +273,13 @@ void TestObjS0CarriesOriginRoundtrip() {
   ae::Obj& plain_obj = *plain.Load();
 
   ae::DomainGraph graph{&domain};
-  if (!graph.SaveVersion(ae::Version<0>{},
-                         static_cast<ae::Obj const&>(instance_obj), instance_id)
+  if (!graph
+           .SaveVersion(ae::Version<0>{},
+                        static_cast<ae::Obj const&>(instance_obj), instance_id)
            .IsOk() ||
-      !graph.SaveVersion(ae::Version<0>{},
-                         static_cast<ae::Obj const&>(plain_obj), plain_id)
+      !graph
+           .SaveVersion(ae::Version<0>{},
+                        static_cast<ae::Obj const&>(plain_obj), plain_id)
            .IsOk()) {
     Fail("SaveVersion Obj/S0");
   }
@@ -326,7 +328,8 @@ void TestOrdinarySaveWithoutOriginFacet() {
   if (!HasStoredLayer(storage, instance_id, OriginFacetTargetV0::kClassId, 0)) {
     Fail("missing S0 after ordinary Save");
   }
-  ExpectObjS0Only(storage, instance_id, "ordinary Save: Obj layers are not {0}");
+  ExpectObjS0Only(storage, instance_id,
+                  "ordinary Save: Obj layers are not {0}");
   if (HasStoredLayer(storage, instance_id, OriginFacetTargetV0::kClassId, 1)) {
     Fail("Derived/S1 without public Save(V1)");
   }
@@ -425,8 +428,7 @@ void TestRepeatSaveRootDoesNotAddExtraLayers() {
   if (!first_graph.Save(*body, instance_id).has_value()) {
     Fail("initial Save failed");
   }
-  StoredLayerSet const after_first =
-      CollectStoredLayers(storage, instance_id);
+  StoredLayerSet const after_first = CollectStoredLayers(storage, instance_id);
   for (int i = 0; i < 2; ++i) {
     ae::DomainGraph graph{&domain};
     if (!graph.Save(*body, instance_id).has_value()) {
@@ -485,16 +487,17 @@ void TestColdLoadRootAppliesObjS0OnDerived() {
     (void)obj;
   }
 
-  WithColdLoadV0(storage, instance_id,
-                 [prefab_id](ae::Domain& domain, ae::DomainGraph&,
-                             ae::Ptr<OriginFacetTargetV0> loaded) {
-                   if (loaded->value != 99 || loaded->origin_id() != prefab_id) {
-                     Fail("cold LoadRoot field/origin mismatch");
-                   }
-                   if (domain.Find(prefab_id)) {
-                     Fail("prefab P materialized during cold LoadRoot");
-                   }
-                 });
+  WithColdLoadV0(
+      storage, instance_id,
+      [prefab_id](ae::Domain& domain, ae::DomainGraph&,
+                  ae::Ptr<OriginFacetTargetV0> loaded) {
+        if (loaded->value != 99 || loaded->origin_id() != prefab_id) {
+          Fail("cold LoadRoot field/origin mismatch");
+        }
+        if (domain.Find(prefab_id)) {
+          Fail("prefab P materialized during cold LoadRoot");
+        }
+      });
 }
 
 void TestColdLoadWithoutOrigin() {
@@ -510,16 +513,16 @@ void TestColdLoadWithoutOrigin() {
       Fail("Save without origin");
     }
   }
-  WithColdLoadV0(storage, instance_id,
-                 [](ae::Domain&, ae::DomainGraph&,
-                    ae::Ptr<OriginFacetTargetV0> loaded) {
-                   if (loaded->value != 11) {
-                     Fail("cold load without origin");
-                   }
-                   if (loaded->origin_id().is_valid()) {
-                     Fail("unexpected origin after load without origin");
-                   }
-                 });
+  WithColdLoadV0(
+      storage, instance_id,
+      [](ae::Domain&, ae::DomainGraph&, ae::Ptr<OriginFacetTargetV0> loaded) {
+        if (loaded->value != 11) {
+          Fail("cold load without origin");
+        }
+        if (loaded->origin_id().is_valid()) {
+          Fail("unexpected origin after load without origin");
+        }
+      });
 }
 
 void TestColdLoadDerivedS1WithOrigin() {
@@ -609,11 +612,10 @@ bool DiskObjectHasAnyLayers(std::filesystem::path const& storage_root,
   return !CollectDiskLayers(storage_root, object_id).empty();
 }
 
-using DiskFileSnapshot =
-    std::map<std::string, std::vector<std::uint8_t>>;
+using DiskFileSnapshot = std::map<std::string, std::vector<std::uint8_t>>;
 
-DiskFileSnapshot SnapshotDiskObjectTree(std::filesystem::path const& storage_root,
-                                        ae::ObjId object_id) {
+DiskFileSnapshot SnapshotDiskObjectTree(
+    std::filesystem::path const& storage_root, ae::ObjId object_id) {
   DiskFileSnapshot snapshot;
   auto const obj_dir = storage_root / std::to_string(object_id.id());
   if (!std::filesystem::exists(obj_dir)) {
@@ -624,8 +626,7 @@ DiskFileSnapshot SnapshotDiskObjectTree(std::filesystem::path const& storage_roo
     if (!entry.is_regular_file()) {
       continue;
     }
-    auto const rel =
-        std::filesystem::relative(entry.path(), obj_dir).generic_string();
+    auto const rel = entry.path().lexically_relative(obj_dir).generic_string();
     std::ifstream in{entry.path(), std::ios::binary | std::ios::ate};
     if (!in) {
       Fail("failed to read disk layer file");
@@ -709,8 +710,8 @@ void RunDiskOriginWrite(std::filesystem::path const& state_root) {
   apptraverse::DirectoryDomainStorage user_storage{DiskUserRoot(state_root)};
   apptraverse::DirectoryDomainStorage backing_storage{
       DiskBackingRoot(state_root)};
-  apptraverse::OverlayDomainStorage overlay{
-      user_storage, backing_storage, std::set<ae::ObjId>{kDiskPrefabId}};
+  apptraverse::OverlayDomainStorage overlay{user_storage, backing_storage,
+                                            std::set<ae::ObjId>{kDiskPrefabId}};
 
   {
     ae::Domain domain{overlay};
@@ -741,8 +742,8 @@ void RunDiskOriginRead(std::filesystem::path const& state_root) {
   apptraverse::DirectoryDomainStorage user_storage{DiskUserRoot(state_root)};
   apptraverse::DirectoryDomainStorage backing_storage{
       DiskBackingRoot(state_root)};
-  apptraverse::OverlayDomainStorage overlay{
-      user_storage, backing_storage, std::set<ae::ObjId>{kDiskPrefabId}};
+  apptraverse::OverlayDomainStorage overlay{user_storage, backing_storage,
+                                            std::set<ae::ObjId>{kDiskPrefabId}};
 
   DiskFileSnapshot const backing_p_before =
       SnapshotDiskObjectTree(DiskBackingRoot(state_root), kDiskPrefabId);
@@ -803,8 +804,8 @@ void TestFinalOriginRoundtripV0() {
   StoredLayerSet layers_with_origin;
   {
     ae::Domain domain{storage};
-    OriginFacetTargetV0::ptr instance = OriginFacetTargetV0::ptr::Create(
-        ae::CreateWith{domain}.with_id(A_id));
+    OriginFacetTargetV0::ptr instance =
+        OriginFacetTargetV0::ptr::Create(ae::CreateWith{domain}.with_id(A_id));
     instance.Load()->value = 77;
     instance.Load()->SetOriginId(P_id);
     ae::DomainGraph graph{&domain};
@@ -815,7 +816,8 @@ void TestFinalOriginRoundtripV0() {
     if (!HasStoredLayer(storage, A_id, OriginFacetTargetV0::kClassId, 0)) {
       Fail("SaveRoot missing Derived/S0");
     }
-    ExpectObjS0Only(storage, A_id, "SaveRoot with origin: Obj layers are not {0}");
+    ExpectObjS0Only(storage, A_id,
+                    "SaveRoot with origin: Obj layers are not {0}");
     if (HasStoredLayer(storage, A_id, OriginFacetTargetV0::kClassId, 1)) {
       Fail("spurious Derived/S1 on V0 instance");
     }
@@ -857,13 +859,13 @@ void TestFinalOriginRoundtripV0() {
         }
       });
 
-  WithColdLoadV0(storage, no_origin_id,
-                 [](ae::Domain&, ae::DomainGraph&,
-                    ae::Ptr<OriginFacetTargetV0> loaded) {
-                   if (loaded->origin_id().is_valid()) {
-                     Fail("no-origin instance has origin after load");
-                   }
-                 });
+  WithColdLoadV0(
+      storage, no_origin_id,
+      [](ae::Domain&, ae::DomainGraph&, ae::Ptr<OriginFacetTargetV0> loaded) {
+        if (loaded->origin_id().is_valid()) {
+          Fail("no-origin instance has origin after load");
+        }
+      });
 }
 
 void TestFinalOriginRoundtripV1WithShouldSaveVersion() {
@@ -875,8 +877,8 @@ void TestFinalOriginRoundtripV1WithShouldSaveVersion() {
   StoredLayerSet layers_full;
   {
     ae::Domain domain{storage};
-    OriginFacetTargetV1::ptr instance = OriginFacetTargetV1::ptr::Create(
-        ae::CreateWith{domain}.with_id(A_id));
+    OriginFacetTargetV1::ptr instance =
+        OriginFacetTargetV1::ptr::Create(ae::CreateWith{domain}.with_id(A_id));
     ae::Ptr<OriginFacetTargetV1> body = instance.Load();
     body->value = 8;
     body->tag = 9;
@@ -916,26 +918,25 @@ void TestFinalOriginRoundtripV1WithShouldSaveVersion() {
     ExpectObjS0Only(storage, gated_id, "gated: Obj layers are not {0}");
   }
 
-  WithColdLoadV1(
-      storage, A_id,
-      [&](ae::Domain& domain, ae::DomainGraph& graph,
-          ae::Ptr<OriginFacetTargetV1> loaded) {
-        if (loaded->obj_id != A_id ||
-            loaded->GetClassId() != OriginFacetTargetV1::kClassId ||
-            loaded->value != 8 || loaded->tag != 9 ||
-            loaded->origin_id() != P_id) {
-          Fail("V1 cold LoadRoot mismatch");
-        }
-        if (domain.Find(P_id)) {
-          Fail("V1 cold load materialized P");
-        }
-        if (!graph.SaveRoot(loaded, A_id).IsOk()) {
-          Fail("V1 repeat SaveRoot");
-        }
-        if (CollectStoredLayers(storage, A_id) != layers_full) {
-          Fail("V1 repeat SaveRoot changed layers");
-        }
-      });
+  WithColdLoadV1(storage, A_id,
+                 [&](ae::Domain& domain, ae::DomainGraph& graph,
+                     ae::Ptr<OriginFacetTargetV1> loaded) {
+                   if (loaded->obj_id != A_id ||
+                       loaded->GetClassId() != OriginFacetTargetV1::kClassId ||
+                       loaded->value != 8 || loaded->tag != 9 ||
+                       loaded->origin_id() != P_id) {
+                     Fail("V1 cold LoadRoot mismatch");
+                   }
+                   if (domain.Find(P_id)) {
+                     Fail("V1 cold load materialized P");
+                   }
+                   if (!graph.SaveRoot(loaded, A_id).IsOk()) {
+                     Fail("V1 repeat SaveRoot");
+                   }
+                   if (CollectStoredLayers(storage, A_id) != layers_full) {
+                     Fail("V1 repeat SaveRoot changed layers");
+                   }
+                 });
 }
 
 void TestConstPrefabDynamicInstanceRoundtrip() {
@@ -947,8 +948,8 @@ void TestConstPrefabDynamicInstanceRoundtrip() {
   ae::RamDomainStorage backing;
   {
     ae::Domain domain{backing};
-    OriginFacetTargetV1::ptr prefab = OriginFacetTargetV1::ptr::Create(
-        ae::CreateWith{domain}.with_id(P_id));
+    OriginFacetTargetV1::ptr prefab =
+        OriginFacetTargetV1::ptr::Create(ae::CreateWith{domain}.with_id(P_id));
     ae::Ptr<OriginFacetTargetV1> prefab_body = prefab.Load();
     prefab_body->value = kValue;
     prefab_body->tag = kTag;
@@ -969,13 +970,14 @@ void TestConstPrefabDynamicInstanceRoundtrip() {
 
   ae::RamDomainStorage user;
   std::set<ae::ObjId> supply_constants{P_id};
-  apptraverse::OverlayDomainStorage overlay{user, backing, std::move(supply_constants)};
+  apptraverse::OverlayDomainStorage overlay{user, backing,
+                                            std::move(supply_constants)};
 
   StoredLayerSet layers_after_save;
   {
     ae::Domain domain{overlay};
-    OriginFacetTargetV1::ptr instance = OriginFacetTargetV1::ptr::Create(
-        ae::CreateWith{domain}.with_id(A_id));
+    OriginFacetTargetV1::ptr instance =
+        OriginFacetTargetV1::ptr::Create(ae::CreateWith{domain}.with_id(A_id));
     ae::Ptr<OriginFacetTargetV1> instance_body = instance.Load();
     instance_body->value = kValue;
     instance_body->tag = kTag;
@@ -1058,8 +1060,9 @@ void TestLoadRootRejectsObjOnlyStorage() {
     ae::Obj& obj = *instance.Load();
     obj.SetOriginId(prefab_id);
     ae::DomainGraph graph{&domain};
-    if (!graph.SaveVersion(ae::Version<0>{}, static_cast<ae::Obj const&>(obj),
-                           instance_id)
+    if (!graph
+             .SaveVersion(ae::Version<0>{}, static_cast<ae::Obj const&>(obj),
+                          instance_id)
              .IsOk()) {
       Fail("write Obj/S0-only storage");
     }
@@ -1195,8 +1198,8 @@ void TestMissingLayerResolvedFromOrigin() {
   ae::RamDomainStorage backing;
   {
     ae::Domain domain{backing};
-    OriginLayerItem::ptr prefab = OriginLayerItem::ptr::Create(
-        ae::CreateWith{domain}.with_id(P_id));
+    OriginLayerItem::ptr prefab =
+        OriginLayerItem::ptr::Create(ae::CreateWith{domain}.with_id(P_id));
     ae::Ptr<OriginLayerItem> body = prefab.Load();
     body->value = 150;
     body->tag = 252;
@@ -1296,8 +1299,9 @@ int main(int argc, char** argv) {
     Fail("unknown disk mode (expected --write or --read)");
   }
   if (argc != 1) {
-    Fail("usage: object_origin_facet_test | --write <state-root> | --read "
-         "<state-root>");
+    Fail(
+        "usage: object_origin_facet_test | --write <state-root> | --read "
+        "<state-root>");
   }
 
   TestObjS0CarriesOriginRoundtrip();

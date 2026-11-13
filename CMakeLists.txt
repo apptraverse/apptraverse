@@ -66,6 +66,8 @@ CPMAddPackage(
     "AE_TELE_INSTALL OFF"
     "AE_TELE_BUILD_TESTS OFF"
 )
+set(AE_OBJECTS_RAW_TELE ON CACHE BOOL
+    "Route object-system telemetry through its independent raw space")
 CPMAddPackage(
   NAME aether-objects
   GITHUB_REPOSITORY aethernetio/aether-objects
@@ -151,6 +153,28 @@ option(APPTRAVERSE_BUILD_AETHER_LINK
 if(APPTRAVERSE_BUILD_AETHER_LINK)
   include(cmake/shared_aether.cmake)
   apptraverse_add_shared_aether()
+  add_library(apptraverse_shared_chat_session STATIC EXCLUDE_FROM_ALL src/chat_session.cpp)
+  target_link_libraries(apptraverse_shared_chat_session PUBLIC apptraverse_shared_aether)
+  set(APPTRAVERSE_CHAT_SUPPLY_HEADER "" CACHE FILEPATH "Chat supply prepared by the Debug exporter")
+  if(APPTRAVERSE_CHAT_SUPPLY_HEADER)
+    if(NOT EXISTS "${APPTRAVERSE_CHAT_SUPPLY_HEADER}")
+      message(FATAL_ERROR "Chat supply header does not exist: ${APPTRAVERSE_CHAT_SUPPLY_HEADER}")
+    endif()
+    target_compile_definitions(apptraverse_shared_chat_session PRIVATE
+      APPTRAVERSE_CHAT_DISTILLATION=0
+      "APPTRAVERSE_CHAT_EMBEDDED_HEADER=\"${APPTRAVERSE_CHAT_SUPPLY_HEADER}\"")
+  else()
+    target_compile_definitions(apptraverse_shared_chat_session PRIVATE
+      "APPTRAVERSE_CHAT_DISTILLATION=$<IF:$<CONFIG:Debug>,1,0>")
+    add_executable(apptraverse_chat_supply_exporter EXCLUDE_FROM_ALL
+      examples/shared_node_chat/export_chat_supply.cpp)
+    target_link_libraries(apptraverse_chat_supply_exporter PRIVATE apptraverse_shared_chat_session)
+  endif()
+endif()
+
+if(ANDROID)
+  # noninteractive_crt.cpp reports fatal errors through the Android log API.
+  target_link_libraries(apptraverse PUBLIC log)
 endif()
 
 if(WIN32)

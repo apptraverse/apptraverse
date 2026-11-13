@@ -1,8 +1,16 @@
 # Keep the optional SDK out of ordinary model/UI builds. Shared object and
 # serialization dependencies have already been added by the root project.
 set(APPTRAVERSE_AETHER_CLIENT_GIT_TAG
-  "6b7abc458a86b93b2ba3b5e92ee19f05e5101757")
+  "ce24dbec570cd015ee653166184ab7fc4bf16b93")
 set(APPTRAVERSE_AETHER_CLIENT_SOURCE "" CACHE PATH "Optional clean SDK checkout at the pinned upstream revision")
+if(EMSCRIPTEN)
+  set(_apptraverse_shared_aether_default_config "${CMAKE_CURRENT_LIST_DIR}/shared_aether_web_config.h")
+else()
+  set(_apptraverse_shared_aether_default_config "${CMAKE_CURRENT_LIST_DIR}/shared_aether_config.h")
+endif()
+set(APPTRAVERSE_AETHER_USER_CONFIG "${_apptraverse_shared_aether_default_config}"
+    CACHE FILEPATH "Aether transport configuration for this build")
+option(APPTRAVERSE_AETHER_FAULT_PROXY "Enable process-scoped socket fault hooks for explicit acceptance tests" OFF)
 function(_apptraverse_verify_sdk source allow_unpatched)
   execute_process(COMMAND git -C "${source}" rev-parse HEAD
     OUTPUT_VARIABLE sdk_sha OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
@@ -14,7 +22,7 @@ function(_apptraverse_verify_sdk source allow_unpatched)
 endfunction()
 
 function(apptraverse_add_shared_aether)
-  set(USER_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/cmake/shared_aether_config.h")
+  set(USER_CONFIG "${APPTRAVERSE_AETHER_USER_CONFIG}")
   set(AE_BUILD_TESTS OFF CACHE BOOL "SDK tests" FORCE)
   set(AE_BUILD_EXAMPLES OFF CACHE BOOL "SDK examples" FORCE)
   set(AE_BUILD_TOOLS OFF CACHE BOOL "SDK tools" FORCE)
@@ -39,6 +47,12 @@ function(apptraverse_add_shared_aether)
   endif()
   _apptraverse_verify_sdk("${aether-client-cpp_SOURCE_DIR}" FALSE)
   target_link_libraries(aether PUBLIC apptraverse_compile_policy)
+  if(APPTRAVERSE_AETHER_FAULT_PROXY)
+    if(NOT WIN32)
+      message(FATAL_ERROR "The explicit socket fault proxy currently supports Windows only")
+    endif()
+    target_compile_definitions(aether PUBLIC AE_BENCH_TCP_PROXY=1)
+  endif()
   add_library(apptraverse_shared_aether STATIC EXCLUDE_FROM_ALL
     src/aether_link.cpp)
   target_link_libraries(apptraverse_shared_aether PUBLIC

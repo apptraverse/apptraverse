@@ -540,12 +540,20 @@ void SharedSyncRuntime::InitializeLocalState(SharedNode& node) {
   local->checkpoint_us = 0;
   local->progress_markers.clear();
   InitializeRuntimeNode(*local);
+  local->SetImmediateEventCompaction(true);
   node.local_state = std::move(local);
 }
 
 void SharedSyncRuntime::RegisterNode(SharedNode::ptr node) {
   assert(node.is_valid() && node.is_loaded() && node.domain() == &domain_ &&
          node->local_state.is_valid());
+  // These local Events record the current delivery ledger, not a shared
+  // business replay history. Fold superseded ACK/progress/queue transitions
+  // into their native bases, including when resuming an older checkpoint.
+  for (auto const& peer : node->local_state->peers) {
+    peer->SetImmediateEventCompaction(true);
+  }
+  node->local_state->SetImmediateEventCompaction(true);
   ReconcilePeers(*node);
   nodes_[node.id()] = std::move(node);
 }
@@ -568,6 +576,7 @@ void SharedSyncRuntime::ReconcilePeers(SharedNode& node) {
     peer->delivered_notices.clear();
     peer->acknowledged_streams.clear();
     InitializeRuntimeNode(*peer);
+    peer->SetImmediateEventCompaction(true);
     node.local_state->AddPeer(std::move(peer));
   }
 }
