@@ -709,6 +709,22 @@ struct ChatSession::Impl {
     }
     if (auto* room = CurrentRoom()) {
       next.in_room = true;
+      next.retained_events = room->journal.size();
+      for (auto const& peer : room->local_state->peers)
+        next.pending_packets += peer->pending_packets.size();
+      if (room->links.size() > 1) {
+        next.tcp_path_verified = next.udp_path_verified = true;
+        for (auto const& peer : room->links) {
+          if (peer->endpoint_uid == next.local_uid) continue;
+          auto const path = native->PeerStats(peer->endpoint_uid);
+          next.tcp_path_verified = next.tcp_path_verified &&
+                                   path.linked_tcp_endpoint &&
+                                   !path.linked_udp_endpoint;
+          next.udp_path_verified = next.udp_path_verified &&
+                                   path.linked_udp_endpoint &&
+                                   !path.linked_tcp_endpoint;
+        }
+      }
       next.invite = room->host_uid + "/" + std::to_string(room->obj_id.id());
       for (auto const& person : room->participants) {
         auto const& uid = person->link->endpoint_uid;
@@ -898,11 +914,13 @@ bool ExportChatInitialSupply(std::filesystem::path const& output) {
 
 ChatSession::ChatSession(std::filesystem::path profile, std::string name,
                          Changed changed)
-    : ChatSession{std::move(profile), std::move(name), std::move(changed), {}} {}
+    : ChatSession{std::move(profile), std::move(name), std::move(changed), {}} {
+}
 ChatSession::ChatSession(std::filesystem::path profile, std::string name,
                          Changed changed, PrepareProfile prepare_profile)
     : impl_{std::make_unique<Impl>(std::move(profile), std::move(name),
-                                   std::move(changed), std::move(prepare_profile))} {}
+                                   std::move(changed),
+                                   std::move(prepare_profile))} {}
 ChatSession::~ChatSession() { Stop(); }
 void ChatSession::Start() {
   std::lock_guard lock{impl_->lifecycle_mutex};

@@ -20,7 +20,7 @@
 #include <string>
 #include <thread>
 
-#include "chat_session.h"
+#include "apptraverse/chat_session.h"
 
 namespace {
 using namespace apptraverse::chat;
@@ -200,6 +200,10 @@ int main(int argc, char** argv) {
         std::string(view.ready ? "true" : "false") +
         ",\"in_room\":" + (view.in_room ? "true" : "false") +
         ",\"local_online\":" + (view.locally_online ? "true" : "false") +
+        ",\"tcp_verified\":" + (view.tcp_path_verified ? "true" : "false") +
+        ",\"udp_verified\":" + (view.udp_path_verified ? "true" : "false") +
+        ",\"retained_events\":" + std::to_string(view.retained_events) +
+        ",\"pending_packets\":" + std::to_string(view.pending_packets) +
         ",\"uid\":" + Quote(view.local_uid) +
         ",\"invite\":" + Quote(view.invite) +
         ",\"members\":" + std::to_string(view.participants.size()) +
@@ -248,6 +252,14 @@ int main(int argc, char** argv) {
           text += "\r\n";
         }
         text += row;
+      }
+      if (rendered != text) {
+        std::string history = "{\"event\":\"history\",\"messages\":[";
+        for (std::size_t i = 0; i < view.messages.size(); ++i) {
+          if (i != 0) history += ',';
+          history += Quote(view.messages[i]);
+        }
+        Emit(history + "]}");
       }
       rendered = std::move(text);
       auto const displayed_at = Ticks();

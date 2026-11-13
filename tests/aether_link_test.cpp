@@ -4,18 +4,21 @@
 #include <limits>
 #include <vector>
 
-#include "aether/stream_api/sized_packet_gate.h"
-#include "aether/client_messages/p2p_stream_write_budget.h"
-#include "aether/safe_stream/safe_stream_wire_budget.h"
-#include "aether/types/packed_size.h"
 #include "aether-miscpp/serialization/binary_archive.h"
+#include "aether/client_messages/p2p_stream_write_budget.h"
+#include "aether/types/packed_size.h"
 #include "apptraverse/aether_link.h"
+#include "apptraverse/p2p_message_fragments.h"
 
 namespace {
 
-#define CHECK(condition) do { if (!(condition)) { \
-  std::cerr << "CHECK failed: " #condition << " at " << __LINE__ << '\n'; \
-  std::exit(1); } } while (false)
+#define CHECK(condition)                                                      \
+  do {                                                                        \
+    if (!(condition)) {                                                       \
+      std::cerr << "CHECK failed: " #condition << " at " << __LINE__ << '\n'; \
+      std::exit(1);                                                           \
+    }                                                                         \
+  } while (false)
 
 using namespace apptraverse;
 
@@ -39,9 +42,11 @@ void NativeTimingMatchesServerFieldOrder() {
     CHECK(timing.next_ping_delta_ms == server.next_ping);
     CHECK(timing.last_connect_delta_ms == server.last_activity);
     auto const now = ae::TimePoint{} + 10s;
-    auto const result = ae::ClassifyRemoteServerPresence(now, now, now, timing, 1s);
-    CHECK(result == (server.next_ping > 0 ? ae::RemoteServerPresence::kOnline
-                                       : ae::RemoteServerPresence::kOffline));
+    auto const result =
+        ae::ClassifyRemoteServerPresence(now, now, now, timing, 1s);
+    CHECK(result == (server.next_ping > 0
+                         ? ae::RemoteServerPresence::kOnline
+                         : ae::RemoteServerPresence::kOffline));
   }
 }
 
@@ -89,42 +94,36 @@ void SdkUnlimitedTcpBudgetIsBounded() {
   auto const raw = ae::MaxP2pStreamWritePayloadBytesForDatagramBudget(tcp);
   CHECK(raw != 0 && raw <= ae::PackedSize::kUpper);
   CHECK(ae::EncodedP2pSendMessageDatagramBytesForInnerPayload(raw) <= tcp);
-  auto const safe = ae::MaxSafeStreamSendDataBytesForDownstreamMaxElementSize(
-      std::numeric_limits<std::size_t>::max());
-  CHECK(safe != 0 && safe <= ae::PackedSize::kUpper);
 }
 
-// The SDK gate used by AetherByteLink preserves opaque native SharedSync bytes
-// through arbitrary chunks, including messages larger than its circular buffer.
+// The adapter's independent fragments preserve opaque native SharedSync bytes
+// within the real SDK wire budget, including messages larger than one write.
 void SdkFramingPreservesBusinessBytesAndBoundaries() {
-  auto events = std::make_unique<ae::EventSystem>();
-  struct Context {
-    ae::EventSystem* events;
-    ae::EventSystem& event_system() const { return *events; }
-  } context{events.get()};
-  ae::SizedPacketGate sender{context};
-  ae::SizedPacketGate receiver{context};
   std::vector<std::uint8_t> large(85000);
   for (std::size_t i = 0; i < large.size(); ++i) {
     large[i] = static_cast<std::uint8_t>(i % 251);
   }
-  std::vector<std::uint8_t> const small{0, 1, 255, 0, 17};
-  auto wire = sender.WriteIn(ae::DataBuffer{large.begin(), large.end()});
-  auto tail = sender.WriteIn(ae::DataBuffer{small.begin(), small.end()});
-  wire.insert(wire.end(), tail.begin(), tail.end());
-  std::vector<std::vector<std::uint8_t>> received;
-  ae::Subscription sub = receiver.out_data_event().Subscribe(
-      [&](ae::DataBuffer const& message) { received.push_back(message); });
-  for (std::size_t offset = 0; offset < wire.size();) {
-    auto const end = std::min(wire.size(), offset + 997);
-    receiver.WriteOut(ae::DataBuffer{wire.begin() + static_cast<std::ptrdiff_t>(offset),
-                                    wire.begin() + static_cast<std::ptrdiff_t>(end)});
-    offset = end;
+  for (auto channel_budget : std::vector<std::size_t>{
+           1500, std::numeric_limits<std::uint32_t>::max()}) {
+    P2pMessageWriter sender{large};
+    P2pMessageReader receiver;
+    std::vector<std::vector<std::uint8_t>> packets;
+    auto const budget =
+        ae::P2pStreamWritePayloadLimitFromChannelMax(channel_budget);
+    while (!sender.done()) {
+      auto packet = sender.Next(budget);
+      CHECK(!packet.empty() &&
+            ae::EncodedP2pSendMessageDatagramBytesForInnerPayload(
+                packet.size()) <= channel_budget);
+      packets.push_back(std::move(packet));
+      sender.Advance();
+    }
+    CHECK(packets.size() > 1);
+    for (std::size_t i = packets.size(); --i > 0;)
+      CHECK(!receiver.Receive(packets[i], 0));
+    auto result = receiver.Receive(packets.front(), 1);
+    CHECK(result && *result == large);
   }
-  CHECK(received.size() == 2 && received[0] == large && received[1] == small);
-  sub.Reset();
-  receiver.WriteOut(wire);
-  CHECK(received.size() == 2);
 }
 
 }  // namespace

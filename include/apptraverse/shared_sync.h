@@ -16,7 +16,11 @@
 namespace apptraverse {
 
 enum class SharedSyncKind : std::uint8_t {
-  InitialState = 1, Event = 2, Ack = 3, CoverageReceipt = 4, Progress = 5
+  InitialState = 1,
+  Event = 2,
+  Ack = 3,
+  CoverageReceipt = 4,
+  Progress = 5
 };
 
 // The entire message, including native object layers, uses BinaryArchive.
@@ -42,8 +46,9 @@ struct SharedSyncMessage {
   std::uint64_t checkpoint_us{0};
 
   AE_REFLECT_MEMBERS(major, minor, kind, acknowledged_kind, node_id, packet_id,
-                    event_id, timestamp_us, graph, covered_events, admission,
-                    stamp, stream_events, received_prefix, progress, checkpoint_us)
+                     event_id, timestamp_us, graph, covered_events, admission,
+                     stamp, stream_events, received_prefix, progress,
+                     checkpoint_us)
 };
 
 bool SerializeSharedSyncMessage(SharedSyncMessage const& message,
@@ -72,7 +77,8 @@ class SharedSyncRuntime {
   void RegisterNode(SharedNode::ptr node);
   SharedNode::ptr FindNode(ae::ObjId node_id) const;
   void ExpectInitialState(ae::ObjId node_id, std::string source_endpoint,
-                          std::uint32_t expected_class_id, AttachInitial attach);
+                          std::uint32_t expected_class_id,
+                          AttachInitial attach);
 
   // These entry points persist frozen packets but do not send them. Service
   // drives actual transmission, enabling destruction after persist/before Send.
@@ -81,14 +87,15 @@ class SharedSyncRuntime {
   // Apply must introduce joining_endpoint in node.links. Join, snapshot and
   // delivery obligations are frozen/persisted before any transmission.
   bool AdmitPeer(ae::ObjId node_id, Event::ptr join_event,
-                   std::string joining_endpoint, std::uint64_t timestamp_us = 0);
+                 std::string joining_endpoint, std::uint64_t timestamp_us = 0);
   // Explicit timestamps must strictly increase for this author and exceed the
   // adopted snapshot floor. Zero selects a durable-monotonic automatic time.
   bool CommitLocal(ae::ObjId node_id, Event::ptr event,
-                    std::uint64_t timestamp_us = 0);
+                   std::uint64_t timestamp_us = 0);
   // Persist a promise closing this author's past and broadcast durable receipt
   // evidence. Explicit refresh is allowed at the same time after new receipts.
-  bool PublishProgress(ae::ObjId node_id, std::uint64_t through_timestamp_us = 0);
+  bool PublishProgress(ae::ObjId node_id,
+                       std::uint64_t through_timestamp_us = 0);
   // Node-owned hold is opened only for a prefix proven closed and received by
   // every member. The native compactor may conservatively refuse that prefix.
   bool CompactConfirmed(ae::ObjId node_id);
@@ -111,13 +118,15 @@ class SharedSyncRuntime {
   bool QueueCoverageReceipts(SharedNode& node, SharedAdmissionPlan const& plan);
   void ReconcilePeers(SharedNode& node);
   bool InstallAdmission(SharedNode& node, SharedAdmissionPlan const& plan);
-  void OnBytes(std::string const& source, std::vector<std::uint8_t> const& bytes);
+  void OnBytes(std::string const& source,
+               std::vector<std::uint8_t> const& bytes);
   bool OnInitial(std::string const& source, SharedSyncMessage const& message);
   bool OnEvent(std::string const& source, SharedSyncMessage const& message);
   bool OnAck(std::string const& source, SharedSyncMessage const& message);
   bool OnCoverage(std::string const& source, SharedSyncMessage const& message);
   bool OnProgress(std::string const& source, SharedSyncMessage const& message);
-  void SendAck(std::string const& destination, SharedSyncMessage const& original);
+  void SendAck(std::string const& destination,
+               SharedSyncMessage const& original);
 
   ae::Domain& domain_;
   ae::IDomainStorage& storage_;
@@ -129,6 +138,10 @@ class SharedSyncRuntime {
   std::map<ae::ObjId, SharedNode::ptr> nodes_;
   std::map<ae::ObjId, InitialExpectation> expected_;
   std::map<RetryKey, std::uint64_t> next_send_;
+  // Runtime-only replies for already persisted state. Flush before data so
+  // simultaneous bounded/fragmented writes cannot starve each other's ACKs.
+  // Losing this cache at restart is safe: the durable sender retries data.
+  std::map<RetryKey, std::vector<std::uint8_t>> deferred_acks_;
   bool failed_{false};
   std::size_t rejected_messages_{0};
 };

@@ -3551,3 +3551,16 @@ Historical profiles preserved; native macOS product save/cold smoke PASS.
 Final iOS Latest launch/copied-USER visual smoke PASS on an isolated fresh
 iPhone15Pro simulator after CoreSimulator service recovery/first migration.
 [Exact evidence, initial failures and limits](../validation/window-catalog-apple-latest-library-2026-11-12.md).
+
+## 2026-11-13 — direct P2pStream TCP chat
+
+Replaced the SharedNode adapter's SafeStream/SizedPacketGate stack with direct
+P2pStream and bounded native-archive message fragments. SharedSync now flushes
+runtime deferred ACKs ahead of data retries. The exact SDK pin is published on
+client main through PR573 and includes supported-channel selection and I/O
+quiescence before graph reclamation, fixing a debugger-confirmed shutdown AV.
+Windows x64 embedded-supply Debug: twelve requested targets built, scoped
+CTest8/8 PASS, six complete three-peer native GUI scenarios PASS, and actual
+TCP outage/forced restart/both-side cold restart/order/dedup/journal collapse
+acceptance PASS (23.83s including cleanup). No adaptive transport is applied.
+[Scope, failure evidence and remaining limits](../validation/shared-node-p2pstream-tcp-2026-11-13.md).

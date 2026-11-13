@@ -306,25 +306,24 @@ existing memory check do not acquire the SDK. The separate
 `APPTRAVERSE_BUILD_AETHER_CLOUD_WORKER` option also defaults OFF and adds only
 the owned headless cloud worker, not a GUI example or an automatic network test.
 
-The public SDK base is `5ddf5eaaac5bd154ec384ff8c74f247a0ab80fb7`, the working
-push SDK used by App. Frozen consumer patches add the streaming fixes and
-native Client presence API without changing ordinary push registration/Ping
-or P2P message formats. GetClientTiming uses its defined correlated RPC.
-The native source/test postimages are checked by manifest; an isolated source
-override can also use equivalent integration `423ab1e1`. Foreign live worktrees
-and benchmark reports are not consumed by the build. The Debug registration
-capture patch only makes its callback fit SmallFunction capacity. The common object
-dependency and its 27-patch chain remain unchanged. The earlier transport
-pin and probe-based verification are historical and recorded separately in
+The public SDK revision is pinned in `cmake/shared_aether.cmake`. A local
+source override must be clean and match that exact committed revision. The
+SDK provides streaming recovery, native Client presence and WebSocket support;
+consumer transport patches are no longer applied. The default native chat
+configuration enables TCP only. GetClientTiming uses its defined correlated
+RPC. The earlier transport pin and probe-based verification are historical in
 [the original validation](../validation/shared-node-aether-2026-11-11.md).
 
-`AetherByteLink` implements `IByteLink` over SDK `P2pStream` and
-`P2pSafeStream`. It sends the frozen native SharedSyncMessage bytes unchanged
-without an application transport envelope. SDK `SizedPacketGate` supplies
-whole-message framing; bounded writes through P2pSafeStream fragment messages
-larger than its circular buffer. No application offset/length protocol or new
-SharedNode field codec is added. The business-message limit is 1 MiB, excluding
-SDK framing; larger messages are refused explicitly.
+`AetherByteLink` implements `IByteLink` directly over SDK `P2pStream`.
+P2pSafeStream, SizedPacketGate and the adaptive datagram stream are not used.
+`P2pMessageWriter` wraps unchanged frozen native SharedSyncMessage bytes in
+independent, native-archive fragments sized for the SDK's encrypted wire
+budget. `P2pMessageReader` tolerates reordered, duplicate and retried fragments
+and emits complete messages only. Complete retries are deliberately emitted
+again so SharedSync can replace a lost business ACK without applying an Event
+twice. Limits per peer are 1 MiB per business message, 16 incomplete assemblies,
+8 MiB of buffered payload and a 30-second progress timeout. The envelope is
+runtime-only; no persistent model schema or SharedSync wire schema changes.
 
 `WatchPeer(uid)` prepares a local peer session; Send can discover a valid
 new UID, and incoming SDK ports create or replace the corresponding local peer
@@ -334,7 +333,9 @@ seeing transport traffic. The adapter and SharedSyncRuntime run on one model
 thread. The context, client and AetherApp outlive the adapter, whose subscriptions
 are released before its streams and SDK owners are destroyed.
 One adapter owns the Client's peer-port subscription; multiple SharedNodes use
-that adapter. Bootstrap snapshots take priority over Event retries so a bounded
+that adapter. Deferred ACKs for persisted state take priority over outgoing
+data, preventing starvation when both peers occupy their one write slot.
+Bootstrap snapshots take priority over Event retries so a bounded
 transport cannot repeatedly deliver an early Event while starving its initial
 state.
 
@@ -404,14 +405,14 @@ transition, through the existing Node notifier. A callback posts a Windows
 message; the UI consumes the view when handling it. There is no regular
 publication/refresh timer, and no presentation work for ACKs/retries/idle.
 
-The demonstration owns chat objects and receipt metadata in RAM; its
-SharedSync persistence callback accepts that in-memory transition. Chat graph
-Save/Load, disk checkpoints and automatic shutdown saves are not used. Closing
-the process loses its room/history/pending state. An embedding application
-chooses its own object-storage policy. Only SDK identity uses the private
-profile; it does not restore chat state. Previous persistent-demo validation
-is historical and is not a RAM-chat restart guarantee. Runtime
-transport objects never enter the shared graph. The example implements one
+The current demonstration persists chat objects and delivery obligations as
+one native USER graph over the embedded supply. A successful SharedSync commit
+saves that graph atomically to `user.bin` before the application ACK. The SDK
+identity remains separate in the private profile. Opening the same profile
+restores the room/history and retries pending delivery after reconnect. Runtime
+transport handles, deferred ACK cache and fragment assemblies never enter the
+shared graph. Earlier RAM-only acceptance records describe an older policy.
+The example implements one
 room and no room merging, moderation, attachments or unrelated controls.
 
 ## Next slices
