@@ -2,6 +2,7 @@
 #define APPTRAVERSE_CHAT_SESSION_H_
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -23,6 +24,10 @@ struct ParticipantView {
 // the model thread boundary.
 struct ChatMessageView {
   std::string id, author_uid, author_name, text;
+  // Original SharedNode event order timestamp, Unix microseconds UTC.
+  std::uint64_t sent_at_utc_us{0};
+  // True only after every remote member has durably acknowledged the event.
+  bool delivered{false};
   bool operator==(ChatMessageView const&) const = default;
 };
 
@@ -65,6 +70,8 @@ class ChatSession {
 
   void Start();
   void Stop();
+  // OS connectivity observation, queued onto the SDK/model worker.
+  void NetworkAvailability(bool available);
   // Ordered model-worker checkpoint; completion runs there after USER is durable.
   // Keeps the model, transport and presenters alive during native deactivation.
   void Checkpoint(std::function<void(bool)> completion);

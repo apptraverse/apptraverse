@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -29,6 +30,8 @@ struct AetherLinkOptions {
   // Direct P2pStream carries bounded, independent message fragments.
   // SharedSync supplies native serialization and durable ACK/retry.
   std::size_t max_message_bytes{1024 * 1024};
+  // Adapter-thread notification for changed local/remote availability.
+  std::function<void()> on_presence_changed;
 };
 
 // Cache of the native Client::QueryPeerPresence result, with no presence
@@ -95,6 +98,7 @@ class AetherByteLink final : public IByteLink {
 
   std::string const& EndpointId() const;
   bool WatchPeer(std::string const& endpoint);
+  void NetworkAvailable();
   void Service(std::uint64_t now_us);
   void SetReceiver(Receiver receiver) override;
   bool Send(std::string const& destination,

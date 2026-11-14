@@ -12,6 +12,7 @@
 #include "aether/client_messages/p2p_message_stream.h"
 #include "aether/client_messages/p2p_stream_write_budget.h"
 #include "aether/connection_manager/peer_presence_query.h"
+#include "aether/cloud_connections/cloud_server_connections.h"
 #include "apptraverse/p2p_message_fragments.h"
 
 namespace apptraverse {
@@ -410,6 +411,8 @@ struct AetherByteLink::Impl {
   bool query_timed_out{false};
   AetherLinkStatistics statistics;
   std::uint64_t now_us{0};
+  std::optional<bool> observed_local_online;
+  std::map<std::string, LinkAvailability> observed_presence;
   bool serviced{false};
   bool stopped{false};
 };
@@ -425,6 +428,17 @@ std::string const& AetherByteLink::EndpointId() const {
 bool AetherByteLink::WatchPeer(std::string const& endpoint) {
   return impl_->Watch(endpoint) != nullptr;
 }
+void AetherByteLink::NetworkAvailable() {
+  for (auto const& [key, peer] : impl_->peers) peer->presence.Forget();
+  // A confirmation from the old route cannot establish online on the new one.
+  auto& cloud = impl_->client->cloud_connection();
+  auto policy = impl_->client->connectivity_policy().Load();
+  for (auto* server : cloud.servers()) {
+    if (auto* state = policy->FindServerPresence(server->server_id()))
+      state->has_confirmed_schedule = false;
+  }
+  cloud.NetworkAvailable();
+}
 void AetherByteLink::Service(std::uint64_t now_us) {
   assert(!impl_->serviced || now_us >= impl_->now_us);
   impl_->now_us = now_us;
@@ -439,7 +453,15 @@ void AetherByteLink::Service(std::uint64_t now_us) {
     }
     impl_->Pump(*peer);
   }
+  bool changed = !impl_->observed_local_online || *impl_->observed_local_online != impl_->client->IsLocallyOnline();
+  impl_->observed_local_online = impl_->client->IsLocallyOnline();
+  for (auto const& [key, peer] : impl_->peers) {
+    auto value = impl_->Availability(*peer);
+    auto [it, inserted] = impl_->observed_presence.emplace(key, value);
+    if (inserted || it->second != value) { it->second = value; changed = true; }
+  }
   impl_->serviced = true;
+  if (changed && impl_->options.on_presence_changed) impl_->options.on_presence_changed();
 }
 void AetherByteLink::SetReceiver(Receiver receiver) {
   impl_->receiver = std::move(receiver);

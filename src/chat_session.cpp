@@ -1,3 +1,4 @@
+#include <optional>
 #include "apptraverse/chat_session.h"
 
 #include <algorithm>
@@ -8,6 +9,7 @@
 #include <deque>
 #include <functional>
 #include <mutex>
+#include <map>
 #include <thread>
 #include <utility>
 
@@ -90,20 +92,25 @@ struct ChatMessage {
 class TextEvent;
 class JoinEvent;
 class Room : public NodeFor<Room, SharedNode> {
-  APPTRAVERSE_NAMED_OBJECT("apptraverse::chat::Room", Room, SharedNode, 0)
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::chat::Room", Room, SharedNode, 1)
  protected:
   Room() = default;
 
  public:
   explicit Room(ae::ObjProp prop) : NodeFor{prop} {}
-  AE_OBJECT_REFLECT(AE_MMBR(host_uid), AE_MMBR(participants), AE_MMBR(messages))
+  AE_OBJECT_REFLECT(AE_MMBR(host_uid), AE_MMBR(participants), AE_MMBR(messages), AE_MMBR(message_times))
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& d) {
     d(base_, host_uid, participants, messages);
+    message_times.clear();
   }
   template <typename Dnv>
-  void Save(ae::Version<0>, Dnv& d) const {
-    d(base_, host_uid, participants, messages);
+  void Load(ae::Version<1>, Dnv& d) {
+    d(base_, host_uid, participants, messages, message_times);
+  }
+  template <typename Dnv>
+  void Save(ae::Version<1>, Dnv& d) const {
+    d(base_, host_uid, participants, messages, message_times);
   }
   bool CanApply(TextEvent const&) const;
   bool CanApply(JoinEvent const&) const;
@@ -112,6 +119,7 @@ class Room : public NodeFor<Room, SharedNode> {
   std::string host_uid;
   std::vector<Participant::ptr> participants;
   std::vector<ChatMessage> messages;
+  std::map<std::string,std::uint64_t> message_times;
 };
 
 class TextEvent : public EventFor<Room, TextEvent> {
@@ -172,6 +180,12 @@ void Room::Apply(TextEvent const& event) {
   messages.push_back({event.author->name, event.text,
                       author_uid + ":" + std::to_string(event.obj_id.id()),
                       author_uid});
+  // Read the retained event record while it is being applied, including replay.
+  // Persist the timestamp in materialized state before the journal is compacted.
+  auto record=std::find_if(journal.begin(),journal.end(),[&](auto const& entry) {
+    return entry.event.id()==event.obj_id;
+  });
+  if(record!=journal.end()) message_times[messages.back().id]=record->order.timestamp_us;
   NoteMaterializedChange();
 }
 void Room::Apply(JoinEvent const& event) {
@@ -463,6 +477,7 @@ struct ChatSession::Impl {
   bool selection_ok{false};
   bool failed{false};
   bool finished{false};
+  std::optional<bool> network_available;
   bool view_dirty{true};
   std::string status;
   std::string resolving_host;
@@ -476,7 +491,6 @@ struct ChatSession::Impl {
   std::unique_ptr<SharedSyncRuntime> sync;
   std::uint64_t next_join_request{0};
   std::uint64_t next_progress{0};
-  std::uint64_t next_presence_publication{0};
 
   Room* CurrentRoom() const {
     if (!app.is_valid() || !app->room.is_valid()) {
@@ -773,7 +787,7 @@ struct ChatSession::Impl {
     ChatView next;
     next.status = status;
     next.ready = sync && !failed && !finished && !sync->failed();
-    next.locally_online = client.is_valid() && client->IsLocallyOnline();
+    next.locally_online = (!network_available || *network_available) && client.is_valid() && client->IsLocallyOnline();
     if (native) {
       next.local_uid = native->EndpointId();
     }
@@ -806,7 +820,7 @@ struct ChatSession::Impl {
             uid == next.local_uid
                 ? (next.locally_online ? LinkAvailability::Online
                                        : LinkAvailability::Offline)
-                : native->ObservedPresence(uid);
+                : (next.locally_online ? native->ObservedPresence(uid) : LinkAvailability::Unknown);
         auto const presence =
             availability == LinkAvailability::Online    ? Presence::Online
             : availability == LinkAvailability::Offline ? Presence::Offline
@@ -814,9 +828,27 @@ struct ChatSession::Impl {
         next.participants.push_back({person->name, uid, presence});
       }
       for (auto const& message : room->messages) {
+        bool delivered = false;
+        auto separator = message.id.rfind(':');
+        std::uint32_t raw_id = 0;
+        if (separator != std::string::npos) {
+          auto digits = message.id.substr(separator + 1);
+          auto parsed = std::from_chars(digits.data(), digits.data()+digits.size(), raw_id);
+          if (parsed.ec == std::errc{} && parsed.ptr == digits.data()+digits.size()) {
+            bool has_recipient = false;
+            delivered = true;
+            for (auto const& peer : room->local_state->peers) {
+              if (peer->link->endpoint_uid == message.author_uid) continue;
+              has_recipient = true;
+              delivered = delivered && peer->HasDelivered(ae::ObjId{raw_id});
+            }
+            delivered = delivered && has_recipient;
+          }
+        }
         next.messages.push_back(message.author_name + ": " + message.text);
         next.message_records.push_back({message.id, message.author_uid,
-                                        message.author_name, message.text});
+                                        message.author_name, message.text,
+                                        room->message_times.contains(message.id)?room->message_times.at(message.id):0,delivered});
       }
     } else if (app.is_valid() && app->expected.is_valid()) {
       next.invite = app->source;
@@ -904,6 +936,7 @@ struct ChatSession::Impl {
           // Identity storage is separate from the application's one USER file.
           sdk->aether().Save();
           AetherLinkOptions link_options;
+          link_options.on_presence_changed = [this] { view_dirty = true; };
           link_options.use_presence = true;
           link_options.gate_delivery_on_presence = false;
           native = std::make_unique<AetherByteLink>(*sdk->aether(), client,
@@ -923,9 +956,9 @@ struct ChatSession::Impl {
           }
         }
         native->Service(now);
-        if (now >= next_presence_publication) {
-          view_dirty = true;
-          next_presence_publication = now + 250000ULL;
+        if(auto* room=CurrentRoom()) {
+          Observe(*room->local_state);
+          for(auto const& peer:room->local_state->peers) Observe(*peer);
         }
         if (!resolving_host.empty() && now >= next_join_request) {
           link->ResolveRoom(resolving_host);
@@ -1028,6 +1061,14 @@ void ChatSession::Stop() {
     impl_->thread.join();
   }
   impl_->RejectPendingCommands();
+}
+void ChatSession::NetworkAvailability(bool available) {
+  impl_->proxy.EnqueueModelWork([impl = impl_.get(), available](ae::Domain&) {
+    bool restored = impl->network_available && !*impl->network_available && available;
+    impl->network_available = available;
+    impl->view_dirty = true;
+    if (restored) impl->native->NetworkAvailable();
+  });
 }
 void ChatSession::Checkpoint(std::function<void(bool)> completion) {
   auto reject = [completion] { completion(false); };

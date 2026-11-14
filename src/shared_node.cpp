@@ -107,6 +107,7 @@ bool SharedPeerState::CanApply(MarkSharedEventDeliveredEvent const& event) const
 
 void SharedPeerState::Apply(MarkSharedEventDeliveredEvent const& event) {
   AddDelivered(event.event_id);
+  NoteMaterializedChange();
 }
 
 void SharedPeerState::AddDelivered(ae::ObjId event_id) {
@@ -153,6 +154,7 @@ bool SharedPeerState::CanApply(QueueSharedPacketEvent const& event) const {
 
 void SharedPeerState::Apply(QueueSharedPacketEvent const& event) {
   pending_packets.push_back(event.packet);
+  NoteMaterializedChange();
 }
 
 void SharedPeerState::CompletePacket(ae::ObjId packet_id) {
@@ -190,6 +192,7 @@ void SharedPeerState::Apply(CompleteSharedPacketEvent const& event) {
   } else if (!completed.progress) {
     AddDelivered(completed.event_id);
   }
+  NoteMaterializedChange();
 }
 
 void SharedPeerState::RemoveCoveredPending(
@@ -233,6 +236,7 @@ void SharedPeerState::Apply(InstallSharedAdmissionEvent const& event) {
   admission = event.plan;
   // Installing expected coverage is not remote delivery confirmation.
   coverage_confirmed = false;
+  NoteMaterializedChange();
 }
 
 void SharedPeerState::ConfirmAdmission(SharedAdmissionPlan plan) {
@@ -255,6 +259,7 @@ void SharedPeerState::Apply(ConfirmSharedAdmissionEvent const& event) {
     AddDelivered(id);
   }
   RemoveCoveredPending(event.plan.covered_events);
+  NoteMaterializedChange();
 }
 
 void SharedPeerState::ConfirmPrefix(SharedStreamCursor cursor) {
@@ -298,6 +303,7 @@ void SharedPeerState::Apply(ConfirmSharedStreamPrefixEvent const& event) {
   } else {
     *existing = event.cursor;
   }
+  NoteMaterializedChange();
 }
 
 bool SharedPeerState::HasReceivedInitial(ae::ObjId packet_id) const {
@@ -328,6 +334,7 @@ void SharedPeerState::Apply(RememberSharedInitialEvent const& event) {
   for (auto id : event.covered_events) {
     AddDelivered(id);
   }
+  NoteMaterializedChange();
 }
 
 void SharedNodeLocalState::AddPeer(SharedPeerState::ptr peer) {
