@@ -4,6 +4,7 @@
 #include <set>
 #include <thread>
 #include "apptraverse/application_model_runtime.h"
+#include "apptraverse/application_ui_session.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/distilled_domain_export.h"
 #include "apptraverse/embedded_distilled_domain.h"
@@ -36,7 +37,7 @@ void BuildBacking(ae::RamDomainStorage& backing){
 }
 struct Session::Impl {
   Impl(std::filesystem::path path,std::string who,bool role,std::string invited,
-       std::function<void()> callback,bool load)
+       std::function<void()> callback,bool load,ChatSession::FlushProfile flush_transport)
     :profile{std::move(path)},name{std::move(who)},initial_host{std::move(invited)},
      host{role},load_only{load},changed{std::move(callback)},
      proxy{[this](auto work){runtime.Post(std::move(work));}},
@@ -44,7 +45,7 @@ struct Session::Impl {
        auto value=transport.View();(void)runtime.TryPost([value=std::move(value)](ae::Domain& domain)mutable{
          domain.Find(RootId()).as<ChatUi>()->AcceptTransport(std::move(value));
        });
-     }},mirror_domain{mirror_storage}{}
+     },{},std::move(flush_transport)}{}
   std::filesystem::path profile;
   std::string name,initial_host;
   bool host{},load_only{},started{};
@@ -54,12 +55,28 @@ struct Session::Impl {
   ModelObjectProxy proxy;
   ChatSession transport;
   std::thread worker;
-  ae::RamDomainStorage mirror_storage;
-  ae::Domain mirror_domain;
-  ae::Ptr<ae::Obj> mirror;
+  std::unique_ptr<ApplicationUiSession> ui;
   // Worker-only, valid until Run has drained and saved.
   ae::RamDomainStorage* active_user{};
   std::filesystem::path active_profile;
+  using CheckpointCompletion=std::shared_ptr<std::function<void(bool)>>;
+  std::vector<CheckpointCompletion> deferred_checkpoints;
+  void SaveCheckpoint(ChatUi& root,CheckpointCompletion done){
+    if(root.editing.sending){
+      deferred_checkpoints.push_back(std::move(done));
+      return;
+    }
+    (*done)(Persist(root,*active_user,active_profile));
+  }
+  void CompleteDeferredCheckpoints(ChatUi& root){
+    if(deferred_checkpoints.empty())return;
+    // The send callback acknowledges durable transport storage. Save this
+    // settled model in the same work item, before another GUI Send can start.
+    auto pending=std::move(deferred_checkpoints);
+    deferred_checkpoints.clear();
+    bool const saved=Persist(root,*active_user,active_profile);
+    for(auto& done:pending)(*done)(saved);
+  }
   void Run(){
     ae::RamDomainStorage user,backing;
 #ifdef APPTRAVERSE_CHAT_UI_PRODUCER
@@ -78,8 +95,10 @@ struct Session::Impl {
     root->join=[this](std::string invite){transport.JoinRoom(std::move(invite));};
     root->send=[this](std::string text,std::uint64_t revision){
       transport.Send(std::move(text),[this,revision](bool accepted){
-        (void)runtime.TryPost([revision,accepted](ae::Domain& model){
-          model.Find(RootId()).as<ChatUi>()->CompleteSend(revision,accepted);
+        (void)runtime.TryPost([this,revision,accepted](ae::Domain& model){
+          auto* root=model.Find(RootId()).as<ChatUi>();
+          root->CompleteSend(revision,accepted);
+          CompleteDeferredCheckpoints(*root);
         });
       });
     };
@@ -93,9 +112,10 @@ struct Session::Impl {
   }
 };
 Session::Session(std::filesystem::path profile,std::string name,bool host,
-    std::string initial_host,std::function<void()> changed,bool load_only)
+    std::string initial_host,std::function<void()> changed,bool load_only,
+    ChatSession::FlushProfile flush_transport)
   :impl_{std::make_unique<Impl>(std::move(profile),std::move(name),host,
-      std::move(initial_host),std::move(changed),load_only)}{EnsureUiRegistration();}
+      std::move(initial_host),std::move(changed),load_only,std::move(flush_transport))}{}
 Session::~Session(){Stop();}
 void Session::Start(){
   if(impl_->started||impl_->stopping.load())return;
@@ -108,36 +128,42 @@ void Session::Stop(){
   impl_->runtime.SyncPost([](ae::Domain&){});
   impl_->transport.Stop();impl_->runtime.RequestStop();
   impl_->runtime.AbandonUnconsumedPublicationsForTeardown();impl_->worker.join();
-  if(impl_->mirror)UnloadPresenters(*impl_->mirror);
+  impl_->ui.reset();
 }
 void Session::Checkpoint(std::function<void(bool)> completion){
   auto done=std::make_shared<std::function<void(bool)>>(std::move(completion));
   if(impl_->stopping.load()||!impl_->started){(*done)(false);return;}
-  impl_->transport.Checkpoint([this,done](bool transport_saved){
-    if(!transport_saved){(*done)(false);return;}
-    if(!impl_->runtime.TryPost([this,done](ae::Domain& domain){
-      auto* root=domain.Find(RootId()).as<ChatUi>();
-      (*done)(Persist(*root,*impl_->active_user,impl_->active_profile));
-    }))(*done)(false);
-  });
+  // Join the GUI queue before the transport queue. Otherwise an already
+  // accepted Send can reach the transport after its checkpoint and leave a
+  // saved UI draft marked in-flight without the matching durable message.
+  if(!impl_->runtime.TryPost([this,done](ae::Domain&){
+    impl_->transport.Checkpoint([this,done](bool transport_saved){
+      if(!transport_saved){(*done)(false);return;}
+      if(!impl_->runtime.TryPost([this,done](ae::Domain& domain){
+        auto* root=domain.Find(RootId()).as<ChatUi>();
+        // A later Send can enter while the transport flush is in flight. Never
+        // persist its transient sending phase without the corresponding ACK.
+        impl_->SaveCheckpoint(*root,done);
+      }))(*done)(false);
+    });
+  }))(*done)(false);
 }
 bool Session::ApplyPublication(Presentation& host){
   if(impl_->stopping.load())return false;
   auto bytes=impl_->runtime.TakePublishedCopy();
   if(bytes.empty())return false;
-  ByteSource source;source.data=bytes.data();source.size=bytes.size();
-  if(!impl_->mirror){
-    impl_->mirror=LoadInitialPublication(source,impl_->mirror_domain,impl_->mirror_storage);
-    InitializePresenters(*impl_->mirror,&host,&impl_->proxy);
-  }else ApplyStructuralPublicationAndUpdatePresenters(source,impl_->mirror_domain,
-      impl_->mirror_storage,*impl_->mirror,&host,&impl_->proxy);
+  if(!impl_->ui)
+    impl_->ui=std::make_unique<ApplicationUiSession>(bytes,&host,impl_->proxy);
+  else impl_->ui->ApplyStructural(bytes);
   impl_->runtime.NotifyPublicationConsumed();return true;
 }
-ChatUi const* Session::Mirror()const{return static_cast<ChatUi const*>(impl_->mirror.get());}
+ChatUi const* Session::Mirror()const{
+  return impl_->ui?&static_cast<ChatUi const&>(impl_->ui->root()):nullptr;
+}
 ModelObjectProxy& Session::Proxy(){return impl_->proxy;}
 #ifdef APPTRAVERSE_CHAT_UI_PRODUCER
 int ExportUiSupply(std::filesystem::path const& path){
-  EnsureUiRegistration();ae::RamDomainStorage backing;BuildBacking(backing);
+  ae::RamDomainStorage backing;BuildBacking(backing);
   auto constants=Constants(backing);std::vector<ae::ObjId> ids{constants.begin(),constants.end()};
   return WriteEmbeddedDistilledSupplyHeader(path,"shared_chat_ui","APPTRAVERSE_SHARED_CHAT_UI_SUPPLY_H_",
       RootId(),ids,backing,CollectStoredObjectIds(backing))?0:1;

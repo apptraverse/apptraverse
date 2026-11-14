@@ -18,7 +18,7 @@ struct ChatControlView {
     }
 }
 final class ChatPresenter: ObservableObject {
-    let role: ChatRole
+    private(set) var role: ChatRole
     @Published var controls: [ChatControlView] = []
     @Published var input = "" { didSet { if !applying { bridge.editDraft(input) } } }
     @Published var invite = "" { didSet { if !applying { bridge.editInvite(invite) } } }
@@ -31,6 +31,8 @@ final class ChatPresenter: ObservableObject {
     @Published var inRoom = false
     var labels: [String] = []
     var width: CGFloat = 0, height: CGFloat = 0, minimumWidth: CGFloat = 0, minimumHeight: CGFloat = 0, gap: CGFloat = 0
+    var x: CGFloat = 0, y: CGFloat = 0, restoreWidth: CGFloat = 0, restoreHeight: CGFloat = 0
+    var hasExplicitPlacement = false
     var chromeChanged: (() -> Void)?
     private var applying = false
     private var bridge: ATChatBridge!
@@ -46,8 +48,27 @@ final class ChatPresenter: ObservableObject {
     func start() -> Bool { bridge.start() }
     func checkpoint(_ completion: @escaping (Bool) -> Void) { bridge.checkpoint(completion) }
     func stop() { guard !stopped else { return }; stopped = true; bridge.stop() }
-    func resize(_ size: CGSize) { if size.width > 0 && size.height > 0 { bridge.resizeWidth(Int32(size.width), height: Int32(size.height)) } }
+    func resize(_ size: CGSize) {
+        // The temporary native container must not overwrite restored geometry
+        // before the first mirror has supplied the actual window dimensions.
+        guard !controls.isEmpty, !stopped else { return }
+        precondition(size.width.isFinite && size.height.isFinite &&
+                     size.width <= CGFloat(Int32.max) && size.height <= CGFloat(Int32.max),
+                     "Invalid native chat viewport")
+        guard size.width >= 1 && size.height >= 1 else { return }
+        bridge.resizeWidth(Int32(size.width), height: Int32(size.height))
+    }
     func join() { bridge.join() }
+    func reportFrame(_ frame: CGRect, updatesRestore: Bool) {
+        guard !controls.isEmpty, !stopped else { return }
+        for value in [frame.minX, frame.minY, frame.width, frame.height] {
+            precondition(value.isFinite && value >= CGFloat(Int32.min) && value <= CGFloat(Int32.max),
+                         "Invalid native chat frame")
+        }
+        guard frame.width >= 1 && frame.height >= 1 else { return }
+        bridge.reportFrame(x: Int32(frame.minX), y: Int32(frame.minY), width: Int32(frame.width),
+                           height: Int32(frame.height), updatesRestore: updatesRestore)
+    }
     func send() { bridge.send() }
     func copyID() {
         guard controls.count > 2, controls[2].enabled else { return }
@@ -69,7 +90,12 @@ final class ChatPresenter: ObservableObject {
         uid = value["uid"] as! String; status = value["status"] as! String
         participants = value["participants"] as! [String]; messages = value["messages"] as! [String]
         ready = value["ready"] as! Bool; inRoom = value["in_room"] as! Bool
+        role = (value["host"] as! Bool) ? .host : .client
         width = CGFloat((value["width"] as! NSNumber).doubleValue); height = CGFloat((value["height"] as! NSNumber).doubleValue)
+        x = CGFloat((value["x"] as! NSNumber).doubleValue); y = CGFloat((value["y"] as! NSNumber).doubleValue)
+        restoreWidth = CGFloat((value["restoreWidth"] as! NSNumber).doubleValue)
+        restoreHeight = CGFloat((value["restoreHeight"] as! NSNumber).doubleValue)
+        hasExplicitPlacement = value["hasExplicitPlacement"] as! Bool
         minimumWidth = CGFloat((value["minimumWidth"] as! NSNumber).doubleValue); minimumHeight = CGFloat((value["minimumHeight"] as! NSNumber).doubleValue)
         gap = CGFloat((value["gap"] as! NSNumber).doubleValue)
         applying = false; chromeChanged?()
@@ -116,8 +142,14 @@ struct ChatPanel: View {
                             .position(x: value.x + value.width / 2, y: value.y + value.height / 2)
                     }
                 }
-            }.onAppear { presenter.resize(geometry.size) }
+            }
+            #if !os(macOS)
+             .onAppear { presenter.resize(geometry.size) }
              .onChange(of: geometry.size) { size in presenter.resize(size) }
+             .onChange(of: presenter.controls.isEmpty) { empty in
+                 if !empty { presenter.resize(geometry.size) }
+             }
+            #endif
         }
     }
 }

@@ -3,8 +3,7 @@
 #include "window_catalog_prepare.h"
 
 #include <filesystem>
-#include <iostream>
-#include <optional>
+#include <set>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -15,7 +14,6 @@
 #include "window_catalog_model.h"
 
 #include "apptraverse/application_model_session.h"
-#include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/single_file_user_storage.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/embedded_application_model_session.h"
@@ -29,7 +27,7 @@
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_presented_window_lifecycle.h"
 #if defined(APPTRAVERSE_WINDOW_CATALOG_DEBUG_BOOTSTRAP)
-#include "window_catalog_distillation.h"
+#include "window_catalog_supply_constant_ids.h"
 #endif
 
 namespace apptraverse {
@@ -59,35 +57,22 @@ int WindowCatalogModelSession::Run(
   };
 
 #if defined(APPTRAVERSE_WINDOW_CATALOG_DEBUG_BOOTSTRAP)
-  std::error_code directory_error;
-  std::filesystem::create_directories(state_dir, directory_error);
-  if (directory_error) {
-    WriteFatalStderr("fatal: cannot create catalog development directory\n");
-    std::abort();
-  }
-  std::filesystem::path run_directory;
-  do {
-    run_directory = state_dir /
-        ("debug-run-" + std::to_string(ae::ObjId::GenerateUnique().id()));
-    if (std::filesystem::create_directory(run_directory, directory_error)) {
-      break;
-    }
-    if (directory_error) {
-      WriteFatalStderr("fatal: cannot create catalog debug-run directory\n");
-      std::abort();
-    }
-  } while (true);
-  auto const initial = DistillWindowCatalog(run_directory);
-  state_dir = run_directory / "user";
-  std::cerr << "WINDOW_CATALOG_DEBUG_FRESH_PROFILE=" << state_dir.string()
-            << '\n';
+  // Ordinary Debug constructs the current supply in RAM. Only lifecycle
+  // checkpointing writes USER; explicit --distill-only owns supply export.
+  state_dir /= "debug-run-" + std::to_string(ae::ObjId::GenerateUnique().id());
+  state_dir /= "user";
   ae::RamDomainStorage backing;
-  if (!LoadDirectoryDomainStorageIntoRam(initial.backing_directory, backing)) {
-    WriteFatalStderr("fatal: cannot load catalog initial backing\n");
-    return 1;
+  std::set<ae::ObjId> constant_ids;
+  {
+    ae::Domain producer_domain{backing};
+    auto catalog = BuildWindowCatalogGraph(producer_domain);
+    FinalizeDistilledGraph(*catalog);
+    SaveDistilledRoot(*catalog);
+    auto constants = CollectWindowCatalogSupplyConstantIds(*catalog);
+    constant_ids.insert(constants.begin(), constants.end());
   }
   ae::RamDomainStorage user_storage;
-  OverlayDomainStorage overlay{user_storage, backing, initial.constant_ids};
+  OverlayDomainStorage overlay{user_storage, backing, constant_ids};
   hooks.prepare = PrepareWindowCatalogForRun;
   hooks.persist = [&user_storage, state_dir = state_dir](WindowCatalog& catalog) -> int {
     SaveWindowCatalogPersistentSnapshot(catalog);
@@ -120,23 +105,8 @@ int WindowCatalogModelSession::Run(
       user_storage, embedded_distilled::window_catalog::kEmbeddedGraph, runtime,
       std::move(on_published), hooks);
 #else
-  ae::RamDomainStorage user_storage;
-  if (!LoadUserStorageFile(user_storage, state_dir)) return 1;
-#if defined(APPTRAVERSE_ENABLE_DISTILLATION)
-  if (user_storage.state.empty()) {
-    ae::Domain bootstrap_domain{user_storage};
-    auto bootstrap_catalog = BuildWindowCatalogGraph(bootstrap_domain);
-    FinalizeDistilledGraph(*bootstrap_catalog);
-    SaveDistilledRoot(*bootstrap_catalog);
-  }
-#endif
-  hooks.prepare = PrepareWindowCatalogForRun;
-  hooks.persist = [&user_storage, state_dir = state_dir](WindowCatalog& catalog) -> int {
-    SaveWindowCatalogPersistentSnapshot(catalog);
-    return SaveUserStorageFile(user_storage, state_dir) ? 0 : 1;
-  };
-  return RunApplicationModelSession(user_storage, CatalogRootId(), runtime,
-                                    std::move(on_published), hooks);
+#error "WindowCatalog requires fresh Debug producer or current embedded supply"
+
 #endif
 }
 

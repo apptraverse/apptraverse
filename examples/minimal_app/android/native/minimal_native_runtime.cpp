@@ -1,10 +1,11 @@
 #include "minimal_native_runtime.h"
 
-#include "android_log.h"
 #include "android_jni_util.h"
 #include "apptraverse/platform/android/android_ui_window_presenter.h"
 
+#if defined(APPTRAVERSE_MINIMAL_TEST_HOOKS)
 #include "minimal_app_android_checkpoint_test_gate.h"
+#endif
 #include "minimal_app_android_lifecycle.h"
 #include "minimal_app_persistence.h"
 
@@ -34,11 +35,12 @@ void MinimalNativeRuntime::SetPresentationRoot(JNIEnv* env, jobject activity,
     };
     callbacks.after_initial = [this](ae::Obj& root) {
       ApplyPagePresentation(root);
-      apptraverse::android::LogInfo("MINIMAL_APP_INITIAL_RENDER_OK");
     };
     callbacks.after_incremental = [this](ae::Obj& root) { ApplyPagePresentation(root); };
     callbacks.persist_model = [this](ae::Domain& domain) -> int {
+#if defined(APPTRAVERSE_MINIMAL_TEST_HOOKS)
       WaitAndroidCheckpointPersistTestGateIfEnabled();
+#endif
       return PersistAndroidMinimalUser(domain, user_storage_, state_dir_);
     };
     host_ = std::make_unique<android::AndroidApplicationHost>(

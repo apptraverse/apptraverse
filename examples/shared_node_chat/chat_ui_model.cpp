@@ -2,18 +2,32 @@
 #include <algorithm>
 #include <cassert>
 #include <mutex>
+#include "apptraverse/ui/ui_presented_window_composition.h"
 
 namespace apptraverse::chat::gui {
 APPTRAVERSE_REGISTER(ChatUi);
 APPTRAVERSE_REGISTER(ChatUiEvent);
 APPTRAVERSE_REGISTER(ChatControlPresenter);
+APPTRAVERSE_REGISTER(ChatWindowPresenter);
 void EnsureUiRegistration(){
   static std::once_flag once;
   std::call_once(once,[]{ EnsureObjectRegistration();
     (void)&g_apptraverse_registrar_ChatUi;
     (void)&g_apptraverse_registrar_ChatUiEvent;
     (void)&g_apptraverse_registrar_ChatControlPresenter;
+    (void)&g_apptraverse_registrar_ChatWindowPresenter;
   });
+}
+void ChatWindowPresenter::OnLoad(){ OnModelChanged(); }
+void ChatWindowPresenter::OnModelChanged(){
+  assert(presentation_host && model_proxy);
+  static_cast<Presentation*>(presentation_host)->PresentWindow(static_cast<ChatUi const&>(*window));
+}
+void ChatWindowPresenter::OnUnload(){
+  static_cast<Presentation*>(presentation_host)->RemoveWindow();
+}
+bool ChatControlPresenter::ReadyForPresentation()const{
+  return model->presenter->presentation_loaded;
 }
 void ChatControlPresenter::OnLoad(){ OnModelChanged(); }
 void ChatControlPresenter::OnModelChanged(){
@@ -24,7 +38,7 @@ void ChatControlPresenter::OnModelChanged(){
 void ChatControlPresenter::OnUnload(){
   static_cast<Presentation*>(presentation_host)->Remove(static_cast<Control>(control));
 }
-std::string ChatUi::Text(Label label)const { return labels.at(static_cast<unsigned>(label))->Resolve(0); }
+std::string ChatUi::Text(Label label)const { return labels.at(static_cast<unsigned>(label))->Resolve(presenter->locale->language_index()); }
 std::string ChatUi::Title()const { return Text(Label::Title)+" - "+editing.name; }
 ControlState const& ChatUi::Get(Control c)const { return controls.at(static_cast<unsigned>(c)); }
 namespace {
@@ -32,14 +46,19 @@ ChatUiEvent::ptr Make(ChatUi& model,Action action){
   auto event=ChatUiEvent::ptr::Create(ae::CreateWith{*model.domain});
   event->action=action; event->text.clear(); event->second.clear();
   event->flag=false; event->revision=0; event->first_value=0;
-  event->second_value=0; event->connection={}; return event;
+  event->connection={}; return event;
 }
 }
 void ChatUi::EditDraft(std::string text){ auto e=Make(*this,Action::Draft); e->text=std::move(text); Commit(e); }
 void ChatUi::EditInvite(std::string text){ auto e=Make(*this,Action::Invite); e->text=std::move(text); Commit(e); }
-void ChatUi::Resize(int width,int height){ auto e=Make(*this,Action::Resize); e->first_value=width;e->second_value=height;Commit(e); }
+void ChatUi::Resize(int width,int height){
+  if(width<=0||height<=0)return; // Native surface temporarily unavailable.
+  SubmitFrameFromNative(0,0,width,height,false);
+}
+void ChatUi::OnClientSizeChanged(){ RefreshControls(); }
 void ChatUi::ClipboardResult(bool ok){ auto e=Make(*this,Action::Feedback);e->first_value=static_cast<int>(ok?Label::Copied:Label::CopyFailed);Commit(e); }
 void ChatUi::Configure(bool host,std::string name,std::string initial_host){
+  if(editing.configured)return;
   auto e=Make(*this,Action::Configure);e->flag=host;e->text=std::move(name);e->second=std::move(initial_host);Commit(e);
 }
 void ChatUi::Join(){ if(connection.ready&&!connection.in_room&&!editing.host) join(editing.invite); }
@@ -82,9 +101,7 @@ void ChatUi::Apply(ChatUiEvent const& e){
       if(!connection.invite.empty())editing.invite=connection.invite;break;
     case Action::Configure: editing.host=e.flag;editing.name=e.text;
       if(!e.second.empty())editing.invite=e.second;
-      editing.sending=false;break;
-    case Action::Resize: layout.width=std::max(1,e.first_value);
-      layout.height=std::max(layout.minimum_height,e.second_value);break;
+      editing.configured=true;break;
     case Action::Feedback: editing.error_label=e.first_value;break;
   }
   RefreshControls(); NoteMaterializedChange();
@@ -109,9 +126,9 @@ void ChatUi::RefreshControls(){
   at(Control::Send).text=Text(Label::Send);at(Control::Send).enabled=connection.ready&&connection.in_room&&!editing.sending;
   at(Control::Status).text=editing.error_label>=0?Text(static_cast<Label>(editing.error_label)):
     Text(connection.online?Label::Online:Label::Offline)+" | "+connection.status;
-  int const m=layout.margin,g=layout.gap,r=layout.width-m,x=m+layout.label_width;
-  int const people=std::clamp(layout.width/4,130,210),mx=m+people+g,mw=r-mx;
-  int const iy=layout.height-70,bh=std::max(70,iy-g-layout.body_top);
+  int const m=layout.margin,g=layout.gap,r=client_width()-m,x=m+layout.label_width;
+  int const people=std::clamp(client_width()/4,130,210),mx=m+people+g,mw=r-mx;
+  int const iy=client_height()-70,bh=std::max(70,iy-g-layout.body_top);
   auto rect=[&](Control c,int xx,int yy,int w,int h){at(c).frame={xx,yy,w,h};};
   rect(Control::UidLabel,m,17,layout.label_width-g,20);
   rect(Control::Uid,x,m,r-x-g-layout.button_width,26);at(Control::Invite).frame=at(Control::Uid).frame;
@@ -119,7 +136,7 @@ void ChatUi::RefreshControls(){
   rect(Control::PeopleLabel,m,50,people,20);rect(Control::MessagesLabel,mx,50,mw,20);
   rect(Control::People,m,layout.body_top,people,bh+34);rect(Control::Messages,mx,layout.body_top,mw,bh);
   rect(Control::Input,mx,iy,std::max(60,mw-g-76),layout.input_height);
-  rect(Control::Send,r-76,iy,76,layout.input_height);rect(Control::Status,m,layout.height-30,r-m,22);
+  rect(Control::Send,r-76,iy,76,layout.input_height);rect(Control::Status,m,client_height()-30,r-m,22);
 }
 #ifdef APPTRAVERSE_CHAT_UI_PRODUCER
 ChatUi::ptr BuildUi(ae::Domain& domain){
@@ -129,13 +146,18 @@ ChatUi::ptr BuildUi(ae::Domain& domain){
   char const* texts[]={"SharedNode Chat","My Aether ID","Host Aether ID","Copy","Join",
     "Participants","Messages","Send","Message","Done","Connecting...","Online","Offline",
     "Unknown","Message is too long (maximum 8192 UTF-8 bytes).","Could not save the message.",
-    "Aether ID copied","Could not copy Aether ID"};
+    "Aether ID copied","Could not copy Aether ID","Quit","Edit","Cut","Paste","Select All"};
   for(auto text:texts){
     auto label=ui::UiLocalizationString::ptr::Create(ae::CreateWith{domain});
     auto str=ui::UiString::ptr::Create(ae::CreateWith{domain});str->utf8=text;label->strings={str};
     label->SetObjectScope({{}, {}, true});str->SetObjectScope({{}, {}, true});app->labels.push_back(label);
   }
-  app->layout={840,560,400,300,12,8,100,100,70,28};
+  auto locale=ui::UiLocaleSettings::ptr::Create(ae::CreateWith{domain});
+  locale->BootstrapLanguageIndex(0);
+  auto window=ChatWindowPresenter::ptr::Create(ae::CreateWith{domain});
+  ui::ComposePresentedWindow(app,window,app->labels.at(static_cast<unsigned>(Label::Title)),locale);
+  app->BootstrapFrame(0,0,840,560);
+  app->layout={400,300,12,8,100,100,70,28};
   app->controls.resize(static_cast<unsigned>(Control::Count));
   for(auto& control:app->controls) control={};
   app->RefreshControls();

@@ -11,18 +11,30 @@ static NSString* Text(std::string const& value) {
   NSString* result=[[NSString alloc] initWithBytes:value.data() length:value.size() encoding:NSUTF8StringEncoding];
   if(!result){apptraverse::WriteFatalStderr("invalid chat UI text\n");std::abort();}return result;
 }
+static std::string Utf8(NSString* value) {
+  NSData* bytes = [value dataUsingEncoding:NSUTF8StringEncoding allowLossyConversion:NO];
+  if (!bytes) { apptraverse::WriteFatalStderr("cannot encode native chat text\n"); std::abort(); }
+  if (bytes.length == 0) return {};
+  return {static_cast<char const*>(bytes.bytes), bytes.length};
+}
 struct ApplePresentation:Presentation {
   std::function<void(Control,ControlState const&)> update;
+  std::function<void(ChatUi const&)> updateWindow;
+  std::function<void()> removeWindow;
   void Present(Control c,ControlState const& state,ChatUi const&)override{update(c,state);}
   void Remove(Control)override{}
+  void PresentWindow(ChatUi const& model)override{updateWindow(model);}
+  void RemoveWindow()override{removeWindow();}
 };
 @interface ATChatBridge ()
 - (void)render:(unsigned)index state:(ControlState const&)state;
+- (void)renderWindow:(ChatUi const&)model;
 @end
 @implementation ATChatBridge {
   std::unique_ptr<Session> session;
   std::unique_ptr<ApplePresentation> presentation;
   NSMutableArray<NSDictionary*>* controls;
+  NSDictionary* windowState;
   NSString* profile;
   void (^changed)(void);
   int lock;
@@ -30,6 +42,7 @@ struct ApplePresentation:Presentation {
 }
 - (instancetype)initWithProfile:(NSString*)path name:(NSString*)name host:(BOOL)host initialHost:(NSString*)initialHost loadOnly:(BOOL)loadOnly changed:(void (^)(void))callback {
   if((self=[super init])){
+    EnsureUiRegistration();
     profile=[path copy];changed=[callback copy];lock=-1;
     controls=[NSMutableArray array];
     for(unsigned i=0;i<static_cast<unsigned>(Control::Count);++i)[controls addObject:@{}];
@@ -38,12 +51,29 @@ struct ApplePresentation:Presentation {
     presentation->update=[weakSelf](Control c,ControlState const& state){
       ATChatBridge* bridge=weakSelf;if(bridge)[bridge render:static_cast<unsigned>(c) state:state];
     };
-    session=std::make_unique<Session>(path.fileSystemRepresentation,name.UTF8String,host,
-      initialHost.UTF8String,[weakSelf]{dispatch_async(dispatch_get_main_queue(),^{
+    presentation->updateWindow=[weakSelf](ChatUi const& model){
+      ATChatBridge* bridge=weakSelf;if(bridge)[bridge renderWindow:model];
+    };
+    presentation->removeWindow=[weakSelf]{
+      ATChatBridge* bridge=weakSelf;if(bridge)bridge->windowState=nil;
+    };
+    char const* nativePath = path.fileSystemRepresentation;
+    if (!nativePath || nativePath[0] == '\0') {
+      apptraverse::WriteFatalStderr("cannot resolve chat profile path\n"); std::abort();
+    }
+    session=std::make_unique<Session>(nativePath,Utf8(name),host,
+      Utf8(initialHost),[weakSelf]{dispatch_async(dispatch_get_main_queue(),^{
         ATChatBridge* bridge=weakSelf;
         if(bridge&&!bridge->stopped&&bridge->session->ApplyPublication(*bridge->presentation))bridge->changed();
       });},loadOnly);
   }return self;
+}
+- (void)renderWindow:(ChatUi const&)model {
+  windowState=@{@"width":@(model.client_width()),@"height":@(model.client_height()),
+    @"x":@(model.x()),@"y":@(model.y()),
+    @"restoreWidth":@(model.restore_client_width()),@"restoreHeight":@(model.restore_client_height()),
+    @"hasExplicitPlacement":@(model.HasExplicitPosition()),
+    @"minimumWidth":@(model.layout.minimum_width),@"minimumHeight":@(model.layout.minimum_height)};
 }
 - (void)render:(unsigned)index state:(ControlState const&)state {
   NSMutableArray* rows=[NSMutableArray array];for(auto const& row:state.rows)[rows addObject:Text(row)];
@@ -68,24 +98,31 @@ struct ApplePresentation:Presentation {
   if(stopped){completion(NO);return;}
   session->Checkpoint([completion](bool ok){dispatch_async(dispatch_get_main_queue(),^{completion(ok);});});
 }
-- (void)editDraft:(NSString*)text {if(!stopped)session->Proxy().Invoke(RootId(),&ChatUi::EditDraft,std::string{text.UTF8String});}
-- (void)editInvite:(NSString*)text {if(!stopped)session->Proxy().Invoke(RootId(),&ChatUi::EditInvite,std::string{text.UTF8String});}
+- (void)editDraft:(NSString*)text {if(!stopped)session->Proxy().Invoke(RootId(),&ChatUi::EditDraft,Utf8(text));}
+- (void)editInvite:(NSString*)text {if(!stopped)session->Proxy().Invoke(RootId(),&ChatUi::EditInvite,Utf8(text));}
 - (void)join {if(!stopped)session->Proxy().Invoke(RootId(),&ChatUi::Join);}
 - (void)send {if(!stopped)session->Proxy().Invoke(RootId(),&ChatUi::Send);}
 - (void)clipboardResult:(BOOL)ok {if(!stopped)session->Proxy().Invoke(RootId(),&ChatUi::ClipboardResult,static_cast<bool>(ok));}
 - (void)resizeWidth:(int)width height:(int)height {if(!stopped)session->Proxy().Invoke(RootId(),&ChatUi::Resize,width,height);}
+- (void)reportFrameX:(int)x y:(int)y width:(int)width height:(int)height
+     updatesRestore:(BOOL)updatesRestore {
+  if(!stopped) session->Proxy().Invoke<apptraverse::ui::UiDesktopWindow>(RootId(),
+      &apptraverse::ui::UiDesktopWindow::SubmitFrameFromNative,
+      x,y,width,height,static_cast<bool>(updatesRestore));
+}
 - (NSDictionary*)snapshot {
   auto const* model=session->Mirror();if(!model)return @{@"loaded":@NO};
   NSMutableArray* labels=[NSMutableArray array];
   for(unsigned i=0;i<static_cast<unsigned>(Label::Count);++i)[labels addObject:Text(model->Text(static_cast<Label>(i)))];
   auto const& data=model->connection;
-  return @{@"loaded":@YES,@"controls":[controls copy],@"labels":labels,@"title":Text(model->Title()),
+  NSMutableDictionary* result=[windowState mutableCopy];
+  if(!result){apptraverse::WriteFatalStderr("chat window presenter missing\n");std::abort();}
+  [result addEntriesFromDictionary:@{@"loaded":@YES,@"controls":[controls copy],@"labels":labels,@"title":Text(model->Title()),
     @"uid":Text(data.uid),@"invite":Text(model->editing.invite),@"status":Text(model->Get(Control::Status).text),
-    @"ready":@(data.ready),@"in_room":@(data.in_room),@"online":@(data.online),
+    @"ready":@(data.ready),@"in_room":@(data.in_room),@"online":@(data.online),@"host":@(model->editing.host),
     @"participants":controls[static_cast<unsigned>(Control::People)][@"rows"],
     @"messages":controls[static_cast<unsigned>(Control::Messages)][@"rows"],
-    @"width":@(model->layout.width),@"height":@(model->layout.height),
-    @"minimumWidth":@(model->layout.minimum_width),@"minimumHeight":@(model->layout.minimum_height),
-    @"gap":@(model->layout.gap)};
+    @"gap":@(model->layout.gap)}];
+  return result;
 }
 @end

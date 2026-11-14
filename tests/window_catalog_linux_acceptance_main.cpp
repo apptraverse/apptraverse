@@ -93,6 +93,8 @@ int main(int argc, char** argv) {
     at_start = SnapshotUserFile(app.session().state_dir);
 #if defined(APPTRAVERSE_WINDOW_CATALOG_DEBUG_BOOTSTRAP)
     Check(!at_start.exists, "fresh Debug did not write USER at startup");
+    std::cout << "WINDOW_CATALOG_DEBUG_FRESH_PROFILE="
+              << app.session().state_dir.string() << '\n';
 #else
     Check(at_start == before_bootstrap, "USER changed during application startup");
 #endif

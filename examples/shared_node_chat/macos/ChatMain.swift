@@ -8,37 +8,47 @@ struct ChatView: View {
 
 // AppKit owns only the native application/window lifecycle. All controls above
 // are SwiftUI. No UI refresh timer; the bridge delivers changed publications.
-final class ChatHost: NSObject, NSApplicationDelegate {
+final class ChatHost: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let presenter: ChatPresenter
     private var nativeSizeApplied = false
-    let name: String
+    private var menuLabels: [String] = []
     var window: NSWindow!
     var content: NSHostingView<ChatView>!
     init(profile: String, name: String, role: ChatRole, initialHost: String) {
-        self.name = name
         presenter = ChatPresenter(profile: profile, name: name, role: role, initialHost: initialHost)
         super.init()
         presenter.chromeChanged = { [weak self] in
             guard let self, let window = self.window else { return }
             window.title = self.presenter.title
+            self.installMenu()
+            window.contentMinSize = NSSize(width: self.presenter.minimumWidth, height: self.presenter.minimumHeight)
             if !self.nativeSizeApplied {
+                window.setContentSize(NSSize(width: self.presenter.restoreWidth, height: self.presenter.restoreHeight))
+                if self.presenter.hasExplicitPlacement {
+                    let outer = window.frameRect(forContentRect: CGRect(origin: .zero,
+                        size: CGSize(width: self.presenter.restoreWidth, height: self.presenter.restoreHeight)))
+                    window.setFrame(CGRect(x: self.presenter.x,
+                        y: NSScreen.screens[0].frame.maxY - self.presenter.y - outer.height,
+                        width: outer.width, height: outer.height), display: false)
+                } else {
+                    window.cascadeTopLeft(from: .zero)
+                }
                 self.nativeSizeApplied = true
-                window.setContentSize(NSSize(width: self.presenter.width, height: self.presenter.height))
-                window.contentMinSize = NSSize(width: self.presenter.minimumWidth, height: self.presenter.minimumHeight)
+                self.reportFrame()
+                #if CHAT_ACCEPTANCE
+                window.orderBack(nil)
+                #else
+                window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+                #endif
             }
         }
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1, height: 1),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "SharedNode Chat — \(name)"; window.isReleasedWhenClosed = false
+        window.isReleasedWhenClosed = false
+        window.delegate = self
         content = NSHostingView(rootView: ChatView(presenter: presenter)); window.contentView = content
-        window.center()
-        #if CHAT_ACCEPTANCE
-        window.orderBack(nil) // Keep the user's manual chat in front of tests.
-        #else
-        window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
-        #endif
         guard presenter.start() else {
             fputs("Cannot open chat profile or it is already in use\n", stderr)
             presenter.stop(); exit(2)
@@ -48,7 +58,34 @@ final class ChatHost: NSObject, NSApplicationDelegate {
         #endif
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
-    func applicationWillTerminate(_ notification: Notification) { presenter.stop() }
+    func applicationWillTerminate(_ notification: Notification) { reportFrame(); presenter.stop() }
+    func windowDidResize(_ notification: Notification) { reportFrame() }
+    func windowDidMove(_ notification: Notification) { reportFrame() }
+    func windowWillClose(_ notification: Notification) { reportFrame() }
+    private func reportFrame() {
+        guard nativeSizeApplied, let window, !window.isMiniaturized else { return }
+        let client = window.contentRect(forFrameRect: window.frame)
+        presenter.reportFrame(CGRect(x: window.frame.minX,
+            y: NSScreen.screens[0].frame.maxY - window.frame.maxY,
+            width: client.width, height: client.height),
+            updatesRestore: !window.isZoomed && !window.styleMask.contains(.fullScreen))
+    }
+    private func installMenu() {
+        let labels = presenter.labels
+        guard labels != menuLabels else { return }
+        menuLabels = labels
+        let menu = NSMenu(); let item = NSMenuItem(); menu.addItem(item)
+        let applicationMenu = NSMenu()
+        applicationMenu.addItem(withTitle: labels[18], action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        item.submenu = applicationMenu
+        let editItem = NSMenuItem(); menu.addItem(editItem)
+        let editMenu = NSMenu(title: labels[19])
+        for (title, action, key) in [(labels[20], "cut:", "x"), (labels[3], "copy:", "c"),
+                                     (labels[21], "paste:", "v"), (labels[22], "selectAll:", "a")] {
+            editMenu.addItem(withTitle: title, action: NSSelectorFromString(action), keyEquivalent: key)
+        }
+        editItem.submenu = editMenu; NSApp.mainMenu = menu
+    }
     #if CHAT_ACCEPTANCE
     var commandSource: DispatchSourceRead?
     var pending = Data()
@@ -86,17 +123,6 @@ enum ChatMain {
         let profilePath = profile ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("AppTraverse/SharedNodeChat/" + (role == .host ? "host" : "client")).path
         let app = NSApplication.shared; app.setActivationPolicy(.regular)
-        let menu = NSMenu(); let item = NSMenuItem(); menu.addItem(item)
-        let applicationMenu = NSMenu()
-        applicationMenu.addItem(withTitle: "Quit SharedNode Chat", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        item.submenu = applicationMenu
-        let editItem = NSMenuItem(); menu.addItem(editItem)
-        let editMenu = NSMenu(title: "Edit")
-        for (title, action, key) in [("Cut", "cut:", "x"), ("Copy", "copy:", "c"),
-                                     ("Paste", "paste:", "v"), ("Select All", "selectAll:", "a")] {
-            editMenu.addItem(withTitle: title, action: NSSelectorFromString(action), keyEquivalent: key)
-        }
-        editItem.submenu = editMenu; app.mainMenu = menu
         let host = ChatHost(profile: profilePath, name: name, role: role, initialHost: initialHost); app.delegate = host
         app.run(); host.presenter.stop(); exit(0)
     }

@@ -57,6 +57,12 @@ void UiListContainer::HandleListRowSelectionChanged(std::size_t row_index) {
   Commit(std::move(event));
 }
 
+void UiListContainer::Apply(ReplaceUiListRowsEvent const& event) {
+  rows = event.rows;
+  selection_index = event.selection_index;
+  NoteMaterializedChange();
+}
+
 void UiListContainer::Apply(SetUiListSelectionEvent const& event) {
   if (selection_index == event.selection_index) {
     return;

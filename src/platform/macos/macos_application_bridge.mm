@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <cmath>
+#include <limits>
 #include <memory>
 #include <thread>
 #include <utility>
@@ -21,6 +23,16 @@ using apptraverse::ui::macos::MacListContainerPresenter;
 using apptraverse::ui::macos::MacPushButtonPresenter;
 
 namespace {
+
+std::int32_t ModelCoordinate(double value) {
+  if (!std::isfinite(value) ||
+      value < std::numeric_limits<std::int32_t>::min() ||
+      value > std::numeric_limits<std::int32_t>::max()) {
+    apptraverse::WriteFatalStderr("invalid native macOS coordinate\n");
+    std::abort();
+  }
+  return static_cast<std::int32_t>(value);
+}
 
 template <typename T>
 uint64_t Token(T const& value) {
@@ -373,8 +385,8 @@ class MacNativeViews final
        updatesRestore:(BOOL)updatesRestore {
   if (_stopping) return;
   FromToken<MacDesktopWindowPresenter>(token).ReportNativeFrameToModel(
-      static_cast<std::int32_t>(x), static_cast<std::int32_t>(y),
-      static_cast<std::int32_t>(width), static_cast<std::int32_t>(height),
+      ModelCoordinate(x), ModelCoordinate(y),
+      ModelCoordinate(width), ModelCoordinate(height),
       updatesRestore);
 }
 
@@ -382,8 +394,8 @@ class MacNativeViews final
                height:(double)height token:(uint64_t)token {
   if (_stopping) return;
   FromToken<MacDesktopWindowPresenter>(token).ReportNativeScreenToModel(
-      static_cast<std::int32_t>(x), static_cast<std::int32_t>(y),
-      static_cast<std::int32_t>(width), static_cast<std::int32_t>(height));
+      ModelCoordinate(x), ModelCoordinate(y),
+      ModelCoordinate(width), ModelCoordinate(height));
 }
 
 - (void)activateWindow:(uint64_t)token {

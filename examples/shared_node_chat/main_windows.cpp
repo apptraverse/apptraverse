@@ -71,14 +71,16 @@ void SetChanged(HWND control, std::wstring const& value) {
 }
 
 struct Window : gui::Presentation {
-  Window(std::filesystem::path profile,std::string name,bool host,std::wstring invited,bool load_only)
+  Window(std::filesystem::path profile,std::string name,bool host,std::wstring invited,bool load_only,int show)
     :session{std::move(profile),std::move(name),host,WideToUtf8(invited),[this]{
       if(!PostMessageW(hwnd,kViewChanged,0,0))FatalWin32("PostMessageW chat publication",GetLastError());
-    },load_only}{}
+    },load_only},show_command{show}{}
   gui::Session session;
   HWND hwnd{}, input{}, invite{};
   std::array<HWND,static_cast<unsigned>(gui::Control::Count)> controls{};
   bool stopping{},applying{},window_initialized{};
+  int show_command;
+  bool shown{};
   std::vector<std::string> shown_people,shown_messages;
   HWND Handle(gui::Control c)const{return controls[static_cast<unsigned>(c)];}
   void Create(HWND parent){
@@ -109,15 +111,21 @@ struct Window : gui::Presentation {
     SendMessageW(input,EM_SETLIMITTEXT,8192,0);
     session.Start();
   }
-  void Present(gui::Control kind,gui::ControlState const& state,gui::ChatUi const& model)override{
+  void PresentWindow(gui::ChatUi const& model)override{
     applying=true;
     if(!window_initialized){
       window_initialized=true;
-      RECT bounds{0,0,model.layout.width,model.layout.height};
+      RECT bounds{0,0,model.restore_client_width(),model.restore_client_height()};
       if(!AdjustWindowRectEx(&bounds,WS_OVERLAPPEDWINDOW,FALSE,0))FatalWin32("AdjustWindowRectEx chat",GetLastError());
-      if(!SetWindowPos(hwnd,nullptr,0,0,bounds.right-bounds.left,bounds.bottom-bounds.top,SWP_NOMOVE|SWP_NOZORDER))FatalWin32("SetWindowPos chat",GetLastError());
+      auto flags=SWP_NOZORDER|(model.HasExplicitPosition()?0:SWP_NOMOVE);
+      if(!SetWindowPos(hwnd,nullptr,model.x(),model.y(),bounds.right-bounds.left,bounds.bottom-bounds.top,flags))FatalWin32("SetWindowPos chat",GetLastError());
     }
-    if(kind==gui::Control::UidLabel)SetChanged(hwnd,Utf8ToWide(model.Title()));
+    SetChanged(hwnd,Utf8ToWide(model.Title()));
+    applying=false;
+  }
+  void RemoveWindow()override{ShowWindow(hwnd,SW_HIDE);}
+  void Present(gui::Control kind,gui::ControlState const& state,gui::ChatUi const&)override{
+    applying=true;
     auto control=Handle(kind);
     auto const& r=state.frame;Place(control,r.x,r.y,r.width,r.height);
     EnableWindow(control,state.enabled);ShowWindow(control,state.visible?SW_SHOW:SW_HIDE);
@@ -141,11 +149,24 @@ struct Window : gui::Presentation {
     applying=false;
   }
   void Remove(gui::Control control)override{ShowWindow(Handle(control),SW_HIDE);}
-  void Refresh(){if(!stopping)session.ApplyPublication(*this);}
+  void Refresh(){
+    if(stopping||!session.ApplyPublication(*this))return;
+    if(!shown){
+      shown=true;ShowWindow(hwnd,show_command);UpdateWindow(hwnd);
+      Resize();
+    }
+  }
   void Resize(){
-    if(!window_initialized||stopping)return;
+    if(!window_initialized||applying||stopping||!shown||IsIconic(hwnd))return;
     RECT client{};if(!GetClientRect(hwnd,&client))FatalWin32("GetClientRect chat",GetLastError());
-    session.Proxy().Invoke(gui::RootId(),&gui::ChatUi::Resize,static_cast<int>(client.right),static_cast<int>(client.bottom));
+    RECT outer{};if(!GetWindowRect(hwnd,&outer))FatalWin32("GetWindowRect chat",GetLastError());
+    MONITORINFO monitor{sizeof(MONITORINFO)};
+    if(!GetMonitorInfoW(MonitorFromWindow(hwnd,MONITOR_DEFAULTTONEAREST),&monitor))FatalWin32("GetMonitorInfoW chat",GetLastError());
+    auto const& area=monitor.rcWork;
+    session.Proxy().Invoke(gui::RootId(),&ui::UiDesktopWindow::SubmitScreenFromNative,
+      static_cast<int>(area.left),static_cast<int>(area.top),static_cast<int>(area.right-area.left),static_cast<int>(area.bottom-area.top));
+    session.Proxy().Invoke(gui::RootId(),&ui::UiDesktopWindow::SubmitFrameFromNative,
+      static_cast<int>(outer.left),static_cast<int>(outer.top),static_cast<int>(client.right),static_cast<int>(client.bottom),!IsZoomed(hwnd));
   }
   void InputChanged(int id){
     if(applying||stopping)return;
@@ -194,12 +215,16 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wparam,
       window->Create(hwnd);
       return 0;
     case WM_SIZE:
+    case WM_MOVE:
       window->Resize();
       return 0;
     case WM_GETMINMAXINFO: {
       auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
-      if(auto const* model=window->session.Mirror())
-        info->ptMinTrackSize = {model->layout.minimum_width,model->layout.minimum_height};
+      if(auto const* model=window->session.Mirror()){
+        RECT bounds{0,0,model->layout.minimum_width,model->layout.minimum_height};
+        if(!AdjustWindowRectEx(&bounds,WS_OVERLAPPEDWINDOW,FALSE,0))FatalWin32("AdjustWindowRectEx chat minimum",GetLastError());
+        info->ptMinTrackSize = {bounds.right-bounds.left,bounds.bottom-bounds.top};
+      }
       return 0;
     }
     case kViewChanged:
@@ -250,6 +275,7 @@ std::wstring ProfileMutex(std::filesystem::path const& profile) {
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
   using namespace apptraverse::chat;  // Native executable entry point.
+  gui::EnsureUiRegistration();
   int argc = 0;
   auto* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
   if (!argv) {
@@ -326,7 +352,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     apptraverse::FatalWin32("RegisterClassExW chat window", register_error);
   }
   Window window{profile, apptraverse::ui::windows::WideToUtf8(name),
-                is_host, std::move(host_id),load_only};
+                is_host, std::move(host_id),load_only,show};
   auto hwnd = CreateWindowExW(0, kWindowClass, L"",
                               WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
                               0, 0, nullptr, nullptr, instance, &window);
@@ -334,8 +360,6 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     DWORD const create_error = GetLastError();
     apptraverse::FatalWin32("CreateWindowExW chat window", create_error);
   }
-  ShowWindow(hwnd, show);
-  UpdateWindow(hwnd);
   MSG message{};
   int result = 0;
   for (;;) {

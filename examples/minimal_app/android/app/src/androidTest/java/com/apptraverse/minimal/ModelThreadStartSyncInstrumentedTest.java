@@ -17,7 +17,7 @@ public final class ModelThreadStartSyncInstrumentedTest {
 
   @Test
   public void startModelThreadUnblocksOnWorkerEntry() {
-    String result = NativeRuntime.nativeRunModelThreadStartSyncProbe();
+    String result = NativeTestRuntime.nativeRunModelThreadStartSyncProbe();
     assertTrue("probe: " + result, result.startsWith("OK:"));
   }
 }

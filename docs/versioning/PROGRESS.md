@@ -3638,3 +3638,35 @@ acceptance PASS (23.83s including cleanup). No adaptive transport is applied.
   scoped rerun PASS (canon2-framework-win-focus-native). No product focus change.
 - Minimal responsive and current network chat acceptance passed Windows/Linux/
   Web/Android in their applicable scopes; details in the root follow-up report.
+
+## Backend canon resumed review, 2026-11-13
+
+- WindowCatalog ordinary Debug now builds independent RAM BACKING/USER directly;
+  only explicit export writes a supply header. Windows native acceptance checks
+  zero current-run foreground writes and exactly one USER on shutdown. Full
+  Windows Debug build PASS; full CTest 79/80 PASS, with the obsolete runtime-header
+  expectation corrected and its complete native test rerun PASS (14.391 s).
+  This covers all 80 scenarios without claiming a second full-suite invocation.
+- ReplaceUiListRowsEvent accepts pre-created row references and selection state.
+  Replay preserves identity/shared aliases; initial and structural mirrors pass.
+  Unchanged hosted viewport reports no longer journal a desktop placement change.
+- Standalone Chat uses ApplicationUiSession and UiDesktopWindow; native frame,
+  title, menu strings and minima come from the required mirror. Windows restores
+  signed placement, client size, draft and saved profile name; minimization and
+  temporary hosted viewport do not overwrite restore geometry. Current embedded
+  supply was emitted by the executable and loaded by the model regression.
+- Chat checkpoints join prior GUI input before transport, and save only after a
+  pending Send settles. Deterministic regression also covers a later Send during
+  checkpoint, continued editing, exactly-once completion and cold captured UI plus
+  transport USER. Model/checkpoint PASS; final three-peer native acceptance PASS
+  (12.313 s), including offline delivery, restart, Unicode and minimum client area.
+- Minimal persistent defaults moved to its producer. Android test/probe JNI and
+  Java APIs are isolated behind explicit testHooks, absent from the default APK;
+  default GUI/persistence and opt-in compilation checks PASS. Current Minimal
+  Web/Android GUI and Linux GTK fresh/cold acceptance PASS. Current WindowCatalog
+  Linux GUI, Web GUI and Android 7/7 native lifecycle tests PASS.
+- Apple sources align initial environment Events, geometry conversions, shared
+  desktop-window presentation, current Debug RAM producer and live iOS checkpoint.
+  Apple builds/runtime were not run by instruction. Android evidence is x86_64
+  emulator; Web evidence is Chromium. No old-profile migration, MinSizeRel or
+  overnight benchmarks were introduced. Headless business tests ran on Windows.

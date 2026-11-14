@@ -71,17 +71,23 @@ add_custom_target(minimal_app_android_supply
   VERBATIM
   COMMENT "Build-host export of the Android MinimalApp supply")
 
+option(APPTRAVERSE_MINIMAL_TEST_HOOKS "Compile explicit Android native regression hooks" OFF)
 add_library(minimal_app_android STATIC
   ../minimal_app_android_lifecycle.cpp
-  ../minimal_app_android_embedded_profile.cpp
-  ../minimal_app_android_cold_load_probe.cpp
-  ../minimal_app_android_initial_publication_probe.cpp
-  ../minimal_app_android_cold_reload_apply_probe.cpp
-  ../minimal_app_android_checkpoint_test_gate.cpp
-  ../minimal_app_android_model_thread_start_probe.cpp
-  ../minimal_app_android_pending_save_race_probe.cpp
-  ../minimal_app_android_early_background_save_probe.cpp
 )
+if(APPTRAVERSE_MINIMAL_TEST_HOOKS)
+  target_sources(minimal_app_android PRIVATE
+    ../minimal_app_android_embedded_profile.cpp
+    ../minimal_app_android_cold_load_probe.cpp
+    ../minimal_app_android_initial_publication_probe.cpp
+    ../minimal_app_android_cold_reload_apply_probe.cpp
+    ../minimal_app_android_checkpoint_test_gate.cpp
+    ../minimal_app_android_model_thread_start_probe.cpp
+    ../minimal_app_android_pending_save_race_probe.cpp
+    ../minimal_app_android_early_background_save_probe.cpp
+  )
+  target_compile_definitions(minimal_app_android PUBLIC APPTRAVERSE_MINIMAL_TEST_HOOKS)
+endif()
 add_dependencies(minimal_app_android minimal_app_android_supply)
 target_include_directories(minimal_app_android PUBLIC
   ${APPTRAVERSE_ROOT}/examples/minimal_app/android
@@ -124,8 +130,9 @@ set_target_properties(apptraverse_minimal_app PROPERTIES
   VISIBILITY_INLINES_HIDDEN ON
 )
 
-# Instrumented-test fixture; only the debug build type lists this target. It
+# Explicit test fixture; only apptraverse.testHooks enables this target. It
 # builds the graph in-test; the app library never links the builder.
+if(APPTRAVERSE_MINIMAL_TEST_HOOKS)
 add_library(apptraverse_minimal_app_test_fixture SHARED
   ../app/src/androidTest/cpp/presenter_lifecycle_fixture.cpp
   ../minimal_app_android_graph.cpp
@@ -141,3 +148,5 @@ set_target_properties(apptraverse_minimal_app_test_fixture PROPERTIES
   CXX_VISIBILITY_PRESET hidden
   VISIBILITY_INLINES_HIDDEN ON
 )
+
+endif()

@@ -41,9 +41,9 @@ public final class NewPidColdReloadInstrumentedTest {
     InstrumentedTestNative.ensureLoaded();
     device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
     context = InstrumentationRegistry.getInstrumentation().getTargetContext();
-    NativeRuntime.nativeSetCheckpointPersistTestGateRoot(
+    NativeTestRuntime.nativeSetCheckpointPersistTestGateRoot(
         context.getFilesDir().getAbsolutePath());
-    NativeRuntime.nativeDisableCheckpointPersistTestGate();
+    NativeTestRuntime.nativeDisableCheckpointPersistTestGate();
   }
 
   private void waitForSelected(UiObject2 row, boolean selected, long timeoutMs)

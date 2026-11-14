@@ -1,12 +1,14 @@
 #import "window_catalog_composition.h"
 
 #include <filesystem>
+#include <cstdlib>
 #include <memory>
 #include <utility>
 #include <vector>
 
 #include "apptraverse/platform/macos/macos_application_bridge.h"
 #include "apptraverse/platform/macos/macos_ui_presenters.h"
+#include "apptraverse/noninteractive_crt.h"
 #include "window_catalog_graph.h"
 #include "window_catalog_lifecycle.h"
 #include "window_catalog_main_native_frame_wiring.h"
@@ -16,6 +18,14 @@
 #endif
 
 namespace {
+std::filesystem::path NativeDirectory(NSString* directory) {
+  char const* native_path = directory.fileSystemRepresentation;
+  if (!native_path || native_path[0] == '\0') {
+    apptraverse::WriteFatalStderr("cannot resolve WindowCatalog directory\n");
+    std::abort();
+  }
+  return native_path;
+}
 struct CatalogApplication {
   apptraverse::WindowCatalogModelSession session;
   ae::ObjId pending_focus{};
@@ -29,7 +39,7 @@ void ATRegisterWindowCatalogApplication(void) {
 BOOL ATDistillWindowCatalogApplication(NSString* directory) {
 #if defined(APPTRAVERSE_WINDOW_CATALOG_DEBUG_BOOTSTRAP)
   apptraverse::DistillWindowCatalog(
-      std::filesystem::absolute(directory.fileSystemRepresentation));
+      std::filesystem::absolute(NativeDirectory(directory)));
   return YES;
 #else
   return NO;
@@ -39,7 +49,7 @@ BOOL ATDistillWindowCatalogApplication(NSString* directory) {
 ATMacApplicationBridge* ATCreateWindowCatalogApplicationBridge(
     NSString* userDirectory, id<ATMacApplicationBridgeDelegate> delegate) {
   auto application = std::make_shared<CatalogApplication>();
-  application->session.state_dir = userDirectory.fileSystemRepresentation;
+  application->session.state_dir = NativeDirectory(userDirectory);
   apptraverse::ui::macos::MacApplicationBridgeCallbacks callbacks;
   callbacks.runtime = &application->session.runtime;
   callbacks.run_model =

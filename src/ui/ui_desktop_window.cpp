@@ -77,7 +77,8 @@ void UiDesktopWindow::SubmitFrameFromNative(std::int32_t x, std::int32_t y,
       !updates_restore_geometry ||
       (x_ == x && y_ == y && restore_client_width_ == client_width &&
        restore_client_height_ == client_height);
-  if (live_unchanged && restore_unchanged && HasExplicitPosition()) {
+  if (live_unchanged &&
+      (!updates_restore_geometry || (restore_unchanged && HasExplicitPosition()))) {
     return;
   }
   auto event = ReportUiDesktopWindowFrameFromNativeEvent::ptr::Create(

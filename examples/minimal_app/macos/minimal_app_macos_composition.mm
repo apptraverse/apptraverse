@@ -1,30 +1,32 @@
 #import "minimal_app_macos_composition.h"
 
 #include <filesystem>
+#include <cstdlib>
 #include <utility>
 
 #include "apptraverse/platform/macos/macos_application_bridge.h"
 #include "apptraverse/platform/macos/macos_ui_presenters.h"
 #include "apptraverse/ui/ui_presenters.h"
 #include "apptraverse/object_macros.h"
+#include "apptraverse/noninteractive_crt.h"
 #include "minimal_app_desktop_close.h"
 #include "minimal_app_lifecycle_macos.h"
 #include "minimal_application.h"
-#include "apptraverse/ui/ui_window_presenter.h"
 
 ATMacApplicationBridge* ATCreateMinimalApplicationBridge(
     NSString* userDirectory,
     id<ATMacApplicationBridgeDelegate> delegate) {
-  std::filesystem::path const state_dir{
-      userDirectory.fileSystemRepresentation};
+  char const* native_path = userDirectory.fileSystemRepresentation;
+  if (!native_path || native_path[0] == '\0') {
+    apptraverse::WriteFatalStderr("cannot resolve MinimalApp USER directory\n");
+    std::abort();
+  }
+  std::filesystem::path state_dir{native_path};
+#if defined(APPTRAVERSE_MINIMAL_APPLE_DEBUG_FRESH)
+  state_dir /= "debug-run-" + std::to_string(ae::ObjId::GenerateUnique().id());
+#endif
 
   apptraverse::ui::macos::MacApplicationBridgeCallbacks callbacks;
-  callbacks.after_initial = [](ae::Obj& root) {
-    auto& application = static_cast<apptraverse::example::minimal::MinimalApplication&>(root);
-    application.main_window->presenter->model_proxy->Invoke(root.obj_id,
-        &apptraverse::example::minimal::MinimalApplication::SubmitDesktopEnvironment,
-        static_cast<std::int32_t>(160));
-  };
   callbacks.run_model =
       [state_dir](apptraverse::ApplicationModelRuntime& runtime,
                   apptraverse::ApplicationPublishedCallback on_published) {

@@ -38,7 +38,9 @@ final class PhoneChatHost: ObservableObject {
         checkpointGeneration &+= 1
         let generation = checkpointGeneration
         backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Save chat") { [weak self] in
-            self?.finishCheckpoint(generation)
+            guard let self, generation == self.checkpointGeneration,
+                  self.backgroundTask != .invalid else { return }
+            fatalError("Chat USER checkpoint exceeded background execution")
         }
         presenter.checkpoint { [weak self] ok in
             guard let self else { return }

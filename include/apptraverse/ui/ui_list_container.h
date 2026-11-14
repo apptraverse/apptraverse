@@ -43,6 +43,7 @@ class UiListRow : public NodeFor<UiListRow> {
   ae::ObjPtr<UiListRowPresenter> presenter;
 };
 
+class ReplaceUiListRowsEvent;
 class RemoveUiListRowEvent;
 class SetUiListSelectionEvent;
 
@@ -71,6 +72,7 @@ class UiListContainer : public NodeFor<UiListContainer> {
   std::vector<UiListRow::ptr> rows;
   std::int32_t selection_index;
 
+  void Apply(ReplaceUiListRowsEvent const& event);
   void Apply(RemoveUiListRowEvent const& event);
   void Apply(SetUiListSelectionEvent const& event);
 
@@ -95,6 +97,23 @@ std::string ResolvePresentedListRowPrimaryText(UiListRow::ptr const& row,
 
 std::vector<std::string> ResolvePresentedListRowPrimaryTexts(
     UiListContainer const& container, int language_index);
+
+// The model prepares the complete row graph before Commit. Replay adopts the
+// same identities; Apply must never allocate replacement rows.
+class ReplaceUiListRowsEvent
+    : public EventFor<UiListContainer, ReplaceUiListRowsEvent> {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::ReplaceUiListRowsEvent",
+                           ReplaceUiListRowsEvent, Event, 0)
+ protected:
+  ReplaceUiListRowsEvent() = default;
+ public:
+  explicit ReplaceUiListRowsEvent(ae::ObjProp prop) : EventFor{prop} {}
+
+  AE_OBJECT_REFLECT(AE_MMBR(rows), AE_MMBR(selection_index))
+
+  std::vector<UiListRow::ptr> rows;
+  std::int32_t selection_index;
+};
 
 class SetUiListSelectionEvent
     : public EventFor<UiListContainer, SetUiListSelectionEvent> {

@@ -1555,6 +1555,14 @@ void RunAcceptanceAndRequiredMainWindowNegatives() {
       return TopLevelWindowsForPid(debug.pi.dwProcessId).size() == 2;
     }));
     ExpectListRows(main, {L"Window 1"});
+    std::size_t saved_files = 0;
+    for (auto const& entry : std::filesystem::recursive_directory_iterator(debug_state)) {
+      if (entry.is_regular_file()) {
+        CHECK(entry.path().filename() == "user.bin");
+        ++saved_files;
+      }
+    }
+    CHECK(saved_files == static_cast<std::size_t>(run));
     CloseProcessGracefully(main, debug.pi);
     debug.Release();
   }
@@ -1562,9 +1570,15 @@ void RunAcceptanceAndRequiredMainWindowNegatives() {
   for (auto const& entry : std::filesystem::directory_iterator(debug_state)) {
     if (entry.is_directory() &&
         entry.path().filename().string().starts_with("debug-run-")) {
-      CHECK(std::filesystem::exists(entry.path() / "user"));
-      CHECK(std::filesystem::exists(
-          entry.path() / "embedded_distilled_window_catalog_supply.h"));
+      CHECK(std::filesystem::is_regular_file(entry.path() / "user" / "user.bin"));
+      std::size_t saved_files = 0;
+      for (auto const& saved : std::filesystem::recursive_directory_iterator(entry.path())) {
+        if (saved.is_regular_file()) {
+          CHECK(saved.path().filename() == "user.bin");
+          ++saved_files;
+        }
+      }
+      CHECK(saved_files == 1);
       ++debug_runs;
     }
   }

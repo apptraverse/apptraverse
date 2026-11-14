@@ -42,15 +42,15 @@ public final class EmbeddedColdStartInstrumentedTest {
     InstrumentedTestNative.ensureLoaded();
     device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
     context = InstrumentationRegistry.getInstrumentation().getTargetContext();
-    NativeRuntime.nativeSetCheckpointPersistTestGateRoot(
+    NativeTestRuntime.nativeSetCheckpointPersistTestGateRoot(
         context.getFilesDir().getAbsolutePath());
-    NativeRuntime.nativeDisableCheckpointPersistTestGate();
+    NativeTestRuntime.nativeDisableCheckpointPersistTestGate();
     profilePath = new File(context.getFilesDir(), PROFILE).getAbsolutePath();
   }
 
   @After
   public void tearDown() {
-    NativeRuntime.nativeDisableCheckpointPersistTestGate();
+    NativeTestRuntime.nativeDisableCheckpointPersistTestGate();
   }
 
   private void waitForSelected(UiObject2 row, boolean selected, long timeoutMs)
@@ -113,11 +113,11 @@ public final class EmbeddedColdStartInstrumentedTest {
 
     // Home: confirmed checkpoint into USER; BACKING unchanged.
     MinimalAppTestLaunch.pressHomeForBackgroundSave(device, PROFILE, 60000);
-    String afterCheckpoint = NativeRuntime.nativeRunColdReloadProfileStateProbe(
+    String afterCheckpoint = NativeTestRuntime.nativeRunColdReloadProfileStateProbe(
         profilePath, -1, false, "Applied");
     assertTrue("USER after checkpoint: " + afterCheckpoint,
         afterCheckpoint.startsWith("OK:"));
-    String backing = NativeRuntime.nativeRunEmbeddedBackingProbe(profilePath, emptyUserPath());
+    String backing = NativeTestRuntime.nativeRunEmbeddedBackingProbe(profilePath, emptyUserPath());
     assertTrue("BACKING after checkpoint: " + backing, backing.startsWith("OK:"));
 
     // Foreground in the same process: a new command is accepted.
@@ -131,10 +131,10 @@ public final class EmbeddedColdStartInstrumentedTest {
 
     // Re-save after the new command.
     MinimalAppTestLaunch.pressHomeForBackgroundSave(device, PROFILE, 60000);
-    String afterResave = NativeRuntime.nativeRunColdReloadProfileStateProbe(
+    String afterResave = NativeTestRuntime.nativeRunColdReloadProfileStateProbe(
         profilePath, 0, false, "Applied");
     assertTrue("USER after re-save: " + afterResave, afterResave.startsWith("OK:"));
-    backing = NativeRuntime.nativeRunEmbeddedBackingProbe(profilePath, emptyUserPath());
+    backing = NativeTestRuntime.nativeRunEmbeddedBackingProbe(profilePath, emptyUserPath());
     assertTrue("BACKING after re-save: " + backing, backing.startsWith("OK:"));
 
     // Kill only the demo process and prove its death.

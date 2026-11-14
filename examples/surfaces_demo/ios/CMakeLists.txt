@@ -138,8 +138,6 @@ endforeach()
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
   target_compile_definitions(window_catalog_ios_composition PRIVATE
     APPTRAVERSE_WINDOW_CATALOG_DEBUG_BOOTSTRAP)
-  target_sources(window_catalog_ios_composition PRIVATE
-    ../common/window_catalog_distillation.cpp)
   target_link_libraries(window_catalog_ios_composition PRIVATE
     surfaces_demo_window_catalog_ios_builder)
 else()

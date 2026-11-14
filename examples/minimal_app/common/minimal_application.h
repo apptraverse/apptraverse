@@ -129,11 +129,11 @@ ae::ObjId MinimalPresenterId();
 void EnsureMinimalApplicationRegistration();
 
 struct MinimalViewportState {
-  std::int32_t width = 640;
-  std::int32_t height = 480;
-  std::int32_t density_dpi = 160;
-  bool hosted = false;
-  bool single_page = false;
+  std::int32_t width;
+  std::int32_t height;
+  std::int32_t density_dpi;
+  bool hosted;
+  bool single_page;
   AE_REFLECT_MEMBERS(width, height, density_dpi, hosted, single_page)
 };
 

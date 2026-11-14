@@ -2,6 +2,8 @@
 
 #include <cstdlib>
 #include <cstdint>
+#include <cmath>
+#include <limits>
 #include <memory>
 #include <thread>
 #include <utility>
@@ -401,9 +403,17 @@ class IosNativeViews final
 }
 
 - (void)submitViewportWidth:(double)width height:(double)height {
+  if (_stopping) return;
+  if (!std::isfinite(width) || !std::isfinite(height) ||
+      width > std::numeric_limits<std::int32_t>::max() ||
+      height > std::numeric_limits<std::int32_t>::max()) {
+    apptraverse::WriteFatalStderr("invalid native iOS viewport\n");
+    std::abort();
+  }
+  if (width < 1 || height < 1) return;
   _viewportWidth = static_cast<std::int32_t>(width);
   _viewportHeight = static_cast<std::int32_t>(height);
-  if (_stopping || !_uiSession || _viewportWidth <= 0 || _viewportHeight <= 0) return;
+  if (!_uiSession) return;
   if (_callbacks.on_viewport) {
     _callbacks.on_viewport(_uiSession->root(), *_proxy, _viewportWidth, _viewportHeight);
   }

@@ -318,7 +318,7 @@ final class MinimalAppTestLaunch {
       File profileDir = new File(context.getFilesDir(), profileSubdir);
       String[] entries = profileDir.list();
       if (entries != null && entries.length > 0) {
-        String probe = NativeRuntime.nativeRunColdReloadProfileStateProbe(
+        String probe = NativeTestRuntime.nativeRunColdReloadProfileStateProbe(
             profilePath, expectedSelectionIndex, expectedApplyEnabled, expectedTitle);
         if (probe.startsWith("OK:")) {
           return;
@@ -342,11 +342,11 @@ final class MinimalAppTestLaunch {
         Thread.sleep(400);
         continue;
       }
-      String applyProbe = NativeRuntime.nativeRunColdReloadApplyStateProbe(profilePath);
+      String applyProbe = NativeTestRuntime.nativeRunColdReloadApplyStateProbe(profilePath);
       if (applyProbe.startsWith("OK:")) {
         return;
       }
-      String rowBProbe = NativeRuntime.nativeRunColdReloadProfileStateProbe(
+      String rowBProbe = NativeTestRuntime.nativeRunColdReloadProfileStateProbe(
           profilePath, 1, false, "Applied");
       if (rowBProbe.startsWith("OK:")) {
         return;
@@ -364,10 +364,10 @@ final class MinimalAppTestLaunch {
       return false;
     }
     String profilePath = profileDir.getAbsolutePath();
-    if (NativeRuntime.nativeRunColdReloadApplyStateProbe(profilePath).startsWith("OK:")) {
+    if (NativeTestRuntime.nativeRunColdReloadApplyStateProbe(profilePath).startsWith("OK:")) {
       return true;
     }
-    return NativeRuntime.nativeRunColdReloadProfileStateProbe(
+    return NativeTestRuntime.nativeRunColdReloadProfileStateProbe(
         profilePath, 1, false, "Applied").startsWith("OK:");
   }
 
@@ -459,7 +459,7 @@ final class MinimalAppTestLaunch {
   static void assertColdLoadFromProfile(Context context, UiDevice device, String profileSubdir,
       int loadedFromProfileLogBaseline, long timeoutMs) throws Exception {
     String profilePath = new File(context.getFilesDir(), profileSubdir).getAbsolutePath();
-    String probe = NativeRuntime.nativeRunColdReloadApplyStateProbe(profilePath);
+    String probe = NativeTestRuntime.nativeRunColdReloadApplyStateProbe(profilePath);
     assertTrue("cold load disk probe: " + probe, probe.startsWith("OK:"));
     try {
       waitForLoadedFromProfileAfter(

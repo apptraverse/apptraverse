@@ -10,7 +10,8 @@ namespace apptraverse::chat::gui {
 class Session {
  public:
   Session(std::filesystem::path profile,std::string name,bool host,
-          std::string initial_host,std::function<void()> changed,bool load_only=false);
+          std::string initial_host,std::function<void()> changed,bool load_only=false,
+          ChatSession::FlushProfile flush_transport={});
   ~Session();
   Session(Session const&)=delete;
   void Start();

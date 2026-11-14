@@ -1,13 +1,13 @@
 #import "window_catalog_composition.h"
 
 #include <filesystem>
+#include <cstdlib>
 #include <memory>
 #include <set>
 #include <utility>
 
 #include "apptraverse/application_model_session.h"
-#include "apptraverse/directory_domain_storage.h"
-#include "apptraverse/distilled_domain_export.h"
+#include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/embedded_distilled_domain.h"
 #include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/platform/ios/ios_application_bridge.h"
@@ -16,7 +16,8 @@
 #include "window_catalog_ids.h"
 #include "window_catalog_prepare.h"
 #if defined(APPTRAVERSE_WINDOW_CATALOG_DEBUG_BOOTSTRAP)
-#include "window_catalog_distillation.h"
+#include "apptraverse/distill.h"
+#include "window_catalog_supply_constant_ids.h"
 #else
 #include "embedded_distilled_window_catalog_supply.h"
 #endif
@@ -42,15 +43,18 @@ struct CatalogProfile {
           apptraverse::ApplicationPublishedCallback on_published) {
     if (!prepared) {
 #if defined(APPTRAVERSE_WINDOW_CATALOG_DEBUG_BOOTSTRAP)
-      // One fresh supply per Debug process. Deactivation saves USER while the
-      // same model session and its application-owned RAM profile stay alive.
-      auto const run_directory = directory /
+      // The producer owns independent RAM. Normal Debug execution writes only
+      // this run's USER; exporting a supply is an explicit separate operation.
+      directory /=
           ("debug-run-" + std::to_string(ae::ObjId::GenerateUnique().id()));
-      auto initial = apptraverse::DistillWindowCatalog(run_directory);
-      directory = run_directory / "user";
-      if (!apptraverse::LoadDirectoryDomainStorageIntoRam(
-              initial.backing_directory, backing)) return 1;
-      constants = std::move(initial.constant_ids);
+      {
+        ae::Domain producer{backing};
+        auto catalog = apptraverse::BuildWindowCatalogGraph(producer);
+        apptraverse::FinalizeDistilledGraph(*catalog);
+        apptraverse::SaveDistilledRoot(*catalog);
+        auto ids = apptraverse::CollectWindowCatalogSupplyConstantIds(*catalog);
+        constants.insert(ids.begin(), ids.end());
+      }
 #else
       auto const& graph = apptraverse::embedded_distilled::window_catalog::kEmbeddedGraph;
       apptraverse::InstallEmbeddedDistilledBacking(backing, graph);
@@ -87,7 +91,12 @@ struct CatalogProfile {
 
 - (instancetype)initWithUserDirectory:(NSString*)directory {
   if ((self = [super init])) {
-    _profile = std::make_shared<CatalogProfile>(directory.fileSystemRepresentation);
+    char const* native_path = directory.fileSystemRepresentation;
+    if (!native_path || native_path[0] == '\0') {
+      apptraverse::WriteFatalStderr("cannot resolve WindowCatalog USER directory\n");
+      std::abort();
+    }
+    _profile = std::make_shared<CatalogProfile>(native_path);
   }
   return self;
 }

@@ -1,11 +1,13 @@
 #import "minimal_app_ios_composition.h"
 
 #include <filesystem>
+#include <cstdlib>
 #include <memory>
 #include <utility>
 
 #include "apptraverse/platform/ios/ios_application_bridge.h"
 #include "apptraverse/single_file_user_storage.h"
+#include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/platform/ios/ios_ui_presenters.h"
 #include "apptraverse/ui/ui_presenters.h"
 #include "apptraverse/object_macros.h"
@@ -17,8 +19,16 @@
 ATIosApplicationBridge* ATCreateMinimalApplicationBridge(
     NSString* userDirectory,
     id<ATIosApplicationBridgeDelegate> delegate) {
-  std::filesystem::path const state_dir{
-      userDirectory.fileSystemRepresentation};
+  char const* native_path = userDirectory.fileSystemRepresentation;
+  if (!native_path || native_path[0] == '\0') {
+    apptraverse::WriteFatalStderr("cannot resolve MinimalApp USER directory\n");
+    std::abort();
+  }
+  std::filesystem::path state_dir{native_path};
+#if defined(APPTRAVERSE_MINIMAL_APPLE_DEBUG_FRESH)
+  // A fresh Debug graph must never replace a previous run's USER.
+  state_dir /= "debug-run-" + std::to_string(ae::ObjId::GenerateUnique().id());
+#endif
   auto user = std::make_shared<ae::RamDomainStorage>();
 
   apptraverse::ui::ios::IosApplicationBridgeCallbacks callbacks;

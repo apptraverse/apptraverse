@@ -125,6 +125,7 @@ MinimalApplication::ptr BuildMinimalApplicationGraph(
     ae::Domain& domain, MinimalPresenterFactories const& factories) {
   auto application = MinimalApplication::ptr::Create(
       ae::CreateWith{domain}.with_id(MinimalApplicationRootId()));
+  application->viewport = {640, 480, 160, false, false};
 
   auto locale = ui::UiLocaleSettings::ptr::Create(
       ae::CreateWith{domain}.with_id(MinimalLocaleId()));

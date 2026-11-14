@@ -22,7 +22,7 @@ public final class ColdLoadLabelInstrumentedTest {
     Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
     String profileDir =
         context.getFilesDir().getAbsolutePath() + "/a1r1_cold_load_probe";
-    String result = NativeRuntime.nativeRunColdLoadLabelProbe(profileDir);
+    String result = NativeTestRuntime.nativeRunColdLoadLabelProbe(profileDir);
     assertTrue("cold load probe: " + result, result.startsWith("OK:"));
   }
 }

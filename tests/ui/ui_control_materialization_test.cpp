@@ -23,6 +23,7 @@
 #include "apptraverse/ui/ui_push_button.h"
 #include "apptraverse/ui/ui_string.h"
 #include "apptraverse/ui/ui_window.h"
+#include "apptraverse/ui/ui_desktop_window.h"
 
 using namespace apptraverse;
 using namespace apptraverse::ui;
@@ -1679,6 +1680,102 @@ ui::UiLocalizationString::ptr MakeRowLabel(ae::Domain& domain,
   return label;
 }
 
+void TestHostedViewportReportsPreserveDesktopPlacement() {
+  for (auto placement : {UiDesktopWindow::InitialPlacement::OperatingSystem,
+                         UiDesktopWindow::InitialPlacement::Centered}) {
+    ae::RamDomainStorage storage;
+    ae::Domain domain{storage};
+    auto window = UiDesktopWindow::ptr::Create(ae::CreateWith{domain});
+    window->BootstrapFrame(111, 222, 640, 480, placement);
+    InitializeRuntimeNode(*window);
+    window->SetImmediateEventCompaction(false);
+    window->SetJournalCompactionBlocked(true);
+    auto generation = window->Generation();
+    auto base_id = window->base.id();
+    window->SubmitFrameFromNative(0, 0, 640, 480, false);
+    CHECK(window->Generation() == generation);
+    CHECK(window->journal.empty());
+    CHECK(window->base.id() == base_id);
+    CHECK(!window->HasExplicitPosition());
+    CHECK(window->x() == 111 && window->y() == 222);
+    CHECK(window->restore_client_width() == 640 && window->restore_client_height() == 480);
+
+    window->SubmitFrameFromNative(0, 0, 320, 240, false);
+    CHECK(window->client_width() == 320 && window->client_height() == 240);
+    CHECK(window->journal.size() == 1);
+    CHECK(!window->HasExplicitPosition());
+    CHECK(window->x() == 111 && window->y() == 222);
+    CHECK(window->restore_client_width() == 640 && window->restore_client_height() == 480);
+    generation = window->Generation();
+    auto event_id = window->journal.front().event.id();
+    window->SubmitFrameFromNative(0, 0, 320, 240, false);
+    CHECK(window->Generation() == generation);
+    CHECK(window->journal.size() == 1);
+    CHECK(window->journal.front().event.id() == event_id);
+
+    if (placement == UiDesktopWindow::InitialPlacement::OperatingSystem) {
+      window->SubmitFrameFromNative(40, 50, 320, 240, true);
+      CHECK(window->HasExplicitPosition());
+      CHECK(window->x() == 40 && window->y() == 50);
+      CHECK(window->restore_client_width() == 320 && window->restore_client_height() == 240);
+    } else {
+      // The hosted viewport did not consume the model's centering request.
+      window->SubmitScreenFromNative(0, 0, 1000, 800);
+      CHECK(window->HasExplicitPosition());
+      CHECK(window->x() == 180 && window->y() == 160);
+      CHECK(window->restore_client_width() == 640 && window->restore_client_height() == 480);
+    }
+  }
+}
+
+void TestReplacementRowsKeepIdentityAcrossReplayAndPublication() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto list = UiListContainer::ptr::Create(ae::CreateWith{domain});
+  list->selection_index = -1;
+  InitializeRuntimeNode(*list);
+  list->SetImmediateEventCompaction(false);
+  list->SetJournalCompactionBlocked(true);
+
+  ae::RamDomainStorage ui_storage;
+  ae::Domain ui_domain{ui_storage};
+  ByteSink initial;
+  SerializeInitialPublication(*list, initial);
+  ByteSource initial_in{initial.bytes.data(), initial.bytes.size()};
+  auto mirror_object = LoadInitialPublication(initial_in, ui_domain, ui_storage);
+  CHECK(mirror_object);
+  auto* mirror = static_cast<UiListContainer*>(mirror_object.get());
+  CHECK(mirror->rows.empty());
+
+  auto shared_label = MakeRowLabel(domain, "Shared label");
+  auto event = ReplaceUiListRowsEvent::ptr::Create(ae::CreateWith{domain});
+  event->selection_index = 1;
+  for (int i = 0; i < 2; ++i) {
+    auto row = UiListRow::ptr::Create(ae::CreateWith{domain});
+    row->primary_text = shared_label;
+    InitializeRuntimeNode(*row, *list);
+    event->rows.push_back(row);
+  }
+  auto first_id = event->rows[0].id();
+  auto second_id = event->rows[1].id();
+  list->Commit(event);
+  CHECK(list->journal.size() == 1);
+  CHECK(list->TryReplayFromBase());
+  CHECK(list->TryReplayFromBase());
+  CHECK((RowIds(*list) == std::vector<ae::ObjId>{first_id, second_id}));
+  CHECK(list->selection_index == 1);
+  CHECK(&*list->rows[0]->primary_text == &*list->rows[1]->primary_text);
+
+  ByteSink structural;
+  SerializeStructuralNodePublication(*list, structural);
+  ByteSource structural_in{structural.bytes.data(), structural.bytes.size()};
+  ApplyStructuralPublication(structural_in, ui_domain, ui_storage);
+  CHECK(RowIds(*mirror) == RowIds(*list));
+  CHECK(mirror->selection_index == 1);
+  CHECK(&*mirror->rows[0]->primary_text == &*mirror->rows[1]->primary_text);
+  CHECK(ResolvePresentedListRowPrimaryText(mirror->rows[1], 0) == "Shared label");
+}
+
 void TestPresentedListRowPrimaryTextsMatchRowIndices() {
   ae::RamDomainStorage model_storage;
   ae::Domain model_domain{model_storage};
@@ -1787,5 +1884,7 @@ int main(int argc, char** argv) {
   TestListSelectionViaPresenterProxy();
   TestListRemoveRowByReferenceIdentity();
   TestPresentedListRowPrimaryTextsMatchRowIndices();
+  TestReplacementRowsKeepIdentityAcrossReplayAndPublication();
+  TestHostedViewportReportsPreserveDesktopPlacement();
   return 0;
 }

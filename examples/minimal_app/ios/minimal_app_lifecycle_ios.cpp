@@ -25,7 +25,13 @@ int RunIosMinimalApplicationModel(
   if (!LoadUserStorageFile(user, state_dir)) return 1;
 #endif
   ApplicationModelSessionHooks<MinimalApplication> hooks;
-  hooks.prepare = PrepareMinimalApplicationForRun;
+  hooks.prepare = [](MinimalApplication& application) {
+    PrepareMinimalApplicationForRun(application);
+    // Select the native environment before publishing an imported USER. The
+    // first real viewport event will replace these persisted logical dimensions.
+    application.SubmitViewport(application.viewport.width,
+                               application.viewport.height, 160, true);
+  };
   hooks.persist = [&user, &state_dir](MinimalApplication& application) {
     int const saved = SaveMinimalApplicationEmbeddedUserState(application);
     if (saved != 0) return saved;

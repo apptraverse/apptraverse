@@ -13,6 +13,9 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)send;
 - (void)clipboardResult:(BOOL)success;
 - (void)resizeWidth:(int)width height:(int)height;
+- (void)reportFrameX:(int)x y:(int)y width:(int)width height:(int)height
+     updatesRestore:(BOOL)updatesRestore
+    NS_SWIFT_NAME(reportFrame(x:y:width:height:updatesRestore:));
 @end
 NS_ASSUME_NONNULL_END
 #if TARGET_OS_OSX

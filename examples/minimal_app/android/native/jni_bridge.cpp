@@ -18,6 +18,7 @@
 #include "apptraverse/ui/ui_presenters.h"
 
 #include "minimal_application.h"
+#if defined(APPTRAVERSE_MINIMAL_TEST_HOOKS)
 #include "minimal_app_android_cold_load_probe.h"
 #include "minimal_app_android_initial_publication_probe.h"
 #include "minimal_app_android_cold_reload_apply_probe.h"
@@ -25,6 +26,7 @@
 #include "minimal_app_android_model_thread_start_probe.h"
 #include "minimal_app_android_pending_save_race_probe.h"
 #include "minimal_app_android_early_background_save_probe.h"
+#endif
 #include "minimal_native_runtime.h"
 
 namespace apptraverse::example::minimal {
@@ -39,11 +41,6 @@ MinimalNativeRuntime* FromHandle(jlong handle) {
 
 jlong NativeCreate(JNIEnv* env, jclass, jstring files_dir, jstring state_subdir,
                    jobject ui_bridge) {
-  EnsureObjectRegistration();
-  ui::EnsureUiPresenterRegistration();
-  ui::android::EnsureAndroidUiPresenterRegistration();
-  EnsureMinimalApplicationRegistration();
-
   auto bridge = android::MakeAndroidUiBridge(env, ui_bridge);
   if (!bridge.is_valid()) {
     return 0;
@@ -75,6 +72,7 @@ void NativeRequestBackgroundSave(JNIEnv*, jclass, jlong handle) {
 
 void NativeDestroy(JNIEnv*, jclass, jlong handle) { delete FromHandle(handle); }
 
+#if defined(APPTRAVERSE_MINIMAL_TEST_HOOKS)
 void NativeSetCheckpointPersistTestGateRoot(JNIEnv* env, jclass,
                                           jstring files_dir) {
   char const* chars = env->GetStringUTFChars(files_dir, nullptr);
@@ -200,6 +198,8 @@ jstring NativeRunColdLoadLabelProbe(JNIEnv* env, jclass, jstring profile_dir) {
   return env->NewStringUTF(out.c_str());
 }
 
+#endif
+
 JNINativeMethod const kNativeMethods[] = {
     {"nativeCreate",
      "(Ljava/lang/String;Ljava/lang/String;Lcom/apptraverse/minimal/NativeUiBridge;)J",
@@ -212,6 +212,11 @@ JNINativeMethod const kNativeMethods[] = {
     {"nativeRequestBackgroundSave", "(J)V",
      reinterpret_cast<void*>(&NativeRequestBackgroundSave)},
     {"nativeDestroy", "(J)V", reinterpret_cast<void*>(&NativeDestroy)},
+
+};
+
+#if defined(APPTRAVERSE_MINIMAL_TEST_HOOKS)
+JNINativeMethod const kTestMethods[] = {
     {"nativeSetCheckpointPersistTestGateRoot", "(Ljava/lang/String;)V",
      reinterpret_cast<void*>(&NativeSetCheckpointPersistTestGateRoot)},
     {"nativeEnableCheckpointPersistTestGate", "()V",
@@ -241,6 +246,7 @@ JNINativeMethod const kNativeMethods[] = {
      "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
      reinterpret_cast<void*>(&NativeRunEmbeddedBackingProbe)},
 };
+#endif
 
 constexpr char const kAndroidUiClass[] =
     "com/apptraverse/ui/android/AppTraverseAndroidUi";
@@ -289,6 +295,7 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
   apptraverse::EnsureObjectRegistration();
   apptraverse::ui::EnsureUiPresenterRegistration();
   apptraverse::ui::android::EnsureAndroidUiPresenterRegistration();
+  apptraverse::example::minimal::EnsureMinimalApplicationRegistration();
 
   using apptraverse::example::minimal::kNativeMethods;
   using apptraverse::example::minimal::kNativeRuntimeClass;
@@ -302,12 +309,16 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
     apptraverse::android::LogError("JNI_OnLoad: NativeRuntime RegisterNatives failed");
     return JNI_ERR;
   }
+#if defined(APPTRAVERSE_MINIMAL_TEST_HOOKS)
+  using apptraverse::example::minimal::kTestMethods;
+  if (!RegisterNatives(env, "com/apptraverse/minimal/NativeTestRuntime", kTestMethods,
+          static_cast<jint>(sizeof(kTestMethods) / sizeof(kTestMethods[0])))) return JNI_ERR;
+#endif
   if (!RegisterNatives(
           env, kAndroidUiClass, kUiMethods,
           static_cast<jint>(sizeof(kUiMethods) / sizeof(kUiMethods[0])))) {
     apptraverse::android::LogError("JNI_OnLoad: AppTraverseAndroidUi RegisterNatives failed");
     return JNI_ERR;
   }
-  apptraverse::android::LogInfo("JNI_OnLoad: minimal app natives registered");
   return JNI_VERSION_1_6;
 }

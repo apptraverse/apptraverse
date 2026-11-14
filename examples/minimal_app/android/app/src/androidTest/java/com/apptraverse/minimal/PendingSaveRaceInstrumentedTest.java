@@ -23,18 +23,18 @@ public final class PendingSaveRaceInstrumentedTest {
   @Before
   public void setUp() {
     Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
-    NativeRuntime.nativeSetCheckpointPersistTestGateRoot(
+    NativeTestRuntime.nativeSetCheckpointPersistTestGateRoot(
         context.getFilesDir().getAbsolutePath());
   }
 
   @After
   public void tearDown() {
-    NativeRuntime.nativeDisableCheckpointPersistTestGate();
+    NativeTestRuntime.nativeDisableCheckpointPersistTestGate();
   }
 
   @Test
   public void pendingSaveDuringFirstPersistRunsSecondCheckpoint() {
-    String result = NativeRuntime.nativeRunPendingBackgroundSaveRaceProbe();
+    String result = NativeTestRuntime.nativeRunPendingBackgroundSaveRaceProbe();
     assertTrue("probe: " + result, result.startsWith("OK:"));
   }
 }

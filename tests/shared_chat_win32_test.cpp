@@ -422,9 +422,48 @@ int wmain(int argc, wchar_t** argv) {
     }
     return true;
   });
+
+  auto const bob_window = peers[2].Window();
+  MINMAXINFO minimum{};
+  SendMessageW(bob_window, WM_GETMINMAXINFO, 0, reinterpret_cast<LPARAM>(&minimum));
+  Require(SetWindowPos(bob_window, nullptr, 48, 72, minimum.ptMinTrackSize.x,
+                       minimum.ptMinTrackSize.y, SWP_NOZORDER) != FALSE,
+          "Could not resize chat to its native minimum");
+  Wait("Keeping controls inside the minimum client area", [&] {
+    RECT client{}, status{};
+    Require(GetClientRect(bob_window, &client) != FALSE, "Cannot measure chat client");
+    Require(client.right >= 400 && client.bottom >= 300,
+            "Native minimum must include nonclient borders");
+    Require(GetWindowRect(Control(bob_window, kStatusControl), &status) != FALSE,
+            "Cannot measure chat status");
+    MapWindowPoints(nullptr, bob_window, reinterpret_cast<POINT*>(&status), 2);
+    return status.top >= 0 && status.bottom <= client.bottom;
+  });
+  Require(SetWindowPos(bob_window, nullptr, 48, 72, 700, 520, SWP_NOZORDER) != FALSE,
+          "Could not choose restored chat frame");
+  RECT saved_frame{};
+  Require(GetWindowRect(bob_window, &saved_frame) != FALSE, "Cannot read restored frame");
+  std::wstring const saved_draft = L"unsent-\u041f\u0440\u0438\u0432\u0435\u0442";
+  SetText(Control(bob_window, kInputControl), saved_draft);
   for (auto& peer : peers) {
     peer.Stop(true);
   }
+
+  // A restart consumes the saved UI graph, including identity and native frame;
+  // startup defaults cannot replace a configured profile's model values.
+  peers[2].name = L"Changed startup default";
+  peers[2].Start(exe);
+  Wait("Restoring draft and desktop frame from current USER", [&] {
+    auto window = peers[2].Window();
+    if (!window || !IsWindowVisible(window)) return false;
+    RECT frame{};
+    Require(GetWindowRect(window, &frame) != FALSE, "Cannot measure cold frame");
+    return frame.left == saved_frame.left && frame.top == saved_frame.top &&
+           frame.right == saved_frame.right && frame.bottom == saved_frame.bottom &&
+           Text(Control(window, kInputControl)) == saved_draft &&
+           Text(window).find(L"Bob") != std::wstring::npos;
+  });
+  peers[2].Stop(true);
   for (auto const& peer : peers) {
     Require(std::filesystem::exists(peer.profile / L"user.bin"),
             "Chat did not persist its native USER graph");

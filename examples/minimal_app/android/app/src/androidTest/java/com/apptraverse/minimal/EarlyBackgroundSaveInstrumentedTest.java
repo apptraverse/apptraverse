@@ -17,7 +17,7 @@ public final class EarlyBackgroundSaveInstrumentedTest {
 
   @Test
   public void earlyBackgroundSavePendingFlushedWhenModelLive() {
-    String result = NativeRuntime.nativeRunEarlyBackgroundSaveProbe();
+    String result = NativeTestRuntime.nativeRunEarlyBackgroundSaveProbe();
     assertTrue("probe: " + result, result.startsWith("OK:"));
   }
 }

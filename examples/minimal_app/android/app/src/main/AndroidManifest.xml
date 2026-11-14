@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
   <application
-      android:name=".MinimalAppApplication"
+      android:name="${minimalApplicationClass}"
       android:allowBackup="true"
       android:label="Minimal App"
       android:supportsRtl="true"

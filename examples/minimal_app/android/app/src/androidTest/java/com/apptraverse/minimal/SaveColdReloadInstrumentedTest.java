@@ -35,17 +35,17 @@ public final class SaveColdReloadInstrumentedTest {
 
   private UiDevice device;
   private Context context;
-  private MinimalAppApplication app;
+  private MinimalAppTestApplication app;
 
   @Before
   public void setUp() throws Exception {
     InstrumentedTestNative.ensureLoaded();
     device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
     context = InstrumentationRegistry.getInstrumentation().getTargetContext();
-    NativeRuntime.nativeSetCheckpointPersistTestGateRoot(
+    NativeTestRuntime.nativeSetCheckpointPersistTestGateRoot(
         context.getFilesDir().getAbsolutePath());
-    app = (MinimalAppApplication) context.getApplicationContext();
-    NativeRuntime.nativeDisableCheckpointPersistTestGate();
+    app = (MinimalAppTestApplication) context.getApplicationContext();
+    NativeTestRuntime.nativeDisableCheckpointPersistTestGate();
     if (app.hasNativeRuntime()) {
       InstrumentationRegistry.getInstrumentation().runOnMainSync(
           app::clearRuntimeForColdReloadTest);
@@ -54,7 +54,7 @@ public final class SaveColdReloadInstrumentedTest {
 
   @After
   public void tearDown() {
-    NativeRuntime.nativeDisableCheckpointPersistTestGate();
+    NativeTestRuntime.nativeDisableCheckpointPersistTestGate();
   }
 
   private ColdReloadPath resolveColdReloadPath(int pidBefore) {
@@ -129,7 +129,7 @@ public final class SaveColdReloadInstrumentedTest {
     MinimalAppTestLaunch.launchFreshProfile(context, device, PROFILE, false);
     applyRowBAndWaitPublication();
 
-    NativeRuntime.nativeEnableCheckpointPersistTestGate();
+    NativeTestRuntime.nativeEnableCheckpointPersistTestGate();
     device.pressHome();
     MinimalAppTestLaunch.assertApplyCheckpointNotOnDiskWithin(context, PROFILE, 2500);
 
@@ -142,12 +142,12 @@ public final class SaveColdReloadInstrumentedTest {
     int saveLogBaseline = MinimalAppTestLaunch.countMinimalAppInfoLines(
         device, MinimalAppTestLaunch.LOG_BACKGROUND_SAVE_FINISHED_PREFIX + PROFILE
             + " result=0");
-    NativeRuntime.nativeOpenCheckpointPersistTestGate();
+    NativeTestRuntime.nativeOpenCheckpointPersistTestGate();
     waitForSelected(rowA, true, 15000);
     MinimalAppTestLaunch.waitForBackgroundSaveFinishedAfter(
         device, PROFILE, saveLogBaseline, 60000);
     MinimalAppTestLaunch.waitForApplyCheckpointOnDisk(context, PROFILE, 30000);
-    NativeRuntime.nativeDisableCheckpointPersistTestGate();
+    NativeTestRuntime.nativeDisableCheckpointPersistTestGate();
     assertTrue(device.hasObject(By.text("Applied")));
     assertTrue(rowA.isSelected());
   }
@@ -157,12 +157,12 @@ public final class SaveColdReloadInstrumentedTest {
     MinimalAppTestLaunch.launchFreshProfile(context, device, OVERLAP_PROFILE, false);
     applyRowBAndWaitPublication();
 
-    NativeRuntime.nativeEnableCheckpointPersistTestGate();
+    NativeTestRuntime.nativeEnableCheckpointPersistTestGate();
     device.pressHome();
     MinimalAppTestLaunch.assertApplyCheckpointNotOnDiskWithin(context, OVERLAP_PROFILE, 2500);
     assertTrue(
         "first persist must enter gate before overlap input",
-        NativeRuntime.nativeWaitForCheckpointPersistGateEntries(1, 5000));
+        NativeTestRuntime.nativeWaitForCheckpointPersistGateEntries(1, 5000));
 
     MinimalAppTestLaunch.bringAppToForeground(context, device, OVERLAP_PROFILE, false);
     UiObject2 rowA = device.wait(Until.findObject(By.desc("Row A")), 15000);
@@ -174,17 +174,17 @@ public final class SaveColdReloadInstrumentedTest {
             + " result=0");
     device.pressHome();
 
-    NativeRuntime.nativeOpenCheckpointPersistTestGate();
+    NativeTestRuntime.nativeOpenCheckpointPersistTestGate();
     MinimalAppTestLaunch.waitForBackgroundSaveFinishedAfter(
         device, OVERLAP_PROFILE, saveLogBaseline, 90000);
     MinimalAppTestLaunch.waitForProfileStateOnDisk(
         context, OVERLAP_PROFILE, 0, false, "Applied", 30000);
-    NativeRuntime.nativeDisableCheckpointPersistTestGate();
+    NativeTestRuntime.nativeDisableCheckpointPersistTestGate();
 
     String overlapProfilePath =
         new java.io.File(context.getFilesDir(), OVERLAP_PROFILE).getAbsolutePath();
     String diskAfterSaves =
-        NativeRuntime.nativeRunColdReloadProfileStateProbe(
+        NativeTestRuntime.nativeRunColdReloadProfileStateProbe(
             overlapProfilePath, 0, false, "Applied");
     assertTrue("disk after overlapping saves: " + diskAfterSaves,
         diskAfterSaves.startsWith("OK:"));
@@ -200,7 +200,7 @@ public final class SaveColdReloadInstrumentedTest {
 
     assertTrue(device.wait(Until.findObject(By.text("Applied")), 30000) != null);
     String diskAfterCold =
-        NativeRuntime.nativeRunColdReloadProfileStateProbe(
+        NativeTestRuntime.nativeRunColdReloadProfileStateProbe(
             overlapProfilePath, 0, false, "Applied");
     assertTrue("disk after cold reload: " + diskAfterCold, diskAfterCold.startsWith("OK:"));
     try {

@@ -41,7 +41,7 @@ EM_JS(emscripten::EM_VAL, ApptraverseGetAppMountElement, (), {
   return Emval.toHandle(document.getElementById('app-mount'));
 });
 EM_JS(void, ApptraverseShowMinimalPage, (emscripten::EM_VAL client, int visible), {
-  Emval.toValue(client).parentElement.style.display = visible ? '' : 'none';
+  Emval.toValue(client).parentElement.style.display = visible ? "" : "none";
 });
 
 void ApplyPagePresentation(ae::Obj& root) {
@@ -83,13 +83,10 @@ void SetUiInputBlocked(bool blocked) {
   }, blocked ? 1 : 0);
 }
 
-void HideLoadingAndSignalRenderOk() {
+void HideLoading() {
   EM_ASM({
     var loading = document.getElementById('loading');
-    if (loading) {
-      loading.textContent = "";
-    }
-    console.log('MINIMAL_APP_INITIAL_RENDER_OK');
+    loading.textContent = "";
   });
 }
 
@@ -118,7 +115,6 @@ void FinishHostTeardownOnNextMainTurn(bool shutdown_succeeded) {
   if (shutdown_succeeded) {
     SetShutdownStatus("Stopped");
     SetSaveStatus("");
-    EM_ASM({ console.log('MINIMAL_APP_SHUTDOWN_STOPPED'); });
   } else {
     SetShutdownStatus("Stop failed");
     EM_ASM({ console.error('MINIMAL_APP_SHUTDOWN_FAILED'); });
@@ -187,14 +183,8 @@ void StartWebMinimalApplication() {
   callbacks.run_model = [](ApplicationPublishedCallback on_published) -> int {
 #if defined(APPTRAVERSE_DEBUG_FRESH_START)
     g_profile_path /= "debug-run-" + std::to_string(ae::ObjId::GenerateUnique().id());
-    EM_ASM({ console.log('MINIMAL_APP_DEBUG_FRESH_USER'); });
 #else
     if (!LoadUserStorageFile(g_user_storage, g_profile_path)) return 1;
-    if (!g_user_storage.state.empty()) {
-      EM_ASM({ console.log('MINIMAL_APP_LOADED_FROM_PROFILE'); });
-    } else {
-      EM_ASM({ console.log('MINIMAL_APP_LOADED_FROM_EMBEDDED_BACKING'); });
-    }
 #endif
 
     ApplicationModelSessionHooks<MinimalApplication> hooks;
@@ -216,7 +206,7 @@ void StartWebMinimalApplication() {
   callbacks.after_initial = [](ae::Obj& root) {
     ApplyPagePresentation(root);
     ApptraverseMinimalAppViewportChanged(g_viewport_width, g_viewport_height);
-    HideLoadingAndSignalRenderOk();
+    HideLoading();
   };
   callbacks.after_incremental = ApplyPagePresentation;
   callbacks.persist_model = [](ae::Domain& domain) -> int {
@@ -225,7 +215,6 @@ void StartWebMinimalApplication() {
   callbacks.on_save_started = [] { SetSaveStatus("Saving…"); };
   callbacks.on_save_succeeded = [] {
     SetSaveStatus("Saved");
-    EM_ASM({ console.log('MINIMAL_APP_IDBFS_SAVED'); });
   };
   callbacks.on_save_failed = [] {
     SetSaveStatus("Save failed");
@@ -234,7 +223,6 @@ void StartWebMinimalApplication() {
   callbacks.set_ui_input_blocked = SetUiInputBlocked;
   callbacks.on_shutdown_stopping = [] {
     SetShutdownStatus("Stopping…");
-    EM_ASM({ console.log('MINIMAL_APP_SHUTDOWN_STOPPING'); });
   };
   callbacks.on_shutdown_succeeded = [] {
     emscripten_async_call(FinishHostTeardownTrampoline,
