@@ -42,7 +42,7 @@ final class PhoneChatHost: ObservableObject {
         }
         presenter.checkpoint { [weak self] ok in
             guard let self else { return }
-            if !ok { self.presenter.inputError = "Could not save chat state." }
+            if !ok { fatalError("Could not save chat USER state") }
             self.finishCheckpoint(generation)
         }
     }
@@ -55,72 +55,7 @@ final class PhoneChatHost: ObservableObject {
 
 struct PhoneChatView: View {
     @ObservedObject var presenter: ChatPresenter
-    @State private var showParticipants = false
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(presenter.role == .host ? "My Aether ID" : "Host Aether ID").font(.caption).foregroundStyle(.secondary)
-                    HStack {
-                        if presenter.role == .host {
-                            Text(presenter.uid).font(.footnote).textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            Button("Copy", action: presenter.copyID).disabled(!presenter.ready)
-                                .accessibilityIdentifier("chat.copy")
-                        } else {
-                            if presenter.inRoom {
-                                Text(presenter.invite).font(.footnote).textSelection(.enabled)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            } else {
-                                TextField("Host Aether ID", text: $presenter.invite)
-                                    .textInputAutocapitalization(.never).autocorrectionDisabled()
-                                    .textFieldStyle(.roundedBorder).onSubmit(presenter.join)
-                                    .accessibilityIdentifier("chat.invite")
-                            }
-                            Button("Join", action: presenter.join).disabled(!presenter.ready || presenter.inRoom)
-                                .accessibilityIdentifier("chat.join")
-                        }
-                    }
-                }.padding(.horizontal)
-                ScrollViewReader { reader in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 12) {
-                            ForEach(Array(presenter.messages.enumerated()), id: \.offset) { index, message in
-                                Text(message).textSelection(.enabled)
-                                    .frame(maxWidth: .infinity, alignment: .leading).id(index)
-                            }
-                        }.frame(maxWidth: .infinity, alignment: .leading).padding()
-                    }.scrollDismissesKeyboard(.interactively).accessibilityIdentifier("chat.messages")
-                        .background(Color(uiColor: .secondarySystemBackground))
-                        .onChange(of: presenter.messages.count) { _, count in
-                            if count > 0 { reader.scrollTo(count - 1, anchor: .bottom) }
-                        }
-                }
-                HStack(alignment: .bottom) {
-                    TextField("Message", text: $presenter.input, axis: .vertical)
-                        .lineLimit(1...4).textFieldStyle(.roundedBorder)
-                        .disabled(!presenter.ready || !presenter.inRoom).accessibilityIdentifier("chat.input")
-                    Button("Send", action: presenter.send).buttonStyle(.borderedProminent)
-                        .disabled(!presenter.ready || !presenter.inRoom).accessibilityIdentifier("chat.send")
-                }.padding(.horizontal)
-                Text(presenter.inputError.isEmpty ? presenter.status : presenter.inputError)
-                    .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityIdentifier("chat.status").padding(.horizontal)
-            }.padding(.bottom, 8).navigationTitle("SharedNode Chat").navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button { showParticipants = true } label: { Label("Participants", systemImage: "person.2") }
-                            .accessibilityIdentifier("chat.participants")
-                    }
-                }.sheet(isPresented: $showParticipants) {
-                    NavigationStack {
-                        List(Array(presenter.participants.enumerated()), id: \.offset) { _, name in Text(name) }
-                            .navigationTitle("Participants").navigationBarTitleDisplayMode(.inline)
-                            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showParticipants = false } } }
-                    }.presentationDetents([.medium, .large])
-                }
-        }
-    }
+    var body: some View { ChatPanel(presenter: presenter) }
 }
 
 @main

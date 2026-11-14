@@ -1,7 +1,7 @@
 set_source_files_properties(../apple/ChatBridge.mm AcceptanceBridge.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc -fno-objc-exceptions")
 add_library(apptraverse_chat_macos_bridge STATIC ../apple/ChatBridge.mm)
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/../apple")
-target_link_libraries(apptraverse_chat_macos_bridge PRIVATE apptraverse_shared_chat_session "-framework Foundation")
+target_link_libraries(apptraverse_chat_macos_bridge PRIVATE apptraverse_shared_chat_ui "-framework Foundation")
 foreach(_kind product acceptance)
   if(_kind STREQUAL "acceptance" AND NOT BUILD_TESTING)
     continue()

@@ -2,15 +2,17 @@
 #import <TargetConditionals.h>
 NS_ASSUME_NONNULL_BEGIN
 @interface ATChatBridge : NSObject
-- (instancetype)initWithProfile:(NSString*)profile name:(NSString*)name changed:(void (^)(void))changed;
+- (instancetype)initWithProfile:(NSString*)profile name:(NSString*)name host:(BOOL)host initialHost:(NSString*)initialHost loadOnly:(BOOL)loadOnly changed:(void (^)(void))changed;
 - (BOOL)start;
 - (void)stop;
 - (void)checkpoint:(void (^)(BOOL))completion;
 - (NSDictionary*)snapshot;
-- (void)createRoom;
-- (void)joinRoom:(NSString*)invite;
-- (void)send:(NSString*)text;
-- (void)send:(NSString*)text committed:(void (^)(BOOL))completion;
+- (void)editDraft:(NSString*)text;
+- (void)editInvite:(NSString*)text;
+- (void)join;
+- (void)send;
+- (void)clipboardResult:(BOOL)success;
+- (void)resizeWidth:(int)width height:(int)height;
 @end
 NS_ASSUME_NONNULL_END
 #if TARGET_OS_OSX

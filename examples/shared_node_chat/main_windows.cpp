@@ -19,7 +19,8 @@
 #include "apptraverse/platform/windows/win32_fatal.h"
 #include "apptraverse/platform/windows/win_ui_utf8.h"
 #include "chat_controls.h"
-#include "chat_session.h"
+#include "chat_ui_session.h"
+#include <array>
 
 #ifndef APPTRAVERSE_CHAT_TITLE
 #  define APPTRAVERSE_CHAT_TITLE L"SharedNode Chat"
@@ -53,9 +54,12 @@ void SetText(HWND control, std::wstring const& value) {
 }
 
 std::wstring Text(HWND control) {
+  SetLastError(ERROR_SUCCESS);
   auto const size = GetWindowTextLengthW(control);
+  if(size==0&&GetLastError()!=ERROR_SUCCESS)FatalWin32("GetWindowTextLengthW chat",GetLastError());
   std::wstring value(static_cast<std::size_t>(size) + 1, L'\0');
   auto const copied = GetWindowTextW(control, value.data(), size + 1);
+  if(copied==0&&size!=0)FatalWin32("GetWindowTextW chat",GetLastError());
   value.resize(static_cast<std::size_t>(std::max(0, copied)));
   return value;
 }
@@ -66,237 +70,104 @@ void SetChanged(HWND control, std::wstring const& value) {
   }
 }
 
-struct Window {
-  Window(std::filesystem::path profile, std::string name, bool host_role,
-         std::wstring host_id)
-      : session{std::move(profile), std::move(name), [this] {
-                  if (!PostMessageW(hwnd, kViewChanged, 0, 0)) {
-                    FatalWin32("PostMessageW chat publication", GetLastError());
-                  }
-                }}, is_host{host_role}, initial_host{std::move(host_id)} {}
-
-  ChatSession session;
-  HWND hwnd{}, uid_label{}, uid{}, host{}, invite_label{}, invite{}, join{};
-  HWND people_label{}, people{}, messages_label{}, messages{}, input{}, send{},
-      status{};
-  HFONT font{};
-  bool stopping{false};
-  bool is_host{false};
-  bool startup_submitted{false};
-  std::wstring initial_host;
-  std::wstring shown_invite;
-  std::vector<std::wstring> shown_people;
-  std::wstring shown_messages;
-  std::wstring input_error;
-
-  HWND Control(wchar_t const* type, wchar_t const* text, DWORD style,
-               int id = 0) {
-    auto control =
-        CreateWindowExW((style & WS_BORDER) ? WS_EX_CLIENTEDGE : 0, type, text,
-                        WS_CHILD | WS_VISIBLE | style, 0, 0, 0, 0, hwnd,
-                        reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
-                        GetModuleHandleW(nullptr), nullptr);
-    if (!control) {
-      DWORD const error = GetLastError();
-      FatalWin32("CreateWindowExW chat control", error);
+struct Window : gui::Presentation {
+  Window(std::filesystem::path profile,std::string name,bool host,std::wstring invited,bool load_only)
+    :session{std::move(profile),std::move(name),host,WideToUtf8(invited),[this]{
+      if(!PostMessageW(hwnd,kViewChanged,0,0))FatalWin32("PostMessageW chat publication",GetLastError());
+    },load_only}{}
+  gui::Session session;
+  HWND hwnd{}, input{}, invite{};
+  std::array<HWND,static_cast<unsigned>(gui::Control::Count)> controls{};
+  bool stopping{},applying{},window_initialized{};
+  std::vector<std::string> shown_people,shown_messages;
+  HWND Handle(gui::Control c)const{return controls[static_cast<unsigned>(c)];}
+  void Create(HWND parent){
+    hwnd=parent;
+    struct Definition { wchar_t const* type;DWORD style;int id; };
+    Definition const definitions[]={
+      {L"STATIC",0,0},{L"EDIT",WS_BORDER|ES_AUTOHSCROLL|ES_READONLY,kUidControl},
+      {L"BUTTON",BS_PUSHBUTTON|WS_TABSTOP,kHostControl},
+      {L"EDIT",WS_BORDER|ES_AUTOHSCROLL|WS_TABSTOP,kInviteControl},
+      {L"BUTTON",BS_PUSHBUTTON|WS_TABSTOP,kJoinControl},{L"STATIC",0,0},
+      {L"LISTBOX",WS_BORDER|WS_VSCROLL|LBS_NOINTEGRALHEIGHT,kParticipantsControl},
+      {L"STATIC",0,0},
+      {L"EDIT",WS_BORDER|WS_VSCROLL|ES_MULTILINE|ES_AUTOVSCROLL|ES_READONLY,kMessagesControl},
+      {L"EDIT",WS_BORDER|ES_AUTOHSCROLL|WS_TABSTOP,kInputControl},
+      {L"BUTTON",BS_DEFPUSHBUTTON|WS_TABSTOP,kSendControl},{L"STATIC",SS_LEFT,kStatusControl}};
+    for(unsigned i=0;i<controls.size();++i){
+      auto const& d=definitions[i];
+      auto control=CreateWindowExW((d.style&WS_BORDER)?WS_EX_CLIENTEDGE:0,d.type,L"",
+        WS_CHILD|d.style,0,0,0,0,hwnd,reinterpret_cast<HMENU>(static_cast<INT_PTR>(d.id)),
+        GetModuleHandleW(nullptr),nullptr);
+      if(!control)FatalWin32("CreateWindowExW chat control",GetLastError());
+      EnableWindow(control,FALSE); // Native loading state before the first mirror.
+      SendMessageW(control,WM_SETFONT,reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)),TRUE);
+      controls[i]=control;
     }
-    SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-    return control;
-  }
-
-  void Create(HWND value) {
-    hwnd = value;
-    font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
-    uid_label = Control(L"STATIC", is_host ? L"My Aether ID" : L"Host Aether ID", 0);
-    uid = Control(L"EDIT", L"Connecting...",
-                  WS_BORDER | ES_AUTOHSCROLL | ES_READONLY | WS_TABSTOP,
-                  kUidControl);
-    host = Control(L"BUTTON", L"Copy", BS_PUSHBUTTON | WS_TABSTOP,
-                   kHostControl);
-    invite = Control(L"EDIT", initial_host.c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP,
-                     kInviteControl);
-    join =
-        Control(L"BUTTON", L"Join", BS_PUSHBUTTON | WS_TABSTOP, kJoinControl);
-    ShowWindow(uid, is_host ? SW_SHOW : SW_HIDE);
-    ShowWindow(host, is_host ? SW_SHOW : SW_HIDE);
-    ShowWindow(invite, is_host ? SW_HIDE : SW_SHOW);
-    ShowWindow(join, is_host ? SW_HIDE : SW_SHOW);
-    people_label = Control(L"STATIC", L"Participants", 0);
-    people =
-        Control(L"LISTBOX", L"", WS_BORDER | WS_VSCROLL | LBS_NOINTEGRALHEIGHT,
-                kParticipantsControl);
-    messages_label = Control(L"STATIC", L"Messages", 0);
-    messages = Control(
-        L"EDIT", L"",
-        WS_BORDER | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
-        kMessagesControl);
-    SendMessageW(messages, EM_SETLIMITTEXT, 0, 0);
-    input = Control(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP,
-                    kInputControl);
-    SendMessageW(input, EM_SETLIMITTEXT, 4096, 0);
-    send = Control(L"BUTTON", L"Send", BS_DEFPUSHBUTTON | WS_TABSTOP,
-                   kSendControl);
-    status =
-        Control(L"STATIC", L"Connecting to Aether...", SS_LEFT, kStatusControl);
-    EnableWindow(host, FALSE);
-    EnableWindow(join, FALSE);
-    EnableWindow(input, FALSE);
-    EnableWindow(send, FALSE);
+    input=Handle(gui::Control::Input);invite=Handle(gui::Control::Invite);
+    SendMessageW(Handle(gui::Control::Messages),EM_SETLIMITTEXT,0,0);
+    SendMessageW(input,EM_SETLIMITTEXT,8192,0);
     session.Start();
-    Layout();
   }
-
-  void Layout() const {
-    RECT client{};
-    if (!GetClientRect(hwnd, &client)) {
-      DWORD const error = GetLastError();
-      FatalWin32("GetClientRect chat window", error);
+  void Present(gui::Control kind,gui::ControlState const& state,gui::ChatUi const& model)override{
+    applying=true;
+    if(!window_initialized){
+      window_initialized=true;
+      RECT bounds{0,0,model.layout.width,model.layout.height};
+      if(!AdjustWindowRectEx(&bounds,WS_OVERLAPPEDWINDOW,FALSE,0))FatalWin32("AdjustWindowRectEx chat",GetLastError());
+      if(!SetWindowPos(hwnd,nullptr,0,0,bounds.right-bounds.left,bounds.bottom-bounds.top,SWP_NOMOVE|SWP_NOZORDER))FatalWin32("SetWindowPos chat",GetLastError());
     }
-    int const width = std::max(400, static_cast<int>(client.right));
-    int const height = std::max(300, static_cast<int>(client.bottom));
-    constexpr int margin = 12, gap = 8, label_width = 100, button_width = 100;
-    int const right = width - margin;
-    int const edit_x = margin + label_width;
-    Place(uid_label, margin, 17, label_width - gap, 20);
-    Place(uid, edit_x, 12, right - edit_x - gap - button_width, 26);
-    Place(host, right - button_width, 12, button_width, 26);
-    Place(invite, edit_x, 12, right - edit_x - gap - button_width, 26);
-    Place(join, right - button_width, 12, button_width, 26);
-    constexpr int body_top = 70;
-    int const people_width = std::min(210, std::max(130, width / 4));
-    int const message_x = margin + people_width + gap;
-    int const message_width = right - message_x;
-    int const input_y = height - 70;
-    int const body_height = std::max(70, input_y - gap - body_top);
-    Place(people_label, margin, 50, people_width, 20);
-    Place(messages_label, message_x, 50, message_width, 20);
-    Place(people, margin, body_top, people_width, body_height + 34);
-    Place(messages, message_x, body_top, message_width, body_height);
-    Place(input, message_x, input_y, std::max(60, message_width - gap - 76),
-          28);
-    Place(send, right - 76, input_y, 76, 28);
-    Place(status, margin, height - 30, right - margin, 22);
-  }
-
-  void Refresh() {
-    auto const view = session.View();
-    if (view.ready && !startup_submitted) {
-      startup_submitted = true;
-      if (!view.in_room) {
-        if (is_host) session.CreateRoom();
-        else if (!initial_host.empty()) session.JoinRoom(WideToUtf8(initial_host));
+    if(kind==gui::Control::UidLabel)SetChanged(hwnd,Utf8ToWide(model.Title()));
+    auto control=Handle(kind);
+    auto const& r=state.frame;Place(control,r.x,r.y,r.width,r.height);
+    EnableWindow(control,state.enabled);ShowWindow(control,state.visible?SW_SHOW:SW_HIDE);
+    if(kind==gui::Control::People){
+      if(shown_people!=state.rows){
+        SendMessageW(control,LB_RESETCONTENT,0,0);
+        for(auto const& row:state.rows){auto value=Utf8ToWide(row);
+          auto result=SendMessageW(control,LB_ADDSTRING,0,reinterpret_cast<LPARAM>(value.c_str()));
+          if(result==LB_ERR||result==LB_ERRSPACE)FatalWin32("LB_ADDSTRING chat participant",ERROR_NOT_ENOUGH_MEMORY);
+        }
+        shown_people=state.rows;
       }
-    }
-    SetChanged(uid, Utf8ToWide(view.local_uid.empty() ? "Connecting..."
-                                                      : view.local_uid));
-    SetChanged(status, input_error.empty()
-                           ? Utf8ToWide(std::string{view.locally_online
-                                                        ? "Online | "
-                                                        : "Offline | "} +
-                                        view.status)
-                           : input_error);
-    if (!view.invite.empty() && Utf8ToWide(view.invite) != shown_invite) {
-      shown_invite = Utf8ToWide(view.invite);
-      SetText(invite, shown_invite);
-    }
-    EnableWindow(host, view.ready && !view.local_uid.empty());
-    EnableWindow(join, view.ready && !view.in_room);
-    EnableWindow(input, view.ready && view.in_room);
-    EnableWindow(send, view.ready && view.in_room);
-    SendMessageW(invite, EM_SETREADONLY, view.in_room, 0);
-    std::vector<std::wstring> rows;
-    for (auto const& person : view.participants) {
-      auto const presence = person.presence == Presence::Online    ? "online"
-                            : person.presence == Presence::Offline ? "offline"
-                                                                   : "unknown";
-      rows.push_back(Utf8ToWide(person.name + " [" + presence + "]"));
-    }
-    if (rows != shown_people) {
-      SendMessageW(people, WM_SETREDRAW, FALSE, 0);
-      SendMessageW(people, LB_RESETCONTENT, 0, 0);
-      for (auto const& row : rows) {
-        SendMessageW(people, LB_ADDSTRING, 0,
-                     reinterpret_cast<LPARAM>(row.c_str()));
+    }else if(kind==gui::Control::Messages){
+      if(shown_messages!=state.rows){std::string value;
+        for(auto const& row:state.rows){if(!value.empty())value+="\r\n";value+=row;}
+        SetChanged(control,Utf8ToWide(value));shown_messages=state.rows;
+        SendMessageW(control,EM_SETSEL,static_cast<WPARAM>(-1),-1);SendMessageW(control,EM_SCROLLCARET,0,0);
       }
-      shown_people = std::move(rows);
-      SendMessageW(people, WM_SETREDRAW, TRUE, 0);
-      InvalidateRect(people, nullptr, TRUE);
-    }
-    std::string log;
-    for (auto const& message : view.messages) {
-      if (!log.empty()) {
-        log += "\r\n";
-      }
-      log += message;
-    }
-    auto rendered = Utf8ToWide(log);
-    if (rendered != shown_messages) {
-      shown_messages = std::move(rendered);
-      SetText(messages, shown_messages);
-      SendMessageW(messages, EM_SETSEL, static_cast<WPARAM>(-1), -1);
-      SendMessageW(messages, EM_SCROLLCARET, 0, 0);
-    }
+    }else SetChanged(control,Utf8ToWide(state.text));
+    if(kind==gui::Control::Invite)SendMessageW(control,EM_SETREADONLY,state.read_only,0);
+    applying=false;
   }
-
-  void CopyId() {
-    auto const value = Text(uid);
-    if (value.empty() || !IsWindowEnabled(host)) return;
-    if (!OpenClipboard(hwnd)) {
-      SetChanged(status, L"Could not open the clipboard. Try again.");
-      return;
-    }
-    auto const size = (value.size() + 1) * sizeof(wchar_t);
-    auto memory = GlobalAlloc(GMEM_MOVEABLE, size);
-    auto* data = memory ? GlobalLock(memory) : nullptr;
-    bool copied = false;
-    if (data) {
-      std::memcpy(data, value.c_str(), size);
-      GlobalUnlock(memory);
-      copied = EmptyClipboard() && SetClipboardData(CF_UNICODETEXT, memory);
-    }
-    if (!copied && memory) GlobalFree(memory);
-    CloseClipboard();
-    SetChanged(status, copied ? L"Aether ID copied" : L"Could not copy Aether ID");
+  void Remove(gui::Control control)override{ShowWindow(Handle(control),SW_HIDE);}
+  void Refresh(){if(!stopping)session.ApplyPublication(*this);}
+  void Resize(){
+    if(!window_initialized||stopping)return;
+    RECT client{};if(!GetClientRect(hwnd,&client))FatalWin32("GetClientRect chat",GetLastError());
+    session.Proxy().Invoke(gui::RootId(),&gui::ChatUi::Resize,static_cast<int>(client.right),static_cast<int>(client.bottom));
   }
-
-  void Join() {
-    if (is_host || !IsWindowEnabled(join)) return;
-    input_error.clear();
-    session.JoinRoom(WideToUtf8(Text(invite)));
+  void InputChanged(int id){
+    if(applying||stopping)return;
+    if(id==kInputControl)session.Proxy().Invoke(gui::RootId(),&gui::ChatUi::EditDraft,WideToUtf8(Text(input)));
+    else if(id==kInviteControl)session.Proxy().Invoke(gui::RootId(),&gui::ChatUi::EditInvite,WideToUtf8(Text(invite)));
   }
-
-  void Send() {
-    if (!IsWindowEnabled(send)) {
-      return;
+  void CopyId(){
+    auto const* mirror=session.Mirror();if(!mirror||!mirror->Get(gui::Control::Copy).enabled)return;
+    auto value=Utf8ToWide(mirror->Get(gui::Control::Uid).text);bool copied=false;
+    if(OpenClipboard(hwnd)){
+      auto size=(value.size()+1)*sizeof(wchar_t);auto memory=GlobalAlloc(GMEM_MOVEABLE,size);
+      auto* data=memory?GlobalLock(memory):nullptr;
+      if(data){std::memcpy(data,value.c_str(),size);GlobalUnlock(memory);copied=EmptyClipboard()&&SetClipboardData(CF_UNICODETEXT,memory);}
+      if(!copied&&memory)GlobalFree(memory);CloseClipboard();
     }
-    auto text = Text(input);
-    if (text.find_first_not_of(L" \t\r\n") == std::wstring::npos) {
-      return;
-    }
-    auto encoded = WideToUtf8(text);
-    if (encoded.size() > 8192) {
-      input_error = L"Message is too long (maximum 8192 UTF-8 bytes).";
-      SetChanged(status, input_error);
-      SetFocus(input);
-      return;
-    }
-    input_error.clear();
-    session.Send(std::move(encoded));
-    SetText(input, L"");
-    SetFocus(input);
+    session.Proxy().Invoke(gui::RootId(),&gui::ChatUi::ClipboardResult,copied);
   }
-
-  void Close() {
-    if (stopping) {
-      return;
-    }
-    stopping = true;
-    EnableWindow(hwnd, FALSE);
-    session.Stop();
-    if (!DestroyWindow(hwnd)) {
-      DWORD const error = GetLastError();
-      FatalWin32("DestroyWindow chat window", error);
-    }
+  void Join(){session.Proxy().Invoke(gui::RootId(),&gui::ChatUi::Join);}
+  void Send(){session.Proxy().Invoke(gui::RootId(),&gui::ChatUi::Send);SetFocus(input);}
+  void Close(){
+    if(stopping)return;stopping=true;EnableWindow(hwnd,FALSE);session.Stop();
+    if(!DestroyWindow(hwnd))FatalWin32("DestroyWindow chat",GetLastError());
   }
 };
 
@@ -323,17 +194,20 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wparam,
       window->Create(hwnd);
       return 0;
     case WM_SIZE:
-      window->Layout();
+      window->Resize();
       return 0;
     case WM_GETMINMAXINFO: {
       auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
-      info->ptMinTrackSize = {560, 400};
+      if(auto const* model=window->session.Mirror())
+        info->ptMinTrackSize = {model->layout.minimum_width,model->layout.minimum_height};
       return 0;
     }
     case kViewChanged:
       window->Refresh();
       return 0;
     case WM_COMMAND:
+      if(HIWORD(wparam)==EN_CHANGE){window->InputChanged(LOWORD(wparam));return 0;}
+      if(HIWORD(wparam)!=BN_CLICKED)break;
       switch (LOWORD(wparam)) {
         case kHostControl:
           window->CopyId();
@@ -382,10 +256,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     DWORD const error = GetLastError();
     apptraverse::FatalWin32("CommandLineToArgvW chat", error);
   }
-  bool is_host = false, role_seen = false, valid = true;
+  bool is_host = false, role_seen = false, valid = true, load_only = false;
+  std::filesystem::path distill_output;
   std::wstring name, profile_argument, host_id;
   for (int i = 1; i < argc && valid; ++i) {
     std::wstring const arg = argv[i];
+    if(arg==L"--load-only"){load_only=true;continue;}
+    if(arg==L"--distill-only"&&i+1<argc){distill_output=argv[++i];continue;}
     if (arg == L"--host" || arg == L"--client") {
       if (role_seen) { valid = false; break; }
       role_seen = true;
@@ -398,6 +275,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     } else valid = false;
   }
   LocalFree(argv);
+  if(!distill_output.empty()) {
+#ifdef APPTRAVERSE_CHAT_UI_PRODUCER
+    return gui::ExportUiSupply(distill_output);
+#else
+    return 1;
+#endif
+  }
   if (!valid) {
     MessageBoxW(nullptr,
                 L"Usage: shared_node_chat.exe [--host | --client [HOST-AETHER-ID]] "
@@ -442,11 +326,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     apptraverse::FatalWin32("RegisterClassExW chat window", register_error);
   }
   Window window{profile, apptraverse::ui::windows::WideToUtf8(name),
-                is_host, std::move(host_id)};
-  auto const title = std::wstring{APPTRAVERSE_CHAT_TITLE} + L" - " + name;
-  auto hwnd = CreateWindowExW(0, kWindowClass, title.c_str(),
+                is_host, std::move(host_id),load_only};
+  auto hwnd = CreateWindowExW(0, kWindowClass, L"",
                               WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
-                              840, 560, nullptr, nullptr, instance, &window);
+                              0, 0, nullptr, nullptr, instance, &window);
   if (!hwnd) {
     DWORD const create_error = GetLastError();
     apptraverse::FatalWin32("CreateWindowExW chat window", create_error);

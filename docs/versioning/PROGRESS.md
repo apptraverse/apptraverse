@@ -3619,3 +3619,22 @@ acceptance PASS (23.83s including cleanup). No adaptive transport is applied.
 - ChatSession now publishes stable structured message records and has a platform durability callback before SharedSync ACK. Pending Send/Checkpoint completions reject on failed startup/shutdown instead of being discarded. Windows explicit acceptance PASS for rejected/accepted sends, same records after cold load, durability callback and failure/stop completions.
 - AeroAdmin consumer no longer requires the obsolete external ChatSession patch or fixed room IDs: it uses current host-UID discovery. Real TCP Windows pair acceptance PASS for Unicode, both cold restarts, offline queued delivery and equal stable IDs on both replicas. Windows/Android/visible Chromium acceptance PASS for all six directed deliveries, browser reload, Android stop/cold restart, no duplicates and preserved identity. Native TCP and browser WSS; this is functional acceptance, not a benchmark.
 - No Apple execution, Release/MinSizeRel or old night benchmarks. Full follow-up Windows framework regression is recorded separately when it finishes; the claims above describe the already completed scoped checks.
+
+
+## Backend canon follow-up, 2026-11-13 — verified current batch
+
+- Standalone SharedNode chat now uses serialized UI model Events, publication,
+  ApplicationUiSession mirror and per-control presenters. Persistent defaults
+  are assigned by the builder/Event creator. Windows and Apple share current S0
+  UI supply; transport retains its separate private persistent profile.
+- Windows Debug model regression PASS and native three-peer acceptance PASS:
+  Unicode, discovery/copy, kill/restart, queued delivery and clean shutdown.
+  Final root checks: canon2-chat-final-build/model/native, including actual
+  executable supply export. Producer-only model test restricted to Debug.
+- Apple adapters updated; bounded source review fixed NSObject initialization.
+  No Apple compiler/runtime or Release/MinSizeRel execution is claimed.
+- Full Windows framework run: 78/79 PASS; native foreground precondition failed.
+  Test setup now performs actual caption input and retains focus assertions;
+  scoped rerun PASS (canon2-framework-win-focus-native). No product focus change.
+- Minimal responsive and current network chat acceptance passed Windows/Linux/
+  Web/Android in their applicable scopes; details in the root follow-up report.

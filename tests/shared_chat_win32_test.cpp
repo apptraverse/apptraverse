@@ -124,6 +124,7 @@ struct Process {
     Require(!error, "Could not create participant profile directory");
     auto command = L"\"" + exe.wstring() + L"\" --profile \"" +
                    profile.wstring() + L"\" --name \"" + name + L"\"";
+    command += L" --load-only";
     command += name == L"Host" ? L" --host" : L" --client";
     if (!host_id.empty()) command += L" \"" + host_id + L"\"";
     STARTUPINFOW startup{};
@@ -427,6 +428,8 @@ int wmain(int argc, wchar_t** argv) {
   for (auto const& peer : peers) {
     Require(std::filesystem::exists(peer.profile / L"user.bin"),
             "Chat did not persist its native USER graph");
+    Require(std::filesystem::exists(peer.profile / L"transport" / L"user.bin"),
+            "Chat transport did not persist its replication USER");
     Require(!std::filesystem::exists(peer.profile / L"root.id"),
             "Chat wrote an application-root sidecar");
   }

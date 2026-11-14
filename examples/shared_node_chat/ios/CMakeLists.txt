@@ -9,7 +9,7 @@ endif()
 
 set_source_files_properties(../apple/ChatBridge.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc -fno-objc-exceptions")
 add_library(apptraverse_chat_ios_bridge STATIC ../apple/ChatBridge.mm)
-target_link_libraries(apptraverse_chat_ios_bridge PRIVATE apptraverse_shared_chat_session "-framework Foundation")
+target_link_libraries(apptraverse_chat_ios_bridge PRIVATE apptraverse_shared_chat_ui "-framework Foundation")
 add_library(apptraverse_chat_ios_swift STATIC ../apple/ChatPresenter.swift ChatMain.swift)
 set_target_properties(apptraverse_chat_ios_swift PROPERTIES Swift_MODULE_NAME ChatIos)
 target_compile_options(apptraverse_chat_ios_swift PRIVATE
