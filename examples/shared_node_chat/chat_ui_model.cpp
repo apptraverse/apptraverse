@@ -72,6 +72,15 @@ void ChatUi::Send(){
 void ChatUi::CompleteSend(std::uint64_t revision,bool committed){
   auto e=Make(*this,Action::SendCompleted);e->revision=revision;e->flag=committed;Commit(e);
 }
+void ChatUi::RecoverInterruptedSend(){
+  if(!editing.sending)return;
+  // A browser can close between the durable transport commit and its UI ACK.
+  // Keep the unacknowledged draft, never resend it automatically or claim a
+  // rejection. The durable transport journal independently resumes delivery.
+  CompleteSend(editing.revision,false);
+  auto event=Make(*this,Action::Feedback);
+  event->first_value=static_cast<int>(Label::Unknown);Commit(event);
+}
 void ChatUi::AcceptTransport(ChatView view){
   ConnectionState next{};
   next.uid=std::move(view.local_uid);next.invite=std::move(view.invite);

@@ -37,11 +37,12 @@ void BuildBacking(ae::RamDomainStorage& backing){
 }
 struct Session::Impl {
   Impl(std::filesystem::path path,std::string who,bool role,std::string invited,
-       std::function<void()> callback,bool load,ChatSession::FlushProfile flush_transport)
+       std::function<void()> callback,bool load,ChatSession::FlushProfile flush_transport,
+       std::filesystem::path transport_profile)
     :profile{std::move(path)},name{std::move(who)},initial_host{std::move(invited)},
      host{role},load_only{load},changed{std::move(callback)},
      proxy{[this](auto work){runtime.Post(std::move(work));}},
-     transport{profile/"transport",name,[this]{
+     transport{transport_profile.empty()?profile/"transport":std::move(transport_profile),name,[this]{
        auto value=transport.View();(void)runtime.TryPost([value=std::move(value)](ae::Domain& domain)mutable{
          domain.Find(RootId()).as<ChatUi>()->AcceptTransport(std::move(value));
        });
@@ -91,6 +92,7 @@ struct Session::Impl {
     OverlayDomainStorage overlay{user,backing,Constants(backing)};ae::Domain domain{overlay};
     auto root=LoadApplication<ChatUi>(domain,RootId());active_user=&user;
     root->SetImmediateEventCompaction(true);
+    root->RecoverInterruptedSend();
     root->create=[this]{transport.CreateRoom();};
     root->join=[this](std::string invite){transport.JoinRoom(std::move(invite));};
     root->send=[this](std::string text,std::uint64_t revision){
@@ -113,12 +115,13 @@ struct Session::Impl {
 };
 Session::Session(std::filesystem::path profile,std::string name,bool host,
     std::string initial_host,std::function<void()> changed,bool load_only,
-    ChatSession::FlushProfile flush_transport)
+    ChatSession::FlushProfile flush_transport,std::filesystem::path transport_profile)
   :impl_{std::make_unique<Impl>(std::move(profile),std::move(name),host,
-      std::move(initial_host),std::move(changed),load_only,std::move(flush_transport))}{}
+      std::move(initial_host),std::move(changed),load_only,std::move(flush_transport),std::move(transport_profile))}{}
 Session::~Session(){Stop();}
 void Session::Start(){
   if(impl_->started||impl_->stopping.load())return;
+  EnsureUiRegistration();
   impl_->started=true;impl_->worker=std::thread{[this]{impl_->Run();}};impl_->transport.Start();
 }
 void Session::Stop(){
@@ -136,7 +139,14 @@ void Session::Checkpoint(std::function<void(bool)> completion){
   // Join the GUI queue before the transport queue. Otherwise an already
   // accepted Send can reach the transport after its checkpoint and leave a
   // saved UI draft marked in-flight without the matching durable message.
-  if(!impl_->runtime.TryPost([this,done](ae::Domain&){
+  if(!impl_->runtime.TryPost([this,done](ae::Domain& domain){
+    // Registration can be offline indefinitely. Before transport readiness no
+    // Send was accepted, so saving UI state must not wait for a cloud session.
+    // The transport persists its own initialization before announcing ready.
+    if(!impl_->transport.View().ready){
+      impl_->SaveCheckpoint(*domain.Find(RootId()).as<ChatUi>(),done);
+      return;
+    }
     impl_->transport.Checkpoint([this,done](bool transport_saved){
       if(!transport_saved){(*done)(false);return;}
       if(!impl_->runtime.TryPost([this,done](ae::Domain& domain){
@@ -156,6 +166,17 @@ bool Session::ApplyPublication(Presentation& host){
     impl_->ui=std::make_unique<ApplicationUiSession>(bytes,&host,impl_->proxy);
   else impl_->ui->ApplyStructural(bytes);
   impl_->runtime.NotifyPublicationConsumed();return true;
+}
+bool Session::CaptureUser(std::vector<std::uint8_t>& bytes){
+  if(!impl_->ui||impl_->stopping.load())return false;
+  bool saved=false;
+  impl_->runtime.SyncPost([&](ae::Domain& domain){
+    auto* root=domain.Find(RootId()).as<ChatUi>();
+    ae::DomainGraph graph{root->domain,ae::GraphSerializationScope::LocalPersistent};
+    auto object=ChatUi::ptr::MakeFromThis(root);
+    saved=graph.SaveRoot(object.cached(),root->obj_id).IsOk()&&SerializeUserStorage(*impl_->active_user,bytes);
+  });
+  return saved;
 }
 ChatUi const* Session::Mirror()const{
   return impl_->ui?&static_cast<ChatUi const&>(impl_->ui->root()):nullptr;

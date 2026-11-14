@@ -53,6 +53,9 @@ void AndroidListContainerPresenter::HandleRowClickFromJava(int row_index) {
     return;
   }
   SubmitListRowSelectionChangedFromUi(static_cast<std::size_t>(row_index));
+  // A native touch row uses one tap for activation. Selection and activation
+  // both travel through the model proxy; selection-only models ignore activation.
+  SubmitListRowActivatedFromUi(static_cast<std::size_t>(row_index));
 }
 
 void NotifyAndroidPushButtonClickedFromJava(std::int64_t native_presenter) {

@@ -11,12 +11,17 @@ class Session {
  public:
   Session(std::filesystem::path profile,std::string name,bool host,
           std::string initial_host,std::function<void()> changed,bool load_only=false,
-          ChatSession::FlushProfile flush_transport={});
+          ChatSession::FlushProfile flush_transport={},
+          std::filesystem::path transport_profile={});
   ~Session();
   Session(Session const&)=delete;
   void Start();
   void Stop();
   void Checkpoint(std::function<void(bool)> completion);
+  // Main/UI thread after the first publication; RAM only. Browser lifecycle
+  // handlers commit these bytes directly without waiting for filesystem I/O.
+  // Do not overlap with Checkpoint/Stop, which can perform filesystem I/O.
+  bool CaptureUser(std::vector<std::uint8_t>& bytes);
   // GUI thread only: consume publication, then activate/update standard presenters.
   bool ApplyPublication(Presentation& host);
   ChatUi const* Mirror()const;

@@ -1,6 +1,3 @@
-if(ANDROID OR EMSCRIPTEN)
-  message(FATAL_ERROR "SharedNode Chat has no Android/Web presenter yet; use a supported native target")
-endif()
 add_library(apptraverse_shared_chat_ui STATIC chat_ui_model.cpp chat_ui_session.cpp)
 target_link_libraries(apptraverse_shared_chat_ui PUBLIC apptraverse_shared_chat_session)
 target_include_directories(apptraverse_shared_chat_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -24,6 +21,14 @@ if(BUILD_TESTING AND (WIN32 OR (APPLE AND NOT IOS)) AND
     EXCLUDE_FROM_DEFAULT_BUILD_MINSIZEREL TRUE)
   add_test(NAME apptraverse_shared_chat_ui_model_test
     COMMAND apptraverse_shared_chat_ui_model_test CONFIGURATIONS Debug)
+endif()
+if(ANDROID)
+  # The Android parent owns the JNI shared target and packaging.
+  return()
+endif()
+if(EMSCRIPTEN)
+  add_subdirectory(web)
+  return()
 endif()
 if(IOS)
   add_subdirectory(ios)

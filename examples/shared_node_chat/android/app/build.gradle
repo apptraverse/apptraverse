@@ -1,0 +1,31 @@
+plugins { id 'com.android.application' }
+android {
+  namespace 'com.apptraverse.sharedchat'
+  compileSdk 34
+  buildToolsVersion '36.0.0'
+  ndkVersion '29.0.14206865'
+  defaultConfig {
+    applicationId 'com.apptraverse.sharedchat'
+    minSdk 24
+    targetSdk 34
+    versionCode 1
+    versionName '1.0'
+    ndk { abiFilters 'x86_64' }
+    externalNativeBuild.cmake {
+      arguments '-DANDROID_STL=c++_static'
+      if(project.findProperty('apptraverse.cmakeInitialCache')) arguments "-DAPPTRAVERSE_CMAKE_INITIAL_CACHE=${project.property('apptraverse.cmakeInitialCache')}"
+      targets 'shared_chat_android'
+    }
+  }
+  externalNativeBuild.cmake { path file('../native/CMakeLists.txt'); version '4.1.2' }
+  compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+  buildTypes {
+    debug { debuggable true; jniDebuggable true }
+    release {
+      minifyEnabled true
+      shrinkResources true
+      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+      externalNativeBuild.cmake.arguments '-DAPPTRAVERSE_MINIMUM_64=ON'
+    }
+  }
+}

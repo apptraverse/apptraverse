@@ -3702,3 +3702,18 @@ acceptance PASS (23.83s including cleanup). No adaptive transport is applied.
   Presence or throughput benchmark is implied by these release checks.
 - Current Linux/Web MinimalApp and WindowCatalog embedded GUI checks PASS.
   Logs and exact artifact sizes are in the task's outputs/current-minsize-* files.
+
+### 2026-11-14 — SharedNode portable presentation and recovery
+
+- Added Android and Web SharedNode chat presenters with model-event routing,
+  independent identity storage and current USER checkpoint/cold restore.
+- Interrupted room creation/join is resumed from current persisted UI intent;
+  focused Windows model regression passes. No compatibility schema added.
+- Debug native Windows/Linux draft/invite cold restore, Android lifecycle,
+  Web two-peer restart/offline ordered-dedup and Android/Web delivery pass.
+- MinSizeRel Windows/Linux/Web/Android embedded GUI checks pass, including
+  Android background checkpoint and both draft/invite cold restore. Exact sizes
+  are recorded by the integration ports-final-report.txt.
+- Own chat room supply is produced by the SharedNode exporter; no AeroAdmin
+  source dependency. Android list activation matches its model selection event.
+  Telemetry source follows main; no online Presence/throughput benchmark run.
