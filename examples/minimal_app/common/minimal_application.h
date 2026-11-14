@@ -32,6 +32,20 @@ struct MinimalAuxiliaryPresenters {
 
 class MinimalApplication;
 
+class MinimalWindow : public NodeFor<MinimalWindow, ui::UiDesktopWindow> {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::example::minimal::MinimalWindow",
+      MinimalWindow, ui::UiDesktopWindow, 0)
+ protected:
+  MinimalWindow() = default;
+  void OnClientSizeChanged() override;
+ public:
+  explicit MinimalWindow(ae::ObjProp prop) : NodeFor{prop} {}
+  ae::ObjPtr<MinimalApplication> application;
+  AE_OBJECT_REFLECT(AE_MMBR(application))
+  template <typename D> void Load(ae::Version<0>, D& d) { d(base_, application); }
+  template <typename D> void Save(ae::Version<0>, D& d) const { d(base_, application); }
+};
+
 class MinimalAuxiliaryOpenerButton
     : public NodeFor<MinimalAuxiliaryOpenerButton, ui::UiPushButton> {
   APPTRAVERSE_NAMED_OBJECT(
@@ -105,12 +119,23 @@ struct MinimalAuxiliaryWindowState {
 
 class MinimalOpenAuxiliaryWindowEvent;
 class MinimalCloseAuxiliaryWindowEvent;
+class MinimalViewportEvent;
+class MinimalDesktopEnvironmentEvent;
 
 ae::ObjId MinimalApplicationRootId();
 ae::ObjId MinimalMainWindowId();
 ae::ObjId MinimalPresenterId();
 
 void EnsureMinimalApplicationRegistration();
+
+struct MinimalViewportState {
+  std::int32_t width = 640;
+  std::int32_t height = 480;
+  std::int32_t density_dpi = 160;
+  bool hosted = false;
+  bool single_page = false;
+  AE_REFLECT_MEMBERS(width, height, density_dpi, hosted, single_page)
+};
 
 class MinimalApplication : public NodeFor<MinimalApplication> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::example::minimal::MinimalApplication",
@@ -125,18 +150,18 @@ class MinimalApplication : public NodeFor<MinimalApplication> {
   AE_OBJECT_REFLECT(AE_MMBR(main_window), AE_MMBR(apply_button),
                     AE_MMBR(row_list), AE_MMBR(presenters),
                     AE_MMBR(auxiliary_opener), AE_MMBR(auxiliary),
-                    AE_MMBR(auxiliary_presented_open))
+                    AE_MMBR(auxiliary_presented_open), AE_MMBR(viewport))
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
     dnv(base_, main_window, apply_button, row_list, presenters,
-        auxiliary_opener, auxiliary, auxiliary_presented_open);
+        auxiliary_opener, auxiliary, auxiliary_presented_open, viewport);
   }
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, main_window, apply_button, row_list, presenters,
-        auxiliary_opener, auxiliary, auxiliary_presented_open);
+        auxiliary_opener, auxiliary, auxiliary_presented_open, viewport);
   }
 
   ui::UiDesktopWindow::ptr main_window;
@@ -146,9 +171,20 @@ class MinimalApplication : public NodeFor<MinimalApplication> {
   MinimalAuxiliaryOpenerButton::ptr auxiliary_opener;
   MinimalAuxiliaryWindowState auxiliary;
   bool auxiliary_presented_open;
+  MinimalViewportState viewport;
 
   void Apply(MinimalOpenAuxiliaryWindowEvent const& event);
   void Apply(MinimalCloseAuxiliaryWindowEvent const& event);
+  void Apply(MinimalViewportEvent const& event);
+  void Apply(MinimalDesktopEnvironmentEvent const& event);
+  void SubmitDesktopEnvironment(std::int32_t dpi);
+  void SubmitViewport(std::int32_t width, std::int32_t height,
+                      std::int32_t dpi, bool requires_single_page);
+  void ReflowWindow(ui::UiDesktopWindow& window);
+  void LayoutHostedWindows();
+  ae::ObjId ActivePageId() const {
+    return auxiliary_presented_open ? auxiliary.window.id() : main_window.id();
+  }
 
   void LoadAuxiliaryPresentation();
   void OpenAuxiliaryWindowImpl();

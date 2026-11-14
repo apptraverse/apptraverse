@@ -11,14 +11,19 @@
 namespace apptraverse {
 
 void ApplicationModelRuntime::Post(ModelWork work) {
+  (void)TryPost(std::move(work));
+}
+
+bool ApplicationModelRuntime::TryPost(ModelWork work) {
   {
     std::lock_guard<std::mutex> lock{mu_};
     if (stop_) {
-      return;
+      return false;
     }
     pending_work_.push_back(std::move(work));
   }
   cv_.notify_all();
+  return true;
 }
 
 void ApplicationModelRuntime::SyncPost(ModelWork work) {

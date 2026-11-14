@@ -7,10 +7,14 @@ namespace apptraverse::example::minimal {
 
 APPTRAVERSE_REGISTER(MinimalOpenAuxiliaryWindowEvent);
 APPTRAVERSE_REGISTER(MinimalCloseAuxiliaryWindowEvent);
+APPTRAVERSE_REGISTER(MinimalViewportEvent);
+APPTRAVERSE_REGISTER(MinimalDesktopEnvironmentEvent);
 
 void EnsureMinimalAppWindowEventsRegistration() {
   (void)&g_apptraverse_registrar_MinimalOpenAuxiliaryWindowEvent;
   (void)&g_apptraverse_registrar_MinimalCloseAuxiliaryWindowEvent;
+  (void)&g_apptraverse_registrar_MinimalViewportEvent;
+  (void)&g_apptraverse_registrar_MinimalDesktopEnvironmentEvent;
 }
 
 void MinimalApplication::Apply(MinimalOpenAuxiliaryWindowEvent const&) {

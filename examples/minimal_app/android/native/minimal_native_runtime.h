@@ -29,6 +29,7 @@ class MinimalNativeRuntime {
   void RequestBackgroundSave();
 
  private:
+  void ApplyPagePresentation(ae::Obj& root);
   std::filesystem::path state_dir_;
   ae::RamDomainStorage user_storage_;
   ApplicationModelRuntime runtime_;

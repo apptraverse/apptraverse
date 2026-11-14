@@ -10,6 +10,7 @@
 #include "minimal_app_desktop_close.h"
 #include "minimal_app_lifecycle_macos.h"
 #include "minimal_application.h"
+#include "apptraverse/ui/ui_window_presenter.h"
 
 ATMacApplicationBridge* ATCreateMinimalApplicationBridge(
     NSString* userDirectory,
@@ -18,6 +19,12 @@ ATMacApplicationBridge* ATCreateMinimalApplicationBridge(
       userDirectory.fileSystemRepresentation};
 
   apptraverse::ui::macos::MacApplicationBridgeCallbacks callbacks;
+  callbacks.after_initial = [](ae::Obj& root) {
+    auto& application = static_cast<apptraverse::example::minimal::MinimalApplication&>(root);
+    application.main_window->presenter->model_proxy->Invoke(root.obj_id,
+        &apptraverse::example::minimal::MinimalApplication::SubmitDesktopEnvironment,
+        static_cast<std::int32_t>(160));
+  };
   callbacks.run_model =
       [state_dir](apptraverse::ApplicationModelRuntime& runtime,
                   apptraverse::ApplicationPublishedCallback on_published) {

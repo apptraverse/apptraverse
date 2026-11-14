@@ -1,5 +1,6 @@
 add_library(minimal_app_common STATIC
   common/minimal_application.cpp
+  common/minimal_app_layout.cpp
   common/minimal_app_controls.cpp
   common/minimal_app_graph_builder.cpp
   common/minimal_app_prepare.cpp

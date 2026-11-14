@@ -14,11 +14,13 @@ ae::ObjId MinimalMainWindowId() { return ae::ObjId{0x07A10002u}; }
 ae::ObjId MinimalPresenterId() { return ae::ObjId{0x07A10003u}; }
 
 APPTRAVERSE_REGISTER(MinimalApplication);
+APPTRAVERSE_REGISTER(MinimalWindow);
 
 void EnsureMinimalApplicationRegistration() {
   EnsureMinimalAppControlsRegistration();
   EnsureMinimalAppWindowEventsRegistration();
   (void)&g_apptraverse_registrar_MinimalApplication;
+  (void)&g_apptraverse_registrar_MinimalWindow;
 }
 
 }  // namespace apptraverse::example::minimal

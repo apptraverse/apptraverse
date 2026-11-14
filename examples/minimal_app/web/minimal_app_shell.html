@@ -7,20 +7,20 @@
   <style>
     body {
       font-family: system-ui, sans-serif;
-      margin: 24px;
+      margin: 12px;
       color: #111;
       background: #f7f7f7;
     }
     #app-panel {
       max-width: 900px;
-      padding: 16px;
+      padding: 12px;
       background: #fff;
       border: 1px solid #ccc;
     }
     #app-mount {
       position: relative;
-      width: 800px;
-      height: 600px;
+      width: 100%;
+      height: clamp(320px, 70vh, 700px);
       margin: 0 auto;
       background: #fafafa;
     }
@@ -82,6 +82,12 @@
         }
       }],
       onRuntimeInitialized: function() {
+        var mount = document.getElementById('app-mount');
+        function reportViewport() {
+          Module._ApptraverseMinimalAppViewportChanged(mount.clientWidth, mount.clientHeight);
+        }
+        new ResizeObserver(reportViewport).observe(mount);
+        reportViewport();
         document.addEventListener('visibilitychange', function() {
           if (document.visibilityState === 'hidden') Module._ApptraverseMinimalAppPageHidden();
         });

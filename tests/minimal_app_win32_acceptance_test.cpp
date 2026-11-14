@@ -868,8 +868,14 @@ void TestDebugAlwaysCreatesFreshGraph(
           entry.path().filename().string().starts_with("debug-run-")) {
         ++after;
         CHECK(std::filesystem::exists(entry.path() / "user" / "user.bin"));
-        CHECK(std::filesystem::exists(
-            entry.path() / "embedded_distilled_minimal_app_supply.h"));
+        std::size_t files = 0;
+        for (auto const& saved : std::filesystem::recursive_directory_iterator(entry.path())) {
+          if (saved.is_directory()) continue;
+          CHECK(saved.is_regular_file());
+          CHECK(saved.path() == entry.path() / "user" / "user.bin");
+          ++files;
+        }
+        CHECK(files == 1);  // BACKING and producer scratch remain entirely in RAM.
       }
     }
     CHECK(after == before + 1);

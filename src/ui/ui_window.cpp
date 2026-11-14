@@ -9,6 +9,7 @@ void UiWindow::SetClientSizeInternal(std::int32_t width, std::int32_t height) {
   client_width_ = width;
   client_height_ = height;
   NoteMaterializedChange();
+  OnClientSizeChanged();
 }
 
 void UiWindow::Apply(SetUiWindowClientSizeEvent const& event) {

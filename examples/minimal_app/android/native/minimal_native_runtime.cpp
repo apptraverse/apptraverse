@@ -1,6 +1,8 @@
 #include "minimal_native_runtime.h"
 
 #include "android_log.h"
+#include "android_jni_util.h"
+#include "apptraverse/platform/android/android_ui_window_presenter.h"
 
 #include "minimal_app_android_checkpoint_test_gate.h"
 #include "minimal_app_android_lifecycle.h"
@@ -30,17 +32,39 @@ void MinimalNativeRuntime::SetPresentationRoot(JNIEnv* env, jobject activity,
       return RunMinimalApplicationModel(user_storage_, state_dir_, runtime_,
                                         std::move(on_published));
     };
-    callbacks.after_initial = [](ae::Obj&) {
+    callbacks.after_initial = [this](ae::Obj& root) {
+      ApplyPagePresentation(root);
       apptraverse::android::LogInfo("MINIMAL_APP_INITIAL_RENDER_OK");
     };
+    callbacks.after_incremental = [this](ae::Obj& root) { ApplyPagePresentation(root); };
     callbacks.persist_model = [this](ae::Domain& domain) -> int {
       WaitAndroidCheckpointPersistTestGateIfEnabled();
       return PersistAndroidMinimalUser(domain, user_storage_, state_dir_);
     };
     host_ = std::make_unique<android::AndroidApplicationHost>(
         runtime_, presentation_host_, std::move(ui_bridge_), std::move(callbacks));
+    presentation_host_.on_window_client_size = [this](auto&, int width, int height, int dpi) {
+      host_->model_proxy().Invoke(MinimalApplicationRootId(),
+          &MinimalApplication::SubmitViewport, width, height, dpi, true);
+    };
   }
   host_->SetPresentationRoot(env, activity, content_root);
+}
+
+void MinimalNativeRuntime::ApplyPagePresentation(ae::Obj& root) {
+  auto& application = static_cast<MinimalApplication&>(root);
+  auto* env = ui::android::RequireUiThreadEnv(presentation_host_);
+  auto cls = ui::android::CheckedJni(env, "View class", [&] { return env->FindClass("android/view/View"); });
+  auto visibility = ui::android::CheckedJni(env, "View.setVisibility", [&] { return env->GetMethodID(cls,"setVisibility","(I)V"); });
+  auto show = [&](ui::UiDesktopWindow& window) {
+    auto& presenter = static_cast<ui::android::AndroidDesktopWindowPresenter&>(*window.presenter);
+    auto mount = ui::android::AndroidPresentationHost::ClientMount(presenter);
+    bool const visible = !application.viewport.single_page || window.obj_id == application.ActivePageId();
+    ui::android::CheckedJni(env, "page visibility", [&] { env->CallVoidMethod(mount,visibility,visible ? 0 : 8); });
+  };
+  show(*application.main_window);
+  if (application.auxiliary_presented_open) show(*application.auxiliary.window);
+  env->DeleteLocalRef(cls);
 }
 
 void MinimalNativeRuntime::StartModelThread() { host_->StartModelThread(); }

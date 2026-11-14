@@ -16,6 +16,8 @@ class UiWindow : public NodeFor<UiWindow> {
   UiWindow() = default;
 
   void SetClientSizeInternal(std::int32_t width, std::int32_t height);
+  // Model subclasses may derive their control layout inside the size Event.
+  virtual void OnClientSizeChanged() {}
 
  public:
   explicit UiWindow(ae::ObjProp prop) : NodeFor{prop} {}

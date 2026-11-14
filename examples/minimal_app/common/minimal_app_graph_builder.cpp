@@ -44,8 +44,10 @@ MinimalWindowPanelGraph ComposeMinimalWindowPanel(
     MinimalWindowPanelIds const& ids, char const* row_a_utf8,
     char const* row_b_utf8, std::int32_t layout_apply_y) {
   MinimalWindowPanelGraph panel;
-  panel.window = ui::UiDesktopWindow::ptr::Create(
+  auto window = MinimalWindow::ptr::Create(
       ae::CreateWith{domain}.with_id(ids.window_id));
+  window->application = MinimalApplication::ptr::MakeFromThis(static_cast<MinimalApplication*>(&parent));
+  panel.window = window;
   panel.window->BootstrapFrame(100, 100, 800, 600);
   panel.window_presenter = factories.create_window(domain, ids.window_presenter_id);
   ui::ComposePresentedWindow(panel.window, panel.window_presenter, title, locale);
@@ -61,7 +63,6 @@ MinimalWindowPanelGraph ComposeMinimalWindowPanel(
 
   panel.row_list = MinimalAppList::ptr::Create(
       ae::CreateWith{domain}.with_id(ids.row_list_id));
-  panel.row_list->selection_index = -1;
   panel.row_list->selection_index = -1;
   InitializeRuntimeNode(*panel.row_list, *panel.window);
   {

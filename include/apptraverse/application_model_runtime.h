@@ -39,6 +39,9 @@ class ApplicationModelRuntime {
   using ModelWork = ModelObjectProxy::ModelWork;
 
   void Post(ModelWork work);
+  // Reports acceptance under the same lock as RequestStop. Accepted work is
+  // drained by Run before shutdown, even when stop follows immediately.
+  [[nodiscard]] bool TryPost(ModelWork work);
   // Blocks until `work` runs on the model thread (unless already stopped).
   void SyncPost(ModelWork work);
   void RequestStop();

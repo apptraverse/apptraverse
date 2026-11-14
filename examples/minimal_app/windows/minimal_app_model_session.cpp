@@ -5,9 +5,8 @@
 #include "apptraverse/application_model_session.h"
 #include "apptraverse/single_file_user_storage.h"
 #if defined(APPTRAVERSE_MINIMAL_APP_DEBUG_BOOTSTRAP)
-#include "minimal_app_distillation.h"
-#include "apptraverse/directory_domain_storage.h"
-#include "apptraverse/distilled_domain_export.h"
+#include "minimal_app_graph.h"
+#include "apptraverse/distill.h"
 #include "apptraverse/overlay_domain_storage.h"
 #else
 #include "apptraverse/embedded_application_model_session.h"
@@ -22,10 +21,14 @@ int RunMinimalApplicationModel(std::filesystem::path const& requested_state_dir,
 #if defined(APPTRAVERSE_MINIMAL_APP_DEBUG_BOOTSTRAP)
   auto const run_directory = state_dir /
       ("debug-run-" + std::to_string(ae::ObjId::GenerateUnique().id()));
-  auto const initial = DistillMinimalApplication(run_directory);
   state_dir = run_directory / "user";
   ae::RamDomainStorage backing;
-  if (!LoadDirectoryDomainStorageIntoRam(initial, backing)) { return 1; }
+  {
+    ae::Domain producer{backing};
+    auto application = BuildMinimalApplicationGraph(producer);
+    FinalizeDistilledGraph(*application);
+    SaveDistilledRoot(*application);
+  }
   OverlayDomainStorage overlay{user, backing, {}};
 #else
   if (!LoadUserStorageFile(user, state_dir)) { return 1; }

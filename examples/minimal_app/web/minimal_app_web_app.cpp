@@ -34,10 +34,26 @@ ae::RamDomainStorage g_user_storage;
 std::filesystem::path g_profile_path{kProfilePath};
 ApplicationModelRuntime g_runtime;
 ui::web::WebPresentationHost g_presentation_host;
+int g_viewport_width = 0;
+int g_viewport_height = 0;
 
 EM_JS(emscripten::EM_VAL, ApptraverseGetAppMountElement, (), {
   return Emval.toHandle(document.getElementById('app-mount'));
 });
+EM_JS(void, ApptraverseShowMinimalPage, (emscripten::EM_VAL client, int visible), {
+  Emval.toValue(client).parentElement.style.display = visible ? '' : 'none';
+});
+
+void ApplyPagePresentation(ae::Obj& root) {
+  auto& application = static_cast<MinimalApplication&>(root);
+  auto show = [&](ui::UiDesktopWindow& window) {
+    auto& presenter = static_cast<ui::web::WebDesktopWindowPresenter&>(*window.presenter);
+    ApptraverseShowMinimalPage(presenter.ClientMountHandle(),
+        !application.viewport.single_page || window.obj_id == application.ActivePageId());
+  };
+  show(*application.main_window);
+  if (application.auxiliary_presented_open) show(*application.auxiliary.window);
+}
 
 void SetSaveStatus(char const* text) {
   EM_ASM({ document.getElementById('save-status').textContent = UTF8ToString($0); },
@@ -129,6 +145,14 @@ int PersistMinimalApplicationFromDomain(ae::Domain& domain) {
 
 extern "C" {
 
+EMSCRIPTEN_KEEPALIVE void ApptraverseMinimalAppViewportChanged(int width, int height) {
+  g_viewport_width = width; g_viewport_height = height;
+  if (!g_host || !g_host->ui_session() ||
+      g_host->lifecycle() != web::WebApplicationHostLifecycle::kRunning) return;
+  g_host->model_proxy().Invoke(MinimalApplicationRootId(),
+      &MinimalApplication::SubmitViewport, width, height, 160, false);
+}
+
 EMSCRIPTEN_KEEPALIVE void ApptraverseMinimalAppRequestSave() {
   if (g_host) {
     g_host->RequestSave();
@@ -189,7 +213,12 @@ void StartWebMinimalApplication() {
     return SaveMinimalApplicationEmbeddedUserState(*application) == 0 &&
            SerializeUserStorage(g_user_storage, bytes);
   };
-  callbacks.after_initial = [](ae::Obj&) { HideLoadingAndSignalRenderOk(); };
+  callbacks.after_initial = [](ae::Obj& root) {
+    ApplyPagePresentation(root);
+    ApptraverseMinimalAppViewportChanged(g_viewport_width, g_viewport_height);
+    HideLoadingAndSignalRenderOk();
+  };
+  callbacks.after_incremental = ApplyPagePresentation;
   callbacks.persist_model = [](ae::Domain& domain) -> int {
     return PersistMinimalApplicationFromDomain(domain);
   };

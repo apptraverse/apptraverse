@@ -14,6 +14,8 @@
 #include "minimal_app_desktop_close.h"
 #include "minimal_app_lifecycle.h"
 #include "minimal_app_registration.h"
+#include "minimal_application.h"
+#include "apptraverse/ui/ui_window_presenter.h"
 #if defined(APPTRAVERSE_MINIMAL_APP_DEBUG_BOOTSTRAP)
 #include "minimal_app_distillation.h"
 #endif
@@ -60,6 +62,17 @@ int main(int argc, char** argv) {
         state_dir, runtime, on_published);
   };
   callbacks.request_stop = [&] { runtime.RequestStop(); };
+  auto report_environment = [](ae::Obj& root) {
+    auto& application = static_cast<apptraverse::example::minimal::MinimalApplication&>(root);
+    auto& presenter = *application.main_window->presenter;
+    auto hwnd = static_cast<HWND>(presenter.NativeChildParentHandle());
+    auto dpi = static_cast<std::int32_t>(GetDpiForWindow(hwnd) * 160 / 96);
+    if (!application.viewport.hosted && !application.viewport.single_page && application.viewport.density_dpi == dpi) return;
+    presenter.model_proxy->Invoke(root.obj_id,
+        &apptraverse::example::minimal::MinimalApplication::SubmitDesktopEnvironment, dpi);
+  };
+  callbacks.after_initial = report_environment;
+  callbacks.after_incremental = report_environment;
   callbacks.on_desktop_window_close =
       [&](ae::Obj& root, ae::Obj& closed_window,
           apptraverse::ModelObjectProxy& proxy) {

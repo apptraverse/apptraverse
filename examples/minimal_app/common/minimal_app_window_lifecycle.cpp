@@ -45,6 +45,7 @@ void MinimalApplication::OpenAuxiliaryWindowImpl() {
   }
   LoadAuxiliaryPresentation();
   auxiliary_presented_open = true;
+  LayoutHostedWindows();
   NoteMaterializedChange();
 }
 

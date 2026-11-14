@@ -83,7 +83,8 @@ class Participant : public NodeFor<Participant> {
 struct ChatMessage {
   std::string author_name;
   std::string text;
-  AE_REFLECT_MEMBERS(author_name, text)
+  std::string id, author_uid;
+  AE_REFLECT_MEMBERS(author_name, text, id, author_uid)
 };
 
 class TextEvent;
@@ -167,7 +168,10 @@ bool Room::CanApply(JoinEvent const& event) const {
          });
 }
 void Room::Apply(TextEvent const& event) {
-  messages.push_back({event.author->name, event.text});
+  auto const& author_uid = event.author->link->endpoint_uid;
+  messages.push_back({event.author->name, event.text,
+                      author_uid + ":" + std::to_string(event.obj_id.id()),
+                      author_uid});
   NoteMaterializedChange();
 }
 void Room::Apply(JoinEvent const& event) {
@@ -417,16 +421,14 @@ class ChatLink final : public IByteLink {
 
 struct ChatSession::Impl {
   Impl(std::filesystem::path value, std::string user_name, Changed changed,
-       PrepareProfile prepare)
+       PrepareProfile prepare, FlushProfile flush)
       : profile{std::filesystem::absolute(std::move(value))},
         name{Trim(std::move(user_name))},
         on_changed{std::move(changed)},
         prepare_profile{std::move(prepare)},
+        flush_profile{std::move(flush)},
         proxy{[this](ModelObjectProxy::ModelWork work) {
-          std::lock_guard lock{command_mutex};
-          if (!stop_requested.load()) {
-            commands.push_back(std::move(work));
-          }
+          Enqueue(std::move(work), {});
         }} {
     if (name.empty()) {
       name = "User";
@@ -438,11 +440,17 @@ struct ChatSession::Impl {
   std::string name;
   Changed on_changed;
   PrepareProfile prepare_profile;
+  FlushProfile flush_profile;
   mutable std::mutex view_mutex;
   ChatView view;
   std::mutex lifecycle_mutex;
   std::mutex command_mutex;
-  std::deque<ModelObjectProxy::ModelWork> commands;
+  struct Command {
+    ModelObjectProxy::ModelWork work;
+    std::function<void()> rejected;
+  };
+  bool accepting_commands{false};  // protected by command_mutex
+  std::deque<Command> commands;
   ModelObjectProxy proxy;
   std::atomic<bool> stop_requested{true};
   std::thread thread;
@@ -495,6 +503,7 @@ struct ChatSession::Impl {
     if (!SaveUserStorageFile(snapshot, profile)) {
       return false;
     }
+    if (flush_profile && !flush_profile()) return false;
     storage = std::move(snapshot);
     return true;
   }
@@ -510,6 +519,30 @@ struct ChatSession::Impl {
   void SetError(std::string message) {
     SetStatus(std::move(message));
     failed = true;
+    RejectPendingCommands();
+  }
+
+  void Enqueue(ModelObjectProxy::ModelWork work, std::function<void()> rejected) {
+    {
+      std::lock_guard lock{command_mutex};
+      if (accepting_commands && !stop_requested.load()) {
+        commands.push_back({std::move(work), std::move(rejected)});
+        return;
+      }
+    }
+    if (rejected) rejected();
+  }
+
+  void RejectPendingCommands() {
+    std::deque<Command> pending;
+    {
+      std::lock_guard lock{command_mutex};
+      accepting_commands = false;
+      pending.swap(commands);
+    }
+    for (auto& command : pending) {
+      if (command.rejected) command.rejected();
+    }
   }
 
   void BindExpected() {
@@ -725,13 +758,13 @@ struct ChatSession::Impl {
   }
 
   void DrainCommands() {
-    std::deque<ModelObjectProxy::ModelWork> pending;
+    std::deque<Command> pending;
     {
       std::lock_guard lock{command_mutex};
       pending.swap(commands);
     }
-    for (auto& work : pending) {
-      work(*domain);
+    for (auto& command : pending) {
+      command.work(*domain);
     }
   }
 
@@ -778,6 +811,8 @@ struct ChatSession::Impl {
       }
       for (auto const& message : room->messages) {
         next.messages.push_back(message.author_name + ": " + message.text);
+        next.message_records.push_back({message.id, message.author_uid,
+                                        message.author_name, message.text});
       }
     } else if (app.is_valid() && app->expected.is_valid()) {
       next.invite = app->source;
@@ -797,6 +832,10 @@ struct ChatSession::Impl {
   }
 
   void Run() {
+    struct CompleteCommands {
+      Impl& owner;
+      ~CompleteCommands() { owner.RejectPendingCommands(); }
+    } complete_commands{*this};
     failed = false;
     finished = false;
     view_dirty = true;
@@ -959,10 +998,12 @@ ChatSession::ChatSession(std::filesystem::path profile, std::string name,
     : ChatSession{std::move(profile), std::move(name), std::move(changed), {}} {
 }
 ChatSession::ChatSession(std::filesystem::path profile, std::string name,
-                         Changed changed, PrepareProfile prepare_profile)
+                         Changed changed, PrepareProfile prepare_profile,
+                         FlushProfile flush_profile)
     : impl_{std::make_unique<Impl>(std::move(profile), std::move(name),
                                    std::move(changed),
-                                   std::move(prepare_profile))} {}
+                                   std::move(prepare_profile),
+                                   std::move(flush_profile))} {}
 ChatSession::~ChatSession() { Stop(); }
 void ChatSession::Start() {
   std::lock_guard lock{impl_->lifecycle_mutex};
@@ -970,6 +1011,10 @@ void ChatSession::Start() {
     return;
   }
   impl_->stop_requested.store(false);
+  {
+    std::lock_guard commands_lock{impl_->command_mutex};
+    impl_->accepting_commands = true;
+  }
   impl_->thread = std::thread{[impl = impl_.get()] { impl->Run(); }};
 }
 void ChatSession::Stop() {
@@ -978,16 +1023,16 @@ void ChatSession::Stop() {
   if (impl_->thread.joinable()) {
     impl_->thread.join();
   }
-  std::lock_guard commands_lock{impl_->command_mutex};
-  impl_->commands.clear();
+  impl_->RejectPendingCommands();
 }
 void ChatSession::Checkpoint(std::function<void(bool)> completion) {
-  impl_->proxy.EnqueueModelWork(
+  auto reject = [completion] { completion(false); };
+  impl_->Enqueue(
       [impl = impl_.get(), completion = std::move(completion)](ae::Domain&) {
         bool const ok = impl->CommitMemory();
         if (!ok) impl->SetError("Could not persist chat checkpoint");
         completion(ok);
-      });
+      }, std::move(reject));
 }
 void ChatSession::CreateRoom() {
   impl_->proxy.EnqueueModelWork(
@@ -1004,11 +1049,12 @@ void ChatSession::Send(std::string text) {
                                     ae::Domain&) { impl->Send(text); });
 }
 void ChatSession::Send(std::string text, std::function<void(bool)> committed) {
-  impl_->proxy.EnqueueModelWork(
+  auto reject = [committed] { committed(false); };
+  impl_->Enqueue(
       [impl = impl_.get(), text = std::move(text),
        committed = std::move(committed)](ae::Domain&) {
         committed(impl->Send(text));
-      });
+      }, std::move(reject));
 }
 ChatView ChatSession::View() const {
   std::lock_guard lock{impl_->view_mutex};

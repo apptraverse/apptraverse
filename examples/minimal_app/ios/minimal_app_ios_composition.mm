@@ -54,9 +54,14 @@ ATIosApplicationBridge* ATCreateMinimalApplicationBridge(
     // MinimalApp's model has one main window and an explicitly opened detail.
     // The existing Close event returns to the main page; no second navigation
     // state is invented by the platform presenter.
-    auto active = application.auxiliary_presented_open
-        ? application.auxiliary.window.id() : application.main_window.id();
+    auto active = application.ActivePageId();
     return apptraverse::ui::ios::IosMobilePresentation{{active}, active};
+  };
+  callbacks.on_viewport = [](ae::Obj& root, apptraverse::ModelObjectProxy& proxy,
+                             std::int32_t width, std::int32_t height) {
+    proxy.Invoke(root.obj_id,
+        &apptraverse::example::minimal::MinimalApplication::SubmitViewport,
+        width, height, static_cast<std::int32_t>(160), true);
   };
   return apptraverse::ui::ios::MakeIosApplicationBridge(
       std::move(callbacks), delegate);

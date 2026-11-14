@@ -9,6 +9,8 @@
 #include "minimal_app_desktop_close.h"
 #include "minimal_app_lifecycle.h"
 #include "minimal_app_linux_session_automation.h"
+#include "minimal_application.h"
+#include "apptraverse/ui/ui_window_presenter.h"
 
 namespace {
 
@@ -60,6 +62,10 @@ int main(int argc, char** argv) {
             root, closed_window, proxy, [&] { runtime.RequestStop(); });
       };
   callbacks.after_initial = [&](ae::Obj& root) {
+    auto& application = static_cast<apptraverse::example::minimal::MinimalApplication&>(root);
+    application.main_window->presenter->model_proxy->Invoke(root.obj_id,
+        &apptraverse::example::minimal::MinimalApplication::SubmitDesktopEnvironment,
+        static_cast<std::int32_t>(160));
     automation_hooks.OnAfterInitial(root);
   };
   callbacks.after_incremental = [&](ae::Obj& root) {
