@@ -8,7 +8,7 @@ namespace apptraverse::example::surfaces {
 namespace {
 EM_JS(void, ApptraverseCatalogTagWindowElement,
       (emscripten::EM_VAL client_element, unsigned window_id, int is_main), {
-  var win = Emval.toValue(client_element).parentNode;
+  var win = Emval.toValue(Number(client_element)).parentNode;
   // Wasm i32 crosses the JS boundary as signed; ObjId remains uint32.
   win.dataset.windowId = String(window_id >>> 0);
   win.classList.add('catalog-page');

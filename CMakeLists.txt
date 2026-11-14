@@ -12,6 +12,7 @@ project(AppTraverse
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+include(cmake/apptraverse_minimum_size.cmake)
 
 # Emscripten pthreads require atomics/bulk-memory on every TU that ends up in
 # a -pthread link. Apply once for the whole tree (including aether-objects).
@@ -485,8 +486,8 @@ include(CTest)
 option(APPTRAVERSE_BUILD_SHARED_NODE_CHAT
   "Build the native SharedNode chat over Aether" OFF)
 if(APPTRAVERSE_BUILD_SHARED_NODE_CHAT)
-  if((NOT WIN32 AND NOT APPLE) OR NOT APPTRAVERSE_BUILD_AETHER_LINK)
-    message(FATAL_ERROR "SharedNode chat requires Windows/macOS/iOS and APPTRAVERSE_BUILD_AETHER_LINK")
+  if(NOT APPTRAVERSE_BUILD_AETHER_LINK)
+    message(FATAL_ERROR "SharedNode chat requires APPTRAVERSE_BUILD_AETHER_LINK")
   endif()
   add_subdirectory(examples/shared_node_chat)
 endif()

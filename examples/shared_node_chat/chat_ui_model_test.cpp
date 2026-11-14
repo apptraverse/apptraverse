@@ -30,6 +30,9 @@ int main(){
   app->Configure(true,"Host","");
   app->Configure(false,"Replacement", "unexpected-host");
   CHECK(app->editing.host&&app->editing.name=="Host"&&app->editing.invite.empty());
+  auto const initial_edit=app->editing.revision;
+  app->EditInvite("first invite");app->EditInvite("latest invite");
+  CHECK(app->editing.revision==initial_edit+2&&app->editing.invite=="latest invite");
   unsigned creates=0,sends=0;std::uint64_t revision=0;
   app->create=[&]{++creates;};app->join=[](std::string){CHECK(false);};
   app->send=[&](std::string text,std::uint64_t r){CHECK(text=="first");++sends;revision=r;};

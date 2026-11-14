@@ -1,3 +1,4 @@
+#include "apptraverse/platform/web/web_js_handle.h"
 #include "minimal_app_web_app.h"
 
 #include <filesystem>
@@ -37,11 +38,11 @@ ui::web::WebPresentationHost g_presentation_host;
 int g_viewport_width = 0;
 int g_viewport_height = 0;
 
-EM_JS(emscripten::EM_VAL, ApptraverseGetAppMountElement, (), {
+APPTRAVERSE_EM_JS_HANDLE(ApptraverseGetAppMountElement, (), (), {
   return Emval.toHandle(document.getElementById('app-mount'));
 });
 EM_JS(void, ApptraverseShowMinimalPage, (emscripten::EM_VAL client, int visible), {
-  Emval.toValue(client).parentElement.style.display = visible ? "" : "none";
+  Emval.toValue(Number(client)).parentElement.style.display = visible ? "" : "none";
 });
 
 void ApplyPagePresentation(ae::Obj& root) {
@@ -56,13 +57,13 @@ void ApplyPagePresentation(ae::Obj& root) {
 }
 
 void SetSaveStatus(char const* text) {
-  EM_ASM({ document.getElementById('save-status').textContent = UTF8ToString($0); },
+  EM_ASM({ document.getElementById('save-status').textContent = UTF8ToString(Number($0)); },
          text);
 }
 
 void SetShutdownStatus(char const* text) {
   EM_ASM({
-    document.getElementById('shutdown-status').textContent = UTF8ToString($0);
+    document.getElementById('shutdown-status').textContent = UTF8ToString(Number($0));
   }, text);
 }
 

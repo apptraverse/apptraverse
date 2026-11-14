@@ -1,3 +1,4 @@
+#include "apptraverse/platform/web/web_js_handle.h"
 #include "apptraverse/platform/web/web_ui_list_presenter.h"
 
 #include <string>
@@ -16,7 +17,7 @@
 namespace apptraverse::ui::web {
 namespace {
 
-EM_JS(emscripten::EM_VAL, ApptraverseCreateListElement, (int control_id), {
+APPTRAVERSE_EM_JS_HANDLE(ApptraverseCreateListElement, (int control_id), (control_id), {
   var list = document.createElement('div');
   list.className = 'apptraverse-list';
   list.dataset.apptraverseControlId = String(control_id);
@@ -26,7 +27,7 @@ EM_JS(emscripten::EM_VAL, ApptraverseCreateListElement, (int control_id), {
 
 EM_JS(void, ApptraverseSetListLayout, (emscripten::EM_VAL list, int x, int y,
                                        int w, int h), {
-  var style = Emval.toValue(list).style;
+  var style = Emval.toValue(Number(list)).style;
   style.position = 'absolute';
   style.left = x + 'px';
   style.top = y + 'px';
@@ -36,11 +37,11 @@ EM_JS(void, ApptraverseSetListLayout, (emscripten::EM_VAL list, int x, int y,
 });
 
 EM_JS(int, ApptraverseListRowCount, (emscripten::EM_VAL list), {
-  return Emval.toValue(list).children.length;
+  return Emval.toValue(Number(list)).children.length;
 });
 
 EM_JS(void, ApptraverseListClearRows, (emscripten::EM_VAL list), {
-  var el = Emval.toValue(list);
+  var el = Emval.toValue(Number(list));
   while (el.firstChild) {
     el.removeChild(el.firstChild);
   }
@@ -52,22 +53,22 @@ EM_JS(void, ApptraverseListAppendRow, (emscripten::EM_VAL list, int row_index,
   row.className = 'apptraverse-list-row';
   row.dataset.rowIndex = String(row_index);
   row.setAttribute('role', 'option');
-  row.textContent = UTF8ToString(text_utf8);
-  Emval.toValue(list).appendChild(row);
+  row.textContent = UTF8ToString(Number(text_utf8));
+  Emval.toValue(Number(list)).appendChild(row);
 });
 
 EM_JS(void, ApptraverseListUpdateRowText, (emscripten::EM_VAL list, int row_index,
                                             const char* text_utf8), {
-  var el = Emval.toValue(list);
+  var el = Emval.toValue(Number(list));
   var row = el.children[row_index];
   if (row) {
-    row.textContent = UTF8ToString(text_utf8);
+    row.textContent = UTF8ToString(Number(text_utf8));
   }
 });
 
 EM_JS(void, ApptraverseListApplySelection, (emscripten::EM_VAL list,
                                               int selection_index), {
-  var el = Emval.toValue(list);
+  var el = Emval.toValue(Number(list));
   for (var i = 0; i < el.children.length; ++i) {
     var row = el.children[i];
     if (selection_index >= 0 && i === selection_index) {
@@ -82,7 +83,7 @@ EM_JS(void, ApptraverseListApplySelection, (emscripten::EM_VAL list,
 
 EM_JS(void, ApptraverseBindListInteraction, (emscripten::EM_VAL list,
                                               void* self), {
-  var el = Emval.toValue(list);
+  var el = Emval.toValue(Number(list));
   var clickFn = function(ev) {
     if (ev.detail > 1) {
       return;
@@ -109,7 +110,7 @@ EM_JS(void, ApptraverseBindListInteraction, (emscripten::EM_VAL list,
 });
 
 EM_JS(void, ApptraverseUnbindListInteraction, (emscripten::EM_VAL list), {
-  var el = Emval.toValue(list);
+  var el = Emval.toValue(Number(list));
   var clickFn = el.__apptraverseListClick;
   if (clickFn) {
     el.removeEventListener('click', clickFn);

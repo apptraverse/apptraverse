@@ -93,7 +93,7 @@ void ChatUi::AcceptTransport(ChatView view){
 void ChatUi::Apply(ChatUiEvent const& e){
   switch(e.action){
     case Action::Draft: editing.draft=e.text;++editing.revision;editing.error_label=-1;break;
-    case Action::Invite: editing.invite=e.text;editing.error_label=-1;break;
+    case Action::Invite: editing.invite=e.text;++editing.revision;editing.error_label=-1;break;
     case Action::SendStarted: editing.sending=true;editing.error_label=-1;break;
     case Action::SendCompleted:
       editing.sending=false;

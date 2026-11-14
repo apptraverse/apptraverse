@@ -1,3 +1,4 @@
+#include "apptraverse/platform/web/web_js_handle.h"
 #include "apptraverse/platform/web/web_ui_push_button_presenter.h"
 
 #include <string>
@@ -14,7 +15,7 @@
 namespace apptraverse::ui::web {
 namespace {
 
-EM_JS(emscripten::EM_VAL, ApptraverseCreatePushButtonElement, (int control_id), {
+APPTRAVERSE_EM_JS_HANDLE(ApptraverseCreatePushButtonElement, (int control_id), (control_id), {
   var btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'apptraverse-push-button';
@@ -25,14 +26,14 @@ EM_JS(emscripten::EM_VAL, ApptraverseCreatePushButtonElement, (int control_id), 
 EM_JS(void, ApptraverseSetPushButtonMirror, (emscripten::EM_VAL button,
                                               const char* label_utf8,
                                               int enabled), {
-  var el = Emval.toValue(button);
-  el.textContent = UTF8ToString(label_utf8);
+  var el = Emval.toValue(Number(button));
+  el.textContent = UTF8ToString(Number(label_utf8));
   el.disabled = enabled ? 0 : 1;
 });
 
 EM_JS(void, ApptraverseSetPushButtonLayout, (emscripten::EM_VAL button, int x,
                                               int y, int w, int h), {
-  var style = Emval.toValue(button).style;
+  var style = Emval.toValue(Number(button)).style;
   style.position = 'absolute';
   style.left = x + 'px';
   style.top = y + 'px';
@@ -42,7 +43,7 @@ EM_JS(void, ApptraverseSetPushButtonLayout, (emscripten::EM_VAL button, int x,
 
 EM_JS(void, ApptraverseBindPushButtonClick, (emscripten::EM_VAL button,
                                              void* self), {
-  var el = Emval.toValue(button);
+  var el = Emval.toValue(Number(button));
   var fn = function(ev) {
     Module['_ApptraverseWebUiPushButtonClicked'](self);
   };
@@ -51,7 +52,7 @@ EM_JS(void, ApptraverseBindPushButtonClick, (emscripten::EM_VAL button,
 });
 
 EM_JS(void, ApptraverseUnbindPushButtonClick, (emscripten::EM_VAL button), {
-  var el = Emval.toValue(button);
+  var el = Emval.toValue(Number(button));
   var fn = el.__apptraversePushClick;
   if (fn) {
     el.removeEventListener('click', fn);

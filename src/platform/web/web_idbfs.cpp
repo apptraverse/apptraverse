@@ -1,4 +1,5 @@
 #include "apptraverse/platform/web/web_idbfs.h"
+#include <cstdlib>
 
 #include <utility>
 
@@ -16,7 +17,7 @@ IdbfsCompletionCallback g_store_success;
 IdbfsCompletionCallback g_store_error;
 
 EM_JS(void, ApptraverseIdbfsMountAndLoad, (const char* mount_utf8), {
-  var mount = UTF8ToString(mount_utf8);
+  var mount = UTF8ToString(Number(mount_utf8));
   try {
     FS.mkdirTree(mount);
   } catch (e) {
@@ -60,8 +61,8 @@ EM_JS(void, ApptraverseIdbfsSyncStore, (), {
 EM_JS(int, ApptraverseIdbfsCommitLifecycleFile,
       (const char* mount_utf8, const char* file_utf8,
        const std::uint8_t* bytes, std::size_t size), {
-  var mount = PATH.normalize(UTF8ToString(mount_utf8));
-  var file = PATH.normalize(UTF8ToString(file_utf8));
+  var mount = PATH.normalize(UTF8ToString(Number(mount_utf8)));
+  var file = PATH.normalize(UTF8ToString(Number(file_utf8)));
   if (!file.startsWith(mount + '/')) return 0;
   var db = IDBFS.dbs[mount];
   if (!db) return 0;
@@ -69,9 +70,11 @@ EM_JS(int, ApptraverseIdbfsCommitLifecycleFile,
   try {
     FS.mkdirTree(PATH.dirname(file));
     // IndexedDB cannot store a view backed by Wasm's SharedArrayBuffer.
-    FS.writeFile(file, new Uint8Array(HEAPU8.subarray(bytes, bytes + size)));
-    transaction = db.transaction([IDBFS.DB_STORE_NAME], 'readwrite');
-    var store = transaction.objectStore(IDBFS.DB_STORE_NAME);
+    FS.writeFile(file, new Uint8Array(HEAPU8.subarray(Number(bytes), Number(bytes) + Number(size))));
+    // IDBFS persists files in FILE_DATA. Its JS implementation no longer
+    // exposes DB_STORE_NAME as an IDBFS object property.
+    transaction = db.transaction(['FILE_DATA'], 'readwrite');
+    var store = transaction.objectStore('FILE_DATA');
     var path = file;
     while (path !== mount) {
       var stat = FS.stat(path);

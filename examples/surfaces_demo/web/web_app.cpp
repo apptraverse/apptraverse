@@ -198,7 +198,7 @@ void WebApp::SyncTabOrder() {
   EM_ASM(
       {
         var tabs = document.getElementById('tab-strip');
-        var order = UTF8ToString($0).split(',').filter(Boolean);
+        var order = UTF8ToString(Number($0)).split(',').filter(Boolean);
         for (var i = 0; i < order.length; ++i) {
           var button =
               tabs.querySelector('[data-surface-id="' + order[i] + '"]');

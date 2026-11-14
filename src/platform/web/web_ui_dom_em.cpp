@@ -7,11 +7,11 @@ namespace apptraverse::ui::web {
 
 EM_JS(void, ApptraverseAppendDomChild, (emscripten::EM_VAL parent,
                                         emscripten::EM_VAL child), {
-  Emval.toValue(parent).appendChild(Emval.toValue(child));
+  Emval.toValue(Number(parent)).appendChild(Emval.toValue(Number(child)));
 });
 
 EM_JS(void, ApptraverseRemoveDomNode, (emscripten::EM_VAL node), {
-  var el = Emval.toValue(node);
+  var el = Emval.toValue(Number(node));
   el.remove();
 });
 
