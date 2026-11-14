@@ -276,14 +276,32 @@ std::vector<HWND> TopLevelWindowsForPid(DWORD pid) {
   return out;
 }
 
+void ActivateTestWindow(HWND parent) {
+  SetForegroundWindow(parent);
+  if (GetForegroundWindow() != parent) {
+    // Windows may deny programmatic foreground activation to a background test
+    // process. Establish the same precondition as a user clicking the title bar;
+    // keep the focus assertion, and do not alter the application focus policy.
+    RECT frame{};
+    CHECK(GetWindowRect(parent, &frame));
+    auto const x = frame.left + (frame.right - frame.left) / 2;
+    auto const y = frame.top + GetSystemMetrics(SM_CYFRAME) +
+                   GetSystemMetrics(SM_CYCAPTION) / 2;
+    CHECK(SetCursorPos(x, y));
+    INPUT click[2]{};
+    click[0].type = click[1].type = INPUT_MOUSE;
+    click[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+    click[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
+    CHECK(SendInput(2, click, sizeof(INPUT)) == 2);
+  }
+  CHECK(WaitUntil(std::chrono::seconds{5},
+                  [&] { return GetForegroundWindow() == parent; }));
+}
+
 void ClickControl(HWND parent, std::uint32_t control_id) {
   HWND const child = GetDlgItem(parent, static_cast<int>(control_id));
   CHECK(child != nullptr);
-  // A real click activates its window before dispatching the command. Establish
-  // that precondition explicitly; synthetic WM_COMMAND does not activate it.
-  SetForegroundWindow(parent);
-  CHECK(WaitUntil(std::chrono::seconds{5},
-                  [&] { return GetForegroundWindow() == parent; }));
+  ActivateTestWindow(parent);
   SendMessageW(parent, WM_COMMAND, MAKEWPARAM(control_id, BN_CLICKED),
                reinterpret_cast<LPARAM>(child));
 }
@@ -923,9 +941,7 @@ bool CatalogChildHasForeground(HWND hwnd) {
 void OpenExistingCatalogWindowAndWaitForFocus(HWND main, HWND child) {
   // Open is asynchronous. Observing the child's existing focus would not
   // acknowledge this command, which could then restore a later minimization.
-  SetForegroundWindow(main);
-  CHECK(WaitUntil(std::chrono::seconds{10},
-                  [&] { return GetForegroundWindow() == main; }));
+  ActivateTestWindow(main);
   ClickControl(main, kOpenControlId);
   CHECK(WaitUntil(std::chrono::seconds{10},
                   [&] { return CatalogChildHasForeground(child); }));
