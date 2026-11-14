@@ -160,6 +160,7 @@ bool Session::ApplyPublication(Presentation& host){
 ChatUi const* Session::Mirror()const{
   return impl_->ui?&static_cast<ChatUi const&>(impl_->ui->root()):nullptr;
 }
+ChatView Session::TransportView()const{return impl_->transport.View();}
 ModelObjectProxy& Session::Proxy(){return impl_->proxy;}
 #ifdef APPTRAVERSE_CHAT_UI_PRODUCER
 int ExportUiSupply(std::filesystem::path const& path){

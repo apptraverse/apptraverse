@@ -36,6 +36,23 @@ int main(){
   chat::ChatView network;network.ready=true;
   app->AcceptTransport(network);CHECK(creates==1);
   network.in_room=true;app->AcceptTransport(network);
+  unsigned transport_changes=0;
+  app->BindMaterializedChangeNotifier(&transport_changes,[](void* count,Node&){
+    ++*static_cast<unsigned*>(count);
+  });
+  // ACK/progress/path diagnostics must not republish the persistent UI graph.
+  network.pending_packets=2;network.retained_events=3;
+  network.tcp_path_verified=true;
+  app->AcceptTransport(network);CHECK(transport_changes==0);
+  network.pending_packets=0;network.retained_events=0;
+  app->AcceptTransport(network);CHECK(transport_changes==0);
+  network.messages={"Remote: delivered"};
+  app->AcceptTransport(network);CHECK(transport_changes>0);
+  CHECK(app->Get(Control::Messages).rows==network.messages);
+  auto const published_changes=transport_changes;
+  app->AcceptTransport(network);CHECK(transport_changes==published_changes);
+  app->ClearMaterializedChangeNotifier();
+  CHECK(creates==1);
   app->EditDraft("first");app->Send();CHECK(sends==1&&app->editing.sending);
   app->CompleteSend(revision,false);CHECK(app->editing.draft=="first");
   app->Send();app->EditDraft("newer");app->CompleteSend(revision,true);
@@ -49,6 +66,30 @@ int main(){
   app->Resize(320,500);
   CHECK(app->client_width()==320&&app->restore_client_width()==900);
   CHECK(app->HasExplicitPosition()&&app->x()==-80&&app->y()==110);
+  // The keyboard can leave a short landscape viewport. Native input, history
+  // and status must remain separate, and portrait resizing must restore space.
+  for(int height : {156,500}) {
+    app->Resize(393,height);
+    auto const& messages=app->Get(Control::Messages).frame;
+    auto const& input=app->Get(Control::Input).frame;
+    auto const& send=app->Get(Control::Send).frame;
+    auto const& status=app->Get(Control::Status).frame;
+    CHECK(messages.width>0&&messages.height>0);
+    CHECK(input.width>0&&input.height==app->layout.input_height);
+    CHECK(send.width>0&&send.height==app->layout.input_height);
+    CHECK(messages.y+messages.height<=input.y);
+    CHECK(messages.y+messages.height<=send.y);
+    CHECK(input.y+input.height<=status.y);
+    CHECK(send.y+send.height<=status.y);
+    CHECK(input.x+input.width<=send.x);
+    for(auto const& control:app->controls) {
+      if(!control.visible)continue;
+      auto const& frame=control.frame;
+      CHECK(frame.x>=0&&frame.y>=0&&frame.width>=0&&frame.height>=0);
+      CHECK(frame.x+frame.width<=393&&frame.y+frame.height<=height);
+    }
+  }
+  CHECK(app->restore_client_width()==900&&app->restore_client_height()==600);
   app->Resize(900,600);
   ByteSink publication;SerializeInitialPublication(*app,publication);
   ModelObjectProxy proxy{[](auto){}};Host host;
@@ -87,5 +128,5 @@ int main(){
     loaded->Configure(true,"Embedded","");
     CHECK(loaded->Title()=="SharedNode Chat - Embedded");
   }
-  std::cout<<"Chat UI model PASS: send ACK revisions, validation, mirror/presenters, current restart\n";
+  std::cout<<"Chat UI model PASS: send ACK revisions, validation, compact viewport, mirror/presenters, current restart\n";
 }

@@ -3,6 +3,10 @@ import AppKit
 
 extension ChatHost {
     func installCommands() {
+        // Test windows intentionally stay behind the user's foreground app.
+        // Keep the user-requested cloud test running while those windows hide.
+        acceptanceActivity = ProcessInfo.processInfo.beginActivity(
+            options: .userInitiatedAllowingIdleSystemSleep, reason: "SharedNode cloud acceptance")
         ATChatEnableAccessibility()
         presenter.published = { [weak self] value in
             DispatchQueue.main.async { self?.emit(value) }

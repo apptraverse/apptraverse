@@ -20,6 +20,8 @@ class Session {
   // GUI thread only: consume publication, then activate/update standard presenters.
   bool ApplyPublication(Presentation& host);
   ChatUi const* Mirror()const;
+  // Runtime transport diagnostics are value copies, never serialized UI state.
+  ChatView TransportView()const;
   ModelObjectProxy& Proxy();
  private:
   struct Impl;

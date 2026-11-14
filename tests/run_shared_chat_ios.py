@@ -21,7 +21,7 @@ async def main(args):
     tasks = []
     host_log = (args.out/'host.log').open('w')
     test_log = (args.out/'xctest.log').open('w')
-    host = await asyncio.create_subprocess_exec(str(args.host), '--host', '--name', 'MacHost',
+    host = await asyncio.create_subprocess_exec(str(args.host), '--host', '--load-only', '--name', 'MacHost',
         '--profile', str(args.out/'host-profile'), stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
     async def send(text, delay=0):
@@ -73,20 +73,27 @@ async def main(args):
         assert pids['phone-first']==pids['phone-after-background'],pids
         assert pids['phone-first']!=pids['phone-after-restart'],pids
         assert (profile/'user.bin').stat().st_size>0
-        assert not (profile/'native').exists() and not (profile/'root.id').exists()
+        assert (profile/'transport'/'user.bin').stat().st_size>0
+        for location in (profile,profile/'transport'):
+            assert not (location/'native').exists() and not (location/'root.id').exists()
         await asyncio.gather(*tasks)
         host.stdin.write(b'{"action":"quit"}\n');await host.stdin.drain()
         assert await asyncio.wait_for(host.wait(),45)==0
+        assert (args.out/'host-profile'/'user.bin').stat().st_size>0
+        assert (args.out/'host-profile'/'transport'/'user.bin').stat().st_size>0
         status='PASS'
         print('PASS native iPhone Join/Send, Mac Unicode reply, background and cold restore',flush=True)
     finally:
         if test and test.returncode is None: test.kill();await test.wait()
         if host.returncode is None: host.kill();await host.wait()
-        await reader
-        await asyncio.gather(*tasks,return_exceptions=True)
+        reader_result=(await asyncio.gather(reader,return_exceptions=True))[0]
+        task_results=await asyncio.gather(*tasks,return_exceptions=True)
+        errors=[str(error) for error in [reader_result,*task_results] if isinstance(error,BaseException)]
+        if errors: status='FAIL'
         host_log.close();test_log.close()
         if run_file: run_file.unlink(missing_ok=True)
-        (args.out/'result.json').write_text(json.dumps(dict(status=status,checks=sorted(seen),process_ids=pids),indent=2)+'\n')
+        (args.out/'result.json').write_text(json.dumps(dict(status=status,checks=sorted(seen),process_ids=pids,errors=errors),indent=2)+'\n')
+        if errors: raise RuntimeError('Host acceptance driver failed: '+'; '.join(errors))
 
 async def subprocess_output(args):
     proc=await asyncio.create_subprocess_exec(*args,stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.PIPE)

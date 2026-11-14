@@ -73,15 +73,18 @@ void ChatUi::CompleteSend(std::uint64_t revision,bool committed){
   auto e=Make(*this,Action::SendCompleted);e->revision=revision;e->flag=committed;Commit(e);
 }
 void ChatUi::AcceptTransport(ChatView view){
-  auto e=Make(*this,Action::Transport);
-  e->connection.uid=std::move(view.local_uid);e->connection.invite=std::move(view.invite);
-  e->connection.status=std::move(view.status);e->connection.messages=std::move(view.messages);
-  e->connection.ready=view.ready;e->connection.in_room=view.in_room;e->connection.online=view.locally_online;
+  ConnectionState next{};
+  next.uid=std::move(view.local_uid);next.invite=std::move(view.invite);
+  next.status=std::move(view.status);next.messages=std::move(view.messages);
+  next.ready=view.ready;next.in_room=view.in_room;next.online=view.locally_online;
   for(auto const& p:view.participants){
     auto const state=p.presence==Presence::Online?Label::Online:p.presence==Presence::Offline?Label::Offline:Label::Unknown;
-    e->connection.people.push_back(p.name+" ["+Text(state)+"]");
+    next.people.push_back(p.name+" ["+Text(state)+"]");
   }
-  Commit(e);
+  // ACK/progress/path counters are runtime diagnostics, not UI model changes.
+  if(next!=connection){
+    auto e=Make(*this,Action::Transport);e->connection=std::move(next);Commit(e);
+  }
   if(connection.ready&&!initial_action_submitted_){
     initial_action_submitted_=true;
     if(!connection.in_room){if(editing.host)create();else if(!editing.invite.empty())join(editing.invite);}
@@ -128,7 +131,9 @@ void ChatUi::RefreshControls(){
     Text(connection.online?Label::Online:Label::Offline)+" | "+connection.status;
   int const m=layout.margin,g=layout.gap,r=client_width()-m,x=m+layout.label_width;
   int const people=std::clamp(client_width()/4,130,210),mx=m+people+g,mw=r-mx;
-  int const iy=client_height()-70,bh=std::max(70,iy-g-layout.body_top);
+  // Native mobile viewports shrink when the keyboard appears. History must
+  // use the remaining space rather than forcing a minimum through the composer.
+  int const iy=client_height()-70,bh=std::max(0,iy-g-layout.body_top);
   auto rect=[&](Control c,int xx,int yy,int w,int h){at(c).frame={xx,yy,w,h};};
   rect(Control::UidLabel,m,17,layout.label_width-g,20);
   rect(Control::Uid,x,m,r-x-g-layout.button_width,26);at(Control::Invite).frame=at(Control::Uid).frame;

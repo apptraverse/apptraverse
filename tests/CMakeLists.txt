@@ -2,7 +2,7 @@ option(APPTRAVERSE_BUILD_EVOLUTION_TESTS
   "Build isolated application/state evolution fixtures and their Python matrix" ON)
 
 if(APPTRAVERSE_BUILD_AETHER_LINK)
-  if(WIN32)
+  if(WIN32 OR (APPLE AND NOT IOS))
     add_executable(apptraverse_chat_send_commit_test EXCLUDE_FROM_ALL chat_send_commit_test.cpp)
     target_link_libraries(apptraverse_chat_send_commit_test PRIVATE apptraverse_shared_chat_session)
   endif()

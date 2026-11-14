@@ -1,3 +1,19 @@
+## Apple chat current-main refresh — 2026-11-13 — PASS
+
+Fast-forwarded to AppTraverse main `6751f326`; dependency mains checked. SDK
+`91aea53` remains the published three-fix extension of current SDK main
+`efd1691`, which is still protected. Native macOS and iOS Simulator Debug builds
+PASS; final **27/27 CTests PASS**, two explicit cloud checkpoint/send tests PASS,
+**19-check macOS GUI recovery/180-second idle PASS**, and full native iPhone
+Join/Unicode/background/cold-restore acceptance PASS (same PID after background,
+new PID after restart). This completes the initial iPhone port's pending UI run.
+
+Fixed compact model geometry and diagnostics-only UI commits; adjusted acceptance
+for current USER layout and continuous progress traffic while preserving strict
+data ACK checks. Runtime diagnostics never enter USER. Windows and other backends
+were not built. Debug simulator latency remains visible and is not a performance
+PASS. [Validation and earlier failed attempts](../validation/shared-node-chat-apple-main-update-2026-11-13.md).
+
 ## SharedNode iPhone SwiftUI port — 2026-11-13 — BUILD PASS, UI IN PROGRESS
 
 Added the iPhone SwiftUI screen, shared Apple presenter/bridge and model-worker

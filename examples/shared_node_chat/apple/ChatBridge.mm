@@ -115,11 +115,15 @@ struct ApplePresentation:Presentation {
   NSMutableArray* labels=[NSMutableArray array];
   for(unsigned i=0;i<static_cast<unsigned>(Label::Count);++i)[labels addObject:Text(model->Text(static_cast<Label>(i)))];
   auto const& data=model->connection;
+  // These acceptance metrics come from the live transport, not the UI graph.
+  auto const diagnostics=session->TransportView();
   NSMutableDictionary* result=[windowState mutableCopy];
   if(!result){apptraverse::WriteFatalStderr("chat window presenter missing\n");std::abort();}
   [result addEntriesFromDictionary:@{@"loaded":@YES,@"controls":[controls copy],@"labels":labels,@"title":Text(model->Title()),
     @"uid":Text(data.uid),@"invite":Text(model->editing.invite),@"status":Text(model->Get(Control::Status).text),
     @"ready":@(data.ready),@"in_room":@(data.in_room),@"online":@(data.online),@"host":@(model->editing.host),
+    @"tcp":@(diagnostics.tcp_path_verified),@"pending":@(diagnostics.pending_packets),
+    @"pending_progress":@(diagnostics.pending_progress_packets),
     @"participants":controls[static_cast<unsigned>(Control::People)][@"rows"],
     @"messages":controls[static_cast<unsigned>(Control::Messages)][@"rows"],
     @"gap":@(model->layout.gap)}];

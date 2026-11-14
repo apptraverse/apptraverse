@@ -27,6 +27,7 @@ struct ConnectionState {
   std::string uid, invite, status;
   std::vector<std::string> people, messages;
   bool ready, in_room, online;
+  bool operator==(ConnectionState const&) const = default;
   AE_REFLECT_MEMBERS(uid,invite,status,people,messages,ready,in_room,online)
 };
 struct EditingState {

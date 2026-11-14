@@ -58,7 +58,13 @@ final class ChatHost: NSObject, NSApplicationDelegate, NSWindowDelegate {
         #endif
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
-    func applicationWillTerminate(_ notification: Notification) { reportFrame(); presenter.stop() }
+    func applicationWillTerminate(_ notification: Notification) {
+        reportFrame(); presenter.stop()
+        #if CHAT_ACCEPTANCE
+        if let activity = acceptanceActivity { ProcessInfo.processInfo.endActivity(activity) }
+        acceptanceActivity = nil
+        #endif
+    }
     func windowDidResize(_ notification: Notification) { reportFrame() }
     func windowDidMove(_ notification: Notification) { reportFrame() }
     func windowWillClose(_ notification: Notification) { reportFrame() }
@@ -87,6 +93,7 @@ final class ChatHost: NSObject, NSApplicationDelegate, NSWindowDelegate {
         editItem.submenu = editMenu; NSApp.mainMenu = menu
     }
     #if CHAT_ACCEPTANCE
+    var acceptanceActivity: NSObjectProtocol?
     var commandSource: DispatchSourceRead?
     var pending = Data()
     #endif

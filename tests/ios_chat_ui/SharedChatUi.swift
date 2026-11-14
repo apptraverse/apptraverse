@@ -13,8 +13,11 @@ final class SharedChatUi: XCTestCase {
         let field = app.descendants(matching: .any).matching(identifier: "chat.input").firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 15))
         let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: field)
-        XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 180), .completed)
+        let result = XCTWaiter.wait(for: [enabled], timeout: 180)
+        if result != .completed { capture("message-input-disabled") }
+        XCTAssertEqual(result, .completed, "Status: \(app.staticTexts["chat.status"].label)")
         field.tap(); field.typeText(text)
+        XCTAssertEqual(field.value as? String, text, "Native message edit lost input")
         app.buttons["chat.send"].tap()
     }
     func testJoinDeliveryBackgroundAndColdRestore() throws {
@@ -24,20 +27,20 @@ final class SharedChatUi: XCTestCase {
         let host = try XCTUnwrap(env["CHAT_HOST_UID"])
         let profile = try XCTUnwrap(env["CHAT_PROFILE"])
         let token = try XCTUnwrap(env["CHAT_TOKEN"])
-        app.launchArguments = ["--client", "--profile", profile, "--name", "iPhoneTest"]
+        app.launchArguments = ["--client", "--load-only", "--profile", profile, "--name", "iPhoneTest"]
         app.launch()
         let invite = app.textFields["chat.invite"]
         XCTAssertTrue(invite.waitForExistence(timeout: 20))
         invite.tap(); invite.typeText(host)
+        XCTAssertEqual(invite.value as? String, host, "Native host edit lost input")
         let join = app.buttons["chat.join"]
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: join)], timeout: 180), .completed)
         join.tap()
         send(token + " phone-first")
         visible(token + " Mac reply: Привет 🌍 你好")
         capture("iphone-unicode-delivery")
-        app.buttons["chat.participants"].tap()
+        XCTAssertTrue(app.scrollViews["chat.participants"].exists)
         visible("MacHost", timeout: 15); visible("iPhoneTest", timeout: 15)
-        app.buttons["Done"].tap()
         XCUIDevice.shared.orientation = .landscapeLeft
         capture("iphone-landscape")
         XCUIDevice.shared.orientation = .portrait

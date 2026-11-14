@@ -40,6 +40,8 @@ struct ChatView {
   bool udp_path_verified{false};
   std::size_t retained_events{0};
   std::size_t pending_packets{0};
+  // Progress reports are refreshed periodically even after all data is ACKed.
+  std::size_t pending_progress_packets{0};
   bool operator==(ChatView const&) const = default;
 };
 

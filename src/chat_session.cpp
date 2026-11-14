@@ -780,8 +780,12 @@ struct ChatSession::Impl {
     if (auto* room = CurrentRoom()) {
       next.in_room = true;
       next.retained_events = room->journal.size();
-      for (auto const& peer : room->local_state->peers)
+      for (auto const& peer : room->local_state->peers) {
         next.pending_packets += peer->pending_packets.size();
+        next.pending_progress_packets += std::count_if(
+            peer->pending_packets.begin(), peer->pending_packets.end(),
+            [](auto const& packet) { return packet.progress; });
+      }
       if (room->links.size() > 1) {
         next.tcp_path_verified = next.udp_path_verified = true;
         for (auto const& peer : room->links) {

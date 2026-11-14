@@ -3,7 +3,8 @@ target_link_libraries(apptraverse_shared_chat_ui PUBLIC apptraverse_shared_chat_
 target_include_directories(apptraverse_shared_chat_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(apptraverse_shared_chat_ui PUBLIC
   "$<$<CONFIG:Debug>:APPTRAVERSE_CHAT_UI_PRODUCER>")
-if(BUILD_TESTING AND WIN32 AND (CMAKE_CONFIGURATION_TYPES OR CMAKE_BUILD_TYPE STREQUAL "Debug"))
+if(BUILD_TESTING AND (WIN32 OR (APPLE AND NOT IOS)) AND
+   (CMAKE_CONFIGURATION_TYPES OR CMAKE_BUILD_TYPE STREQUAL "Debug"))
   # Real-cloud checkpoint acceptance is explicit, never part of default CTest.
   add_executable(apptraverse_shared_chat_ui_checkpoint_test EXCLUDE_FROM_ALL chat_ui_checkpoint_test.cpp)
   target_link_libraries(apptraverse_shared_chat_ui_checkpoint_test PRIVATE apptraverse_shared_chat_ui)

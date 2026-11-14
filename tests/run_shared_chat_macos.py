@@ -26,7 +26,7 @@ async def main(args):
         states.pop(name, None)
         profile = args.out/'profiles'/name
         profile.mkdir(mode=0o700, parents=True, exist_ok=True)
-        proc = await asyncio.create_subprocess_exec(str(args.exe), '--host' if name == 'Host' else '--client', '--profile', str(profile), '--name', name,
+        proc = await asyncio.create_subprocess_exec(str(args.exe), '--host' if name == 'Host' else '--client', '--load-only', '--profile', str(profile), '--name', name,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
         processes[name] = proc
         log = (args.out/f'{name}-{proc.pid}.log').open('w', encoding='utf-8')
@@ -44,12 +44,18 @@ async def main(args):
         p.stdin.write((json.dumps(dict(action=action, **values), ensure_ascii=False)+'\n').encode())
         await p.stdin.drain()
 
-    async def wait(label, ready, timeout=180):
+    async def wait(label, ready, timeout=180, diagnostics=False):
+        next_snapshot = 0.0
         deadline = time.monotonic()+timeout
         while time.monotonic() < deadline:
             for name,p in processes.items():
                 if p.returncode is not None: raise RuntimeError(f'{name} unexpectedly exited {p.returncode}')
             if ready(): record(label); return
+            if diagnostics and time.monotonic() >= next_snapshot:
+                # Explicit test-only queries keep runtime counters independent
+                # of whether the serialized UI model changed.
+                for name in processes: await command(name, 'snapshot')
+                next_snapshot = time.monotonic() + 0.5
             await asyncio.sleep(0.1)
         raise RuntimeError(f'{label}: timeout; states={states}')
 
@@ -94,15 +100,21 @@ async def main(args):
             text=f'{token} {name}: Привет 🌍 你好'
             sent.append(text); await command(name,'send',text=text)
             await wait(f'{name} Unicode presented exactly once on all peers', lambda t=text: received(t))
-        await wait('direct TCP path verified', lambda: all(s['tcp'] for s in states.values()))
+        await wait('direct TCP path verified', lambda: all(s['tcp'] for s in states.values()), diagnostics=True)
         for name in processes:
             await command(name,'screenshot',path=str(args.out/f'{name}.png'))
         await wait('native screenshots written', lambda: all((args.out/f'{n}.png').exists() for n in processes))
-        await wait('initial delivery acknowledged', lambda: all(s['pending'] == 0 for s in states.values()))
+        # Periodic progress reports remain in flight during idle. Only their
+        # count is excluded; Events, bootstrap and coverage still require ACKs.
+        await wait('initial delivery acknowledged', lambda: all(s['pending'] == s['pending_progress'] for s in states.values()), diagnostics=True)
         await stop('Bob', force=True)
         offline=f'{token} offline delivery after force restart'
         await command('Alice','send',text=offline)
         await wait('accepted message while Bob stopped', lambda: received(offline,('Host','Alice')))
+        # This unacknowledged Event must remain distinguishable from progress
+        # traffic until Bob returns, including across the sender's cold restart.
+        await wait('offline recipient leaves a durable delivery obligation',
+                   lambda: states['Alice']['pending'] > states['Alice']['pending_progress'], diagnostics=True)
         await stop('Alice', force=True)
         await start('Alice')
         await wait('sender cold restores UID and room',lambda: states.get('Alice',{}).get('ready') and states['Alice']['in_room'] and states['Alice']['uid'] == uids['Alice'])
@@ -112,7 +124,7 @@ async def main(args):
         restored=f'{token} message from restored Bob'
         await command('Bob','send',text=restored)
         await wait('restored peer sends to all participants',lambda: received(restored))
-        await wait('durable retry acknowledged after restart',lambda: all(s['pending'] == 0 for s in states.values()))
+        await wait('durable retry acknowledged after restart',lambda: all(s['pending'] == s['pending_progress'] for s in states.values()), diagnostics=True)
         if args.idle_seconds:
             idle_until = time.monotonic() + args.idle_seconds
             while time.monotonic() < idle_until:
@@ -127,7 +139,9 @@ async def main(args):
         for name in ('Host','Alice','Bob'):
             profile=args.out/'profiles'/name
             assert (profile/'user.bin').stat().st_size > 0
-            assert not (profile/'native').exists() and not (profile/'root.id').exists()
+            assert (profile/'transport'/'user.bin').stat().st_size > 0
+            for location in (profile, profile/'transport'):
+                assert not (location/'native').exists() and not (location/'root.id').exists()
         record('orderly shutdown with native USER profiles')
         result='PASS'
     finally:
