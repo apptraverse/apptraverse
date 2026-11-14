@@ -3686,3 +3686,19 @@ acceptance PASS (23.83s including cleanup). No adaptive transport is applied.
   Apple builds/runtime were not run by instruction. Android evidence is x86_64
   emulator; Web evidence is Chromium. No old-profile migration, MinSizeRel or
   overnight benchmarks were introduced. Headless business tests ran on Windows.
+
+### 2026-11-13 MinSizeRel embedded consumers
+
+- Pin SDK 5e2f05e86f13fc2f36fb01787add06d3d368e22e: WebSocket scheduling
+  result locals remain warning-clean under NDEBUG; side effects still execute.
+- Linux MinimalApp automation is Debug-only. Shipping GTK launch, native resize,
+  one USER and cold restore PASS; the guarded Debug translation unit also compiles.
+- Refresh Android WindowCatalog's committed supply from the current Debug host
+  exporter. The previous supply aborted at root load in the shipping APK.
+  MinSizeRel x86_64 + arm64-v8a APK builds PASS; x86_64 native Add and process
+  restart restore PASS. arm64 runtime remains NOT RUN (no device).
+- Windows MinSizeRel MinimalApp/WindowCatalog embedded native acceptance 2/2 PASS;
+  shipping SharedNode chat draft and geometry cold restore PASS. No delivery,
+  Presence or throughput benchmark is implied by these release checks.
+- Current Linux/Web MinimalApp and WindowCatalog embedded GUI checks PASS.
+  Logs and exact artifact sizes are in the task's outputs/current-minsize-* files.

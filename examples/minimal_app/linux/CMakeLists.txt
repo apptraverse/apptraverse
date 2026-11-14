@@ -10,7 +10,7 @@ set(_minimal_linux_embed_graph_sources
 set(_minimal_app_linux_sources
   minimal_app_main.cpp
   minimal_app_lifecycle.cpp
-  minimal_app_linux_session_automation.cpp
+  "$<$<CONFIG:Debug>:${CMAKE_CURRENT_SOURCE_DIR}/minimal_app_linux_session_automation.cpp>"
 )
 
 add_executable(apptraverse_export_minimal_distilled_graph_linux
@@ -32,6 +32,7 @@ target_sources(linux_minimal_app PRIVATE
   "$<$<CONFIG:Debug>:${CMAKE_CURRENT_SOURCE_DIR}/minimal_app_graph_linux.cpp>")
 target_compile_definitions(linux_minimal_app PRIVATE
   APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL
+  "$<$<CONFIG:Debug>:APPTRAVERSE_MINIMAL_LINUX_TEST_HOOKS>"
   "$<$<CONFIG:Debug>:APPTRAVERSE_DEBUG_FRESH_START>"
 )
 apptraverse_embed_distilled_supply(
@@ -54,7 +55,8 @@ target_include_directories(linux_minimal_app PRIVATE
 # always starts from supply and never loads an earlier USER.
 add_executable(linux_minimal_app_load_only ${_minimal_app_linux_sources})
 target_compile_definitions(linux_minimal_app_load_only PRIVATE
-  APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
+  APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL
+  "$<$<CONFIG:Debug>:APPTRAVERSE_MINIMAL_LINUX_TEST_HOOKS>")
 target_link_libraries(linux_minimal_app_load_only PRIVATE
   minimal_app_common apptraverse_ui_linux PkgConfig::GTK3)
 target_include_directories(linux_minimal_app_load_only PRIVATE
