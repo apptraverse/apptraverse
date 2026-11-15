@@ -84,6 +84,13 @@ private final class Acceptance {
         guard let content = main?.window.contentView else { return nil }
         return find(content)
     }
+    func addTableForegroundStep() {
+        // Local NSEvents bypass WindowServer's app/window activation on click.
+        addStep("interactive foreground before native table input", action: {
+            NSApp.activate(ignoringOtherApps: true)
+            self.main!.window.makeKeyAndOrderFront(nil)
+        }, ready: { NSApp.isActive && self.main!.window.isKeyWindow })
+    }
     func nativeClickRow(_ row: Int, double: Bool = false,
                         atTrailingEdge: Bool = false) {
         let table = nativeListTable()!
@@ -282,6 +289,7 @@ private final class Acceptance {
         }, check: {
             require(self.list!.rows[0].id != self.list!.rows[1].id, "clones share identity")
         })
+        addTableForegroundStep()
         addStep("native single click selects through model", action: {
             self.nativeClickRow(0, atTrailingEdge: true)
         }, ready: {
@@ -393,6 +401,7 @@ private final class Acceptance {
             require(self.desktopOrder() == expected.desktopOrder, "cold desktop stacking order lost")
             self.snapshot(self.main!, name: "cold-main")
         })
+        addTableForegroundStep()
         addStep("cold closed child selects through native table binding", action: {
             self.nativeClickRow(1, atTrailingEdge: true)
         }, ready: {

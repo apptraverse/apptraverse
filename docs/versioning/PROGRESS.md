@@ -3754,3 +3754,14 @@ Verified Windows Debug shared Aether adapter build and SharedChat UI model/Share
   migration and runtime checks, application/graph heartbeat sources, and router
   protocol adapters remain outside this change. No schema migrations or public
   repository publication were performed.
+
+## 2026-11-14: Apple host extension for native consumers
+
+Added transient custom-content/button-style hooks and lifecycle input barriers /
+session completion to the generic macOS/iOS hosts. Scoped C++ compile flags away
+from Swift and keyed new iOS scene views by native scene identity. S0/model and
+mirror ownership are unchanged. macOS backend lifecycle and the iOS WindowCatalog
+native/OS-background matrix passed; full macOS cold native-click scope remains
+blocked by the interactive foreground precondition. See
+[scoped validation](../validation/apple-host-extension-2026-11-14.md). Other
+backend runtimes and physical iPhone runtime are not claimed.
