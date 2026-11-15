@@ -3725,3 +3725,10 @@ Merged the remaining minimum-size/portable backend changes with main 7a3c712e, p
 Verified on the merged source: Windows shared Aether adapter build; SharedChat UI model and SharedSync tests (2/2); App consumer Debug builds on Windows x64, Linux x64, Android x86_64 Host/Admin, and Web wasm64 Admin. Apple was not built. Web and Android graph export ran on the native runtime. No Presence/throughput benchmarks were repeated.
 
 Follow-up: pin SDK main 3ae017098a780af1a455f8bf84fde089a4f40b75. Browser teardown must use close/delete, not null callback setters: Emscripten installs a wrapper for null callbacks. The merged Web Admin reproduced the null-call error before this fix; live Linux Host → Web Admin catalogue/video/input plus six reload/recovery cycles passed afterwards with no page errors. The change is browser-only.
+
+
+## 2026-11-14 — pin shutdown lifetime fixes
+
+Pinned Aether client 0c2b8936b4418af55ed4cdb00405d99fc329422a. Late c-ares callbacks no longer retain a destroyed sender operation; queued ping updates no longer retain a policy blocker past policy destruction. The SDK adds six DNS lifetime/race tests and a ping cancellation regression, verified failing on the original ping implementation and passing with the fix.
+
+Verified Windows Debug shared Aether adapter build and SharedChat UI model/SharedSync tests (2/2). The App consumer passed 200 shutdown repetitions, the final scoped Windows batch (24/24), Linux live Host/Admin catalogue/video/input, Android x86_64 Host/Admin checkpoint/cold restore and Web wasm64 Admin reload. Apple and online benchmarks were not run.
