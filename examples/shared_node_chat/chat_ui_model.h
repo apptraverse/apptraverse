@@ -1,4 +1,5 @@
 #pragma once
+#include <map>
 #include <functional>
 #include <string>
 #include <vector>
@@ -111,7 +112,9 @@ class ChatUi : public NodeFor<ChatUi, ui::UiDesktopWindow> {
   void Apply(ChatUiEvent const& event);
   void RefreshControls();
   // Runtime capabilities, bound only on the authoritative model thread.
-  std::function<void(std::string,std::uint64_t)> send;
+  std::uint64_t next_send_id{};
+    std::map<std::uint64_t,std::string> pending_sends;
+    std::function<void(std::string,std::uint64_t)> send;
   std::function<void(std::string)> join;
   std::function<void()> create;
  private:

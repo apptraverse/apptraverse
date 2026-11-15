@@ -63,19 +63,23 @@ void ChatUi::Configure(bool host,std::string name,std::string initial_host){
 }
 void ChatUi::Join(){ if(connection.ready&&!connection.in_room&&!editing.host) join(editing.invite); }
 void ChatUi::Send(){
-  if(!connection.ready||!connection.in_room||editing.sending||
+  if(!connection.ready||!connection.in_room||
      editing.draft.find_first_not_of(" \t\r\n")==std::string::npos) return;
   if(editing.draft.size()>8192){auto e=Make(*this,Action::Feedback);e->first_value=static_cast<int>(Label::TooLong);Commit(e);return;}
-  auto text=editing.draft;auto revision=editing.revision;
+  auto text=editing.draft;auto revision=++next_send_id;
+  pending_sends.emplace(revision,text);
   Commit(Make(*this,Action::SendStarted)); send(std::move(text),revision);
 }
 void ChatUi::CompleteSend(std::uint64_t revision,bool committed){
-  auto e=Make(*this,Action::SendCompleted);e->revision=revision;e->flag=committed;Commit(e);
+  auto e=Make(*this,Action::SendCompleted);e->revision=revision;e->flag=committed;
+  auto pending=pending_sends.find(revision);
+  if(pending!=pending_sends.end()){if(!committed)e->text=pending->second;pending_sends.erase(pending);}
+  e->first_value=static_cast<int>(pending_sends.size());Commit(e);
 }
 void ChatUi::RecoverInterruptedSend(){
   if(!editing.sending)return;
   // A browser can close between the durable transport commit and its UI ACK.
-  // Keep the unacknowledged draft, never resend it automatically or claim a
+  // Preserve the current composer, never resend uncertain submissions or claim
   // rejection. The durable transport journal independently resumes delivery.
   CompleteSend(editing.revision,false);
   auto event=Make(*this,Action::Feedback);
@@ -103,11 +107,13 @@ void ChatUi::Apply(ChatUiEvent const& e){
   switch(e.action){
     case Action::Draft: editing.draft=e.text;++editing.revision;editing.error_label=-1;break;
     case Action::Invite: editing.invite=e.text;++editing.revision;editing.error_label=-1;break;
-    case Action::SendStarted: editing.sending=true;editing.error_label=-1;break;
+    case Action::SendStarted: editing.sending=true;editing.draft.clear();editing.error_label=-1;break;
     case Action::SendCompleted:
-      editing.sending=false;
-      if(e.flag){if(editing.revision==e.revision)editing.draft.clear();}
-      else editing.error_label=static_cast<int>(Label::Rejected);
+      editing.sending=e.first_value!=0;
+      if(!e.flag){
+        if(!e.text.empty()){if(!editing.draft.empty())editing.draft+="\n";editing.draft+=e.text;}
+        editing.error_label=static_cast<int>(Label::Rejected);
+      }
       break;
     case Action::Transport: connection=e.connection;
       if(!connection.invite.empty())editing.invite=connection.invite;break;
@@ -135,7 +141,7 @@ void ChatUi::RefreshControls(){
   at(Control::MessagesLabel).text=Text(Label::Messages);
   at(Control::Messages).rows=connection.messages;at(Control::Messages).read_only=true;
   at(Control::Input).text=editing.draft;at(Control::Input).enabled=connection.ready&&connection.in_room;
-  at(Control::Send).text=Text(Label::Send);at(Control::Send).enabled=connection.ready&&connection.in_room&&!editing.sending;
+  at(Control::Send).text=Text(Label::Send);at(Control::Send).enabled=connection.ready&&connection.in_room;
   at(Control::Status).text=editing.error_label>=0?Text(static_cast<Label>(editing.error_label)):
     Text(connection.online?Label::Online:Label::Offline)+" | "+connection.status;
   int const m=layout.margin,g=layout.gap,r=client_width()-m,x=m+layout.label_width;

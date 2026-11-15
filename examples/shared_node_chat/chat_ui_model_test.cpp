@@ -57,7 +57,7 @@ int main(){
   app->ClearMaterializedChangeNotifier();
   CHECK(creates==1);
   app->EditDraft("first");app->Send();CHECK(sends==1&&app->editing.sending);
-  CHECK(!app->Get(Control::Send).enabled&&app->Get(Control::Input).enabled);
+  CHECK(app->Get(Control::Send).enabled&&app->Get(Control::Input).enabled);
   app->Send();CHECK(sends==1); // A second click cannot enqueue the same draft.
   app->CompleteSend(revision,false);CHECK(app->editing.draft=="first");
   CHECK(!app->editing.sending&&app->Get(Control::Send).enabled);
@@ -66,6 +66,15 @@ int main(){
   CHECK(app->editing.draft=="newer"&&!app->editing.sending);
   app->send=[&](std::string text,std::uint64_t r){CHECK(text=="newer");revision=r;};
   app->Send();app->CompleteSend(revision,true);CHECK(app->editing.draft.empty());
+  std::vector<std::uint64_t> queued;
+  app->send=[&](std::string,std::uint64_t r){queued.push_back(r);};
+  app->EditDraft("one");app->Send();
+  app->EditDraft("two");app->Send();
+  CHECK(queued.size()==2&&app->editing.draft.empty()&&app->Get(Control::Send).enabled);
+  app->EditDraft("next");app->CompleteSend(queued[0],true);
+  CHECK(app->editing.sending&&app->editing.draft=="next");
+  app->CompleteSend(queued[1],false);
+  CHECK(!app->editing.sending&&app->editing.draft=="next\ntwo");
   app->EditDraft(std::string(8193,'x'));app->Send();
   CHECK(app->editing.error_label==static_cast<int>(Label::TooLong));
   app->EditDraft("retained");
@@ -121,7 +130,7 @@ int main(){
   CHECK(restored->presenters.size()==static_cast<unsigned>(Control::Count));
   CHECK(&*restored->presenters.front()->model==&*restored);
   // A browser snapshot may catch an accepted UI send before its durable ACK.
-  // Restart must retain the draft, unblock the editor and never auto-resend.
+  // Restart must unblock the editor and never auto-resend an uncertain submission.
   unsigned interrupted_sends=0;
   restored->send=[&](std::string,std::uint64_t){++interrupted_sends;};
   restored->Send();CHECK(interrupted_sends==1&&restored->editing.sending);
@@ -130,7 +139,7 @@ int main(){
   ae::RamDomainStorage resumed;CHECK(DeserializeUserStorage(resumed,interrupted));
   ae::Domain resumed_domain{resumed};auto recovered=LoadApplication<ChatUi>(resumed_domain,RootId());
   recovered->RecoverInterruptedSend();
-  CHECK(!recovered->editing.sending&&recovered->editing.draft=="retained");
+  CHECK(!recovered->editing.sending&&recovered->editing.draft.empty());
   CHECK(recovered->editing.error_label==static_cast<int>(Label::Unknown));
   recovered->RecoverInterruptedSend();CHECK(interrupted_sends==1);
   {

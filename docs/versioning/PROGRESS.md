@@ -1,3 +1,16 @@
+## SharedNode queued sends — 2026-11-14
+
+Send stays enabled during local commits. Submission captures its text, clears
+input immediately and uses a unique runtime request ID. Completion preserves
+newer input; failed text returns to the composer. Checkpoint waits for all sends.
+UI model tests and the cloud test with two overlapping sends behind a held save
+PASS, including settled cold restore. Windows and Android Debug builds PASS;
+updated apps launched. Evidence: build/queue-build.log, queue-checkpoint-03.log,
+queue-app-final.log and queue-android-final.log. This supersedes the button policy
+below. The in-memory queue drains on normal shutdown/checkpoint; a process crash
+before local commit can lose an uncommitted submission. Uncertain sends are not
+resent automatically.
+
 ## SharedNode autoscroll / Send diagnostics — 2026-11-14
 
 Windows and Android scroll new message history to the end while preserving

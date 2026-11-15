@@ -72,7 +72,7 @@ struct Session::Impl {
     (*done)(Persist(root,*active_user,active_profile));
   }
   void CompleteDeferredCheckpoints(ChatUi& root){
-    if(deferred_checkpoints.empty())return;
+    if(deferred_checkpoints.empty()||root.editing.sending)return;
     // The send callback acknowledges durable transport storage. Save this
     // settled model in the same work item, before another GUI Send can start.
     auto pending=std::move(deferred_checkpoints);
