@@ -3702,3 +3702,26 @@ acceptance PASS (23.83s including cleanup). No adaptive transport is applied.
   Presence or throughput benchmark is implied by these release checks.
 - Current Linux/Web MinimalApp and WindowCatalog embedded GUI checks PASS.
   Logs and exact artifact sizes are in the task's outputs/current-minsize-* files.
+
+### 2026-11-14 Process connection services (Windows first)
+
+- Add independent transport and presence contracts, a process ConnectionHub with
+  bounded graph channels, and a process OS observer/clock. SharedSyncRuntime
+  remains the single graph protocol and durable ACK/retry implementation.
+- Add ConnectionState with typed network/session/clock/reset Events. UI consumers
+  read its mirror; runtime handles and monotonic freshness are not serialized.
+  Unsubscribing cancels queued model work before graph unload. Presence expiry is
+  Unknown; native Aether presence observes endpoints, not open applications.
+- Extract the Aether SDK composition from ChatSession and add the Windows NLM
+  observer independently of the Windows UI library. One process connection can
+  serve multiple graphs and release their presence interests on unload.
+- MinSizeRel CTest 7/7 PASS: connection runtime, Aether link, memory link, shared
+  node memory, shared sync, graph import and three-peer sync. The runtime suite
+  also replicates a non-chat application catalog with loss, retry and durable ACK.
+- Windows consuming-application Release CTest 7/7 and real Aether/SharedNode
+  acceptance 19/19 PASS. Native multi-window checks covered channel isolation,
+  IPC reopen, pending delivery while a graph is unloaded, and cold UI restoration.
+- Contracts and ownership: docs/architecture/ConnectionServices.txt. Android/Web
+  migration and runtime checks, application/graph heartbeat sources, and router
+  protocol adapters remain outside this change. No schema migrations or public
+  repository publication were performed.

@@ -1,0 +1,130 @@
+Connection services: graph synchronization, transport and presence
+================================================================
+
+Scope: Windows implementation, portable contracts and model. Other native
+observers and other application compositions are not ported in this change.
+
+Ownership
+---------
+The application owns one ProcessServices and one ConnectionHub per selected
+transport identity. ProcessServices owns the OS observer and presentation clock.
+ConnectionHub owns the adapter worker and its SDK connection. Graphs lease named
+channels; closing a graph releases the channel, queued callbacks and its presence
+interests. The last lease removes the channel immediately, even while the worker
+finishes a service turn. The application destroys graphs before its services.
+
+Multiple channels share the connection and the union of presence interests.
+There is no SDK connection or native presence query loop per window. The model
+execution context remains graph-owned; SDK/model pointers never cross workers.
+Only value observations and byte packets cross queues.
+
+Layers
+------
+IByteLink (byte_link.h)
+  The packet boundary: receiver, whole-frame acceptance, transport availability.
+  Acceptance is not a delivery receipt. MemoryLink is one implementation.
+
+IConnectionTransport (connection_runtime.h)
+  Adapter lifecycle, endpoint identity, local phase and network observations.
+  It owns no model, graph schema, room, membership, UI or application registry.
+
+IPresenceSource (connection_runtime.h)
+  Independently selected provider. Watch/Unwatch identifies a semantic target:
+  Endpoint, Application or Graph. A record includes target, source, observed UTC,
+  state and freshness. PresenceReading additionally carries a monotonic timestamp
+  exclusively in runtime. ConnectionRuntime expires a lease to Unknown, never to
+  Offline. Offline requires a provider's positive observation.
+
+ConnectionRuntime
+  Composes one transport with one presence source. A caller can watch a presence
+  ID different from the message destination. It does not gate Send on presence
+  or on the OS Internet classification. A local router may work without Internet.
+
+ConnectionHub (connection_hub.h)
+  Multiplexes independently consumed channels on that runtime. The frame contains
+  only channel ID and payload and uses the existing native BinaryArchive.
+  Channel queues are bounded; false Send means no acceptance. Fair scheduling
+  gives another channel a turn before draining a busy one. Unopened/overloaded
+  channels drop incoming bytes; they cannot ACK a graph they do not own.
+  SharedSyncRuntime retains and retries the durable delivery obligation.
+  Channel IDs must match at both ends and are chosen by application composition.
+  The hub supports its own worker or an externally serviced event loop.
+
+SharedSyncRuntime (shared_sync.h)
+  Remains the sole graph synchronization implementation: native snapshots/Events,
+  membership/admission, durable ACKs, retries, progress and compaction. The graph's
+  owner supplies storage, persistence and initial-root attachment. Transport and
+  presence do not interpret its packets. There is no second delivery ledger in
+  the hub. The connection test replicates an application catalog, not a chat.
+
+ConnectionState (connection_state.h)
+  Ordinary local Node in the distilled application graph. Holds independent
+  network and session facts, graph attachment/pending counts, last confirmations
+  and presentation time. Network, session, clock and reset inputs commit typed
+  Events; materialized-change publication reaches the UI mirror normally.
+  Session attachment resets volatile online facts while preserving last-seen UTC.
+  Clock Events never refresh last-seen. Only a fresh positive presence confirmation
+  does that. Monotonic lease data, SDKs, queues, threads and handles are not saved.
+
+ConnectionModelBinding (process_services.h)
+  RAII bridge from the process OS/clock source through ModelObjectProxy to a
+  ConnectionState. Observations are deduplicated and initially replayed to new
+  subscribers. Sequence ordering prevents an initial snapshot from replacing a
+  newer callback. Unsubscription waits for an in-flight callback to finish.
+  Destruction on the model owner cancels already queued notifications before
+  unloading its Node; cancelled work does not even resolve the target object.
+  Callbacks enqueue work and must not destroy their own subscription.
+
+Windows observer
+  Uses NLM connectivity notifications and a protected initial snapshot, not a
+  connectivity polling timer. It reports active network connectivity and Windows'
+  Internet classification. It is not a physical NIC inventory or a guarantee of
+  reachability of any particular server. The transport owns server connection
+  facts and responds to restoration by retrying its connection promptly.
+
+Aether composition
+------------------
+OpenAetherConnection creates a worker-affine SDK identity. MakeAetherTransport
+and MakeAetherPresence share it when selected together; all adapters are created
+before servicing begins. A presence-only Aether connection can instead accompany
+another transport implementation. The hub shares one provider across channels
+and drops native query interests when their final channel closes.
+
+The implemented native source observes Endpoint presence. It does not claim that
+an application or graph is open. Heartbeat-based Application/Graph providers and
+the router protocol are future adapters, not simulated native Aether presence.
+Existing SDK query freshness, timeout and Unknown semantics are preserved.
+
+Application composition
+-----------------------
+An application owns ProcessServices and ConnectionHub. Each loaded graph leases
+hub.OpenChannel(stable_graph_key), wraps it in ConnectionRuntime and supplies its
+transport to SharedSyncRuntime. It adds ConnectionState in its supply builder,
+binds process events with ConnectionModelBinding, and commits ObserveSession when
+adapter/synchronization facts change. A presenter chooses a product-specific short
+status from those facts. There is deliberately no universal four-state UI enum.
+
+ChatSession is a consumer: room membership and text Events stay there. It accepts
+an adapter factory and does not own an Aether SDK. Its default Aether composition
+serves existing callers; Windows applications can inject process-hub channels.
+Changing a UI composition does not change SharedNode ACK/retry semantics.
+
+Persistence and schema
+----------------------
+ConnectionState uses the current S0 schema with explicit builder defaults. No
+old application-profile readers, migrations or compatibility frame variants are
+introduced. Existing library protocol/version guards remain library concerns.
+Local UI USER persistence and the graph owner's durable ACK storage remain
+separate responsibilities; the runtime does not invent a new file manager.
+
+Verification
+------------
+tests/connection_runtime_test.cpp checks independent data/presence addresses,
+LAN transport without Internet, monotonic expiry despite a UTC jump, semantic
+scope separation, shared connections/interests, channel isolation, backpressure
+fairness, unload/reopen including an in-flight service turn, queued model Events,
+one OS source per process, subscription teardown, cold last-seen/reset, and a
+catalog SharedNode with a dropped frame, retry and durable ACK without presence.
+
+Platform and application acceptance is recorded separately. A portable contract
+and a passing headless test are not evidence of Android/browser runtime support.

@@ -1,3 +1,4 @@
+#include "apptraverse/memory_link.h"
 #include <cassert>
 #include <cstdint>
 #include <cstdlib>

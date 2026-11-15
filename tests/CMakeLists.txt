@@ -1943,3 +1943,7 @@ if(EMSCRIPTEN)
       "APPTRAVERSE_FIXTURE_NODE=${CMAKE_CROSSCOMPILING_EMULATOR}")
   endforeach()
 endif()
+
+add_executable(apptraverse_connection_runtime_test connection_runtime_test.cpp)
+target_link_libraries(apptraverse_connection_runtime_test PRIVATE apptraverse_shared_node)
+add_test(NAME apptraverse_connection_runtime_test COMMAND apptraverse_connection_runtime_test)

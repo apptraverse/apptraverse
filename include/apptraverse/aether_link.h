@@ -13,7 +13,7 @@
 #include "aether/ae_context.h"
 #include "aether/client.h"
 #include "aether/remote_presence.h"
-#include "apptraverse/memory_link.h"
+#include "apptraverse/byte_link.h"
 
 namespace apptraverse {
 
@@ -21,6 +21,7 @@ struct AetherLinkOptions {
   // Disabled by default: send without availability observations and let the
   // durable SharedSync ACK/retry loop establish delivery.
   bool use_presence{false};
+  bool explicit_presence_watches{false};
   // Observe status without blocking durable delivery on an Unknown result.
   bool gate_delivery_on_presence{true};
   std::uint64_t presence_query_interval_us{1000000};
@@ -42,6 +43,7 @@ class AetherPresenceSnapshot {
   void Observe(ae::Result<ae::PeerPresence, int> const& result,
                std::uint64_t query_started_us);
   void Forget();
+  std::uint64_t QueryStarted() const { return query_started_us_.value_or(0); }
   LinkAvailability Availability(bool locally_online, std::uint64_t now_us,
                                 std::uint64_t ttl_us) const;
 
@@ -98,6 +100,7 @@ class AetherByteLink final : public IByteLink {
 
   std::string const& EndpointId() const;
   bool WatchPeer(std::string const& endpoint);
+  void SetPresenceWatch(std::string const& endpoint,bool enabled);
   void NetworkAvailable();
   void Service(std::uint64_t now_us);
   void SetReceiver(Receiver receiver) override;
@@ -105,6 +108,7 @@ class AetherByteLink final : public IByteLink {
             std::vector<std::uint8_t> const& bytes) override;
   LinkAvailability Availability(std::string const& destination) const override;
   LinkAvailability ObservedPresence(std::string const& destination) const;
+  std::uint64_t PresenceQueryStarted(std::string const& destination) const;
   AetherLinkStatistics const& stats() const;
   AetherLinkStatistics PeerStats(std::string const& destination) const;
 

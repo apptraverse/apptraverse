@@ -91,6 +91,7 @@ struct AetherByteLink::Impl {
                                                max_message_bytes}} {}
     ae::Uid uid;
     AetherPresenceSnapshot presence;
+    bool presence_watched{false};
     std::uint64_t next_query_us{0};
     bool clock_started{false};
     std::uint64_t generation{0};
@@ -228,7 +229,7 @@ struct AetherByteLink::Impl {
     }
     for (std::size_t count = 0; count < peers.size(); ++count) {
       auto& peer = *next->second;
-      if (&peer != query_peer && now_us >= peer.next_query_us) {
+      if ((!options.explicit_presence_watches || peer.presence_watched) && &peer != query_peer && now_us >= peer.next_query_us) {
         query_sub.Reset();
         last_queried = next->first;
         query_peer = &peer;
@@ -428,6 +429,9 @@ std::string const& AetherByteLink::EndpointId() const {
 bool AetherByteLink::WatchPeer(std::string const& endpoint) {
   return impl_->Watch(endpoint) != nullptr;
 }
+void AetherByteLink::SetPresenceWatch(std::string const& endpoint,bool enabled) {
+  if(auto* peer=impl_->Watch(endpoint)){peer->presence_watched=enabled;if(!enabled)peer->presence.Forget();}
+}
 void AetherByteLink::NetworkAvailable() {
   for (auto const& [key, peer] : impl_->peers) peer->presence.Forget();
   // A confirmation from the old route cannot establish online on the new one.
@@ -512,6 +516,10 @@ LinkAvailability AetherByteLink::ObservedPresence(
   auto const found = impl_->peers.find(UidText(uid));
   return found == impl_->peers.end() ? LinkAvailability::Unknown
                                      : impl_->Availability(*found->second);
+}
+std::uint64_t AetherByteLink::PresenceQueryStarted(std::string const& destination) const {
+  auto it=impl_->peers.find(destination);
+  return it==impl_->peers.end()?0:it->second->presence.QueryStarted();
 }
 AetherLinkStatistics const& AetherByteLink::stats() const {
   return impl_->statistics;

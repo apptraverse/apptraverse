@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "apptraverse/connection_runtime.h"
 
 namespace apptraverse::chat {
 
@@ -32,6 +33,7 @@ struct ChatMessageView {
 };
 
 struct ChatView {
+  SessionObservation connection;
   std::string local_uid;
   std::string invite;
   std::string status;
@@ -60,10 +62,12 @@ class ChatSession {
   using PrepareProfile = std::function<bool()>;
   // Platform durability barrier, called on the model worker before an ACK.
   using FlushProfile = std::function<bool()>;
+  using AdaptersFactory = std::function<ConnectionAdapters(std::filesystem::path const&)>;
   ChatSession(std::filesystem::path profile, std::string name,
               Changed changed = {});
   ChatSession(std::filesystem::path profile, std::string name, Changed changed,
-              PrepareProfile prepare_profile, FlushProfile flush_profile = {});
+              PrepareProfile prepare_profile, FlushProfile flush_profile = {},
+              AdaptersFactory adapters = {});
   ~ChatSession();
   ChatSession(ChatSession const&) = delete;
   ChatSession& operator=(ChatSession const&) = delete;
@@ -71,7 +75,7 @@ class ChatSession {
   void Start();
   void Stop();
   // OS connectivity observation, queued onto the SDK/model worker.
-  void NetworkAvailability(bool available);
+  void NetworkChanged(NetworkObservation observation);
   // Ordered model-worker checkpoint; completion runs there after USER is durable.
   // Keeps the model, transport and presenters alive during native deactivation.
   void Checkpoint(std::function<void(bool)> completion);

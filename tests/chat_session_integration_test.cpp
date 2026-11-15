@@ -1,3 +1,4 @@
+#include "apptraverse/memory_link.h"
 // End-to-end ChatSession scenarios: public commands, TryTakeUiUpdate, and a
 // separate UI-test Domain (LoadInitial + ApplyStructural). SharedSyncRuntime
 // protocol ordering (binding-before-ACK, duplicate NodeState) is in

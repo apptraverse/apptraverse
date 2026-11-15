@@ -107,6 +107,10 @@ option(APPTRAVERSE_BUILD_LEGACY_EXAMPLES
   "Build historical demos (main window, dynamic objects) and their tests" OFF)
 option(APPTRAVERSE_BUILD_LINUX_GUI "Build Linux GTK hosts and native GUI tests" ON)
 add_library(apptraverse STATIC
+  src/connection_state.cpp
+  src/connection_hub.cpp
+  src/connection_runtime.cpp
+  src/process_services.cpp
   src/apptraverse.cpp
   src/object_registration.cpp
   src/noninteractive_crt.cpp
@@ -187,6 +191,10 @@ endif()
 
 if(WIN32)
   target_compile_definitions(apptraverse PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
+  add_library(apptraverse_win32_support STATIC src/platform/windows/win32_fatal.cpp)
+  target_link_libraries(apptraverse_win32_support PUBLIC apptraverse)
+  add_library(apptraverse_network_windows STATIC src/platform/windows/win_network_observer.cpp)
+  target_link_libraries(apptraverse_network_windows PUBLIC apptraverse_win32_support ole32 uuid)
   add_library(apptraverse_ui_windows STATIC
     src/platform/windows/win_ui_utf8.cpp
     src/platform/windows/win_ui_frame.cpp
@@ -195,13 +203,12 @@ if(WIN32)
     src/platform/windows/win_ui_presenters.cpp
     src/platform/windows/win_ui_registration.cpp
     src/platform/windows/win_window_registration.cpp
-    src/platform/windows/win32_fatal.cpp
     src/platform/windows/win_application_message_host.cpp
     src/platform/windows/win_application_loading_window.cpp
     src/platform/windows/win_application_host.cpp
   )
   target_link_libraries(apptraverse_ui_windows PUBLIC
-    apptraverse user32 gdi32 comctl32)
+    apptraverse apptraverse_win32_support user32 gdi32 comctl32)
 endif()
 
 # Android presenter classes without their JNI Views: the build-host exporter

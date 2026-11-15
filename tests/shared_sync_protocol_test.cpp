@@ -1,3 +1,4 @@
+#include "apptraverse/memory_link.h"
 // SharedSyncRuntime + MemoryNetwork protocol-level coverage. ChatSession
 // end-to-end scenarios live in chat_session_integration_test.cpp.
 #include <chrono>
