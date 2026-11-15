@@ -1,0 +1,79 @@
+plugins { id 'application' }
+repositories {
+  mavenCentral()
+  maven { url = uri('https://nexus.aethernet.io/maven/releases/') }
+}
+java { sourceCompatibility = JavaVersion.VERSION_25; targetCompatibility = JavaVersion.VERSION_25 }
+application {
+  mainClass = 'io.apptraverse.push.Main'
+  applicationDefaultJvmArgs = ['--enable-native-access=ALL-UNNAMED']
+}
+dependencies {
+  implementation 'io.aether:cloud-client:0.0.86'
+  runtimeOnly 'io.aether:net-virtual:0.0.101'
+  runtimeOnly 'io.aether.crypto:hydrogen-fast:0.0.99'
+  if (System.getProperty('os.name').toLowerCase().contains('windows')) runtimeOnly 'dev.onvoid.webrtc:webrtc-java:0.20.0:windows-x86_64'
+  if (System.getProperty('os.name').toLowerCase().contains('mac')) {
+    def arch = System.getProperty('os.arch').toLowerCase() in ['aarch64', 'arm64'] ? 'aarch64' : 'x86_64'
+    runtimeOnly "dev.onvoid.webrtc:webrtc-java:0.20.0:macos-${arch}"
+  }
+  implementation 'com.google.firebase:firebase-admin:9.7.0'
+  implementation 'org.xerial:sqlite-jdbc:3.49.1.0'
+  testImplementation 'org.junit.jupiter:junit-jupiter:5.10.0'
+  testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.0'
+}
+test { useJUnitPlatform() }
+
+tasks.register('liveTransportProbe', JavaExec) {
+  dependsOn testClasses
+  classpath = sourceSets.test.runtimeClasspath
+  mainClass = 'io.apptraverse.push.LiveTransportProbe'
+  jvmArgs '--enable-native-access=ALL-UNNAMED'
+  args providers.gradleProperty('probeDir').getOrElse('build/live-transport')
+}
+
+// The published Hydrogen FFM jar embeds Linux's .so. Build the same
+// pinned implementation for Windows and macOS distributions.
+def nativeOs = System.getProperty('os.name').toLowerCase()
+if (nativeOs.contains('windows') || nativeOs.contains('mac')) {
+  def nativeBuild = layout.buildDirectory.dir('native').get().asFile
+  def nativeOut = new File(nativeBuild, 'out')
+  def windows = nativeOs.contains('windows')
+  def libraryName = windows ? 'hydrogen.dll' : 'libhydrogen.dylib'
+  tasks.register('configureNativeCrypto', Exec) {
+    inputs.file 'native/CMakeLists.txt'
+    outputs.file new File(nativeBuild, 'CMakeCache.txt')
+    commandLine windows
+      ? ['cmake', '-S', file('native'), '-B', nativeBuild, '-G', 'Visual Studio 17 2022', '-A', 'x64']
+      : ['cmake', '-S', file('native'), '-B', nativeBuild]
+    if (project.hasProperty('hydrogenSource')) args '-DHYDROGEN_SOURCE='+project.property('hydrogenSource')
+  }
+  tasks.register('buildNativeCrypto', Exec) {
+    dependsOn 'configureNativeCrypto'
+    inputs.file 'native/CMakeLists.txt'
+    outputs.file new File(nativeOut, libraryName)
+    commandLine 'cmake', '--build', nativeBuild, '--config', 'Debug', '--target', 'hydrogen'
+  }
+  tasks.named('run', JavaExec) {
+    dependsOn 'buildNativeCrypto'
+    jvmArgs '-Djava.library.path='+nativeOut.absolutePath
+  }
+  tasks.named('liveTransportProbe', JavaExec) {
+    dependsOn 'buildNativeCrypto'
+    jvmArgs '-Djava.library.path='+nativeOut.absolutePath
+  }
+  distributions.main.contents {
+    from(nativeOut) { into 'lib/native' }
+  }
+  tasks.named('installDist') { dependsOn 'buildNativeCrypto' }
+  tasks.named('distZip') { dependsOn 'buildNativeCrypto' }
+  tasks.named('distTar') { dependsOn 'buildNativeCrypto' }
+  tasks.named('startScripts') {
+    doLast {
+      windowsScript.text = windowsScript.text.replace('set DEFAULT_JVM_OPTS=',
+        'set DEFAULT_JVM_OPTS="-Djava.library.path=%APP_HOME%\\lib\\native" ')
+      windowsScript.text = windowsScript.text.replaceAll(/(?m)^set CLASSPATH=.*$/, 'set CLASSPATH=%APP_HOME%/lib/*')
+      unixScript.text = unixScript.text.replace('DEFAULT_JVM_OPTS=', 'DEFAULT_JVM_OPTS="-Djava.library.path=$APP_HOME/lib/native" ')
+    }
+  }
+}
