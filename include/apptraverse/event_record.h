@@ -12,7 +12,8 @@ namespace apptraverse {
 
 // Single authoritative journal entry.
 //
-// - order.timestamp_us is the only thing that decides journal position.
+// - order.timestamp_us is the primary journal position. Equal timestamps use
+//   the serialized Event ID as an explicit deterministic tie-breaker.
 // - retained_since_us is local replica bookkeeping for age retention. It is
 //   neither order nor a logical Event identity.
 struct EventRecord {
@@ -23,12 +24,16 @@ struct EventRecord {
   AE_REFLECT_MEMBERS(event, order, retained_since_us)
 };
 
-// Journal position, and only that. Retention bookkeeping is not consulted, so
-// records with equal timestamps compare equal in both directions and whatever
-// a container algorithm does with them is local implementation behavior.
+// Journal position only; retention bookkeeping is never consulted. Shared
+// replicas receive the same Event ID, so equal-time arrival order cannot
+// change replay order. Per-author indexes remain delivery cursors, not order.
 inline bool EventRecordOrderLess(EventRecord const& a,
                                  EventRecord const& b) noexcept {
-  return EventOrderLess(a.order, b.order);
+  if (a.order.timestamp_us != b.order.timestamp_us) {
+    return EventOrderLess(a.order, b.order);
+  }
+  return (a.event.is_valid() ? a.event.id() : ae::ObjId{}) <
+         (b.event.is_valid() ? b.event.id() : ae::ObjId{});
 }
 
 }  // namespace apptraverse

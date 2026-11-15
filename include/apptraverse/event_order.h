@@ -7,9 +7,8 @@
 
 namespace apptraverse {
 
-// Journal position for a local Event record: timestamp in microseconds only.
-// Two different Events may share the same timestamp; tie-breaking by insertion
-// index is local implementation behavior, not a global rule.
+// Primary journal position: timestamp in microseconds. EventRecordOrderLess
+// explicitly resolves equal timestamps by serialized Event ID.
 struct EventOrder {
   std::uint64_t timestamp_us{0};
 

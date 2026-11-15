@@ -501,10 +501,7 @@ class Node : public ae::Obj {
       record.retained_since_us = SystemUtcMicros();
     }
 
-    // A record with a timestamp already present lands before the records that
-    // carry it. That is what lower_bound does on this replica, not an agreed
-    // rule: where equal timestamps end up relative to each other is still an
-    // open question, and another replica may place them the other way round.
+    // Equal timestamps are ordered by the serialized Event ID on every replica.
     auto position = std::lower_bound(journal.begin(), journal.end(), record,
                                      EventRecordOrderLess);
 

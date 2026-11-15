@@ -120,7 +120,8 @@ struct ApplePresentation:Presentation {
   NSMutableDictionary* result=[windowState mutableCopy];
   if(!result){apptraverse::WriteFatalStderr("chat window presenter missing\n");std::abort();}
   [result addEntriesFromDictionary:@{@"loaded":@YES,@"controls":[controls copy],@"labels":labels,@"title":Text(model->Title()),
-    @"uid":Text(data.uid),@"invite":Text(model->editing.invite),@"status":Text(model->Get(Control::Status).text),
+    @"uid":Text(data.uid),@"invite":Text(model->editing.invite),
+    @"editRevision":@(model->editing.revision),@"status":Text(model->Get(Control::Status).text),
     @"ready":@(data.ready),@"in_room":@(data.in_room),@"online":@(data.online),@"host":@(model->editing.host),
     @"tcp":@(diagnostics.tcp_path_verified),@"pending":@(diagnostics.pending_packets),
     @"pending_progress":@(diagnostics.pending_progress_packets),

@@ -20,8 +20,14 @@ struct ChatControlView {
 final class ChatPresenter: ObservableObject {
     private(set) var role: ChatRole
     @Published var controls: [ChatControlView] = []
-    @Published var input = "" { didSet { if !applying { bridge.editDraft(input) } } }
-    @Published var invite = "" { didSet { if !applying { bridge.editInvite(invite) } } }
+    @Published var input = "" { didSet {
+        if !applying { submittedEdit = max(submittedEdit, acknowledgedEdit) + 1
+            pendingInput = submittedEdit; bridge.editDraft(input) }
+    } }
+    @Published var invite = "" { didSet {
+        if !applying { submittedEdit = max(submittedEdit, acknowledgedEdit) + 1
+            pendingInvite = submittedEdit; bridge.editInvite(invite) }
+    } }
     @Published var title = ""
     @Published var uid = ""
     @Published var status = ""
@@ -35,6 +41,10 @@ final class ChatPresenter: ObservableObject {
     var hasExplicitPlacement = false
     var chromeChanged: (() -> Void)?
     private var applying = false
+    private var submittedEdit: UInt64 = 0
+    private var acknowledgedEdit: UInt64 = 0
+    private var pendingInput: UInt64 = 0
+    private var pendingInvite: UInt64 = 0
     private var bridge: ATChatBridge!
     private(set) var stopped = false
     #if CHAT_ACCEPTANCE
@@ -85,7 +95,12 @@ final class ChatPresenter: ObservableObject {
         guard value["loaded"] as! Bool else { return }
         applying = true
         controls = (value["controls"] as! [[String: Any]]).map(ChatControlView.init)
-        input = controls[9].text; invite = controls[3].text
+        acknowledgedEdit = (value["editRevision"] as! NSNumber).uint64Value
+        submittedEdit = max(submittedEdit, acknowledgedEdit)
+        // Keep the native text field and caret until the model has consumed
+        // its latest edit. Avoid assigning unchanged text to the binding.
+        if acknowledgedEdit >= pendingInput && input != controls[9].text { input = controls[9].text }
+        if acknowledgedEdit >= pendingInvite && invite != controls[3].text { invite = controls[3].text }
         labels = value["labels"] as! [String]; title = value["title"] as! String
         uid = value["uid"] as! String; status = value["status"] as! String
         participants = value["participants"] as! [String]; messages = value["messages"] as! [String]
