@@ -20,6 +20,10 @@ public final class LiveTransportProbe {
         phone.set(sender);status=0;
         if(p.value().endsWith("-rotated"))try{Files.writeString(directory.resolve("token-rotated"),"registered");}catch(java.io.IOException e){throw new RuntimeException(e);}
       }
+      if(p.method()==3&&phone.get()!=null&&sender.equals(phone.get())) {
+        ApplePush.Address.parse(p.value());status=0;
+        try{Files.writeString(directory.resolve("apple-registered"),"registered");}catch(java.io.IOException e){throw new RuntimeException(e);}
+      }
       if(p.method()==2&&phone.get()!=null&&p.value().equals(phone.get().toString())&&!sender.equals(phone.get())){status=0;
         try{Files.writeString(directory.resolve("notify-"+notifications.incrementAndGet()),"received");}catch(java.io.IOException e){throw new RuntimeException(e);}
         delivered.countDown();}

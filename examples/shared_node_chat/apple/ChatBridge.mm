@@ -81,6 +81,7 @@ struct ApplePresentation:Presentation {
     @"visible":@(state.visible),@"readOnly":@(state.read_only),@"x":@(state.frame.x),
     @"y":@(state.frame.y),@"width":@(state.frame.width),@"height":@(state.frame.height)};
 }
+- (void)registerApplePushToken:(NSString*)token {if(!stopped)session->RegisterPushToken(Utf8(token),true);}
 - (BOOL)start {
   if(stopped)return NO;if(started)return YES;
   std::error_code error;std::filesystem::create_directories(profile.fileSystemRepresentation,error);

@@ -10,7 +10,7 @@ endif()
 set_source_files_properties(../apple/ChatBridge.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc -fno-objc-exceptions")
 add_library(apptraverse_chat_ios_bridge STATIC ../apple/ChatBridge.mm)
 target_link_libraries(apptraverse_chat_ios_bridge PRIVATE apptraverse_shared_chat_ui "-framework Foundation")
-add_library(apptraverse_chat_ios_swift STATIC ../apple/ChatPresenter.swift ChatMain.swift)
+add_library(apptraverse_chat_ios_swift STATIC ../apple/ChatPush.swift ../apple/ChatPresenter.swift ChatMain.swift)
 set_target_properties(apptraverse_chat_ios_swift PROPERTIES Swift_MODULE_NAME ChatIos)
 target_compile_options(apptraverse_chat_ios_swift PRIVATE
   "SHELL:-import-objc-header ${CMAKE_CURRENT_SOURCE_DIR}/../apple/ChatBridge.h")
@@ -23,9 +23,12 @@ set_target_properties(shared_node_chat PROPERTIES
   MACOSX_BUNDLE_SHORT_VERSION_STRING "0.1"
   MACOSX_BUNDLE_BUNDLE_VERSION "1")
 target_link_libraries(shared_node_chat PRIVATE apptraverse_chat_ios_swift
-  apptraverse_chat_ios_bridge apptraverse_shared_chat_session "-framework UIKit" "-framework SwiftUI")
+  apptraverse_chat_ios_bridge apptraverse_shared_chat_session "-framework UIKit" "-framework SwiftUI" "-framework UserNotifications")
 get_filename_component(_swift_bin_dir ${CMAKE_Swift_COMPILER} DIRECTORY)
 target_link_options(shared_node_chat PRIVATE
   -L${CMAKE_OSX_SYSROOT}/usr/lib/swift
   -L${_swift_bin_dir}/../lib/swift/${_apptraverse_ios_swift_platform}
   -Wl,-rpath,/usr/lib/swift)
+
+set(_push_plist Info.plist)
+include(${PROJECT_SOURCE_DIR}/cmake/apple_chat_push.cmake)

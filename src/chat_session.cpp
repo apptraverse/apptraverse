@@ -432,6 +432,7 @@ class ChatLink final : public IByteLink {
 struct ChatSession::Impl {
   std::string push_service, push_token;
   std::string registered_token;
+  bool apple_push{};
   std::uint64_t push_request{1}, registration_request{}, next_registration{};
   push::Reader push_reader;
   // A short burst must not lose every request after the transport's single
@@ -444,7 +445,7 @@ struct ChatSession::Impl {
     if(push_service.empty()||!native)return;
     if(!push_token.empty()&&registered_token!=push_token&&now>=next_registration){
       if(!registration_request)registration_request=push_request++;
-      if(native->Send(push_service,push::Encode({1,registration_request,push_token})))
+      if(native->Send(push_service,push::Encode({static_cast<std::uint8_t>(apple_push?3:1),registration_request,push_token})))
         next_registration=now+5000000;
     }
     if(!push_notifications.empty()&&native->Send(push_service,push::Encode(push_notifications.front())))
@@ -974,7 +975,7 @@ struct ChatSession::Impl {
           native->ConfigureRawService(push_service,
               [this](auto const&, auto const& bytes) {
                 bool const valid = push_reader.Feed(bytes, [this](push::Packet const& p) {
-                  if (p.method == 0x81 && p.request == registration_request && p.status == 0)
+                  if (p.method == (apple_push?0x83:0x81) && p.request == registration_request && p.status == 0)
                     registered_token = push_token;
                   if (p.method == 0x82 && p.request > push_notify_request && p.request < push_request) {
                     push_notify_status = p.status;
@@ -1089,15 +1090,16 @@ void ChatSession::ConfigurePush(std::string uid) {
   std::transform(uid.begin(),uid.end(),uid.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});
   impl_->push_service=std::move(uid);
 }
-void ChatSession::RegisterPushToken(std::string token) {
+void ChatSession::RegisterPushToken(std::string token, bool apple) {
   if(token.empty()||token.size()>push::kMaxValue||!push::ValidUtf8(token)){
     std::cerr<<"Rejected invalid push token\n";
     return;
   }
-  impl_->proxy.EnqueueModelWork([impl=impl_.get(),token=std::move(token)](ae::Domain&){
+  impl_->proxy.EnqueueModelWork([impl=impl_.get(),token=std::move(token),apple](ae::Domain&){
     // onResume fetches the current token again. Preserve an existing ACK or
     // in-flight request when it has not actually changed.
-    if(impl->push_token==token)return;
+    if(impl->push_token==token&&impl->apple_push==apple)return;
+    impl->apple_push=apple;
     impl->push_token=token;impl->registered_token.clear();impl->registration_request=0;impl->next_registration=0;
     impl->view_dirty=true;
   });

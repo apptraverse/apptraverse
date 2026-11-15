@@ -31,6 +31,8 @@ int main(int argc,char** argv){
   phone.RegisterPushToken("transport-probe-token"); // unchanged token keeps its ACK
   phone.RegisterPushToken("transport-probe-token-rotated");
   if(!wait([&]{return std::filesystem::exists(dir/"token-rotated")&&phone.View().push_registered;}))return 12;
+  phone.RegisterPushToken("sandbox|org.apptraverse.SharedNodeChat.macos|aabb",true);
+  if(!wait([&]{return std::filesystem::exists(dir/"apple-registered")&&phone.View().push_registered;}))return 13;
   // All three commands enter the same worker drain before the link can write.
   // The old direct-send implementation dropped the second and third requests.
   windows.NotifyPushPeers();windows.NotifyPushPeers();windows.NotifyPushPeers();

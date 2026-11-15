@@ -1,3 +1,15 @@
+## Apple native APNs integration — 2026-11-15 — CODE/TRANSPORT PASS, APNs NOT VERIFIED
+
+Based on main `7fed1d64`: shared macOS/iOS native notification lifecycle and
+model-queued token registration; new v1 method 3/0x83; Java APNs HTTP/2 ES256
+provider alongside unchanged FCM. Apple-only service can run without Firebase ADC.
+Native macOS Debug build PASS, 3/3 CTests PASS, full JDK25 service distribution
+and 11/11 tests PASS, real Java/C++ Aether registration/Notify probe PASS including
+APNs registration ACK and idle/burst. iOS Swift type-check PASS only; no new iOS
+binary/UI run. Real APNs registration/display requires signing identities and
+provider key, unavailable here; not claimed PASS. Windows not built.
+[Build/signing instructions and evidence](../validation/apple-push-2026-11-15.md).
+
 ## SharedNode queued sends — 2026-11-14
 
 Send stays enabled during local commits. Submission captures its text, clears

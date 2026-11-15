@@ -23,7 +23,7 @@ int main(){
          !parts.Feed(Bytes(frame.begin()+split,frame.end()),accept)||received!=1)return 7;
     }
   }
-  if(!Encode({1,1,std::string(2049,'x')}).empty()||!Encode({3,1,""}).empty()||!Encode({129,1,"",3}).empty())return 8;
+  if(!Encode({1,1,std::string(2049,'x')}).empty()||!Encode({4,1,""}).empty()||!Encode({129,1,"",3}).empty())return 8;
   for(auto const& invalid:std::vector<std::string>{"\xc0\x80","\xed\xa0\x80","\xf4\x90\x80\x80","\xf0\x9f","\x80"}){
     if(!Encode({1,1,invalid}).empty())return 9;
     auto frame=Encode({1,1,std::string(invalid.size(),'x')});
@@ -37,6 +37,10 @@ int main(){
     if(recovering.Feed(malformed,[&](auto const&){++received;}))return 12;
     if(!recovering.Feed(ack,[&](auto const&){++received;})||received!=1)return 13;
   }
+  auto apple=Encode({3,42,"sandbox|org.apptraverse.SharedNodeChat.ios|aabb"});
+  if(!Decode(apple,packet)||packet.method!=3||packet.request!=42)return 15;
+  auto appleAck=Encode({0x83,42,"",0});
+  if(!Decode(appleAck,packet)||packet.method!=0x83)return 16;
   Reader reopened;int received=0;
   reopened.Feed(Bytes(ack.begin(),ack.begin()+8),[&](auto const&){++received;});
   reopened.Reset();

@@ -1,8 +1,17 @@
 import SwiftUI
 import UIKit
 
+final class PhonePushDelegate: NSObject, UIApplicationDelegate {
+    var push: ChatPush?
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) { push?.token(token) }
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        NSLog("APNs registration failed: %@", error.localizedDescription)
+    }
+}
+
 final class PhoneChatHost: ObservableObject {
     let presenter: ChatPresenter
+    lazy var push = ChatPush(register: { [weak self] in self?.presenter.registerApplePushToken($0) }, open: {})
     private var started = false
     private var checkpointGeneration: UInt64 = 0
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
@@ -62,12 +71,14 @@ struct PhoneChatView: View {
 
 @main
 struct PhoneChatApp: App {
+    @UIApplicationDelegateAdaptor(PhonePushDelegate.self) private var delegate
     @StateObject private var host = PhoneChatHost()
     @Environment(\.scenePhase) private var scenePhase
     var body: some Scene {
         WindowGroup {
-            PhoneChatView(presenter: host.presenter).task { host.start() }
+            PhoneChatView(presenter: host.presenter).task { host.start(); delegate.push = host.push; host.push.start() }
                 .onChange(of: scenePhase) { _, phase in
+                    if phase == .active { host.push.active() }
                     if phase == .inactive || phase == .background { host.checkpoint() }
                 }
         }

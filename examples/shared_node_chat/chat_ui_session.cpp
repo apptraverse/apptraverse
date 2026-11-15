@@ -129,7 +129,7 @@ Session::Session(std::filesystem::path profile,std::string name,bool host,
       std::move(initial_host),std::move(changed),load_only,std::move(flush_transport),std::move(transport_profile))}{}
 Session::~Session(){Stop();}
 void Session::ConfigurePush(std::string uid){impl_->transport.ConfigurePush(std::move(uid));}
-void Session::RegisterPushToken(std::string token){impl_->transport.RegisterPushToken(std::move(token));}
+void Session::RegisterPushToken(std::string token,bool apple){impl_->transport.RegisterPushToken(std::move(token),apple);}
 void Session::Start(){
   if(impl_->started||impl_->stopping.load())return;
 #if defined(_WIN32)

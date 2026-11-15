@@ -1,0 +1,8 @@
+if(NOT ENVIRONMENT)
+  execute_process(COMMAND /usr/libexec/PlistBuddy -c "Delete :ATPushEnvironment" "${PLIST}" OUTPUT_QUIET ERROR_QUIET)
+  return()
+endif()
+execute_process(COMMAND /usr/libexec/PlistBuddy -c "Set :ATPushEnvironment ${ENVIRONMENT}" "${PLIST}" RESULT_VARIABLE result OUTPUT_QUIET ERROR_QUIET)
+if(result)
+  execute_process(COMMAND /usr/libexec/PlistBuddy -c "Add :ATPushEnvironment string ${ENVIRONMENT}" "${PLIST}" COMMAND_ERROR_IS_FATAL ANY)
+endif()

@@ -115,11 +115,12 @@ No host struct layouts, native UUID encodings or Java serialization.
 | 0..3 | ASCII `ATPN` |
 | 4..5 | Total frame length, including header, at most 4096 |
 | 6 | Version, currently 1 |
-| 7 | Method: 1 Register, 2 Notify, 0x81/0x82 corresponding response |
+| 7 | Method: 1 FCM Register, 2 Notify, 3 APNs Register; 0x81/0x82/0x83 response |
 | 8..15 | Request ID, u64; echoed in response |
 | 16.. | Request: u16 length + string (max 2048 bytes); response: one status byte |
 
-Register's string is the FCM token; its owner is the authenticated sender UID.
+Method 1's string is the FCM token; method 3's string is the APNs address
+described below. Its owner is the authenticated sender UID.
 Notify's string is the target UID in canonical UUID text. Responses: 0 means
 registration stored or FCM accepted the message, 1 rejected/target missing,
 2 provider/storage failure or temporary service overload. Success does **not**
@@ -179,3 +180,12 @@ Use a fresh directory on each run; it contains private SDK identity files.
 Current results are in [validation](../../docs/validation/push-service-2026-11-14.md).
 The follow-up [code review](../../docs/validation/push-review-2026-11-14.md)
 records the foreground, badge and Windows input fixes and their executed checks.
+
+## Native Apple clients
+
+macOS and iOS use native APNs. Protocol v1 method 3 (response 0x83) registers
+`sandbox|bundle.identifier|lowercase-hex-token` or the production equivalent.
+Method 1 remains FCM. Service configuration: `APNS_KEY_FILE`, `APNS_TEAM_ID`,
+`APNS_KEY_ID`; use `PUSH_FCM_ENABLED=false` for Apple-only without Firebase ADC.
+Both providers use the same Notify method and sender allowlist. See
+[Apple build/signing and validation](../../docs/validation/apple-push-2026-11-15.md).

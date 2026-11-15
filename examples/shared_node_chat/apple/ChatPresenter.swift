@@ -45,6 +45,7 @@ final class ChatPresenter: ObservableObject {
         bridge = ATChatBridge(profile: profile, name: name, host: role == .host, initialHost: initialHost,
                               loadOnly: CommandLine.arguments.contains("--load-only")) { [weak self] in self?.refresh() }
     }
+    func registerApplePushToken(_ token: String) { bridge.registerApplePushToken(token) }
     func start() -> Bool { bridge.start() }
     func checkpoint(_ completion: @escaping (Bool) -> Void) { bridge.checkpoint(completion) }
     func stop() { guard !stopped else { return }; stopped = true; bridge.stop() }

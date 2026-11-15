@@ -10,6 +10,15 @@ struct ChatView: View {
 // are SwiftUI. No UI refresh timer; the bridge delivers changed publications.
 final class ChatHost: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let presenter: ChatPresenter
+    private lazy var push = ChatPush(register: { [weak self] in self?.presenter.registerApplePushToken($0) },
+                                    open: { [weak self] in
+        self?.window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+    })
+    func application(_ application: NSApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) { push.token(token) }
+    func application(_ application: NSApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        NSLog("APNs registration failed: %@", error.localizedDescription)
+    }
+    func applicationDidBecomeActive(_ notification: Notification) { push.active() }
     private var nativeSizeApplied = false
     private var menuLabels: [String] = []
     var window: NSWindow!
@@ -53,6 +62,7 @@ final class ChatHost: NSObject, NSApplicationDelegate, NSWindowDelegate {
             fputs("Cannot open chat profile or it is already in use\n", stderr)
             presenter.stop(); exit(2)
         }
+        push.start()
         #if CHAT_ACCEPTANCE
         installCommands()
         #endif

@@ -80,7 +80,7 @@ class ChatSession {
 
   // Configure before Start; token updates may arrive from the Android SDK thread.
   void ConfigurePush(std::string service_uid);
-  void RegisterPushToken(std::string token);
+  void RegisterPushToken(std::string token, bool apple = false);
   void NotifyPushPeers();
   void Start();
   void Stop();

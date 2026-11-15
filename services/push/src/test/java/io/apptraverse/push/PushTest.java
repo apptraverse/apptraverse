@@ -50,7 +50,7 @@ class PushTest {
     }
     assertThrows(IllegalArgumentException.class,()->Protocol.encode(new Protocol.Packet(1,1,"x".repeat(2049),0)));
     assertThrows(IllegalArgumentException.class,()->Protocol.encode(new Protocol.Packet(1,1,"\ud800",0)));
-    assertThrows(IllegalArgumentException.class,()->Protocol.encode(new Protocol.Packet(3,1,"",0)));
+    assertThrows(IllegalArgumentException.class,()->Protocol.encode(new Protocol.Packet(4,1,"",0)));
     assertThrows(IllegalArgumentException.class,()->Protocol.encode(new Protocol.Packet(129,1,"",3)));
   }
   @Test void malformedFramesAndReaderRecovery(){
