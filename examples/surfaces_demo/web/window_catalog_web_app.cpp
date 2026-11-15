@@ -1,3 +1,4 @@
+#include "apptraverse/platform/web/web_js_handle.h"
 #include "window_catalog_web_app.h"
 
 #include <string>
@@ -32,12 +33,12 @@ ae::ObjId CatalogRootId() {
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
 }
 
-EM_JS(emscripten::EM_VAL, ApptraverseCatalogGetMountElement, (), {
+APPTRAVERSE_EM_JS_HANDLE(ApptraverseCatalogGetMountElement, (), (), {
   return Emval.toHandle(document.getElementById('catalog-mount'));
 });
 
 void SetStatus(char const* text) {
-  EM_ASM({ AtCatalog.setStatus(UTF8ToString($0)); }, text);
+  EM_ASM({ AtCatalog.setStatus(UTF8ToString(Number($0))); }, text);
 }
 
 void SetUiInputBlocked(bool blocked) {
@@ -279,7 +280,7 @@ void WebWindowCatalogApp::PublishMobilePages(ae::Obj& application_root) {
     ids += std::to_string(ring[i].id().id());
   }
   CatalogWindow::ptr const active = catalog.ResolveActiveWindow();
-  EM_ASM({ AtCatalog.setPages(UTF8ToString($0), $1); }, ids.c_str(),
+  EM_ASM({ AtCatalog.setPages(UTF8ToString(Number($0)), $1); }, ids.c_str(),
          active.id().id());
 }
 

@@ -1,3 +1,4 @@
+#include "apptraverse/platform/web/web_js_handle.h"
 #include <atomic>
 #include <cstdlib>
 #include <deque>
@@ -29,7 +30,7 @@ namespace {
 #define CHECK(cond)                                                          \
   do {                                                                       \
     if (!(cond)) {                                                           \
-      EM_ASM({ throw new Error('CHECK failed: ' + UTF8ToString($0)); }, #cond); \
+      EM_ASM({ throw new Error('CHECK failed: ' + UTF8ToString(Number($0))); }, #cond); \
       std::abort();                                                          \
     }                                                                        \
   } while (0)
@@ -45,7 +46,7 @@ EM_JS(int, ApptraverseCountEmvalHandles, (), {
   return Module.count_emval_handles();
 });
 
-EM_JS(emscripten::EM_VAL, ApptraverseGetAppMountElement, (), {
+APPTRAVERSE_EM_JS_HANDLE(ApptraverseGetAppMountElement, (), (), {
   return Emval.toHandle(document.getElementById('app-mount'));
 });
 

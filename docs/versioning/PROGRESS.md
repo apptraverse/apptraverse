@@ -3686,3 +3686,40 @@ acceptance PASS (23.83s including cleanup). No adaptive transport is applied.
   Apple builds/runtime were not run by instruction. Android evidence is x86_64
   emulator; Web evidence is Chromium. No old-profile migration, MinSizeRel or
   overnight benchmarks were introduced. Headless business tests ran on Windows.
+
+### 2026-11-13 MinSizeRel embedded consumers
+
+- Pin SDK 5e2f05e86f13fc2f36fb01787add06d3d368e22e: WebSocket scheduling
+  result locals remain warning-clean under NDEBUG; side effects still execute.
+- Linux MinimalApp automation is Debug-only. Shipping GTK launch, native resize,
+  one USER and cold restore PASS; the guarded Debug translation unit also compiles.
+- Refresh Android WindowCatalog's committed supply from the current Debug host
+  exporter. The previous supply aborted at root load in the shipping APK.
+  MinSizeRel x86_64 + arm64-v8a APK builds PASS; x86_64 native Add and process
+  restart restore PASS. arm64 runtime remains NOT RUN (no device).
+- Windows MinSizeRel MinimalApp/WindowCatalog embedded native acceptance 2/2 PASS;
+  shipping SharedNode chat draft and geometry cold restore PASS. No delivery,
+  Presence or throughput benchmark is implied by these release checks.
+- Current Linux/Web MinimalApp and WindowCatalog embedded GUI checks PASS.
+  Logs and exact artifact sizes are in the task's outputs/current-minsize-* files.
+
+### 2026-11-14 — SharedNode portable presentation and recovery
+
+- Added Android and Web SharedNode chat presenters with model-event routing,
+  independent identity storage and current USER checkpoint/cold restore.
+- Interrupted room creation/join is resumed from current persisted UI intent;
+  focused Windows model regression passes. No compatibility schema added.
+- Debug native Windows/Linux draft/invite cold restore, Android lifecycle,
+  Web two-peer restart/offline ordered-dedup and Android/Web delivery pass.
+- MinSizeRel Windows/Linux/Web/Android embedded GUI checks pass, including
+  Android background checkpoint and both draft/invite cold restore. Exact sizes
+  are recorded by the integration ports-final-report.txt.
+- Own chat room supply is produced by the SharedNode exporter; no AeroAdmin
+  source dependency. Android list activation matches its model selection event.
+  Telemetry source follows main; no online Presence/throughput benchmark run.
+
+## 2026-11-14 — integrate portable products with current main
+
+Merged the remaining minimum-size/portable backend changes with main 7a3c712e, preserving Apple publication fixes. Shared Aether now pins client main 6fae4c39307888f7338f7629109aeb01c5948f2d (including wasm64 WebSocket length fix).
+
+Verified on the merged source: Windows shared Aether adapter build; SharedChat UI model and SharedSync tests (2/2); App consumer Debug builds on Windows x64, Linux x64, Android x86_64 Host/Admin, and Web wasm64 Admin. Apple was not built. Web and Android graph export ran on the native runtime. No Presence/throughput benchmarks were repeated.

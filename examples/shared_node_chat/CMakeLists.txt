@@ -8,8 +8,12 @@ if(BUILD_TESTING AND (WIN32 OR (APPLE AND NOT IOS)) AND
   # Real-cloud checkpoint acceptance is explicit, never part of default CTest.
   add_executable(apptraverse_shared_chat_ui_checkpoint_test EXCLUDE_FROM_ALL chat_ui_checkpoint_test.cpp)
   target_link_libraries(apptraverse_shared_chat_ui_checkpoint_test PRIVATE apptraverse_shared_chat_ui)
-  add_executable(apptraverse_shared_chat_ui_model_test chat_ui_model_test.cpp)
-  target_link_libraries(apptraverse_shared_chat_ui_model_test PRIVATE apptraverse_shared_chat_ui)
+  # The model test owns its Debug producer. Do not build/link a complete SDK
+  # runtime merely to exercise deterministic UI state and publication rules.
+  add_executable(apptraverse_shared_chat_ui_model_test chat_ui_model_test.cpp chat_ui_model.cpp)
+  target_compile_definitions(apptraverse_shared_chat_ui_model_test PRIVATE
+    APPTRAVERSE_CHAT_UI_PRODUCER APPTRAVERSE_ENABLE_DISTILLATION)
+  target_link_libraries(apptraverse_shared_chat_ui_model_test PRIVATE apptraverse)
   set_target_properties(apptraverse_shared_chat_ui_model_test PROPERTIES
     EXCLUDE_FROM_ALL "$<NOT:$<CONFIG:Debug>>"
     EXCLUDE_FROM_DEFAULT_BUILD_RELEASE TRUE
@@ -18,12 +22,24 @@ if(BUILD_TESTING AND (WIN32 OR (APPLE AND NOT IOS)) AND
   add_test(NAME apptraverse_shared_chat_ui_model_test
     COMMAND apptraverse_shared_chat_ui_model_test CONFIGURATIONS Debug)
 endif()
+if(ANDROID)
+  # The Android parent owns the JNI shared target and packaging.
+  return()
+endif()
+if(EMSCRIPTEN)
+  add_subdirectory(web)
+  return()
+endif()
 if(IOS)
   add_subdirectory(ios)
   return()
 endif()
 if(APPLE AND NOT IOS)
   add_subdirectory(macos)
+  return()
+endif()
+if(UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN)
+  add_subdirectory(linux)
   return()
 endif()
 add_executable(shared_node_chat WIN32

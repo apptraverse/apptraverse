@@ -1,3 +1,4 @@
+#include "apptraverse/platform/web/web_js_handle.h"
 #include "apptraverse/platform/web/web_ui_window_presenter.h"
 
 #include "apptraverse/noninteractive_crt.h"
@@ -10,7 +11,7 @@
 
 namespace apptraverse::ui::web {
 
-EM_JS(emscripten::EM_VAL, ApptraverseCreateDesktopWindowElement, (), {
+APPTRAVERSE_EM_JS_HANDLE(ApptraverseCreateDesktopWindowElement, (), (), {
   var windowEl = document.createElement('div');
   windowEl.className = 'apptraverse-desktop-window';
   windowEl.dataset.apptraverseDesktopWindow = '1';
@@ -20,24 +21,24 @@ EM_JS(emscripten::EM_VAL, ApptraverseCreateDesktopWindowElement, (), {
   return Emval.toHandle(windowEl);
 });
 
-EM_JS(emscripten::EM_VAL, ApptraverseDesktopClientElement, (emscripten::EM_VAL window_el), {
-  return Emval.toHandle(Emval.toValue(window_el).firstChild);
+APPTRAVERSE_EM_JS_HANDLE(ApptraverseDesktopClientElement, (emscripten::EM_VAL window_el), (window_el), {
+  return Emval.toHandle(Emval.toValue(Number(window_el)).firstChild);
 });
 
 EM_JS(void, ApptraverseMountDesktopWindow, (emscripten::EM_VAL mount,
                                             emscripten::EM_VAL window_el), {
-  Emval.toValue(mount).appendChild(Emval.toValue(window_el));
+  Emval.toValue(Number(mount)).appendChild(Emval.toValue(Number(window_el)));
 });
 
 EM_JS(void, ApptraverseSetDesktopWindowTitleDataset,
       (emscripten::EM_VAL window_el, const char* title_utf8), {
-  Emval.toValue(window_el).dataset.apptraverseWindowTitle =
-      UTF8ToString(title_utf8);
+  Emval.toValue(Number(window_el)).dataset.apptraverseWindowTitle =
+      UTF8ToString(Number(title_utf8));
 });
 
 EM_JS(void, ApptraverseSetDesktopWindowGeometry, (emscripten::EM_VAL window_el,
                                                   int x, int y, int w, int h), {
-  var el = Emval.toValue(window_el);
+  var el = Emval.toValue(Number(window_el));
   var style = el.style;
   style.left = x + 'px';
   style.top = y + 'px';

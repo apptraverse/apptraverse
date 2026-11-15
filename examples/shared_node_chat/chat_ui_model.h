@@ -107,6 +107,7 @@ class ChatUi : public NodeFor<ChatUi, ui::UiDesktopWindow> {
   void Configure(bool host,std::string name,std::string initial_host);
   void AcceptTransport(ChatView view);
   void CompleteSend(std::uint64_t revision,bool committed);
+  void RecoverInterruptedSend();
   void Apply(ChatUiEvent const& event);
   void RefreshControls();
   // Runtime capabilities, bound only on the authoritative model thread.

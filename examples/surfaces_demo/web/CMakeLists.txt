@@ -143,7 +143,7 @@ foreach(_catalog_web_app web_window_catalog_demo web_window_catalog_demo_load_on
     -lidbfs.js --bind
     -sEXPORTED_FUNCTIONS=_main,_ApptraverseWebUiPushButtonClicked,_ApptraverseWebUiListSelectionChanged,_ApptraverseWebUiListRowActivated,_ApptraverseWebIdbfsLoadDone,_ApptraverseWebIdbfsLoadFailed,_ApptraverseWebIdbfsStoreDone,_ApptraverseWebIdbfsStoreFailed,_ApptraverseWindowCatalogRequestShutdown,_ApptraverseWindowCatalogPageHidden,_ApptraverseWindowCatalogMobileSwipe,_ApptraverseWindowCatalogMobilePageShown,_ApptraverseWindowCatalogViewportChanged,_ApptraverseWindowCatalogChildViewportChanged
     -sALLOW_TABLE_GROWTH=1
-    -sEXPORTED_RUNTIME_METHODS=FS,addRunDependency,removeRunDependency,ccall,cwrap,UTF8ToString,count_emval_handles
+    -sEXPORTED_RUNTIME_METHODS=FS,addRunDependency,removeRunDependency,ccall,cwrap,UTF8ToString$<$<NOT:$<CONFIG:MinSizeRel>>:,count_emval_handles>
     --shell-file=${CMAKE_CURRENT_SOURCE_DIR}/window_catalog_shell.html)
   set_target_properties(${_catalog_web_app} PROPERTIES SUFFIX ".html")
 endforeach()

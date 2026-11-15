@@ -30,6 +30,9 @@ int main(){
   app->Configure(true,"Host","");
   app->Configure(false,"Replacement", "unexpected-host");
   CHECK(app->editing.host&&app->editing.name=="Host"&&app->editing.invite.empty());
+  auto const initial_edit=app->editing.revision;
+  app->EditInvite("first invite");app->EditInvite("latest invite");
+  CHECK(app->editing.revision==initial_edit+2&&app->editing.invite=="latest invite");
   unsigned creates=0,sends=0;std::uint64_t revision=0;
   app->create=[&]{++creates;};app->join=[](std::string){CHECK(false);};
   app->send=[&](std::string text,std::uint64_t r){CHECK(text=="first");++sends;revision=r;};
@@ -113,6 +116,19 @@ int main(){
   CHECK(restored->editing.host&&restored->editing.name=="Host");
   CHECK(restored->presenters.size()==static_cast<unsigned>(Control::Count));
   CHECK(&*restored->presenters.front()->model==&*restored);
+  // A browser snapshot may catch an accepted UI send before its durable ACK.
+  // Restart must retain the draft, unblock the editor and never auto-resend.
+  unsigned interrupted_sends=0;
+  restored->send=[&](std::string,std::uint64_t){++interrupted_sends;};
+  restored->Send();CHECK(interrupted_sends==1&&restored->editing.sending);
+  SaveDistilledRoot(*restored);
+  std::vector<std::uint8_t> interrupted;CHECK(SerializeUserStorage(cold,interrupted));
+  ae::RamDomainStorage resumed;CHECK(DeserializeUserStorage(resumed,interrupted));
+  ae::Domain resumed_domain{resumed};auto recovered=LoadApplication<ChatUi>(resumed_domain,RootId());
+  recovered->RecoverInterruptedSend();
+  CHECK(!recovered->editing.sending&&recovered->editing.draft=="retained");
+  CHECK(recovered->editing.error_label==static_cast<int>(Label::Unknown));
+  recovered->RecoverInterruptedSend();CHECK(interrupted_sends==1);
   {
     // Consume the actual executable-emitted supply; no builder initializes this graph.
     ae::RamDomainStorage embedded_user,embedded_backing;
