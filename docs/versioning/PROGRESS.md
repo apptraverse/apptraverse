@@ -3723,3 +3723,5 @@ acceptance PASS (23.83s including cleanup). No adaptive transport is applied.
 Merged the remaining minimum-size/portable backend changes with main 7a3c712e, preserving Apple publication fixes. Shared Aether now pins client main 6fae4c39307888f7338f7629109aeb01c5948f2d (including wasm64 WebSocket length fix).
 
 Verified on the merged source: Windows shared Aether adapter build; SharedChat UI model and SharedSync tests (2/2); App consumer Debug builds on Windows x64, Linux x64, Android x86_64 Host/Admin, and Web wasm64 Admin. Apple was not built. Web and Android graph export ran on the native runtime. No Presence/throughput benchmarks were repeated.
+
+Follow-up: pin SDK main 3ae017098a780af1a455f8bf84fde089a4f40b75. Browser teardown must use close/delete, not null callback setters: Emscripten installs a wrapper for null callbacks. The merged Web Admin reproduced the null-call error before this fix; live Linux Host → Web Admin catalogue/video/input plus six reload/recovery cycles passed afterwards with no page errors. The change is browser-only.
