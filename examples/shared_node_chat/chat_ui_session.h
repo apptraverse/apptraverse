@@ -15,6 +15,8 @@ class Session {
           std::filesystem::path transport_profile={});
   ~Session();
   Session(Session const&)=delete;
+  void ConfigurePush(std::string service_uid);
+  void RegisterPushToken(std::string token);
   void Start();
   void Stop();
   void Checkpoint(std::function<void(bool)> completion);

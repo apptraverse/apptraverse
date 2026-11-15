@@ -1,0 +1,123 @@
+plugins { id 'application' }
+repositories {
+  mavenCentral()
+  maven { url = uri('https://nexus.aethernet.io/maven/releases/') }
+}
+java { sourceCompatibility = JavaVersion.VERSION_25; targetCompatibility = JavaVersion.VERSION_25 }
+application {
+  mainClass = 'io.apptraverse.push.Main'
+  applicationDefaultJvmArgs = ['--enable-native-access=ALL-UNNAMED', '-Daether.webrtc.disabled=true']
+}
+dependencies {
+  implementation('io.aether:cloud-client:0.0.86') {
+    exclude group: 'dev.onvoid.webrtc', module: 'webrtc-java'
+  }
+  runtimeOnly('io.aether:net-virtual:0.0.101') {
+    exclude group: 'dev.onvoid.webrtc', module: 'webrtc-java'
+  }
+  runtimeOnly 'io.aether.crypto:hydrogen-fast:0.0.99'
+  implementation 'com.google.firebase:firebase-admin:9.7.0'
+  implementation 'org.xerial:sqlite-jdbc:3.49.1.0'
+  testImplementation 'org.junit.jupiter:junit-jupiter:5.10.0'
+  testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.0'
+}
+test { useJUnitPlatform() }
+
+tasks.register('liveTransportProbe', JavaExec) {
+  dependsOn testClasses
+  classpath = sourceSets.test.runtimeClasspath
+  mainClass = 'io.apptraverse.push.LiveTransportProbe'
+  jvmArgs '--enable-native-access=ALL-UNNAMED', '-Daether.webrtc.disabled=true'
+  args providers.gradleProperty('probeDir').getOrElse('build/live-transport')
+}
+
+tasks.register('verifyNoWebRtc') {
+  doLast {
+    if (configurations.runtimeClasspath.resolvedConfiguration.resolvedArtifacts.any {
+      it.moduleVersion.id.group == 'dev.onvoid.webrtc'
+    }) throw new GradleException('Push service must not package WebRTC')
+  }
+}
+tasks.named('check') { dependsOn 'verifyNoWebRtc' }
+
+// The published Hydrogen FFM jar embeds Linux's .so but no Windows DLL.
+// Build the same pinned crypto implementation for the Windows distribution.
+if (System.getProperty('os.name').toLowerCase().contains('windows')) {
+  def nativeBuild = layout.buildDirectory.dir('native').get().asFile
+  def nativeOut = new File(nativeBuild, 'out')
+  tasks.register('configureWindowsCrypto', Exec) {
+    inputs.file 'native/CMakeLists.txt'
+    outputs.file new File(nativeBuild, 'CMakeCache.txt')
+    commandLine 'cmake', '-S', file('native'), '-B', nativeBuild,
+      '-G', 'Visual Studio 17 2022', '-A', 'x64',
+      '-DCMAKE_POLICY_VERSION_MINIMUM=3.5'
+    if (project.hasProperty('hydrogenSource')) args '-DHYDROGEN_SOURCE='+project.property('hydrogenSource')
+  }
+  tasks.register('buildWindowsCrypto', Exec) {
+    dependsOn 'configureWindowsCrypto'
+    inputs.file 'native/CMakeLists.txt'
+    outputs.file new File(nativeOut, 'hydrogen.dll')
+    commandLine 'cmake', '--build', nativeBuild, '--config', 'Debug', '--target', 'hydrogen'
+  }
+  tasks.named('run', JavaExec) {
+    dependsOn 'buildWindowsCrypto'
+    jvmArgs '-Djava.library.path='+nativeOut.absolutePath
+  }
+  tasks.named('liveTransportProbe', JavaExec) {
+    dependsOn 'buildWindowsCrypto'
+    jvmArgs '-Djava.library.path='+nativeOut.absolutePath
+  }
+  distributions.main.contents {
+    from(nativeOut) { into 'lib/native' }
+  }
+  tasks.named('installDist') { dependsOn 'buildWindowsCrypto' }
+  tasks.named('distZip') { dependsOn 'buildWindowsCrypto' }
+  tasks.named('distTar') { dependsOn 'buildWindowsCrypto' }
+  tasks.named('startScripts') {
+    doLast {
+      windowsScript.text = windowsScript.text.replace('set DEFAULT_JVM_OPTS=',
+        'set DEFAULT_JVM_OPTS="-Djava.library.path=%APP_HOME%\\lib\\native" ')
+      windowsScript.text = windowsScript.text.replaceAll(/(?m)^set CLASSPATH=.*$/, 'set CLASSPATH=%APP_HOME%/lib/*')
+    }
+  }
+}
+
+// The pinned Hydrogen artifact embeds Linux's .so, but no macOS dylib.
+// Build the same pinned native implementation without pulling in WebRTC.
+if (System.getProperty('os.name').toLowerCase().contains('mac')) {
+  def nativeBuild = layout.buildDirectory.dir('native').get().asFile
+  def nativeOut = new File(nativeBuild, 'out')
+  tasks.register('configureMacCrypto', Exec) {
+    inputs.file 'native/CMakeLists.txt'
+    outputs.file new File(nativeBuild, 'CMakeCache.txt')
+    commandLine 'cmake', '-S', file('native'), '-B', nativeBuild,
+      '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_POLICY_VERSION_MINIMUM=3.5'
+    if (project.hasProperty('hydrogenSource')) args '-DHYDROGEN_SOURCE='+project.property('hydrogenSource')
+  }
+  tasks.register('buildMacCrypto', Exec) {
+    dependsOn 'configureMacCrypto'
+    inputs.file 'native/CMakeLists.txt'
+    outputs.file new File(nativeOut, 'libhydrogen.dylib')
+    commandLine 'cmake', '--build', nativeBuild, '--target', 'hydrogen'
+  }
+  tasks.named('run', JavaExec) {
+    dependsOn 'buildMacCrypto'
+    jvmArgs '-Djava.library.path='+nativeOut.absolutePath
+  }
+  tasks.named('liveTransportProbe', JavaExec) {
+    dependsOn 'buildMacCrypto'
+    jvmArgs '-Djava.library.path='+nativeOut.absolutePath
+  }
+  distributions.main.contents {
+    from(nativeOut) { into 'lib/native' }
+  }
+  tasks.named('installDist') { dependsOn 'buildMacCrypto' }
+  tasks.named('distZip') { dependsOn 'buildMacCrypto' }
+  tasks.named('distTar') { dependsOn 'buildMacCrypto' }
+  tasks.named('startScripts') {
+    doLast {
+      unixScript.text = unixScript.text.replace('DEFAULT_JVM_OPTS=',
+        'JAVA_OPTS="-Djava.library.path=$APP_HOME/lib/native ${JAVA_OPTS:-}"\nDEFAULT_JVM_OPTS=')
+    }
+  }
+}

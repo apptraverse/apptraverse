@@ -1,6 +1,8 @@
 #include "chat_ui_session.h"
 #include <atomic>
 #include <cstdlib>
+#include <chrono>
+#include <iostream>
 #include <set>
 #include <thread>
 #include "apptraverse/application_model_runtime.h"
@@ -70,7 +72,7 @@ struct Session::Impl {
     (*done)(Persist(root,*active_user,active_profile));
   }
   void CompleteDeferredCheckpoints(ChatUi& root){
-    if(deferred_checkpoints.empty())return;
+    if(deferred_checkpoints.empty()||root.editing.sending)return;
     // The send callback acknowledges durable transport storage. Save this
     // settled model in the same work item, before another GUI Send can start.
     auto pending=std::move(deferred_checkpoints);
@@ -96,10 +98,17 @@ struct Session::Impl {
     root->create=[this]{transport.CreateRoom();};
     root->join=[this](std::string invite){transport.JoinRoom(std::move(invite));};
     root->send=[this](std::string text,std::uint64_t revision){
-      transport.Send(std::move(text),[this,revision](bool accepted){
-        (void)runtime.TryPost([this,revision,accepted](ae::Domain& model){
+      auto const started=std::chrono::steady_clock::now();
+      transport.Send(std::move(text),[this,revision,started](bool accepted){
+#if defined(_WIN32)
+        if(accepted)transport.NotifyPushPeers();
+#endif
+        (void)runtime.TryPost([this,revision,accepted,started](ae::Domain& model){
           auto* root=model.Find(RootId()).as<ChatUi>();
           root->CompleteSend(revision,accepted);
+          std::clog<<"Chat send settled revision="<<revision<<" accepted="<<accepted
+                   <<" total_ms="<<std::chrono::duration_cast<std::chrono::milliseconds>(
+                         std::chrono::steady_clock::now()-started).count()<<'\n';
           CompleteDeferredCheckpoints(*root);
         });
       });
@@ -119,8 +128,13 @@ Session::Session(std::filesystem::path profile,std::string name,bool host,
   :impl_{std::make_unique<Impl>(std::move(profile),std::move(name),host,
       std::move(initial_host),std::move(changed),load_only,std::move(flush_transport),std::move(transport_profile))}{}
 Session::~Session(){Stop();}
+void Session::ConfigurePush(std::string uid){impl_->transport.ConfigurePush(std::move(uid));}
+void Session::RegisterPushToken(std::string token){impl_->transport.RegisterPushToken(std::move(token));}
 void Session::Start(){
   if(impl_->started||impl_->stopping.load())return;
+#if defined(_WIN32)
+  if(auto uid=std::getenv("APPTRAVERSE_PUSH_SERVICE_UID"))ConfigurePush(uid);
+#endif
   EnsureUiRegistration();
   impl_->started=true;impl_->worker=std::thread{[this]{impl_->Run();}};impl_->transport.Start();
 }

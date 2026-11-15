@@ -61,3 +61,6 @@ dist/
 # App Traverse Cursor MCP local venv and generated config
 .venv-apptraverse-mcp/
 .cursor/mcp.json
+
+# Local Firebase app configuration
+/examples/shared_node_chat/android/app/google-services.json

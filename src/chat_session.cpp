@@ -1,5 +1,8 @@
 #include <optional>
 #include "apptraverse/chat_session.h"
+#include "apptraverse/push_protocol.h"
+#include <iostream>
+#include <cctype>
 
 #include <algorithm>
 #include <atomic>
@@ -427,6 +430,39 @@ class ChatLink final : public IByteLink {
 }  // namespace
 
 struct ChatSession::Impl {
+  std::string push_service, push_token;
+  std::string registered_token;
+  std::uint64_t push_request{1}, registration_request{}, next_registration{};
+  push::Reader push_reader;
+  // A short burst must not lose every request after the transport's single
+  // occupied frame. This is only an in-memory queue; accepted writes are not
+  // retried, because v1 Notify has no deduplication contract.
+  std::deque<push::Packet> push_notifications;
+  int push_notify_status{-1};
+  std::uint64_t push_notify_request{};
+  void ServicePush(std::uint64_t now) {
+    if(push_service.empty()||!native)return;
+    if(!push_token.empty()&&registered_token!=push_token&&now>=next_registration){
+      if(!registration_request)registration_request=push_request++;
+      if(native->Send(push_service,push::Encode({1,registration_request,push_token})))
+        next_registration=now+5000000;
+    }
+    if(!push_notifications.empty()&&native->Send(push_service,push::Encode(push_notifications.front())))
+      push_notifications.pop_front();
+  }
+  void NotifyPush() {
+    auto* room=CurrentRoom(); if(!room||push_service.empty()||!native)return;
+    for(auto const& peer:room->participants) {
+      auto const& uid=peer->link->endpoint_uid;
+      if(uid==native->EndpointId())continue;
+      if(push_notifications.size()>=64){
+        std::cerr<<"Push request not queued (64 pending requests)\n";
+        continue;
+      }
+      push_notifications.push_back({2,push_request++,uid});
+    }
+  }
+
   Impl(std::filesystem::path value, std::string user_name, Changed changed,
        PrepareProfile prepare, FlushProfile flush, AdaptersFactory adapters)
       : profile{std::filesystem::absolute(std::move(value))},
@@ -790,6 +826,9 @@ struct ChatSession::Impl {
   void Publish() {
     view_dirty = false;
     ChatView next;
+    next.push_registered=!push_token.empty()&&registered_token==push_token;
+    next.push_notify_status=push_notify_status;
+    next.push_notify_request=push_notify_request;
     next.status = status;
     next.ready = sync && !failed && !finished && !sync->failed();
     if(connection)next.connection=connection->Observation();
@@ -931,6 +970,21 @@ struct ChatSession::Impl {
       connection->Service(time);
       if(native->Phase()==TransportPhase::Failed&&!failed)SetError("Transport connection failed");
       if(!sync&&!failed&&native->Ready()){
+        if (!push_service.empty()) {
+          native->ConfigureRawService(push_service,
+              [this](auto const&, auto const& bytes) {
+                bool const valid = push_reader.Feed(bytes, [this](push::Packet const& p) {
+                  if (p.method == 0x81 && p.request == registration_request && p.status == 0)
+                    registered_token = push_token;
+                  if (p.method == 0x82 && p.request > push_notify_request && p.request < push_request) {
+                    push_notify_status = p.status;
+                    push_notify_request = p.request;
+                  }
+                  view_dirty = true;
+                });
+                if (!valid) std::cerr << "Rejected malformed push response\n";
+              }, [this] { push_reader.Reset(); });
+        }
         if(!InitializeModel())SetError("Could not initialize the chat");
       }
       auto observed=connection->Observation();
@@ -945,6 +999,7 @@ struct ChatSession::Impl {
           }
         }
 
+        ServicePush(now);
         if(auto* room=CurrentRoom()) {
           Observe(*room->local_state);
           for(auto const& peer:room->local_state->peers) Observe(*peer);
@@ -1030,6 +1085,26 @@ ChatSession::ChatSession(std::filesystem::path profile, std::string name,
                                    std::move(prepare_profile),
                                    std::move(flush_profile), adapters?std::move(adapters):AdaptersFactory{[](auto const& path){return MakeAetherConnectionAdapters(path,"shared-node-chat");}})} {}
 ChatSession::~ChatSession() { Stop(); }
+void ChatSession::ConfigurePush(std::string uid) {
+  std::transform(uid.begin(),uid.end(),uid.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});
+  impl_->push_service=std::move(uid);
+}
+void ChatSession::RegisterPushToken(std::string token) {
+  if(token.empty()||token.size()>push::kMaxValue||!push::ValidUtf8(token)){
+    std::cerr<<"Rejected invalid push token\n";
+    return;
+  }
+  impl_->proxy.EnqueueModelWork([impl=impl_.get(),token=std::move(token)](ae::Domain&){
+    // onResume fetches the current token again. Preserve an existing ACK or
+    // in-flight request when it has not actually changed.
+    if(impl->push_token==token)return;
+    impl->push_token=token;impl->registered_token.clear();impl->registration_request=0;impl->next_registration=0;
+    impl->view_dirty=true;
+  });
+}
+void ChatSession::NotifyPushPeers() {
+  impl_->proxy.EnqueueModelWork([impl=impl_.get()](ae::Domain&){impl->NotifyPush();});
+}
 void ChatSession::Start() {
   std::lock_guard lock{impl_->lifecycle_mutex};
   if (impl_->thread.joinable()) {
@@ -1077,11 +1152,20 @@ void ChatSession::Send(std::string text) {
                                     ae::Domain&) { impl->Send(text); });
 }
 void ChatSession::Send(std::string text, std::function<void(bool)> committed) {
+  auto const queued_at=MonotonicMicros();
   auto reject = [committed] { committed(false); };
   impl_->Enqueue(
       [impl = impl_.get(), text = std::move(text),
-       committed = std::move(committed)](ae::Domain&) {
-        committed(impl->Send(text));
+       committed = std::move(committed), queued_at](ae::Domain&) {
+        auto const started=MonotonicMicros();
+        bool const accepted=impl->Send(text);
+        auto const completed=MonotonicMicros();
+        // No message content or credentials. Distinguish a delayed local commit
+        // from transport queueing; Online/FCM ACKs do not settle this operation.
+        std::clog<<"Chat send accepted="<<accepted
+                 <<" queue_ms="<<(started-queued_at)/1000
+                 <<" commit_ms="<<(completed-started)/1000<<'\n';
+        committed(accepted);
       }, std::move(reject));
 }
 ChatView ChatSession::View() const {

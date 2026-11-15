@@ -84,6 +84,20 @@ LinkAvailability AetherPresenceSnapshot::Availability(
 }
 
 struct AetherByteLink::Impl {
+  struct Job {
+    P2pMessageWriter framed;
+    std::vector<std::uint8_t> raw;
+    std::size_t offset{}, count{};
+    bool plain;
+    Job(std::vector<std::uint8_t> const& b, bool p):framed{b},raw{p?b:std::vector<std::uint8_t>{}},plain{p}{}
+    auto Next(std::size_t budget) {
+      if(!plain)return framed.Next(budget);
+      count=std::min(budget,raw.size()-offset);
+      return std::vector<std::uint8_t>{raw.begin()+offset,raw.begin()+offset+count};
+    }
+    void Advance(){if(plain)offset+=count;else framed.Advance();}
+    bool done()const{return plain?offset==raw.size():framed.done();}
+  };
   struct Peer {
     Peer(ae::Uid value, std::size_t max_message_bytes)
         : uid{value},
@@ -101,13 +115,20 @@ struct AetherByteLink::Impl {
     std::unique_ptr<ae::P2pStream> raw;
     P2pMessageReader packets;
     ae::Subscription chunk_sub;
+    // Java MessageNode replies open an independent reverse port. Receiving a
+    // reply must not replace the outgoing service stream (its remote reader
+    // belongs to that original port).
+    std::unique_ptr<ae::P2pStream> service_inbound;
+    ae::Subscription service_inbound_sub;
     ae::Subscription write_sub;
-    std::deque<P2pMessageWriter> jobs;
+    std::deque<Job> jobs;
     bool writing{false};
     std::optional<ae::WriteAction::Status> terminal;
     AetherLinkStatistics statistics;
 
     void Drop() {
+      service_inbound_sub.Reset();
+      service_inbound.reset();
       write_sub.Reset();
       chunk_sub.Reset();
       writing = false;
@@ -135,6 +156,17 @@ struct AetherByteLink::Impl {
             return;
           }
           auto* peer = Get(handle.destination());
+          if (UidText(peer->uid) == options.raw_service_uid && peer->raw) {
+            peer->service_inbound_sub.Reset();
+            if (raw_reset) raw_reset();
+            peer->service_inbound = std::make_unique<ae::P2pStream>(
+                context, client.Load(), peer->uid, std::move(handle));
+            peer->service_inbound_sub = peer->service_inbound->out_data_event().Subscribe(
+                [this](ae::DataBuffer const& bytes) {
+                  if (!stopped && raw_receiver) raw_receiver(options.raw_service_uid, bytes);
+                });
+            return;
+          }
           Bind(*peer, std::move(handle));
         });
   }
@@ -287,6 +319,7 @@ struct AetherByteLink::Impl {
       ++peer.statistics.session_replacements;
     }
     ++peer.generation;
+    if (UidText(peer.uid) == options.raw_service_uid && raw_reset) raw_reset();
     peer.session_started_us = now_us;
     peer.last_write_progress_us = now_us;
     peer.reset_needed = false;
@@ -297,6 +330,10 @@ struct AetherByteLink::Impl {
     peer.chunk_sub = peer.raw->out_data_event().Subscribe(
         [this, raw_peer, generation](ae::DataBuffer const& data) {
           if (!stopped && raw_peer->generation == generation) {
+            if (UidText(raw_peer->uid) == options.raw_service_uid) {
+              if (raw_receiver) raw_receiver(options.raw_service_uid, data);
+              return;
+            }
             auto const malformed_before = raw_peer->packets.malformed();
             auto message = raw_peer->packets.Receive(data, now_us);
             auto const malformed =
@@ -311,7 +348,10 @@ struct AetherByteLink::Impl {
     if (!peer.jobs.empty()) {
       return false;
     }
-    peer.jobs.emplace_back(bytes);
+    peer.jobs.emplace_back(bytes, UidText(peer.uid) == options.raw_service_uid);
+    // Start the stall window with this newly queued frame. Idle time since a
+    // previous successful write is not evidence that the new frame is stalled.
+    peer.last_write_progress_us = now_us;
     return true;
   }
   void Receive(Peer& peer, ae::DataBuffer const& data) {
@@ -401,6 +441,8 @@ struct AetherByteLink::Impl {
   AetherLinkOptions options;
   std::string endpoint;
   IByteLink::Receiver receiver;
+  IByteLink::Receiver raw_receiver;
+  std::function<void()> raw_reset;
   std::map<std::string, std::unique_ptr<Peer>> peers;
   ae::Subscription port_sub;
   ae::Subscription query_sub;
@@ -469,6 +511,13 @@ void AetherByteLink::Service(std::uint64_t now_us) {
 }
 void AetherByteLink::SetReceiver(Receiver receiver) {
   impl_->receiver = std::move(receiver);
+}
+void AetherByteLink::SetRawServiceReceiver(Receiver receiver, std::function<void()> reset) {
+  impl_->raw_receiver=std::move(receiver);
+  impl_->raw_reset=std::move(reset);
+}
+void AetherByteLink::ConfigureRawService(std::string endpoint) {
+  impl_->options.raw_service_uid = std::move(endpoint);
 }
 bool AetherByteLink::Send(std::string const& destination,
                           std::vector<std::uint8_t> const& bytes) {

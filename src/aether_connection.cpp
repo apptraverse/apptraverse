@@ -138,6 +138,13 @@ class Transport final : public IConnectionTransport {
   bool WatchPeer(std::string const& id) override {
     return Ready() && connection_->link->WatchPeer(id);
   }
+  bool ConfigureRawService(std::string const& id, Receiver receiver,
+                           std::function<void()> reset) override {
+    if (!Ready()) return false;
+    connection_->link->ConfigureRawService(id);
+    connection_->link->SetRawServiceReceiver(std::move(receiver), std::move(reset));
+    return connection_->link->WatchPeer(id);
+  }
   void SetReceiver(Receiver r) override {
     connection_->link->SetReceiver(std::move(r));
   }

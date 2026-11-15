@@ -117,6 +117,10 @@ int main(int argc, char** argv) {
                         }
                         changed.notify_one();
                       }};
+  bool const push_enabled = std::getenv("APPTRAVERSE_PUSH_SERVICE_UID") != nullptr;
+  if (push_enabled) {
+    session.ConfigurePush(std::getenv("APPTRAVERSE_PUSH_SERVICE_UID"));
+  }
   session.Start();
   std::thread input{[&] {
     for (std::string line; std::getline(std::cin, line);) {
@@ -178,7 +182,13 @@ int main(int argc, char** argv) {
           break;
         }
         auto const started = Ticks();
-        session.Send(std::move(message));
+        if (push_enabled) {
+          session.Send(std::move(message), [&session](bool accepted) {
+            if (accepted) session.NotifyPushPeers();
+          });
+        } else {
+          session.Send(std::move(message));
+        }
         Stamp("sent", seq, started);
       } else {
         okay = false;

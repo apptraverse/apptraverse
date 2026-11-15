@@ -1,0 +1,20 @@
+cmake_minimum_required(VERSION 3.24)
+project(push_crypto LANGUAGES C)
+set(BUILD_SHARED_LIBS ON CACHE BOOL "Build the FFM crypto DLL" FORCE)
+set(ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+set(ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+if(HYDROGEN_SOURCE)
+  add_subdirectory("${HYDROGEN_SOURCE}" hydrogen)
+else()
+  include(FetchContent)
+  FetchContent_Declare(hydrogen
+    GIT_REPOSITORY https://github.com/jedisct1/libhydrogen.git
+    GIT_TAG bbca575b62510bfdc6dd927a4bfa7df4a51cb846)
+  FetchContent_MakeAvailable(hydrogen)
+endif()
+set_target_properties(hydrogen PROPERTIES RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/out")
+set_target_properties(hydrogen PROPERTIES
+  LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/out"
+  LIBRARY_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/out")

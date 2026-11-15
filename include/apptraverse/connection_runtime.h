@@ -20,6 +20,9 @@ class IConnectionTransport : public IByteLink {
   virtual std::string const& EndpointId() const = 0;
   virtual std::string Name() const = 0;
   virtual bool WatchPeer(std::string const&) = 0;
+  // Optional application-owned service channel on the same SDK connection.
+  virtual bool ConfigureRawService(std::string const&, Receiver,
+                                   std::function<void()>) { return false; }
   struct Path {
     bool tcp{false}, udp{false};
   };

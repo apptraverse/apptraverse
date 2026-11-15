@@ -45,7 +45,7 @@ void Changed(){
 }
 }
 extern "C" JNIEXPORT void JNICALL Java_com_apptraverse_sharedchat_MainActivity_startNative(
-    JNIEnv* env,jobject activity,jstring path,jstring name,jboolean is_host,jstring invite,jboolean load_only){
+    JNIEnv* env,jobject activity,jstring path,jstring name,jboolean is_host,jstring invite,jboolean load_only,jstring push_uid){
   if(!activity_class){
     env->GetJavaVM(&vm);auto cls=env->GetObjectClass(activity);
     activity_class=static_cast<jclass>(CheckedJni(env,"chat class",[&]{return env->NewGlobalRef(cls);}));
@@ -57,6 +57,7 @@ extern "C" JNIEXPORT void JNICALL Java_com_apptraverse_sharedchat_MainActivity_s
   if(!session){
     session=std::make_unique<gui::Session>(JstringToUtf8(env,path),JstringToUtf8(env,name),
       is_host,JstringToUtf8(env,invite),Changed,load_only);
+    session->ConfigurePush(JstringToUtf8(env,push_uid));
     session->Start();
   }
 }
@@ -92,3 +93,7 @@ extern "C" JNIEXPORT jboolean JNICALL Java_com_apptraverse_sharedchat_MainActivi
   std::unique_lock lock(mutex);ready.wait(lock,[&]{return done;});return ok;
 }
 extern "C" JNIEXPORT void JNICALL Java_com_apptraverse_sharedchat_MainActivity_stopNative(JNIEnv*,jobject){session.reset();}
+
+extern "C" JNIEXPORT void JNICALL Java_com_apptraverse_sharedchat_MainActivity_registerPushTokenNative(JNIEnv* env,jclass,jstring token){
+  if(session)session->RegisterPushToken(JstringToUtf8(env,token));
+}

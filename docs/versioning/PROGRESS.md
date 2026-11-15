@@ -1,3 +1,41 @@
+## SharedNode queued sends — 2026-11-14
+
+Send stays enabled during local commits. Submission captures its text, clears
+input immediately and uses a unique runtime request ID. Completion preserves
+newer input; failed text returns to the composer. Checkpoint waits for all sends.
+UI model tests and the cloud test with two overlapping sends behind a held save
+PASS, including settled cold restore. Windows and Android Debug builds PASS;
+updated apps launched. Evidence: build/queue-build.log, queue-checkpoint-03.log,
+queue-app-final.log and queue-android-final.log. This supersedes the button policy
+below. The in-memory queue drains on normal shutdown/checkpoint; a process crash
+before local commit can lose an uncommitted submission. Uncertain sends are not
+resent automatically.
+
+## SharedNode autoscroll / Send diagnostics — 2026-11-14
+
+Windows and Android scroll new message history to the end while preserving
+composer focus and draft; live two-way GUI acceptance PASS. Windows Debug build,
+UI model CTest, explicit cloud checkpoint/send-commit tests and Android Debug
+assemble/lint PASS. The checkpoint test verifies disabled Send during delayed
+local save, enabled Input and recovery with a newer draft intact. Three live
+Windows sends settled in the model in 135–171 ms. The user's earlier long pause
+was not reproduced; stage timings were added, without changing send semantics.
+[Evidence and exact button lifecycle](../validation/shared-node-scroll-send-2026-11-14.md).
+
+## SharedNode push review and UI fixes — 2026-11-14 — PASS in stated scope
+
+Fixed Android foreground notification display and notification-dot cleanup on
+chat open, plus Windows stale publication overwrites of typed text/caret.
+Reviewed all changes in this push branch; corrected API-24/25 channel guarding,
+short-burst queueing, token registration churn, codec validation parity,
+raw-response reader reset, provider error classification and server queue/shutdown
+handling. **8 Java tests, 4 CTests and a six-notification real C++/Java probe PASS.**
+Windows/Android Debug builds (push on/off) PASS; Android lint has zero errors.
+Real Firebase foreground suppression and clearing two background notifications
+through the launcher icon PASS; Windows typing/insertion/send checked in the GUI.
+An analogous pre-existing Apple input-publication risk is recorded separately,
+not claimed fixed or runtime-tested here. [Detailed review, evidence and limits](../validation/push-review-2026-11-14.md).
+
 ## Apple chat current-main refresh — 2026-11-13 — PASS
 
 Fast-forwarded to AppTraverse main `6751f326`; dependency mains checked. SDK
@@ -3754,3 +3792,44 @@ Verified Windows Debug shared Aether adapter build and SharedChat UI model/Share
   migration and runtime checks, application/graph heartbeat sources, and router
   protocol adapters remain outside this change. No schema migrations or public
   repository publication were performed.
+
+## 2026-11-14 — optional SharedNode chat binary push service
+
+Implemented the Java/SQLite/FCM service under `services/push`, two binary methods,
+a raw TCP service endpoint on the existing Aether link, Windows send integration,
+and optional Android Firebase registration/receiver. No AeroAdmin changes.
+Windows Debug build, UI model test, ordinary Android Debug APK, Firebase-enabled
+Android source compilation, Java tests/distribution and real C++/Java Aether
+Register/Notify plus response exchange passed. Actual FCM delivery is NOT RUN
+pending owner-supplied Firebase files. Full scope and evidence:
+[push validation](../validation/push-service-2026-11-14.md).
+
+
+### Firebase end-to-end follow-up — 2026-11-14
+
+Owner-supplied Firebase configuration and locally stored server key enabled the
+real Windows GUI → Aether Java service → FCM → Android 14 emulator path. Background
+notification display and tap-to-open with the exact received chat message passed.
+Fixed the packaged Windows launcher's cmd.exe classpath-length limit using Java's
+wildcard classpath. Credentials and app configuration are not committed. See the
+[updated push validation](../validation/push-service-2026-11-14.md).
+
+
+### Repeated push and popup follow-up — 2026-11-14
+
+Fixed raw service reply ports replacing the outgoing stream and new-frame stall
+age incorrectly including prior idle time. The live C++/Java regression now checks
+three matching Notify responses across six-second idle gaps and passes. Updated
+Windows/Android builds and UI model test pass. Two real FCM notifications from the
+Windows GUI were verified, including a screenshot of the repeated heads-up banner.
+See [push validation](../validation/push-service-2026-11-14.md).
+
+### Current-main integration and Android check — 2026-11-15
+
+Merged the push service onto current AppTraverse main and connected its raw
+service stream through `ConnectionRuntime`. The Java service now packages no
+WebRTC runtime and disables WebRTC initialization. Java, native, and Android
+builds passed. A fresh Windows headless chat host and Android 14 emulator
+exchanged ordinary SharedNode messages; Android FCM registration, service
+Notify, system notification display, and exact message display in the app passed.
+See [integration validation](../validation/push-integration-2026-11-15.md).
