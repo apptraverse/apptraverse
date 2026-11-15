@@ -3686,3 +3686,14 @@ acceptance PASS (23.83s including cleanup). No adaptive transport is applied.
   Apple builds/runtime were not run by instruction. Android evidence is x86_64
   emulator; Web evidence is Chromium. No old-profile migration, MinSizeRel or
   overnight benchmarks were introduced. Headless business tests ran on Windows.
+
+## 2026-11-14: Apple host extension for native consumers
+
+Added transient custom-content/button-style hooks and lifecycle input barriers /
+session completion to the generic macOS/iOS hosts. Scoped C++ compile flags away
+from Swift and keyed new iOS scene views by native scene identity. S0/model and
+mirror ownership are unchanged. macOS backend lifecycle and the iOS WindowCatalog
+native/OS-background matrix passed; full macOS cold native-click scope remains
+blocked by the interactive foreground precondition. See
+[scoped validation](../validation/apple-host-extension-2026-11-14.md). Other
+backend runtimes and physical iPhone runtime are not claimed.

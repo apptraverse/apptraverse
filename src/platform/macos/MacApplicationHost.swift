@@ -29,6 +29,7 @@ extension ATMacApplicationBridge: MacUiCommandSink {
 }
 
 final class MacButtonAdapter: ObservableObject, Identifiable {
+    var contentBuilder: MacButtonContent?
     let id: UInt64
     weak var commandSink: MacUiCommandSink?
     @Published var title = ""
@@ -123,10 +124,19 @@ enum MacDesktopCoordinates {
     }
 }
 
+public typealias MacButtonContent = (String, @escaping () -> Void) -> AnyView
+
+struct MacCustomContent: Identifiable {
+    let id: UInt64
+    let order: UInt32
+    let view: AnyView
+}
+
 final class MacWindowAdapter: ObservableObject, Identifiable {
     let id: UInt64
     weak var commandSink: MacUiCommandSink?
     let window: NSWindow
+    @Published var customContent: [UInt64: MacCustomContent] = [:]
     @Published var title = ""
     @Published var buttons: [MacButtonAdapter] = []
     @Published var lists: [MacListAdapter] = []
@@ -211,15 +221,21 @@ private struct MacCatalogButtonStyle: ButtonStyle {
 
 private struct MacButtonControl: View {
     @ObservedObject var adapter: MacButtonAdapter
-
     var body: some View {
-        Button(action: { adapter.click() }) {
-            Text(adapter.title)
-                .font(.system(size: 12))
-                .frame(width: adapter.frame.width, height: adapter.frame.height)
-                .contentShape(Rectangle())
+        Group {
+            if let builder = adapter.contentBuilder {
+                builder(adapter.title, { adapter.click() })
+            } else {
+                Button(action: { adapter.click() }) {
+                    Text(adapter.title)
+                        .font(.system(size: 12))
+                        .frame(width: adapter.frame.width, height: adapter.frame.height)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(MacCatalogButtonStyle())
+            }
         }
-        .buttonStyle(MacCatalogButtonStyle())
+        .frame(width: adapter.frame.width, height: adapter.frame.height)
         .disabled(!adapter.enabled)
         .accessibilityIdentifier("button-\(adapter.id)")
         .position(x: adapter.frame.x + adapter.frame.width / 2,
@@ -395,6 +411,7 @@ private struct MacWindowContent: View {
             Color.white
             ForEach(adapter.buttons) { MacButtonControl(adapter: $0) }
             ForEach(adapter.lists) { MacListControl(adapter: $0) }
+            ForEach(adapter.customContent.values.sorted { $0.order < $1.order }) { $0.view }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .preferredColorScheme(.light)
@@ -403,6 +420,17 @@ private struct MacWindowContent: View {
 
 public final class MacApplicationHost: NSObject,
     NSApplicationDelegate, NSWindowDelegate, ATMacApplicationBridgeDelegate {
+    // Native extension views are transient children of an activated model window.
+    // Their data and intents remain the consumer's presenter/proxy responsibility.
+    public var buttonContent: MacButtonContent?
+    public var beforeCheckpoint: (() -> Void)?
+    public var willStopSession: (() -> Void)?
+    public func setCustomContent(token: UInt64, parent: UInt64, order: UInt32, view: AnyView) {
+        windows[parent]!.customContent[token] = MacCustomContent(id: token, order: order, view: view)
+    }
+    public func removeCustomContent(token: UInt64, parent: UInt64) {
+        windows[parent]!.customContent.removeValue(forKey: token)
+    }
     private let bridgeFactory: (ATMacApplicationBridgeDelegate) -> ATMacApplicationBridge
     var bridge: ATMacApplicationBridge!
     var windows: [UInt64: MacWindowAdapter] = [:]
@@ -443,7 +471,14 @@ public final class MacApplicationHost: NSObject,
         NSApp.mainMenu = menu
     }
 
-    public func applicationDidFinishLaunching(_ notification: Notification) {
+    public func applicationDidFinishLaunching(_ notification: Notification) { startSession() }
+
+    public var sessionDidFinish: ((Int32) -> Void)?
+    public func activateWindows() {
+        for adapter in windows.values { adapter.window.makeKeyAndOrderFront(nil) }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+    public func startSession() {
         bridge = bridgeFactory(self)
         bridge.start()
     }
@@ -456,6 +491,8 @@ public final class MacApplicationHost: NSObject,
 
     public func requestStop() {
         guard !modelFinished && !terminating else { return }
+        beforeCheckpoint?()
+        willStopSession?()
         // Queue final native reports before the runtime stop barrier.
         for adapter in windows.values { adapter.reportFrame() }
         terminating = true
@@ -464,11 +501,12 @@ public final class MacApplicationHost: NSObject,
 
     public func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard !terminating else { return false }
+        beforeCheckpoint?()
         let adapter = windows.values.first { $0.window === sender }!
         // Closing the root may end the whole session: enqueue every final
         // native frame before the application callback requests its stop.
         for window in windows.values { window.reportFrame() }
-        if bridge.requestCloseWindow(adapter.id) { terminating = true }
+        if bridge.requestCloseWindow(adapter.id) { willStopSession?(); terminating = true }
         return false
     }
 
@@ -541,6 +579,7 @@ public final class MacApplicationHost: NSObject,
     public func bridge(_ bridge: ATMacApplicationBridge, loadButton token: UInt64) {
         let state = bridge.buttonState(token)
         let adapter = MacButtonAdapter(token: token, commandSink: bridge)
+        adapter.contentBuilder = buttonContent
         adapter.sync(state)
         buttons[token] = adapter
         windows[state.parentToken]!.buttons.append(adapter)
@@ -571,6 +610,7 @@ public final class MacApplicationHost: NSObject,
     public func bridgeModelDidFinish(_ bridge: ATMacApplicationBridge) {
         exitStatus = Int32(bridge.finishTeardown())
         modelFinished = true
+        if let finished = sessionDidFinish { finished(exitStatus); return }
         NSApp.stop(nil)
         // Wake the AppKit event pump so Run returns the model's exit status.
         let event = NSEvent.otherEvent(with: .applicationDefined,

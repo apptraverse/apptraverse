@@ -23,6 +23,7 @@ struct IosListRowSnapshot: Identifiable, Equatable {
 }
 
 final class IosButtonAdapter: ObservableObject, Identifiable {
+    var contentBuilder: IosButtonContent?
     let id: UInt64
     weak var commandSink: IosUiCommandSink?
     @Published var title = ""
@@ -78,10 +79,19 @@ final class IosListAdapter: ObservableObject, Identifiable {
     func disconnect() { commandSink = nil }
 }
 
+public typealias IosButtonContent = (String, @escaping () -> Void) -> AnyView
+
+struct IosCustomContent: Identifiable {
+    let id: UInt64
+    let order: UInt32
+    let view: AnyView
+}
+
 final class IosWindowSceneModel: ObservableObject, Identifiable {
     let id: UInt64
     let identity: UInt64
     weak var commandSink: IosUiCommandSink?
+    @Published var customContent: [UInt64: IosCustomContent] = [:]
     @Published var title = ""
     @Published var buttons: [IosButtonAdapter] = []
     @Published var lists: [IosListAdapter] = []
@@ -214,12 +224,19 @@ private struct IosModelButtonStyle: ButtonStyle {
 private struct IosButtonControl: View {
     @ObservedObject var adapter: IosButtonAdapter
     var body: some View {
-        Button(action: { adapter.click() }) {
-            Text(adapter.title)
-                .frame(width: adapter.frame.width, height: adapter.frame.height)
-                .contentShape(Rectangle())
+        Group {
+            if let builder = adapter.contentBuilder {
+                builder(adapter.title, { adapter.click() })
+            } else {
+                Button(action: { adapter.click() }) {
+                    Text(adapter.title)
+                        .frame(width: adapter.frame.width, height: adapter.frame.height)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(IosModelButtonStyle())
+            }
         }
-        .buttonStyle(IosModelButtonStyle())
+        .frame(width: adapter.frame.width, height: adapter.frame.height)
         .disabled(!adapter.enabled)
         .accessibilityIdentifier("button-\(adapter.id)")
         .position(x: adapter.frame.x + adapter.frame.width / 2,
@@ -244,6 +261,7 @@ private struct IosWindowView: View {
             Color(uiColor: .systemBackground)
             ForEach(scene.buttons) { IosButtonControl(adapter: $0) }
             ForEach(scene.lists) { IosListControl(adapter: $0) }
+            ForEach(scene.customContent.values.sorted { $0.order < $1.order }) { $0.view }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .navigationTitle(scene.title)
@@ -294,7 +312,7 @@ public struct IosApplicationRootView: View {
             GeometryReader { geometry in
                 Group {
                     if let scene = host.activeScene {
-                        IosWindowView(scene: scene)
+                        IosWindowView(scene: scene).id(ObjectIdentifier(scene))
                     } else {
                         ProgressView()
                     }
@@ -320,6 +338,18 @@ public struct IosApplicationRootView: View {
 
 public final class IosApplicationHost: NSObject, ObservableObject,
     ATIosApplicationBridgeDelegate {
+    // Native extension views are transient children of an activated model window.
+    // Their data and intents remain the consumer's presenter/proxy responsibility.
+    public var buttonContent: IosButtonContent?
+    public var beforeCheckpoint: (() -> Void)?
+    public var willStopSession: (() -> Void)?
+    public var sessionDidFinish: ((Int32) -> Void)?
+    public func setCustomContent(token: UInt64, parent: UInt64, order: UInt32, view: AnyView) {
+        scenes[parent]!.customContent[token] = IosCustomContent(id: token, order: order, view: view)
+    }
+    public func removeCustomContent(token: UInt64, parent: UInt64) {
+        scenes[parent]!.customContent.removeValue(forKey: token)
+    }
     private let bridgeFactory: (ATIosApplicationBridgeDelegate) -> ATIosApplicationBridge
     var bridge: ATIosApplicationBridge!
     @Published var scenes: [UInt64: IosWindowSceneModel] = [:]
@@ -401,6 +431,8 @@ public final class IosApplicationHost: NSObject, ObservableObject,
     }
     private func stopSession() {
         guard started && !stopping else { return }
+        beforeCheckpoint?()
+        willStopSession?()
         stopping = true
         bridge.requestStop()
     }
@@ -422,6 +454,7 @@ public final class IosApplicationHost: NSObject, ObservableObject,
                     self?.endBackgroundTask()
                 }
         }
+        beforeCheckpoint?()
         bridge.requestBackgroundSave()
     }
     public func sceneDidEnterBackground() { sceneWillDeactivate() }
@@ -461,6 +494,7 @@ public final class IosApplicationHost: NSObject, ObservableObject,
     public func bridge(_ bridge: ATIosApplicationBridge, loadButton token: UInt64) {
         let state = bridge.buttonState(token)
         let adapter = IosButtonAdapter(token: token, commandSink: bridge)
+        adapter.contentBuilder = buttonContent
         adapter.sync(state)
         buttons[token] = adapter
         scenes[state.parentToken]!.buttons.append(adapter)
@@ -496,6 +530,7 @@ public final class IosApplicationHost: NSObject, ObservableObject,
         activeToken = nil
         pageTokens = []
         endBackgroundTask()
+        if let finished = sessionDidFinish { finished(Int32(lastExitStatus!)); return }
         precondition(lastExitStatus == 0, "AppTraverse iOS model session failed")
         if applicationActive && !manualStop { startIfNeeded() }
     }
