@@ -2,6 +2,7 @@
 #define APPTRAVERSE_CHAT_SESSION_H_
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -35,6 +36,7 @@ struct ChatView {
   std::vector<ChatMessageView> message_records;
   bool push_registered{false};
   int push_notify_status{-1};
+  std::uint64_t push_notify_request{};
   bool ready{false};
   bool in_room{false};
   bool locally_online{false};

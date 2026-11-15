@@ -152,7 +152,8 @@ terminals, choose the same fresh absolute directory for both commands:
 ```
 
 This creates three real Aether identities and validates C++ Register/Notify,
-Java decoding, responses in both directions and ordinary chat admission/send.
+Java decoding, three matching Notify responses across six-second idle gaps,
+and ordinary chat admission/send.
 The Java test recipient replaces Firebase; this is not an FCM delivery test.
 Use a fresh directory on each run; it contains private SDK identity files.
 Current results are in [validation](../../docs/validation/push-service-2026-11-14.md).

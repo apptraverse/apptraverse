@@ -21,7 +21,13 @@ int main(int argc,char** argv){
   if(!wait([&]{return windows.View().participants.size()==2&&phone.View().participants.size()==2;}))return 6;
   if(!wait([&]{return phone.View().push_registered;}))return 8;
   windows.Send("push transport acceptance",[&](bool accepted){if(accepted)windows.NotifyPushPeers();});
-  bool ok=wait([&]{return std::filesystem::exists(dir/"delivered")&&windows.View().push_notify_status==0;});
+  if(!wait([&]{return std::filesystem::exists(dir/"notify-1")&&windows.View().push_notify_status==0&&windows.View().push_notify_request>=1;}))return 9;
+  std::this_thread::sleep_for(6s); // exceed the link stall timeout while idle
+  windows.NotifyPushPeers();
+  if(!wait([&]{return std::filesystem::exists(dir/"notify-2")&&windows.View().push_notify_request>=2;}))return 10;
+  std::this_thread::sleep_for(6s);
+  windows.NotifyPushPeers();
+  bool ok=wait([&]{return std::filesystem::exists(dir/"delivered")&&windows.View().push_notify_status==0&&windows.View().push_notify_request>=3;});
   windows.Stop();phone.Stop();if(!ok)return 7;
   std::cout<<"LIVE_TRANSPORT_PASS\n";
 }

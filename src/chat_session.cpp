@@ -428,6 +428,7 @@ struct ChatSession::Impl {
   std::uint64_t push_request{1}, registration_request{}, next_registration{};
   push::Reader push_reader;
   int push_notify_status{-1};
+  std::uint64_t push_notify_request{};
   void ServicePush(std::uint64_t now) {
     if(push_service.empty()||push_token.empty()||registered_token==push_token||now<next_registration)return;
     if(!registration_request)registration_request=push_request++;
@@ -795,6 +796,7 @@ struct ChatSession::Impl {
     ChatView next;
     next.push_registered=!push_token.empty()&&registered_token==push_token;
     next.push_notify_status=push_notify_status;
+    next.push_notify_request=push_notify_request;
     next.status = status;
     next.ready = sync && !failed && !finished && !sync->failed();
     next.locally_online = client.is_valid() && client->IsLocallyOnline();
@@ -937,7 +939,7 @@ struct ChatSession::Impl {
           native->SetRawServiceReceiver([this](auto const&,auto const& bytes){
             push_reader.Feed(bytes,[this](push::Packet const& p){
               if(p.method==0x81 && p.request==registration_request && p.status==0)registered_token=push_token;
-              if(p.method==0x82)push_notify_status=p.status;
+              if(p.method==0x82){push_notify_status=p.status;push_notify_request=p.request;}
               view_dirty=true;
               std::clog<<"Push response method="<<unsigned(p.method)<<" status="<<unsigned(p.status)<<'\n';
             });

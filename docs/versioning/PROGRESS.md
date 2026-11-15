@@ -3745,3 +3745,13 @@ notification display and tap-to-open with the exact received chat message passed
 Fixed the packaged Windows launcher's cmd.exe classpath-length limit using Java's
 wildcard classpath. Credentials and app configuration are not committed. See the
 [updated push validation](../validation/push-service-2026-11-14.md).
+
+
+### Repeated push and popup follow-up — 2026-11-14
+
+Fixed raw service reply ports replacing the outgoing stream and new-frame stall
+age incorrectly including prior idle time. The live C++/Java regression now checks
+three matching Notify responses across six-second idle gaps and passes. Updated
+Windows/Android builds and UI model test pass. Two real FCM notifications from the
+Windows GUI were verified, including a screenshot of the repeated heads-up banner.
+See [push validation](../validation/push-service-2026-11-14.md).

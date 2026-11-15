@@ -77,3 +77,37 @@ keyed by the authenticated Aether sender; Notify uses an explicit sender allowli
 Windows asks for push after a successful local chat commit; ordinary SharedNode
 replication remains responsible for message delivery. Registration retries until
 ACK; notification delivery is best effort with no durable queue or deduplication.
+
+
+## Repeated push / heads-up follow-up — 2026-11-14
+
+The user's manual test exposed missing repeated pushes. Confirmed Android's
+channel importance HIGH, global heads-up enabled and DND off. SystemUI NotifLog
+showed the heads-up presentation lasting about 5–6 seconds, but subsequent
+Windows requests could disappear before reaching the Java service.
+
+Fixed two adapter boundaries:
+
+- A Java service response can arrive through a separate reverse P2p port. Keep
+  that inbound stream separately instead of replacing the outgoing service
+  stream and its pending work/subscriptions.
+- Starting a new frame after more than five seconds idle reused the previous
+  write-progress timestamp. The stall detector immediately recreated the stream
+  and discarded the newly queued frame. Start its timeout when it is queued.
+
+Extended the explicit live C++/Java probe to require three Notify requests and
+three matching response IDs, with six seconds idle between requests. Combined
+fix passes: `build/push-idle-cpp2.log` and `build/push-idle-java2.log` each report
+LIVE_TRANSPORT_PASS. A queue-timestamp-only diagnostic variant failed to receive
+the first Notify response, so the separate reverse stream is retained in the
+final change. No persistent model schema changed; the response ID is transient
+ChatView diagnostics.
+
+Final Windows Debug and Android Firebase-enabled Debug builds pass; the Android
+APK was updated in place, preserving user data. SharedChat UI model CTest passes
+1/1. Real Firebase validation sent two notifications from the Windows GUI with
+an idle interval. Both responses report status 0 and the second heads-up was
+captured on the Android home screen. Local visual evidence:
+`build/popup-visible.png`, `build/popup-visible-repeat.png`,
+`build/popup-repeat-result.txt`, `build/banner-final-host-err.log`.
+The banner is temporary; the launcher dot can remain after the banner disappears.

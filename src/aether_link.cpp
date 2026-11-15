@@ -113,6 +113,11 @@ struct AetherByteLink::Impl {
     std::unique_ptr<ae::P2pStream> raw;
     P2pMessageReader packets;
     ae::Subscription chunk_sub;
+    // Java MessageNode replies open an independent reverse port. Receiving a
+    // reply must not replace the outgoing service stream (its remote reader
+    // belongs to that original port).
+    std::unique_ptr<ae::P2pStream> service_inbound;
+    ae::Subscription service_inbound_sub;
     ae::Subscription write_sub;
     std::deque<Job> jobs;
     bool writing{false};
@@ -120,6 +125,8 @@ struct AetherByteLink::Impl {
     AetherLinkStatistics statistics;
 
     void Drop() {
+      service_inbound_sub.Reset();
+      service_inbound.reset();
       write_sub.Reset();
       chunk_sub.Reset();
       writing = false;
@@ -147,6 +154,16 @@ struct AetherByteLink::Impl {
             return;
           }
           auto* peer = Get(handle.destination());
+          if (UidText(peer->uid) == options.raw_service_uid && peer->raw) {
+            peer->service_inbound_sub.Reset();
+            peer->service_inbound = std::make_unique<ae::P2pStream>(
+                context, client.Load(), peer->uid, std::move(handle));
+            peer->service_inbound_sub = peer->service_inbound->out_data_event().Subscribe(
+                [this](ae::DataBuffer const& bytes) {
+                  if (!stopped && raw_receiver) raw_receiver(options.raw_service_uid, bytes);
+                });
+            return;
+          }
           Bind(*peer, std::move(handle));
         });
   }
@@ -328,6 +345,9 @@ struct AetherByteLink::Impl {
       return false;
     }
     peer.jobs.emplace_back(bytes, UidText(peer.uid) == options.raw_service_uid);
+    // Start the stall window with this newly queued frame. Idle time since a
+    // previous successful write is not evidence that the new frame is stalled.
+    peer.last_write_progress_us = now_us;
     return true;
   }
   void Receive(Peer& peer, ae::DataBuffer const& data) {
