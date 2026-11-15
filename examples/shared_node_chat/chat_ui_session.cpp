@@ -1,6 +1,8 @@
 #include "chat_ui_session.h"
 #include <atomic>
 #include <cstdlib>
+#include <chrono>
+#include <iostream>
 #include <set>
 #include <thread>
 #include "apptraverse/application_model_runtime.h"
@@ -96,13 +98,17 @@ struct Session::Impl {
     root->create=[this]{transport.CreateRoom();};
     root->join=[this](std::string invite){transport.JoinRoom(std::move(invite));};
     root->send=[this](std::string text,std::uint64_t revision){
-      transport.Send(std::move(text),[this,revision](bool accepted){
+      auto const started=std::chrono::steady_clock::now();
+      transport.Send(std::move(text),[this,revision,started](bool accepted){
 #if defined(_WIN32)
         if(accepted)transport.NotifyPushPeers();
 #endif
-        (void)runtime.TryPost([this,revision,accepted](ae::Domain& model){
+        (void)runtime.TryPost([this,revision,accepted,started](ae::Domain& model){
           auto* root=model.Find(RootId()).as<ChatUi>();
           root->CompleteSend(revision,accepted);
+          std::clog<<"Chat send settled revision="<<revision<<" accepted="<<accepted
+                   <<" total_ms="<<std::chrono::duration_cast<std::chrono::milliseconds>(
+                         std::chrono::steady_clock::now()-started).count()<<'\n';
           CompleteDeferredCheckpoints(*root);
         });
       });

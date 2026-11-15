@@ -1126,11 +1126,20 @@ void ChatSession::Send(std::string text) {
                                     ae::Domain&) { impl->Send(text); });
 }
 void ChatSession::Send(std::string text, std::function<void(bool)> committed) {
+  auto const queued_at=MonotonicMicros();
   auto reject = [committed] { committed(false); };
   impl_->Enqueue(
       [impl = impl_.get(), text = std::move(text),
-       committed = std::move(committed)](ae::Domain&) {
-        committed(impl->Send(text));
+       committed = std::move(committed), queued_at](ae::Domain&) {
+        auto const started=MonotonicMicros();
+        bool const accepted=impl->Send(text);
+        auto const completed=MonotonicMicros();
+        // No message content or credentials. Distinguish a delayed local commit
+        // from transport queueing; Online/FCM ACKs do not settle this operation.
+        std::clog<<"Chat send accepted="<<accepted
+                 <<" queue_ms="<<(started-queued_at)/1000
+                 <<" commit_ms="<<(completed-started)/1000<<'\n';
+        committed(accepted);
       }, std::move(reject));
 }
 ChatView ChatSession::View() const {

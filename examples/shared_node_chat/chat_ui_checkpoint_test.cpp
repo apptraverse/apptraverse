@@ -149,11 +149,16 @@ int main(int argc, char** argv) {
   CHECK(late_send_ready.wait_for(5s) == std::future_status::ready);
   flush.Release(1);
   flush.Wait(2); // Checkpoint queued its UI save before transport began Send.
+  Until(session, host, [&] {
+    return session.Mirror()->editing.sending && !session.Mirror()->Get(Control::Send).enabled;
+  });
   std::promise<void> final_save_attempted;
   auto attempted = final_save_attempted.get_future();
   session.Proxy().EnqueueModelWork([&](ae::Domain& model) {
     auto* root = model.Find(RootId()).as<ChatUi>();
     CHECK(root->editing.sending);
+    CHECK(!root->Get(Control::Send).enabled);
+    CHECK(root->Get(Control::Input).enabled);
     // Ordinary input still runs while only the checkpoint completion waits.
     root->EditDraft("typed-while-checkpoint-waits");
     final_save_attempted.set_value();
@@ -163,6 +168,9 @@ int main(int argc, char** argv) {
   flush.Release(2);
   Until(session, host, [&] { return later_result.wait_for(0ms) == std::future_status::ready; });
   CHECK(later_result.get());
+  Until(session, host, [&] { return !session.Mirror()->editing.sending; });
+  CHECK(session.Mirror()->Get(Control::Send).enabled);
+  CHECK(session.Mirror()->editing.draft=="typed-while-checkpoint-waits");
 
   ae::RamDomainStorage final_user, transport_checkpoint;
   CHECK(LoadUserStorageFile(final_user, profile));

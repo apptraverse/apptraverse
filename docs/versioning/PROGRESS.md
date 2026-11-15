@@ -1,3 +1,14 @@
+## SharedNode autoscroll / Send diagnostics — 2026-11-14
+
+Windows and Android scroll new message history to the end while preserving
+composer focus and draft; live two-way GUI acceptance PASS. Windows Debug build,
+UI model CTest, explicit cloud checkpoint/send-commit tests and Android Debug
+assemble/lint PASS. The checkpoint test verifies disabled Send during delayed
+local save, enabled Input and recovery with a newer draft intact. Three live
+Windows sends settled in the model in 135–171 ms. The user's earlier long pause
+was not reproduced; stage timings were added, without changing send semantics.
+[Evidence and exact button lifecycle](../validation/shared-node-scroll-send-2026-11-14.md).
+
 ## SharedNode push review and UI fixes — 2026-11-14 — PASS in stated scope
 
 Fixed Android foreground notification display and notification-dot cleanup on

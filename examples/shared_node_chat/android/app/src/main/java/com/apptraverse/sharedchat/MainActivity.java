@@ -22,6 +22,7 @@ public final class MainActivity extends Activity {
   private final long[] pending=new long[12];
   private FrameLayout surface;
   private boolean applying;
+  private boolean scrollMessagesToEnd;
   private long revision;
   private float density;
   static native void registerPushTokenNative(String token);
@@ -43,6 +44,16 @@ public final class MainActivity extends Activity {
   @Override public void onCreate(Bundle saved){
     super.onCreate(saved);density=getResources().getDisplayMetrics().density;
     surface=new FrameLayout(this);setContentView(surface);current=new WeakReference<>(this);
+    // TextView height is only final after layout (including keyboard resizing).
+    // Scroll once for new history, without moving focus out of the composer.
+    surface.getViewTreeObserver().addOnPreDrawListener(()->{
+      if(scrollMessagesToEnd){
+        scrollMessagesToEnd=false;
+        ScrollView messages=(ScrollView)controls[8];
+        messages.scrollTo(0,textViews[8].getHeight());
+      }
+      return true;
+    });
     String profile=getIntent().getStringExtra("profile");if(profile==null)profile="default";
     // Profiles are names inside private app storage, never arbitrary external paths.
     if(!profile.matches("[A-Za-z0-9_-]+"))throw new IllegalArgumentException("Invalid profile name");
@@ -63,7 +74,10 @@ public final class MainActivity extends Activity {
       if(controls[id]==null)createControl(id);
       TextView view=textViews[id];
       revision=Math.max(revision,acknowledged);
-      if(acknowledged>=pending[id]&&!view.getText().toString().equals(text))view.setText(text);
+      if(acknowledged>=pending[id]&&!view.getText().toString().equals(text)){
+        view.setText(text);
+        if(id==8)scrollMessagesToEnd=true;
+      }
       if(view instanceof EditText){
         EditText edit=(EditText)view;
         edit.setShowSoftInputOnFocus(!readOnly);

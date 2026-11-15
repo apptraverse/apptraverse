@@ -143,8 +143,12 @@ struct Window : gui::Presentation {
     }else if(kind==gui::Control::Messages){
       if(shown_messages!=state.rows){std::string value;
         for(auto const& row:state.rows){if(!value.empty())value+="\r\n";value+=row;}
-        SetChanged(control,Utf8ToWide(value));shown_messages=state.rows;
-        SendMessageW(control,EM_SETSEL,static_cast<WPARAM>(-1),-1);SendMessageW(control,EM_SCROLLCARET,0,0);
+        auto const text=Utf8ToWide(value);
+        SetChanged(control,text);shown_messages=state.rows;
+        // -1 as the start merely removes a selection; use the actual end of
+        // the new history, even when this read-only EDIT does not have focus.
+        SendMessageW(control,EM_SETSEL,static_cast<WPARAM>(text.size()),static_cast<LPARAM>(text.size()));
+        SendMessageW(control,EM_SCROLLCARET,0,0);
       }
     }else if(kind==gui::Control::Input||kind==gui::Control::Invite){
       // A publication may acknowledge an earlier keystroke while native input
