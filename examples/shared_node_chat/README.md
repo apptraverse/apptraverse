@@ -224,3 +224,7 @@ python3 tests/run_shared_chat_ios.py \
 
 This creates fresh private cloud identities and requires a new output directory.
 It never joins or modifies a user's manually running chat.
+
+## Optional Android push demo
+
+See [the binary push service](../../services/push/README.md) for the minimal Windows to Aether service to Firebase to Android flow. It is opt-in.

@@ -17,6 +17,8 @@
 namespace apptraverse {
 
 struct AetherLinkOptions {
+  // Optional binary service endpoint; bypasses SharedNode fragmentation. TCP only.
+  std::string raw_service_uid;
   // Disabled by default: send without availability observations and let the
   // durable SharedSync ACK/retry loop establish delivery.
   bool use_presence{false};
@@ -97,6 +99,7 @@ class AetherByteLink final : public IByteLink {
   bool WatchPeer(std::string const& endpoint);
   void Service(std::uint64_t now_us);
   void SetReceiver(Receiver receiver) override;
+  void SetRawServiceReceiver(Receiver receiver);
   bool Send(std::string const& destination,
             std::vector<std::uint8_t> const& bytes) override;
   LinkAvailability Availability(std::string const& destination) const override;

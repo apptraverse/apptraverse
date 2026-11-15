@@ -1,4 +1,7 @@
 #include "apptraverse/chat_session.h"
+#include "apptraverse/push_protocol.h"
+#include <iostream>
+#include <cctype>
 
 #include <algorithm>
 #include <atomic>
@@ -420,6 +423,25 @@ class ChatLink final : public IByteLink {
 }  // namespace
 
 struct ChatSession::Impl {
+  std::string push_service, push_token;
+  std::string registered_token;
+  std::uint64_t push_request{1}, registration_request{}, next_registration{};
+  push::Reader push_reader;
+  int push_notify_status{-1};
+  void ServicePush(std::uint64_t now) {
+    if(push_service.empty()||push_token.empty()||registered_token==push_token||now<next_registration)return;
+    if(!registration_request)registration_request=push_request++;
+    if(native->Send(push_service,push::Encode({1,registration_request,push_token})))next_registration=now+5000000;
+  }
+  void NotifyPush() {
+    auto* room=CurrentRoom(); if(!room||push_service.empty()||!native)return;
+    for(auto const& peer:room->participants) {
+      auto const& uid=peer->link->endpoint_uid;
+      if(uid!=native->EndpointId() && !native->Send(push_service,push::Encode({2,push_request++,uid})))
+        std::cerr<<"Push request not queued (service busy)\n";
+    }
+  }
+
   Impl(std::filesystem::path value, std::string user_name, Changed changed,
        PrepareProfile prepare, FlushProfile flush)
       : profile{std::filesystem::absolute(std::move(value))},
@@ -771,6 +793,8 @@ struct ChatSession::Impl {
   void Publish() {
     view_dirty = false;
     ChatView next;
+    next.push_registered=!push_token.empty()&&registered_token==push_token;
+    next.push_notify_status=push_notify_status;
     next.status = status;
     next.ready = sync && !failed && !finished && !sync->failed();
     next.locally_online = client.is_valid() && client->IsLocallyOnline();
@@ -906,8 +930,18 @@ struct ChatSession::Impl {
           AetherLinkOptions link_options;
           link_options.use_presence = true;
           link_options.gate_delivery_on_presence = false;
+          link_options.raw_service_uid=push_service;
           native = std::make_unique<AetherByteLink>(*sdk->aether(), client,
                                                     link_options);
+          std::clog<<"Aether chat UID: "<<native->EndpointId()<<'\n';
+          native->SetRawServiceReceiver([this](auto const&,auto const& bytes){
+            push_reader.Feed(bytes,[this](push::Packet const& p){
+              if(p.method==0x81 && p.request==registration_request && p.status==0)registered_token=push_token;
+              if(p.method==0x82)push_notify_status=p.status;
+              view_dirty=true;
+              std::clog<<"Push response method="<<unsigned(p.method)<<" status="<<unsigned(p.status)<<'\n';
+            });
+          });
           if (!InitializeModel()) {
             SetError("Could not initialize the chat");
           }
@@ -922,6 +956,7 @@ struct ChatSession::Impl {
             }
           }
         }
+        ServicePush(now);
         native->Service(now);
         if (now >= next_presence_publication) {
           view_dirty = true;
@@ -1009,6 +1044,18 @@ ChatSession::ChatSession(std::filesystem::path profile, std::string name,
                                    std::move(prepare_profile),
                                    std::move(flush_profile))} {}
 ChatSession::~ChatSession() { Stop(); }
+void ChatSession::ConfigurePush(std::string uid) {
+  std::transform(uid.begin(),uid.end(),uid.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});
+  impl_->push_service=std::move(uid);
+}
+void ChatSession::RegisterPushToken(std::string token) {
+  impl_->proxy.EnqueueModelWork([impl=impl_.get(),token=std::move(token)](ae::Domain&){
+    impl->push_token=token;impl->registered_token.clear();impl->registration_request=0;impl->next_registration=0;
+  });
+}
+void ChatSession::NotifyPushPeers() {
+  impl_->proxy.EnqueueModelWork([impl=impl_.get()](ae::Domain&){impl->NotifyPush();});
+}
 void ChatSession::Start() {
   std::lock_guard lock{impl_->lifecycle_mutex};
   if (impl_->thread.joinable()) {

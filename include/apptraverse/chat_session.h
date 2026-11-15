@@ -33,6 +33,8 @@ struct ChatView {
   std::vector<ParticipantView> participants;
   std::vector<std::string> messages;
   std::vector<ChatMessageView> message_records;
+  bool push_registered{false};
+  int push_notify_status{-1};
   bool ready{false};
   bool in_room{false};
   bool locally_online{false};
@@ -63,6 +65,10 @@ class ChatSession {
   ChatSession(ChatSession const&) = delete;
   ChatSession& operator=(ChatSession const&) = delete;
 
+  // Configure before Start; token updates may arrive from the Android SDK thread.
+  void ConfigurePush(std::string service_uid);
+  void RegisterPushToken(std::string token);
+  void NotifyPushPeers();
   void Start();
   void Stop();
   // Ordered model-worker checkpoint; completion runs there after USER is durable.

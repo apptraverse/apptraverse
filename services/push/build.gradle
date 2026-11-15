@@ -1,0 +1,69 @@
+plugins { id 'application' }
+repositories {
+  mavenCentral()
+  maven { url = uri('https://nexus.aethernet.io/maven/releases/') }
+}
+java { sourceCompatibility = JavaVersion.VERSION_25; targetCompatibility = JavaVersion.VERSION_25 }
+application {
+  mainClass = 'io.apptraverse.push.Main'
+  applicationDefaultJvmArgs = ['--enable-native-access=ALL-UNNAMED']
+}
+dependencies {
+  implementation 'io.aether:cloud-client:0.0.86'
+  runtimeOnly 'io.aether:net-virtual:0.0.101'
+  runtimeOnly 'io.aether.crypto:hydrogen-fast:0.0.99'
+  if (System.getProperty('os.name').toLowerCase().contains('windows')) runtimeOnly 'dev.onvoid.webrtc:webrtc-java:0.20.0:windows-x86_64'
+  implementation 'com.google.firebase:firebase-admin:9.7.0'
+  implementation 'org.xerial:sqlite-jdbc:3.49.1.0'
+  testImplementation 'org.junit.jupiter:junit-jupiter:5.10.0'
+  testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.0'
+}
+test { useJUnitPlatform() }
+
+tasks.register('liveTransportProbe', JavaExec) {
+  dependsOn testClasses
+  classpath = sourceSets.test.runtimeClasspath
+  mainClass = 'io.apptraverse.push.LiveTransportProbe'
+  jvmArgs '--enable-native-access=ALL-UNNAMED'
+  args providers.gradleProperty('probeDir').getOrElse('build/live-transport')
+}
+
+// The published Hydrogen FFM jar embeds Linux's .so but no Windows DLL.
+// Build the same pinned crypto implementation for the Windows distribution.
+if (System.getProperty('os.name').toLowerCase().contains('windows')) {
+  def nativeBuild = layout.buildDirectory.dir('native').get().asFile
+  def nativeOut = new File(nativeBuild, 'out')
+  tasks.register('configureWindowsCrypto', Exec) {
+    inputs.file 'native/CMakeLists.txt'
+    outputs.file new File(nativeBuild, 'CMakeCache.txt')
+    commandLine 'cmake', '-S', file('native'), '-B', nativeBuild,
+      '-G', 'Visual Studio 17 2022', '-A', 'x64'
+    if (project.hasProperty('hydrogenSource')) args '-DHYDROGEN_SOURCE='+project.property('hydrogenSource')
+  }
+  tasks.register('buildWindowsCrypto', Exec) {
+    dependsOn 'configureWindowsCrypto'
+    inputs.file 'native/CMakeLists.txt'
+    outputs.file new File(nativeOut, 'hydrogen.dll')
+    commandLine 'cmake', '--build', nativeBuild, '--config', 'Debug', '--target', 'hydrogen'
+  }
+  tasks.named('run', JavaExec) {
+    dependsOn 'buildWindowsCrypto'
+    jvmArgs '-Djava.library.path='+nativeOut.absolutePath
+  }
+  tasks.named('liveTransportProbe', JavaExec) {
+    dependsOn 'buildWindowsCrypto'
+    jvmArgs '-Djava.library.path='+nativeOut.absolutePath
+  }
+  distributions.main.contents {
+    from(nativeOut) { into 'lib/native' }
+  }
+  tasks.named('installDist') { dependsOn 'buildWindowsCrypto' }
+  tasks.named('distZip') { dependsOn 'buildWindowsCrypto' }
+  tasks.named('distTar') { dependsOn 'buildWindowsCrypto' }
+  tasks.named('startScripts') {
+    doLast {
+      windowsScript.text = windowsScript.text.replace('set DEFAULT_JVM_OPTS=',
+        'set DEFAULT_JVM_OPTS="-Djava.library.path=%APP_HOME%\\lib\\native" ')
+    }
+  }
+}

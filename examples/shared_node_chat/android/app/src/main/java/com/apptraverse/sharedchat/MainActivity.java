@@ -24,7 +24,9 @@ public final class MainActivity extends Activity {
   private boolean applying;
   private long revision;
   private float density;
-  private native void startNative(String path,String name,boolean host,String invite,boolean loadOnly);
+  static native void registerPushTokenNative(String token);
+  static void registerPushToken(String token){UI.post(()->{if(current.get()!=null)registerPushTokenNative(token);});}
+  private native void startNative(String path,String name,boolean host,String invite,boolean loadOnly,String pushServiceUid);
   private native void renderNative(boolean remount);
   private native void inputNative(int control,String text);
   private native void actionNative(int control);
@@ -47,7 +49,8 @@ public final class MainActivity extends Activity {
     String name=getIntent().getStringExtra("name");if(name==null)name="Android";
     String invite=getIntent().getStringExtra("invite");if(invite==null)invite="";
     startNative(new java.io.File(getFilesDir(),profile).getAbsolutePath(),name,
-      getIntent().getBooleanExtra("host",true),invite,getIntent().getBooleanExtra("loadOnly",false));
+      getIntent().getBooleanExtra("host",true),invite,getIntent().getBooleanExtra("loadOnly",false),BuildConfig.PUSH_SERVICE_UID);
+    PushSetup.start(this);
     renderNative(true);
     surface.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or_,ob)->{
       if(r-l>0&&b-t>0)resizeNative(Math.round((r-l)/density),Math.round((b-t)/density));
@@ -96,6 +99,7 @@ public final class MainActivity extends Activity {
     else controls[id]=text;
     surface.addView(controls[id]);
   }
+  @Override protected void onResume(){super.onResume();PushSetup.refresh();}
   @Override protected void onStop(){
     if(!checkpointNative())throw new IllegalStateException("SharedNode checkpoint failed");
     super.onStop();

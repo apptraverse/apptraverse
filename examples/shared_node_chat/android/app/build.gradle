@@ -1,6 +1,14 @@
 plugins { id 'com.android.application' }
+def pushEnabled = (project.findProperty('chatPush') ?: 'false').toBoolean()
+def pushServiceUid = (project.findProperty('pushServiceUid') ?: '') as String
+if(pushEnabled && !(pushServiceUid ==~ /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/)) throw new GradleException('Set -PpushServiceUid to the service Aether UID')
+if(pushEnabled) apply plugin: 'com.google.gms.google-services'
+
 android {
   namespace 'com.apptraverse.sharedchat'
+  buildFeatures { buildConfig true }
+  sourceSets.main.java.srcDirs += [pushEnabled ? 'src/push/java' : 'src/noPush/java']
+  if(pushEnabled) sourceSets.main.manifest.srcFile 'src/push/MergedManifest.xml'
   compileSdk 34
   buildToolsVersion '36.0.0'
   ndkVersion '29.0.14206865'
@@ -8,6 +16,7 @@ android {
     applicationId 'com.apptraverse.sharedchat'
     minSdk 24
     targetSdk 34
+    buildConfigField 'String', 'PUSH_SERVICE_UID', '"'+pushServiceUid+'"'
     versionCode 1
     versionName '1.0'
     ndk { abiFilters 'x86_64' }
@@ -29,3 +38,5 @@ android {
     }
   }
 }
+
+if(pushEnabled) { dependencies { implementation 'com.google.firebase:firebase-messaging:24.1.2' } }

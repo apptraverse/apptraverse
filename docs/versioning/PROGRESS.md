@@ -3723,3 +3723,15 @@ acceptance PASS (23.83s including cleanup). No adaptive transport is applied.
 Merged the remaining minimum-size/portable backend changes with main 7a3c712e, preserving Apple publication fixes. Shared Aether now pins client main 6fae4c39307888f7338f7629109aeb01c5948f2d (including wasm64 WebSocket length fix).
 
 Verified on the merged source: Windows shared Aether adapter build; SharedChat UI model and SharedSync tests (2/2); App consumer Debug builds on Windows x64, Linux x64, Android x86_64 Host/Admin, and Web wasm64 Admin. Apple was not built. Web and Android graph export ran on the native runtime. No Presence/throughput benchmarks were repeated.
+
+
+## 2026-11-14 — optional SharedNode chat binary push service
+
+Implemented the Java/SQLite/FCM service under `services/push`, two binary methods,
+a raw TCP service endpoint on the existing Aether link, Windows send integration,
+and optional Android Firebase registration/receiver. No AeroAdmin changes.
+Windows Debug build, UI model test, ordinary Android Debug APK, Firebase-enabled
+Android source compilation, Java tests/distribution and real C++/Java Aether
+Register/Notify plus response exchange passed. Actual FCM delivery is NOT RUN
+pending owner-supplied Firebase files. Full scope and evidence:
+[push validation](../validation/push-service-2026-11-14.md).
