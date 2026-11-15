@@ -51,6 +51,9 @@ void MinimalNativeRuntime::SetPresentationRoot(JNIEnv* env, jobject activity,
     };
   }
   host_->SetPresentationRoot(env, activity, content_root);
+  if (auto* session = host_->ui_session()) {
+    ApplyPagePresentation(session->root());
+  }
 }
 
 void MinimalNativeRuntime::ApplyPagePresentation(ae::Obj& root) {

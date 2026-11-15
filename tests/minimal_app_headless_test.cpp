@@ -886,6 +886,7 @@ void TestMinimalAppAuxiliaryCloseOpenHeadless() {
   CHECK(!model_app.auxiliary.apply_button->enabled());
 
   UiAuxiliaryCloserPresenter(ui_app).NotifyClickedFromUi();
+  UiAuxiliaryCloserPresenter(ui_app).NotifyClickedFromUi();
   PumpModelWorkAndApplyStructural(deferred, model_domain, model_app,
                                   ui_session);
   CHECK(!model_app.auxiliary_presented_open);
@@ -900,6 +901,72 @@ void TestMinimalAppAuxiliaryCloseOpenHeadless() {
   CHECK(AuxiliaryWindowTitleMirror(ui_app).Resolve(0) == "Applied");
   ui_app.auxiliary.apply_button.Load();
   CHECK(!ui_app.auxiliary.apply_button->enabled());
+}
+
+void TestMinimalAppLazyDetailPublishesThroughModelRuntime() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto model_app = BuildHeadlessMinimalApplicationGraph(domain);
+  PrepareMinimalApplicationForRun(*model_app);
+  ApplicationModelRuntime runtime;
+  PublicationWaiter waiter;
+  ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork work) {
+    runtime.Post(std::move(work));
+  }};
+  std::thread worker{[&] {
+    runtime.Run(domain, *model_app, [&](ApplicationPublicationKind kind) {
+      {
+        std::lock_guard<std::mutex> lock{waiter.mu};
+        waiter.kind = kind;
+        ++waiter.pending;
+      }
+      waiter.cv.notify_one();
+    });
+  }};
+  auto next_publication = [&] {
+    std::unique_lock<std::mutex> lock{waiter.mu};
+    CHECK(waiter.cv.wait_for(lock, std::chrono::seconds{10},
+                             [&] { return waiter.pending > 0; }));
+    auto kind = waiter.kind;
+    --waiter.pending;
+    return kind;
+  };
+  CHECK(next_publication() == ApplicationPublicationKind::Initial);
+  auto initial = runtime.TakePublishedCopy();
+  runtime.NotifyPublicationConsumed();
+  ApplicationUiSession session{initial, nullptr, proxy};
+  auto& ui_app = static_cast<MinimalApplication&>(session.root());
+  auto apply_incremental = [&] {
+    CHECK(next_publication() == ApplicationPublicationKind::Incremental);
+    auto bytes = runtime.TakePublishedCopy();
+    runtime.NotifyPublicationConsumed();
+    session.ApplyStructural(bytes);
+  };
+
+  UiAuxiliaryOpenerPresenter(ui_app).NotifyClickedFromUi();
+  apply_incremental();
+  CHECK(ui_app.auxiliary_presented_open);
+  UiAuxiliaryRowListPresenter(ui_app).SubmitListRowSelectionChangedFromUi(1);
+  apply_incremental();
+  CHECK(UiAuxiliaryRowList(ui_app).selection_index == 1);
+  UiAuxiliaryApplyButtonPresenter(ui_app).NotifyClickedFromUi();
+  apply_incremental();
+  CHECK(AuxiliaryWindowTitleMirror(ui_app).Resolve(0) == "Applied");
+  CHECK(UiAuxiliaryRowList(ui_app).selection_index == -1);
+
+  UiAuxiliaryCloserPresenter(ui_app).NotifyClickedFromUi();
+  UiAuxiliaryCloserPresenter(ui_app).NotifyClickedFromUi();
+  apply_incremental();
+  CHECK(!ui_app.auxiliary_presented_open);
+  UiAuxiliaryOpenerPresenter(ui_app).NotifyClickedFromUi();
+  apply_incremental();
+  CHECK(ui_app.auxiliary_presented_open);
+  UiAuxiliaryRowListPresenter(ui_app).SubmitListRowSelectionChangedFromUi(0);
+  apply_incremental();
+  CHECK(UiAuxiliaryRowList(ui_app).selection_index == 0);
+
+  runtime.RequestStop();
+  worker.join();
 }
 
 void TestMinimalAppAuxiliaryCloseEmbeddedUserShutdownColdLoad() {
@@ -1695,6 +1762,7 @@ int main() {
   apptraverse::test::TestMinimalAppApplyCheckpointPersistColdLoad();
   apptraverse::test::TestMinimalAppAuxiliaryPersistColdLoad();
   apptraverse::test::TestMinimalAppAuxiliaryCloseOpenHeadless();
+  apptraverse::test::TestMinimalAppLazyDetailPublishesThroughModelRuntime();
   apptraverse::test::TestMinimalAppAuxiliaryCloseEmbeddedUserShutdownColdLoad();
   apptraverse::test::TestMinimalAppAuxiliaryCloseSessionUserFlushCold();
   apptraverse::test::TestMinimalAppAuxiliaryCloseRamUserShutdownCold();

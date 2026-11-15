@@ -5,6 +5,7 @@
 #include "minimal_app_window_events.h"
 
 #include "apptraverse/runtime_node.h"
+#include "apptraverse/model_object_proxy.h"
 #include "apptraverse/ui/ui_list_container.h"
 #include "apptraverse/ui/ui_localization_string.h"
 #include "apptraverse/ui/ui_push_button.h"
@@ -108,6 +109,13 @@ void MinimalAuxiliaryCloserButton::HandlePushButtonClicked() {
   auto event = MinimalCloseAuxiliaryWindowEvent::ptr::Create(
       ae::CreateWith{*domain});
   application->Commit(std::move(event));
+}
+
+void MinimalAuxiliaryCloserButton::QueueClickFromUi(
+    ModelObjectProxy& proxy) const {
+  proxy.Invoke(application.id(),
+               &MinimalApplication::NotifyAuxiliaryCloseFromUi,
+               MinimalAuxiliaryWindowId().id());
 }
 
 }  // namespace apptraverse::example::minimal
