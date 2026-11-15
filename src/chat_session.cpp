@@ -1,3 +1,4 @@
+#include <optional>
 #include "apptraverse/chat_session.h"
 
 #include <algorithm>
@@ -8,6 +9,7 @@
 #include <deque>
 #include <functional>
 #include <mutex>
+#include <map>
 #include <thread>
 #include <utility>
 
@@ -30,9 +32,7 @@
 #  include APPTRAVERSE_CHAT_EMBEDDED_HEADER
 #endif
 #include "aether-miscpp/serialization/binary_archive.h"
-#include "aether/ae_actions/select_client.h"
-#include "aether/aether_app.h"
-#include "apptraverse/aether_link.h"
+#include "apptraverse/aether_connection.h"
 
 #ifdef RegisterClass
 #  undef RegisterClass
@@ -96,14 +96,14 @@ class Room : public NodeFor<Room, SharedNode> {
 
  public:
   explicit Room(ae::ObjProp prop) : NodeFor{prop} {}
-  AE_OBJECT_REFLECT(AE_MMBR(host_uid), AE_MMBR(participants), AE_MMBR(messages))
+  AE_OBJECT_REFLECT(AE_MMBR(host_uid), AE_MMBR(participants), AE_MMBR(messages), AE_MMBR(message_times))
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& d) {
-    d(base_, host_uid, participants, messages);
+    d(base_, host_uid, participants, messages, message_times);
   }
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& d) const {
-    d(base_, host_uid, participants, messages);
+    d(base_, host_uid, participants, messages, message_times);
   }
   bool CanApply(TextEvent const&) const;
   bool CanApply(JoinEvent const&) const;
@@ -112,6 +112,7 @@ class Room : public NodeFor<Room, SharedNode> {
   std::string host_uid;
   std::vector<Participant::ptr> participants;
   std::vector<ChatMessage> messages;
+  std::map<std::string,std::uint64_t> message_times;
 };
 
 class TextEvent : public EventFor<Room, TextEvent> {
@@ -172,6 +173,12 @@ void Room::Apply(TextEvent const& event) {
   messages.push_back({event.author->name, event.text,
                       author_uid + ":" + std::to_string(event.obj_id.id()),
                       author_uid});
+  // Read the retained event record while it is being applied, including replay.
+  // Persist the timestamp in materialized state before the journal is compacted.
+  auto record=std::find_if(journal.begin(),journal.end(),[&](auto const& entry) {
+    return entry.event.id()==event.obj_id;
+  });
+  if(record!=journal.end()) message_times[messages.back().id]=record->order.timestamp_us;
   NoteMaterializedChange();
 }
 void Room::Apply(JoinEvent const& event) {
@@ -360,7 +367,7 @@ class ChatLink final : public IByteLink {
  public:
   using Join = std::function<void(std::string const&, ae::ObjId, std::string)>;
   using Resolve = std::function<void(std::string const&, ae::ObjId)>;
-  ChatLink(AetherByteLink& native, Join on_join, Resolve on_resolve)
+  ChatLink(IByteLink& native, Join on_join, Resolve on_resolve)
       : native_{native}, on_join_{std::move(on_join)},
         on_resolve_{std::move(on_resolve)} {
     native_.SetReceiver([this](auto const& source, auto const& bytes) {
@@ -411,7 +418,7 @@ class ChatLink final : public IByteLink {
   }
 
  private:
-  AetherByteLink& native_;
+  IByteLink& native_;
   Join on_join_;
   Resolve on_resolve_;
   Receiver receiver_;
@@ -421,12 +428,13 @@ class ChatLink final : public IByteLink {
 
 struct ChatSession::Impl {
   Impl(std::filesystem::path value, std::string user_name, Changed changed,
-       PrepareProfile prepare, FlushProfile flush)
+       PrepareProfile prepare, FlushProfile flush, AdaptersFactory adapters)
       : profile{std::filesystem::absolute(std::move(value))},
         name{Trim(std::move(user_name))},
         on_changed{std::move(changed)},
         prepare_profile{std::move(prepare)},
         flush_profile{std::move(flush)},
+        adapters_factory{std::move(adapters)},
         proxy{[this](ModelObjectProxy::ModelWork work) {
           Enqueue(std::move(work), {});
         }} {
@@ -441,6 +449,9 @@ struct ChatSession::Impl {
   Changed on_changed;
   PrepareProfile prepare_profile;
   FlushProfile flush_profile;
+  AdaptersFactory adapters_factory;
+  std::mutex network_mutex;
+  NetworkObservation pending_network;
   mutable std::mutex view_mutex;
   ChatView view;
   std::mutex lifecycle_mutex;
@@ -456,13 +467,11 @@ struct ChatSession::Impl {
   std::thread thread;
 
   // Everything below is owned and accessed exclusively by the model thread.
-  std::unique_ptr<ae::AetherApp> sdk;
-  ae::Client::ptr client;
-  ae::Subscription selection;
-  bool selected{false};
-  bool selection_ok{false};
+  std::unique_ptr<ConnectionRuntime> connection;
+  SessionObservation last_connection;
   bool failed{false};
   bool finished{false};
+
   bool view_dirty{true};
   std::string status;
   std::string resolving_host;
@@ -471,12 +480,19 @@ struct ChatSession::Impl {
   std::unique_ptr<OverlayDomainStorage> model_storage;
   std::unique_ptr<ae::Domain> domain;
   Application::ptr app;
-  std::unique_ptr<AetherByteLink> native;
+  IConnectionTransport* native{nullptr};
   std::unique_ptr<ChatLink> link;
   std::unique_ptr<SharedSyncRuntime> sync;
   std::uint64_t next_join_request{0};
   std::uint64_t next_progress{0};
-  std::uint64_t next_presence_publication{0};
+  std::map<std::string, std::uint64_t> local_message_start_us;
+  std::map<std::string, std::uint64_t> local_message_ack_elapsed_us;
+  std::uint64_t current_monotonic_us{0};
+
+  bool WatchPeer(std::string const& endpoint){
+    if(!native->WatchPeer(endpoint))return false;
+    connection->WatchPresence({PresenceScope::Endpoint,endpoint});return true;
+  }
 
   Room* CurrentRoom() const {
     if (!app.is_valid() || !app->room.is_valid()) {
@@ -549,7 +565,7 @@ struct ChatSession::Impl {
     if (!app->expected.is_valid()) {
       return;
     }
-    native->WatchPeer(app->source);
+    WatchPeer(app->source);
     sync->ExpectInitialState(app->expected, app->source, Room::kClassId,
                              [this](SharedNode::ptr value) {
                                Observe(*value);
@@ -668,7 +684,7 @@ struct ChatSession::Impl {
                                 : static_cast<char>(c);
     });
     if (host.size() != 36 || host == native->EndpointId() ||
-        !native->WatchPeer(host)) {
+        !WatchPeer(host)) {
       SetStatus("Invalid host Aether ID");
       return;
     }
@@ -722,10 +738,13 @@ struct ChatSession::Impl {
     auto event = TextEvent::ptr::Create(ae::CreateWith{*domain});
     event->author = *author;
     event->text = std::move(text);
+    auto const message_id = native->EndpointId() + ":" +
+        std::to_string(event->obj_id.id());
     if (!sync->CommitLocal(room->obj_id, std::move(event))) {
       SetError("Could not commit the message");
       return false;
     }
+    local_message_start_us.emplace(message_id, current_monotonic_us);
     SetStatus("Connected");
     return true;
   }
@@ -747,7 +766,7 @@ struct ChatSession::Impl {
     if (known) {
       return;
     }
-    if (!native->WatchPeer(source)) {
+    if (!WatchPeer(source)) {
       return;
     }
     auto event = JoinEvent::ptr::Create(ae::CreateWith{*domain});
@@ -773,7 +792,9 @@ struct ChatSession::Impl {
     ChatView next;
     next.status = status;
     next.ready = sync && !failed && !finished && !sync->failed();
-    next.locally_online = client.is_valid() && client->IsLocallyOnline();
+    if(connection)next.connection=connection->Observation();
+    if(finished)next.connection.phase=TransportPhase::Stopped;
+    next.locally_online=next.connection.phase==TransportPhase::Connected;
     if (native) {
       next.local_uid = native->EndpointId();
     }
@@ -790,23 +811,25 @@ struct ChatSession::Impl {
         next.tcp_path_verified = next.udp_path_verified = true;
         for (auto const& peer : room->links) {
           if (peer->endpoint_uid == next.local_uid) continue;
-          auto const path = native->PeerStats(peer->endpoint_uid);
+          auto const path = native->PeerPath(peer->endpoint_uid);
           next.tcp_path_verified = next.tcp_path_verified &&
-                                   path.linked_tcp_endpoint &&
-                                   !path.linked_udp_endpoint;
+                                   path.tcp &&
+                                   !path.udp;
           next.udp_path_verified = next.udp_path_verified &&
-                                   path.linked_udp_endpoint &&
-                                   !path.linked_tcp_endpoint;
+                                   path.udp &&
+                                   !path.tcp;
         }
       }
       next.invite = room->host_uid;
       for (auto const& person : room->participants) {
         auto const& uid = person->link->endpoint_uid;
+        auto observation=std::find_if(next.connection.presence.begin(),next.connection.presence.end(),[&](auto const& p){return p.target==PresenceTarget{PresenceScope::Endpoint,uid};});
+        auto remote=observation==next.connection.presence.end()?PresenceState::Unknown:observation->state;
         auto const availability =
             uid == next.local_uid
                 ? (next.locally_online ? LinkAvailability::Online
                                        : LinkAvailability::Offline)
-                : native->ObservedPresence(uid);
+                : (remote==PresenceState::Online?LinkAvailability::Online:remote==PresenceState::Offline?LinkAvailability::Offline:LinkAvailability::Unknown);
         auto const presence =
             availability == LinkAvailability::Online    ? Presence::Online
             : availability == LinkAvailability::Offline ? Presence::Offline
@@ -814,15 +837,48 @@ struct ChatSession::Impl {
         next.participants.push_back({person->name, uid, presence});
       }
       for (auto const& message : room->messages) {
+        bool delivered = false;
+        auto separator = message.id.rfind(':');
+        std::uint32_t raw_id = 0;
+        if (separator != std::string::npos) {
+          auto digits = message.id.substr(separator + 1);
+          auto parsed = std::from_chars(digits.data(), digits.data()+digits.size(), raw_id);
+          if (parsed.ec == std::errc{} && parsed.ptr == digits.data()+digits.size()) {
+            bool has_recipient = false;
+            delivered = true;
+            for (auto const& peer : room->local_state->peers) {
+              if (peer->link->endpoint_uid == message.author_uid) continue;
+              has_recipient = true;
+              delivered = delivered && peer->HasDelivered(ae::ObjId{raw_id});
+            }
+            delivered = delivered && has_recipient;
+          }
+        }
+        if (delivered && message.author_uid == next.local_uid) {
+          auto started = local_message_start_us.find(message.id);
+          if (started != local_message_start_us.end() &&
+              current_monotonic_us >= started->second) {
+            local_message_ack_elapsed_us.emplace(
+                message.id, current_monotonic_us - started->second);
+            local_message_start_us.erase(started);
+          }
+        }
         next.messages.push_back(message.author_name + ": " + message.text);
         next.message_records.push_back({message.id, message.author_uid,
-                                        message.author_name, message.text});
+                                        message.author_name, message.text,
+                                        room->message_times.contains(message.id)?room->message_times.at(message.id):0,delivered,
+                                        local_message_ack_elapsed_us.contains(message.id)
+                                            ? std::optional<std::uint64_t>{local_message_ack_elapsed_us.at(message.id)}
+                                            : std::nullopt});
       }
     } else if (app.is_valid() && app->expected.is_valid()) {
       next.invite = app->source;
     } else if (!resolving_host.empty()) {
       next.invite = resolving_host;
     }
+    next.connection.graph_attached=next.in_room;
+    next.connection.pending_data=next.pending_packets-next.pending_progress_packets;
+    next.connection.pending_progress=next.pending_progress_packets;
     {
       std::lock_guard lock{view_mutex};
       if (view == next) {
@@ -862,70 +918,36 @@ struct ChatSession::Impl {
       Publish();
       return;
     }
-    sdk = ae::AetherApp::Construct(
-        ae::AetherAppContext{[this]() -> std::unique_ptr<ae::IDomainStorage> {
-          return std::make_unique<DirectoryDomainStorage>(profile / "sdk");
-        }});
-    if (!sdk) {
-      SetError("Could not start Aether");
-      Publish();
-      return;
-    }
-    selected = false;
-    selection_ok = false;
-    SetStatus("Connecting to Aether...");
-    selection =
-        sdk->aether()
-            ->SelectClient(
-                ae::Uid::FromString("3ac93165-3d37-4970-87a6-fa4ee27744e4"),
-                "shared-node-chat")
-            .result_event()
-            .Subscribe([this](auto const& result) {
-              selected = true;
-              selection_ok = static_cast<bool>(result);
-              if (selection_ok) {
-                client = result.value();
-              }
-            });
-    auto const started = MonotonicMicros();
-    while (!stop_requested.load() && !sdk->IsExited()) {
-      auto const wake = sdk->Update(ae::Now());
-      auto const now = MonotonicMicros();
-      if (!sync && !failed) {
-        if ((selected && !selection_ok) ||
-            (!selected && now - started > 120000000ULL)) {
-          SetError("Aether registration failed or timed out");
-        } else if (selection_ok) {
-          client->connectivity_policy()
-              .Load()
-              ->ConfigureRxTimings()
-              .ForAllPriorities(
-                  ae::RxTimingConf::Every(std::chrono::milliseconds{1000}));
-          // Identity storage is separate from the application's one USER file.
-          sdk->aether().Save();
-          AetherLinkOptions link_options;
-          link_options.use_presence = true;
-          link_options.gate_delivery_on_presence = false;
-          native = std::make_unique<AetherByteLink>(*sdk->aether(), client,
-                                                    link_options);
-          if (!InitializeModel()) {
-            SetError("Could not initialize the chat");
-          }
-        }
+    connection=std::make_unique<ConnectionRuntime>(adapters_factory(profile / "sdk"));
+    native=&connection->Transport();
+    SetStatus("Connecting...");
+    while (!stop_requested.load()) {
+      auto time=ReadConnectionTime();
+      auto const now=time.monotonic_us;
+      current_monotonic_us = now;
+      NetworkObservation network;
+      {std::lock_guard lock{network_mutex};network=pending_network;}
+      connection->NetworkChanged(network);
+      connection->Service(time);
+      if(native->Phase()==TransportPhase::Failed&&!failed)SetError("Transport connection failed");
+      if(!sync&&!failed&&native->Ready()){
+        if(!InitializeModel())SetError("Could not initialize the chat");
       }
+      auto observed=connection->Observation();
+      if(observed!=last_connection){last_connection=std::move(observed);view_dirty=true;}
       if (sync && !failed) {
         DrainCommands();
         if (auto* room = CurrentRoom()) {
           for (auto const& peer : room->links) {
             if (peer->endpoint_uid != native->EndpointId()) {
-              native->WatchPeer(peer->endpoint_uid);
+              WatchPeer(peer->endpoint_uid);
             }
           }
         }
-        native->Service(now);
-        if (now >= next_presence_publication) {
-          view_dirty = true;
-          next_presence_publication = now + 250000ULL;
+
+        if(auto* room=CurrentRoom()) {
+          Observe(*room->local_state);
+          for(auto const& peer:room->local_state->peers) Observe(*peer);
         }
         if (!resolving_host.empty() && now >= next_join_request) {
           link->ResolveRoom(resolving_host);
@@ -951,7 +973,7 @@ struct ChatSession::Impl {
       if (view_dirty) {
         Publish();
       }
-      sdk->WaitUntil(std::min(wake, ae::Now() + std::chrono::milliseconds{10}));
+      std::this_thread::sleep_for(std::chrono::milliseconds{10});
     }
     // Complete commands already accepted by the proxy before shutdown.
     if (!failed && sync) {
@@ -965,13 +987,12 @@ struct ChatSession::Impl {
     // Cancel callbacks and transport before their domain and SDK dependencies.
     sync.reset();
     link.reset();
-    native.reset();
+    native=nullptr;
+    connection.reset();
     app = {};
     domain.reset();
     model_storage.reset();
-    selection.Reset();
-    client = {};
-    sdk.reset();
+
   }
 };
 
@@ -1003,11 +1024,11 @@ ChatSession::ChatSession(std::filesystem::path profile, std::string name,
 }
 ChatSession::ChatSession(std::filesystem::path profile, std::string name,
                          Changed changed, PrepareProfile prepare_profile,
-                         FlushProfile flush_profile)
+                         FlushProfile flush_profile, AdaptersFactory adapters)
     : impl_{std::make_unique<Impl>(std::move(profile), std::move(name),
                                    std::move(changed),
                                    std::move(prepare_profile),
-                                   std::move(flush_profile))} {}
+                                   std::move(flush_profile), adapters?std::move(adapters):AdaptersFactory{[](auto const& path){return MakeAetherConnectionAdapters(path,"shared-node-chat");}})} {}
 ChatSession::~ChatSession() { Stop(); }
 void ChatSession::Start() {
   std::lock_guard lock{impl_->lifecycle_mutex};
@@ -1028,6 +1049,9 @@ void ChatSession::Stop() {
     impl_->thread.join();
   }
   impl_->RejectPendingCommands();
+}
+void ChatSession::NetworkChanged(NetworkObservation value) {
+  std::lock_guard lock{impl_->network_mutex};impl_->pending_network=value;
 }
 void ChatSession::Checkpoint(std::function<void(bool)> completion) {
   auto reject = [completion] { completion(false); };

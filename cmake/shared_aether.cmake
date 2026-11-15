@@ -54,7 +54,7 @@ function(apptraverse_add_shared_aether)
     target_compile_definitions(aether PUBLIC AE_BENCH_TCP_PROXY=1)
   endif()
   add_library(apptraverse_shared_aether STATIC EXCLUDE_FROM_ALL
-    src/aether_link.cpp)
+    src/aether_link.cpp src/aether_connection.cpp)
   target_link_libraries(apptraverse_shared_aether PUBLIC
     apptraverse_shared_node aether)
   set_property(TARGET apptraverse_shared_aether PROPERTY APPTRAVERSE_SDK_SOURCE_DIR

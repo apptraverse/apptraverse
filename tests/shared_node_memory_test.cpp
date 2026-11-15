@@ -179,8 +179,12 @@ void TestReplayKeepsIndependentLocalDeliveryAndColdStorage() {
     late->text = "|late";
     delivered_id = late.id();
     room->InsertAt(late, 200);
+    std::size_t delivery_notifications=0;
+    state_a->BindMaterializedChangeNotifier(&delivery_notifications,[](void* ctx,Node&){++*static_cast<std::size_t*>(ctx);});
     state_a->MarkDelivered(delivered_id);
     state_a->MarkDelivered(delivered_id);
+    CHECK(delivery_notifications==1);
+    state_a->ClearMaterializedChangeNotifier();
     CHECK(state_a->delivered_events.size() == 1);
     CHECK(state_a->journal.size() == 1);
     CHECK(!state_b->HasDelivered(delivered_id));

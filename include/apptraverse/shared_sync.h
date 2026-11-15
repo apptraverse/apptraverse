@@ -9,7 +9,7 @@
 #include <tuple>
 #include <vector>
 
-#include "apptraverse/memory_link.h"
+#include "apptraverse/byte_link.h"
 #include "apptraverse/shared_graph.h"
 #include "apptraverse/shared_node.h"
 

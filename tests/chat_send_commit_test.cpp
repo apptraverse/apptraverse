@@ -47,7 +47,8 @@ int main(int argc, char** argv) {
   if (committed.message_records.size() != 1 || flushes.load() == 0) return 10;
   auto const record = committed.message_records.front();
   if (record.id.empty() || record.author_uid != committed.local_uid ||
-      record.text != "committed draft" || record.author_name != "Commit acceptance") return 11;
+      record.text != "committed draft" || record.author_name != "Commit acceptance" ||
+      record.delivered || record.ack_elapsed_us.has_value()) return 11;
   session.Stop();
   if (!send("after stop", false)) return 12;
   session.Start();

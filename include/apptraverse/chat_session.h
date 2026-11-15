@@ -2,11 +2,14 @@
 #define APPTRAVERSE_CHAT_SESSION_H_
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
+#include "apptraverse/connection_runtime.h"
 
 namespace apptraverse::chat {
 
@@ -23,10 +26,17 @@ struct ParticipantView {
 // the model thread boundary.
 struct ChatMessageView {
   std::string id, author_uid, author_name, text;
+  // Original SharedNode event order timestamp, Unix microseconds UTC.
+  std::uint64_t sent_at_utc_us{0};
+  // True only after every remote member has durably acknowledged the event.
+  bool delivered{false};
+  // Sender-local elapsed time from commit to all-recipient ACK; absent on replay.
+  std::optional<std::uint64_t> ack_elapsed_us;
   bool operator==(ChatMessageView const&) const = default;
 };
 
 struct ChatView {
+  SessionObservation connection;
   std::string local_uid;
   std::string invite;
   std::string status;
@@ -55,16 +65,20 @@ class ChatSession {
   using PrepareProfile = std::function<bool()>;
   // Platform durability barrier, called on the model worker before an ACK.
   using FlushProfile = std::function<bool()>;
+  using AdaptersFactory = std::function<ConnectionAdapters(std::filesystem::path const&)>;
   ChatSession(std::filesystem::path profile, std::string name,
               Changed changed = {});
   ChatSession(std::filesystem::path profile, std::string name, Changed changed,
-              PrepareProfile prepare_profile, FlushProfile flush_profile = {});
+              PrepareProfile prepare_profile, FlushProfile flush_profile = {},
+              AdaptersFactory adapters = {});
   ~ChatSession();
   ChatSession(ChatSession const&) = delete;
   ChatSession& operator=(ChatSession const&) = delete;
 
   void Start();
   void Stop();
+  // OS connectivity observation, queued onto the SDK/model worker.
+  void NetworkChanged(NetworkObservation observation);
   // Ordered model-worker checkpoint; completion runs there after USER is durable.
   // Keeps the model, transport and presenters alive during native deactivation.
   void Checkpoint(std::function<void(bool)> completion);

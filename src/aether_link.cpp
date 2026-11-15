@@ -12,6 +12,7 @@
 #include "aether/client_messages/p2p_message_stream.h"
 #include "aether/client_messages/p2p_stream_write_budget.h"
 #include "aether/connection_manager/peer_presence_query.h"
+#include "aether/cloud_connections/cloud_server_connections.h"
 #include "apptraverse/p2p_message_fragments.h"
 
 namespace apptraverse {
@@ -90,6 +91,7 @@ struct AetherByteLink::Impl {
                                                max_message_bytes}} {}
     ae::Uid uid;
     AetherPresenceSnapshot presence;
+    bool presence_watched{false};
     std::uint64_t next_query_us{0};
     bool clock_started{false};
     std::uint64_t generation{0};
@@ -227,7 +229,7 @@ struct AetherByteLink::Impl {
     }
     for (std::size_t count = 0; count < peers.size(); ++count) {
       auto& peer = *next->second;
-      if (&peer != query_peer && now_us >= peer.next_query_us) {
+      if ((!options.explicit_presence_watches || peer.presence_watched) && &peer != query_peer && now_us >= peer.next_query_us) {
         query_sub.Reset();
         last_queried = next->first;
         query_peer = &peer;
@@ -410,6 +412,8 @@ struct AetherByteLink::Impl {
   bool query_timed_out{false};
   AetherLinkStatistics statistics;
   std::uint64_t now_us{0};
+  std::optional<bool> observed_local_online;
+  std::map<std::string, LinkAvailability> observed_presence;
   bool serviced{false};
   bool stopped{false};
 };
@@ -425,6 +429,20 @@ std::string const& AetherByteLink::EndpointId() const {
 bool AetherByteLink::WatchPeer(std::string const& endpoint) {
   return impl_->Watch(endpoint) != nullptr;
 }
+void AetherByteLink::SetPresenceWatch(std::string const& endpoint,bool enabled) {
+  if(auto* peer=impl_->Watch(endpoint)){peer->presence_watched=enabled;if(!enabled)peer->presence.Forget();}
+}
+void AetherByteLink::NetworkAvailable() {
+  for (auto const& [key, peer] : impl_->peers) peer->presence.Forget();
+  // A confirmation from the old route cannot establish online on the new one.
+  auto& cloud = impl_->client->cloud_connection();
+  auto policy = impl_->client->connectivity_policy().Load();
+  for (auto* server : cloud.servers()) {
+    if (auto* state = policy->FindServerPresence(server->server_id()))
+      state->has_confirmed_schedule = false;
+  }
+  cloud.Restream();
+}
 void AetherByteLink::Service(std::uint64_t now_us) {
   assert(!impl_->serviced || now_us >= impl_->now_us);
   impl_->now_us = now_us;
@@ -439,7 +457,15 @@ void AetherByteLink::Service(std::uint64_t now_us) {
     }
     impl_->Pump(*peer);
   }
+  bool changed = !impl_->observed_local_online || *impl_->observed_local_online != impl_->client->IsLocallyOnline();
+  impl_->observed_local_online = impl_->client->IsLocallyOnline();
+  for (auto const& [key, peer] : impl_->peers) {
+    auto value = impl_->Availability(*peer);
+    auto [it, inserted] = impl_->observed_presence.emplace(key, value);
+    if (inserted || it->second != value) { it->second = value; changed = true; }
+  }
   impl_->serviced = true;
+  if (changed && impl_->options.on_presence_changed) impl_->options.on_presence_changed();
 }
 void AetherByteLink::SetReceiver(Receiver receiver) {
   impl_->receiver = std::move(receiver);
@@ -490,6 +516,10 @@ LinkAvailability AetherByteLink::ObservedPresence(
   auto const found = impl_->peers.find(UidText(uid));
   return found == impl_->peers.end() ? LinkAvailability::Unknown
                                      : impl_->Availability(*found->second);
+}
+std::uint64_t AetherByteLink::PresenceQueryStarted(std::string const& destination) const {
+  auto it=impl_->peers.find(destination);
+  return it==impl_->peers.end()?0:it->second->presence.QueryStarted();
 }
 AetherLinkStatistics const& AetherByteLink::stats() const {
   return impl_->statistics;
