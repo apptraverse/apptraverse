@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -99,7 +100,8 @@ class AetherByteLink final : public IByteLink {
   bool WatchPeer(std::string const& endpoint);
   void Service(std::uint64_t now_us);
   void SetReceiver(Receiver receiver) override;
-  void SetRawServiceReceiver(Receiver receiver);
+  // A new byte stream must discard any incomplete frame from its predecessor.
+  void SetRawServiceReceiver(Receiver receiver, std::function<void()> reset = {});
   bool Send(std::string const& destination,
             std::vector<std::uint8_t> const& bytes) override;
   LinkAvailability Availability(std::string const& destination) const override;

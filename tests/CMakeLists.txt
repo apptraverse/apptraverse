@@ -1,6 +1,11 @@
 option(APPTRAVERSE_BUILD_EVOLUTION_TESTS
   "Build isolated application/state evolution fixtures and their Python matrix" ON)
 
+add_executable(apptraverse_push_protocol_test ../services/push/tests/protocol_cpp_test.cpp)
+target_include_directories(apptraverse_push_protocol_test PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_compile_features(apptraverse_push_protocol_test PRIVATE cxx_std_20)
+add_test(NAME apptraverse_push_protocol_test COMMAND apptraverse_push_protocol_test)
+
 if(APPTRAVERSE_BUILD_AETHER_LINK)
   if(WIN32 OR (APPLE AND NOT IOS))
     add_executable(apptraverse_chat_send_commit_test EXCLUDE_FROM_ALL chat_send_commit_test.cpp)

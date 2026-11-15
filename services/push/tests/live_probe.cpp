@@ -27,7 +27,14 @@ int main(int argc,char** argv){
   if(!wait([&]{return std::filesystem::exists(dir/"notify-2")&&windows.View().push_notify_request>=2;}))return 10;
   std::this_thread::sleep_for(6s);
   windows.NotifyPushPeers();
-  bool ok=wait([&]{return std::filesystem::exists(dir/"delivered")&&windows.View().push_notify_status==0&&windows.View().push_notify_request>=3;});
+  if(!wait([&]{return std::filesystem::exists(dir/"notify-3")&&windows.View().push_notify_status==0&&windows.View().push_notify_request>=3;}))return 11;
+  phone.RegisterPushToken("transport-probe-token"); // unchanged token keeps its ACK
+  phone.RegisterPushToken("transport-probe-token-rotated");
+  if(!wait([&]{return std::filesystem::exists(dir/"token-rotated")&&phone.View().push_registered;}))return 12;
+  // All three commands enter the same worker drain before the link can write.
+  // The old direct-send implementation dropped the second and third requests.
+  windows.NotifyPushPeers();windows.NotifyPushPeers();windows.NotifyPushPeers();
+  bool ok=wait([&]{return std::filesystem::exists(dir/"delivered")&&windows.View().push_notify_status==0&&windows.View().push_notify_request>=6;});
   windows.Stop();phone.Stop();if(!ok)return 7;
   std::cout<<"LIVE_TRANSPORT_PASS\n";
 }

@@ -1,7 +1,7 @@
 package com.apptraverse.sharedchat;
-import android.app.*;
-import android.content.Intent;
-import com.google.firebase.messaging.*;
+import android.util.Log;
+import com.google.firebase.messaging.FirebaseMessagingService;
+import com.google.firebase.messaging.RemoteMessage;
 public final class ChatMessagingService extends FirebaseMessagingService {
   @Override public void onNewToken(String token) {
     // A background callback must not create a native chat session. getToken()
@@ -9,11 +9,10 @@ public final class ChatMessagingService extends FirebaseMessagingService {
     MainActivity.registerPushToken(token);
   }
   @Override public void onMessageReceived(RemoteMessage message) {
-    NotificationManager manager=getSystemService(NotificationManager.class);
-    manager.createNotificationChannel(new NotificationChannel("chat_messages","Chat messages",NotificationManager.IMPORTANCE_HIGH));
-    Intent intent=new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP);
-    PendingIntent open=PendingIntent.getActivity(this,0,intent,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-    manager.notify(1,new Notification.Builder(this,"chat_messages").setSmallIcon(android.R.drawable.stat_notify_chat)
-      .setContentTitle("SharedNode Chat").setContentText("New message").setAutoCancel(true).setContentIntent(open).build());
+    // With the pinned FCM SDK and this service's notification payload, Android
+    // displays background notifications automatically. This callback handles
+    // foreground delivery; SharedNode already updates the open chat, so do not
+    // post another notification. Data-only pushes are not part of this contract.
+    Log.d("SharedChatPush", "Foreground push consumed without notification");
   }
 }

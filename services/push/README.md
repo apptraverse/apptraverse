@@ -91,7 +91,12 @@ Wait until the Android chat has joined and the service logs `method=1 status=0`.
 Then put Android in the background with Home (do not Force stop) and send a
 message from Windows. The service should log `method=2 status=0` and Android
 should display **SharedNode Chat / New message**. Tap to reopen the chat.
-Foreground notifications are also displayed by the messaging service.
+While the chat is in the foreground, FCM still delivers the signal but the app
+does not post a notification. SharedNode updates the visible messages normally.
+Opening this single-chat app clears all its notifications and the launcher dot,
+whether opened through a notification, the launcher icon or the recent-apps list.
+This uses the pinned FCM SDK's notification-message routing; data-only messages
+and the newer AndroidConfigV2 API are not part of this example's contract.
 With no `-PchatPush=true`, Firebase is not linked and no Firebase config is needed.
 
 ## Binary contract v1
@@ -111,7 +116,9 @@ No host struct layouts, native UUID encodings or Java serialization.
 Register's string is the FCM token; its owner is the authenticated sender UID.
 Notify's string is the target UID in canonical UUID text. Responses: 0 means
 registration stored or FCM accepted the message, 1 rejected/target missing,
-2 provider/storage failure. Success does **not** confirm display or reading.
+2 provider/storage failure or temporary service overload. Success does **not**
+confirm display or reading. Both codecs reject malformed UTF-8 and unknown v1
+methods/status values; truncated stream frames wait for their remaining bytes.
 
 Existing methods/fields are frozen. New methods get new IDs. Incompatible
 changes require a new wire version and explicit support; no negotiation is
@@ -122,21 +129,28 @@ ordinary chat replication stays unchanged. Do not enable UDP for this raw stream
 
 ## Validation and current limits
 
-`./gradlew.bat test` checks shared binary bytes, split/coalesced stream input,
-registration replacement, SQLite restart, sender authorization and provider failure.
-C++ fixture test (from repository root, with a C++20 compiler):
+`./gradlew.bat test` checks shared binary bytes, every stream split point,
+UTF-8/length/method/status validation, registration replacement, SQLite restart,
+sender authorization, provider failures, queue overload and shutdown/exception
+handling. `apptraverse_push_protocol_test` is also registered with ordinary CTest.
+Standalone C++ fixture test (from repository root, with a C++20 compiler):
 
 ```powershell
 g++ -std=c++20 -I include services/push/tests/protocol_cpp_test.cpp -o build/protocol_cpp_test.exe
 ./build/protocol_cpp_test.exe
 ```
 
-Registration is retried every five seconds until its response. Notify is best
-effort after a successful local chat commit: no durable push queue, automatic
-notification retries or deduplication. It does not gate chat delivery or test
-online/read status. One peer is the intended scenario; rapid bursts can encounter
-the single-frame transport queue and log a refusal. Provider errors are reported
-but do not fail the chat. Service should run while sending; sleep/offline pauses it.
+Registration is retried every five seconds until its response. Fetching an
+unchanged token on resume preserves the existing registration/ACK. Notify is
+best effort after a successful local chat commit: a bounded memory queue (64
+requests) bridges the single-frame transport, but there is no durable push queue,
+automatic retry after an accepted write or deduplication. A full queue logs a
+refusal. It does not gate chat delivery or track message read state. A delayed
+FCM signal can still arrive after an earlier chat read if the app is back in the
+background. The service has a bounded 256-request work queue; overload replies
+with status 2. Provider HTTP connect/read/write timeouts are 10/20/10 seconds.
+Provider errors do not fail the chat. Service should run while sending;
+sleep/offline pauses it.
 Real FCM delivery requires your actual project configuration and private key.
 
 ### Explicit cloud transport acceptance (no Firebase credentials)
@@ -152,8 +166,10 @@ terminals, choose the same fresh absolute directory for both commands:
 ```
 
 This creates three real Aether identities and validates C++ Register/Notify,
-Java decoding, three matching Notify responses across six-second idle gaps,
-and ordinary chat admission/send.
+Java decoding, six matching Notify responses (including six-second idle gaps
+and a three-request burst), token replacement and ordinary chat admission/send.
 The Java test recipient replaces Firebase; this is not an FCM delivery test.
 Use a fresh directory on each run; it contains private SDK identity files.
 Current results are in [validation](../../docs/validation/push-service-2026-11-14.md).
+The follow-up [code review](../../docs/validation/push-review-2026-11-14.md)
+records the foreground, badge and Windows input fixes and their executed checks.

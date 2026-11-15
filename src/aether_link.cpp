@@ -156,6 +156,7 @@ struct AetherByteLink::Impl {
           auto* peer = Get(handle.destination());
           if (UidText(peer->uid) == options.raw_service_uid && peer->raw) {
             peer->service_inbound_sub.Reset();
+            if (raw_reset) raw_reset();
             peer->service_inbound = std::make_unique<ae::P2pStream>(
                 context, client.Load(), peer->uid, std::move(handle));
             peer->service_inbound_sub = peer->service_inbound->out_data_event().Subscribe(
@@ -316,6 +317,7 @@ struct AetherByteLink::Impl {
       ++peer.statistics.session_replacements;
     }
     ++peer.generation;
+    if (UidText(peer.uid) == options.raw_service_uid && raw_reset) raw_reset();
     peer.session_started_us = now_us;
     peer.last_write_progress_us = now_us;
     peer.reset_needed = false;
@@ -438,6 +440,7 @@ struct AetherByteLink::Impl {
   std::string endpoint;
   IByteLink::Receiver receiver;
   IByteLink::Receiver raw_receiver;
+  std::function<void()> raw_reset;
   std::map<std::string, std::unique_ptr<Peer>> peers;
   ae::Subscription port_sub;
   ae::Subscription query_sub;
@@ -483,8 +486,9 @@ void AetherByteLink::Service(std::uint64_t now_us) {
 void AetherByteLink::SetReceiver(Receiver receiver) {
   impl_->receiver = std::move(receiver);
 }
-void AetherByteLink::SetRawServiceReceiver(Receiver receiver) {
+void AetherByteLink::SetRawServiceReceiver(Receiver receiver, std::function<void()> reset) {
   impl_->raw_receiver=std::move(receiver);
+  impl_->raw_reset=std::move(reset);
 }
 bool AetherByteLink::Send(std::string const& destination,
                           std::vector<std::uint8_t> const& bytes) {

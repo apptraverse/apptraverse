@@ -21,14 +21,23 @@ public final class PushService implements AutoCloseable {
         }
       } else if(p.method()==2&&senders.contains(sender)) {
         String uid=UUID.fromString(p.value()).toString();
+        if(!uid.equalsIgnoreCase(p.value()))throw new IllegalArgumentException("target UID");
         try(PreparedStatement s=db.prepareStatement("SELECT token FROM devices WHERE uid=?")) {
           s.setString(1,uid);
-          try(ResultSet r=s.executeQuery()){if(r.next()){status=2;delivery.send(r.getString(1));status=0;}}
+          try(ResultSet r=s.executeQuery()){
+            if(r.next()){
+              // Provider validation errors (including IllegalArgumentException)
+              // are delivery failures, not malformed binary requests.
+              status=2;
+              try{delivery.send(r.getString(1));status=0;}
+              catch(Exception e){System.err.println("Push delivery failed: "+e.getClass().getSimpleName());}
+            }
+          }
         }
       }
     }catch(IllegalArgumentException e){status=1;}
     catch(Exception e){status=2;System.err.println("Push operation failed: "+e.getClass().getSimpleName());}
     return new Protocol.Packet(p.method()|128,p.request(),"",status);
   }
-  public void close()throws SQLException{db.close();}
+  public synchronized void close()throws SQLException{db.close();}
 }

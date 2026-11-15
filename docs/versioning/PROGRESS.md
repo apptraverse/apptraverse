@@ -1,3 +1,17 @@
+## SharedNode push review and UI fixes — 2026-11-14 — PASS in stated scope
+
+Fixed Android foreground notification display and notification-dot cleanup on
+chat open, plus Windows stale publication overwrites of typed text/caret.
+Reviewed all changes in this push branch; corrected API-24/25 channel guarding,
+short-burst queueing, token registration churn, codec validation parity,
+raw-response reader reset, provider error classification and server queue/shutdown
+handling. **8 Java tests, 4 CTests and a six-notification real C++/Java probe PASS.**
+Windows/Android Debug builds (push on/off) PASS; Android lint has zero errors.
+Real Firebase foreground suppression and clearing two background notifications
+through the launcher icon PASS; Windows typing/insertion/send checked in the GUI.
+An analogous pre-existing Apple input-publication risk is recorded separately,
+not claimed fixed or runtime-tested here. [Detailed review, evidence and limits](../validation/push-review-2026-11-14.md).
+
 ## Apple chat current-main refresh — 2026-11-13 — PASS
 
 Fast-forwarded to AppTraverse main `6751f326`; dependency mains checked. SDK

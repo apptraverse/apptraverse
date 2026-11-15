@@ -99,7 +99,7 @@ public final class MainActivity extends Activity {
     else controls[id]=text;
     surface.addView(controls[id]);
   }
-  @Override protected void onResume(){super.onResume();PushSetup.refresh();}
+  @Override protected void onResume(){super.onResume();PushSetup.resume(this);}
   @Override protected void onStop(){
     if(!checkpointNative())throw new IllegalStateException("SharedNode checkpoint failed");
     super.onStop();

@@ -78,6 +78,8 @@ struct Window : gui::Presentation {
   gui::Session session;
   HWND hwnd{}, input{}, invite{};
   std::array<HWND,static_cast<unsigned>(gui::Control::Count)> controls{};
+  std::array<std::uint64_t,static_cast<unsigned>(gui::Control::Count)> pending_edits{};
+  std::uint64_t submitted_edit{};
   bool stopping{},applying{},window_initialized{};
   int show_command;
   bool shown{};
@@ -124,7 +126,7 @@ struct Window : gui::Presentation {
     applying=false;
   }
   void RemoveWindow()override{ShowWindow(hwnd,SW_HIDE);}
-  void Present(gui::Control kind,gui::ControlState const& state,gui::ChatUi const&)override{
+  void Present(gui::Control kind,gui::ControlState const& state,gui::ChatUi const& model)override{
     applying=true;
     auto control=Handle(kind);
     auto const& r=state.frame;Place(control,r.x,r.y,r.width,r.height);
@@ -144,6 +146,12 @@ struct Window : gui::Presentation {
         SetChanged(control,Utf8ToWide(value));shown_messages=state.rows;
         SendMessageW(control,EM_SETSEL,static_cast<WPARAM>(-1),-1);SendMessageW(control,EM_SCROLLCARET,0,0);
       }
+    }else if(kind==gui::Control::Input||kind==gui::Control::Invite){
+      // A publication may acknowledge an earlier keystroke while native input
+      // already contains newer text. Replacing it resets the EDIT caret and
+      // loses input. Match the edit-acknowledgement rule on Android/Linux/Web.
+      if(model.editing.revision>=pending_edits[static_cast<unsigned>(kind)])
+        SetChanged(control,Utf8ToWide(state.text));
     }else SetChanged(control,Utf8ToWide(state.text));
     if(kind==gui::Control::Invite)SendMessageW(control,EM_SETREADONLY,state.read_only,0);
     applying=false;
@@ -170,6 +178,10 @@ struct Window : gui::Presentation {
   }
   void InputChanged(int id){
     if(applying||stopping)return;
+    if(id!=kInputControl&&id!=kInviteControl)return;
+    auto const kind=id==kInputControl?gui::Control::Input:gui::Control::Invite;
+    submitted_edit=std::max(submitted_edit,session.Mirror()->editing.revision)+1;
+    pending_edits[static_cast<unsigned>(kind)]=submitted_edit;
     if(id==kInputControl)session.Proxy().Invoke(gui::RootId(),&gui::ChatUi::EditDraft,WideToUtf8(Text(input)));
     else if(id==kInviteControl)session.Proxy().Invoke(gui::RootId(),&gui::ChatUi::EditInvite,WideToUtf8(Text(invite)));
   }

@@ -111,3 +111,14 @@ captured on the Android home screen. Local visual evidence:
 `build/popup-visible.png`, `build/popup-visible-repeat.png`,
 `build/popup-repeat-result.txt`, `build/banner-final-host-err.log`.
 The banner is temporary; the launcher dot can remain after the banner disappears.
+
+## Foreground, badge and input follow-up — 2026-11-14
+
+The later [code review and validation](push-review-2026-11-14.md) supersedes the
+foreground behavior and badge limitation above. Foreground signals no longer
+post notifications; opening the chat clears all its notifications and the dot.
+Windows input now rejects stale model publications. The review also fixes burst
+queueing, protocol validation and service lifecycle/error handling. Final checks:
+8 Java tests, 4 CTests, six real C++/Java Notify exchanges and real Firebase
+foreground/background/launcher-icon acceptance PASS. See the linked report for
+precise scope, remaining limitations and a separate pre-existing Apple finding.

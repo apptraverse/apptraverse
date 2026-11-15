@@ -36,4 +36,45 @@ class PushTest {
       assertEquals(2,service.handle(WINDOWS,new Protocol.Packet(2,2,PHONE.toString(),0)).status());
     }
   }
+  @Test void utf8BoundariesAndEveryStreamSplit(){
+    for(String value:List.of("", "\u041f\u0443\u0448 \ud83d\udd14", "x".repeat(2048))){
+      var packet=new Protocol.Packet(1,-1L,value,0);
+      byte[] frame=Protocol.encode(packet);
+      assertEquals(packet,Protocol.decode(frame));
+      for(int split=0;split<=frame.length;split++){
+        var reader=new Protocol.Reader();List<Protocol.Packet> received=new ArrayList<>();
+        reader.feed(Arrays.copyOfRange(frame,0,split),received::add);
+        reader.feed(Arrays.copyOfRange(frame,split,frame.length),received::add);
+        assertEquals(List.of(packet),received);
+      }
+    }
+    assertThrows(IllegalArgumentException.class,()->Protocol.encode(new Protocol.Packet(1,1,"x".repeat(2049),0)));
+    assertThrows(IllegalArgumentException.class,()->Protocol.encode(new Protocol.Packet(1,1,"\ud800",0)));
+    assertThrows(IllegalArgumentException.class,()->Protocol.encode(new Protocol.Packet(3,1,"",0)));
+    assertThrows(IllegalArgumentException.class,()->Protocol.encode(new Protocol.Packet(129,1,"",3)));
+  }
+  @Test void malformedFramesAndReaderRecovery(){
+    for(String hex:List.of("c080", "eda080", "f4908080", "f09f", "80")){
+      byte[] invalid=HexFormat.of().parseHex(hex);
+      byte[] frame=Protocol.encode(new Protocol.Packet(1,1,"x".repeat(invalid.length),0));
+      System.arraycopy(invalid,0,frame,18,invalid.length);
+      assertThrows(IllegalArgumentException.class,()->Protocol.decode(frame));
+    }
+    byte[] valid=Protocol.encode(new Protocol.Packet(129,Long.MIN_VALUE,"",0));
+    for(int field:new int[]{0,4,5,6,7,16}){
+      byte[] invalid=valid.clone();invalid[field]=(byte)(field==5?0:0xff);
+      assertThrows(IllegalArgumentException.class,()->Protocol.decode(invalid));
+      var reader=new Protocol.Reader();List<Protocol.Packet> received=new ArrayList<>();
+      assertThrows(IllegalArgumentException.class,()->reader.feed(invalid,received::add));
+      reader.feed(valid,received::add);
+      assertEquals(List.of(Protocol.decode(valid)),received);
+    }
+  }
+  @Test void providerValidationFailureIsStillProviderFailure()throws Exception{
+    try(var service=new PushService(directory.resolve("db").toString(),Set.of(WINDOWS),token->{throw new IllegalArgumentException("invalid provider token");})){
+      service.handle(PHONE,new Protocol.Packet(1,1,"token",0));
+      assertEquals(2,service.handle(WINDOWS,new Protocol.Packet(2,2,PHONE.toString(),0)).status());
+      assertEquals(1,service.handle(WINDOWS,new Protocol.Packet(2,3,"1-1-1-1-1",0)).status());
+    }
+  }
 }

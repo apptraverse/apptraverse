@@ -12,7 +12,9 @@ public final class Main {
   public static void main(String[] args)throws Exception {
     Path directory=Path.of(env("PUSH_STATE_DIR","state"));Files.createDirectories(directory);
     // ADC reads GOOGLE_APPLICATION_CREDENTIALS. Never ship this key with clients.
-    FirebaseApp firebase=FirebaseApp.initializeApp(FirebaseOptions.builder().setCredentials(GoogleCredentials.getApplicationDefault()).build());
+    FirebaseApp firebase=FirebaseApp.initializeApp(FirebaseOptions.builder()
+        .setCredentials(GoogleCredentials.getApplicationDefault())
+        .setConnectTimeout(10000).setReadTimeout(20000).setWriteTimeout(10000).build());
     Set<UUID> senders=new HashSet<>();
     for(String uid:env("PUSH_ALLOWED_SENDERS","").split(","))if(!uid.isBlank())senders.add(UUID.fromString(uid.trim()));
     PushService service=new PushService(directory.resolve("devices.db").toString(),senders,token->{
@@ -27,13 +29,30 @@ public final class Main {
     AetherCloudClient client=new AetherCloudClient(state,"apptraverse-push");
     AetherEndpoint endpoint=new AetherEndpoint(client,service::handle);
     Runtime.getRuntime().addShutdownHook(new Thread(()->{
-      try{endpoint.close();state.saveState();client.destroy(true);service.close();firebase.delete();}catch(Exception e){System.err.println("Push shutdown failed");}
+      // One cleanup failure must not skip every remaining resource.
+      cleanup("endpoint",endpoint::close);
+      cleanup("identity",state::saveState);
+      cleanup("Aether",()->client.destroy(true));
+      cleanup("database",service::close);
+      cleanup("Firebase",firebase::delete);
     }));
     CountDownLatch started=new CountDownLatch(1);client.startFuture.to(started::countDown);
-    client.connect();if(!started.await(120,TimeUnit.SECONDS))throw new IllegalStateException("Aether registration timed out");state.saveState();
+    try {
+      client.connect();
+      if(!started.await(120,TimeUnit.SECONDS))throw new IllegalStateException("Aether registration timed out");
+      state.saveState();
+    } catch(Exception e) {
+      System.err.println("Push startup failed: "+e.getClass().getSimpleName());
+      System.exit(1); // Runs cleanup even when SDK threads keep the JVM alive.
+      return;
+    }
     System.out.println("PUSH_SERVICE_UID="+client.getUid());
     if(senders.isEmpty())System.out.println("No notify senders allowed. Set PUSH_ALLOWED_SENDERS to the Windows chat UID and restart.");
     new CountDownLatch(1).await();
   }
   private static String env(String key,String fallback){return System.getenv().getOrDefault(key,fallback);}
+  @FunctionalInterface private interface Cleanup { void run() throws Exception; }
+  private static void cleanup(String name,Cleanup action){
+    try{action.run();}catch(Exception e){System.err.println("Push shutdown failed ("+name+"): "+e.getClass().getSimpleName());}
+  }
 }

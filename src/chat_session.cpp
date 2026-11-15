@@ -427,19 +427,32 @@ struct ChatSession::Impl {
   std::string registered_token;
   std::uint64_t push_request{1}, registration_request{}, next_registration{};
   push::Reader push_reader;
+  // A short burst must not lose every request after the transport's single
+  // occupied frame. This is only an in-memory queue; accepted writes are not
+  // retried, because v1 Notify has no deduplication contract.
+  std::deque<push::Packet> push_notifications;
   int push_notify_status{-1};
   std::uint64_t push_notify_request{};
   void ServicePush(std::uint64_t now) {
-    if(push_service.empty()||push_token.empty()||registered_token==push_token||now<next_registration)return;
-    if(!registration_request)registration_request=push_request++;
-    if(native->Send(push_service,push::Encode({1,registration_request,push_token})))next_registration=now+5000000;
+    if(push_service.empty()||!native)return;
+    if(!push_token.empty()&&registered_token!=push_token&&now>=next_registration){
+      if(!registration_request)registration_request=push_request++;
+      if(native->Send(push_service,push::Encode({1,registration_request,push_token})))
+        next_registration=now+5000000;
+    }
+    if(!push_notifications.empty()&&native->Send(push_service,push::Encode(push_notifications.front())))
+      push_notifications.pop_front();
   }
   void NotifyPush() {
     auto* room=CurrentRoom(); if(!room||push_service.empty()||!native)return;
     for(auto const& peer:room->participants) {
       auto const& uid=peer->link->endpoint_uid;
-      if(uid!=native->EndpointId() && !native->Send(push_service,push::Encode({2,push_request++,uid})))
-        std::cerr<<"Push request not queued (service busy)\n";
+      if(uid==native->EndpointId())continue;
+      if(push_notifications.size()>=64){
+        std::cerr<<"Push request not queued (64 pending requests)\n";
+        continue;
+      }
+      push_notifications.push_back({2,push_request++,uid});
     }
   }
 
@@ -937,13 +950,16 @@ struct ChatSession::Impl {
                                                     link_options);
           std::clog<<"Aether chat UID: "<<native->EndpointId()<<'\n';
           native->SetRawServiceReceiver([this](auto const&,auto const& bytes){
-            push_reader.Feed(bytes,[this](push::Packet const& p){
+            bool const valid=push_reader.Feed(bytes,[this](push::Packet const& p){
               if(p.method==0x81 && p.request==registration_request && p.status==0)registered_token=push_token;
-              if(p.method==0x82){push_notify_status=p.status;push_notify_request=p.request;}
+              if(p.method==0x82&&p.request>push_notify_request&&p.request<push_request){
+                push_notify_status=p.status;push_notify_request=p.request;
+              }
               view_dirty=true;
               std::clog<<"Push response method="<<unsigned(p.method)<<" status="<<unsigned(p.status)<<'\n';
             });
-          });
+            if(!valid)std::cerr<<"Rejected malformed push response\n";
+          },[this]{push_reader.Reset();});
           if (!InitializeModel()) {
             SetError("Could not initialize the chat");
           }
@@ -1051,8 +1067,16 @@ void ChatSession::ConfigurePush(std::string uid) {
   impl_->push_service=std::move(uid);
 }
 void ChatSession::RegisterPushToken(std::string token) {
+  if(token.empty()||token.size()>push::kMaxValue||!push::ValidUtf8(token)){
+    std::cerr<<"Rejected invalid push token\n";
+    return;
+  }
   impl_->proxy.EnqueueModelWork([impl=impl_.get(),token=std::move(token)](ae::Domain&){
+    // onResume fetches the current token again. Preserve an existing ACK or
+    // in-flight request when it has not actually changed.
+    if(impl->push_token==token)return;
     impl->push_token=token;impl->registered_token.clear();impl->registration_request=0;impl->next_registration=0;
+    impl->view_dirty=true;
   });
 }
 void ChatSession::NotifyPushPeers() {
