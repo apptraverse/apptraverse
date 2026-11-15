@@ -3735,3 +3735,13 @@ Android source compilation, Java tests/distribution and real C++/Java Aether
 Register/Notify plus response exchange passed. Actual FCM delivery is NOT RUN
 pending owner-supplied Firebase files. Full scope and evidence:
 [push validation](../validation/push-service-2026-11-14.md).
+
+
+### Firebase end-to-end follow-up — 2026-11-14
+
+Owner-supplied Firebase configuration and locally stored server key enabled the
+real Windows GUI → Aether Java service → FCM → Android 14 emulator path. Background
+notification display and tap-to-open with the exact received chat message passed.
+Fixed the packaged Windows launcher's cmd.exe classpath-length limit using Java's
+wildcard classpath. Credentials and app configuration are not committed. See the
+[updated push validation](../validation/push-service-2026-11-14.md).

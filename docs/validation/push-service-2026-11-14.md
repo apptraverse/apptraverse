@@ -36,12 +36,39 @@ The Java SDK also initializes WebRTC for ordinary peer streams, so the missing
 Windows native WebRTC artifact was added. The live probe passed after these
 runtime dependencies were included. AndroidX is enabled for Firebase dependencies.
 
+## Firebase end-to-end follow-up — PASS
+
+Using the owner's actual Firebase project configuration and service account,
+the packaged Java service started on Windows. The key is stored outside this
+repository; Android configuration is ignored by Git.
+
+Installed the Firebase-enabled Debug APK on the Google APIs Android 14 x86_64
+emulator (`emulator-5556`). Android joined the Windows SharedNode chat and
+registered its FCM token (`method=1 status=0`). Sent `Push test from Windows`
+through the real Windows chat composer after putting Android in the background
+with Home. The Java service submitted the push successfully (`method=2 status=0`).
+Android NotificationManager recorded the FCM notification on `chat_messages`;
+the notification shade visibly showed `SharedNode Chat / New message`.
+Tapped the notification: the app reopened, restored its session, and displayed
+the exact ordinary SharedNode message. The first post-tap observation was during
+startup; the next showed the restored message. No startup or message data is
+inferred solely from FCM acceptance.
+
+Local evidence: `build/firebase-service-allowed.log`,
+`build/firebase-android-build.log`, `build/firebase-notification.png`.
+Private SDK identities, database tokens, service credentials and Firebase app
+configuration remain uncommitted.
+
+The real packaged launch exposed cmd.exe's command-length limit: Gradle's
+expanded classpath exceeded the limit at this checkout path. Windows startScripts
+now uses Java's `%APP_HOME%/lib/*` classpath wildcard. The actual packaged launcher
+started successfully after the fix and ran the end-to-end scenario above.
+
 ## Not verified
 
-Actual FCM submission, notification display/tap on Android, and foreground vs
-background delivery: require the owner's Firebase configuration and server key.
-No physical Android, iOS, Web Push, marketplace billing or multi-device test.
-No claim that provider acceptance means notification display/read.
+Foreground notification display, physical Android, iOS, Web Push, marketplace
+billing and multi-device routing. Provider acceptance alone is not a display/read
+receipt; background display and tap were verified separately in this scenario.
 
 ## Deliberate minimal scope
 
