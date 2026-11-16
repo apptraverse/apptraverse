@@ -4,7 +4,34 @@ html,body{margin:0;width:100%;height:100%;font:14px system-ui;background:#fff;co
 #chat{position:relative;width:100%;height:100%;overflow:hidden}#chat>*{position:absolute;box-sizing:border-box;margin:0}
 input,button{font:inherit;min-width:0}pre{white-space:pre-wrap;overflow:auto;border:1px solid #ccd3dc;padding:4px;font:inherit}
 #loading{position:fixed;inset:0;display:grid;place-items:center;background:white}
-</style></head><body><main id="chat"></main><div id="loading">Loading…</div>
+#enable-push{position:fixed;right:12px;top:8px;z-index:2;display:none}
+</style></head><body><main id="chat"></main><button id="enable-push" type="button">Enable notifications</button><div id="loading">Loading…</div>
 <script>var Module={onRuntimeInitialized(){Module._SharedBoot();},printErr(t){console.error(t)}};</script>
+<script>
+window.setupWebPush=async function(){
+  const query=new URLSearchParams(location.search),key=query.get('vapidPublic');
+  if(!query.get('pushService')||!key||!isSecureContext||!('serviceWorker' in navigator)||!('PushManager' in window))return;
+  const button=document.getElementById('enable-push');
+  try {
+    const registration=await navigator.serviceWorker.register('./push-worker.js');
+    (await navigator.serviceWorker.ready).active?.postMessage({type:'chat-url',url:location.href});
+    const report=subscription=>{
+      const pointer=stringToNewUTF8(subscription.endpoint);
+      try{Module._SharedRegisterWebPush(pointer);}finally{_free(pointer);}
+    };
+    const existing=await registration.pushManager.getSubscription();
+    if(existing){report(existing);return;}
+    if(Notification.permission==='denied')return;
+    button.style.display='block';
+    button.onclick=async()=>{
+      try{
+        const bytes=Uint8Array.from(atob(key.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
+        const subscription=await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:bytes});
+        report(subscription);button.style.display='none';
+      }catch(error){console.error('Web Push subscription failed',error);}
+    };
+  }catch(error){console.error('Web Push setup failed',error);}
+};
+</script>
 {{{ SCRIPT }}}
 </body></html>

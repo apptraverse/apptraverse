@@ -41,7 +41,7 @@ public final class AetherEndpoint implements AutoCloseable {
   }
 
   void dispatch(UUID sender, Protocol.Packet packet, Consumer<Protocol.Packet> reply) {
-    if (closing.get() || (packet.method() != 1 && packet.method() != 2 && packet.method() != 3)) return;
+    if (closing.get() || (packet.method() != 1 && packet.method() != 2 && packet.method() != 3 && packet.method() != 4)) return;
     try {
       worker.execute(() -> {
         Protocol.Packet answer;

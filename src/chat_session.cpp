@@ -432,7 +432,7 @@ class ChatLink final : public IByteLink {
 struct ChatSession::Impl {
   std::string push_service, push_token;
   std::string registered_token;
-  bool apple_push{};
+  std::uint8_t push_registration_method{1};
   std::uint64_t push_request{1}, registration_request{}, next_registration{};
   push::Reader push_reader;
   // A short burst must not lose every request after the transport's single
@@ -445,7 +445,7 @@ struct ChatSession::Impl {
     if(push_service.empty()||!native)return;
     if(!push_token.empty()&&registered_token!=push_token&&now>=next_registration){
       if(!registration_request)registration_request=push_request++;
-      if(native->Send(push_service,push::Encode({static_cast<std::uint8_t>(apple_push?3:1),registration_request,push_token})))
+      if(native->Send(push_service,push::Encode({push_registration_method,registration_request,push_token})))
         next_registration=now+5000000;
     }
     if(!push_notifications.empty()&&native->Send(push_service,push::Encode(push_notifications.front())))
@@ -975,7 +975,7 @@ struct ChatSession::Impl {
           native->ConfigureRawService(push_service,
               [this](auto const&, auto const& bytes) {
                 bool const valid = push_reader.Feed(bytes, [this](push::Packet const& p) {
-                  if (p.method == (apple_push?0x83:0x81) && p.request == registration_request && p.status == 0)
+                  if (p.method == (push_registration_method | 0x80) && p.request == registration_request && p.status == 0)
                     registered_token = push_token;
                   if (p.method == 0x82 && p.request > push_notify_request && p.request < push_request) {
                     push_notify_status = p.status;
@@ -1098,9 +1098,19 @@ void ChatSession::RegisterPushToken(std::string token, bool apple) {
   impl_->proxy.EnqueueModelWork([impl=impl_.get(),token=std::move(token),apple](ae::Domain&){
     // onResume fetches the current token again. Preserve an existing ACK or
     // in-flight request when it has not actually changed.
-    if(impl->push_token==token&&impl->apple_push==apple)return;
-    impl->apple_push=apple;
+    auto const method=static_cast<std::uint8_t>(apple?3:1);
+    if(impl->push_token==token&&impl->push_registration_method==method)return;
+    impl->push_registration_method=method;
     impl->push_token=token;impl->registered_token.clear();impl->registration_request=0;impl->next_registration=0;
+    impl->view_dirty=true;
+  });
+}
+void ChatSession::RegisterWebPush(std::string endpoint) {
+  if(endpoint.empty()||endpoint.size()>push::kMaxValue||!push::ValidUtf8(endpoint))return;
+  impl_->proxy.EnqueueModelWork([impl=impl_.get(),endpoint=std::move(endpoint)](ae::Domain&){
+    if(impl->push_token==endpoint&&impl->push_registration_method==4)return;
+    impl->push_registration_method=4;
+    impl->push_token=endpoint;impl->registered_token.clear();impl->registration_request=0;impl->next_registration=0;
     impl->view_dirty=true;
   });
 }

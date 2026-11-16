@@ -2,13 +2,16 @@
 
 Open-source module under the AppTraverse repository's Apache-2.0 license.
 The example is `examples/shared_node_chat`; AeroAdmin is not involved.
-One Firebase project, one Android installation, one Windows sender. No user
-accounts, marketplace catalog, object graph, discovery RPC or multi-device routing.
+One Firebase project, one Android installation, one Windows sender. Web Push is
+optional and uses a separate VAPID key pair. No user accounts, marketplace
+catalog, object graph, discovery RPC or multi-device routing.
 
 ```
 Android -- Register(token), authenticated as its Aether UID --> service
 Windows -- ordinary SharedNode message --> Android
 Windows -- Notify(Android Aether UID) --> service -- FCM --> Android
+Web -- RegisterWeb(endpoint), authenticated as its Aether UID --> service
+Windows -- Notify(Web Aether UID) --> service -- Web Push --> browser worker
 ```
 
 ## 1. Firebase (manual)
@@ -105,6 +108,45 @@ This uses the pinned FCM SDK's notification-message routing; data-only messages
 and the newer AndroidConfigV2 API are not part of this example's contract.
 With no `-PchatPush=true`, Firebase is not linked and no Firebase config is needed.
 
+## Optional browser push
+
+Generate a VAPID key pair once with `./gradlew.bat vapidKeys` (or
+`./gradlew vapidKeys` on Linux/macOS). Save the **private** value only in the
+service environment; put the **public** value in the browser URL. Keep the same
+pair across service restarts so existing browser subscriptions remain usable.
+The VAPID keys are separate from Firebase credentials. To run only Web Push,
+set `PUSH_FCM_ENABLED=false`; otherwise the existing Firebase setup remains in
+use. For example, set these before starting the service:
+
+```powershell
+$env:PUSH_VAPID_PUBLIC='<generated public value>'
+$env:PUSH_VAPID_PRIVATE='<generated private value>'
+$env:PUSH_VAPID_SUBJECT='mailto:you@example.com'
+# Optional if Android/FCM is not configured:
+$env:PUSH_FCM_ENABLED='false'
+```
+
+Start the SharedNode web chat at a secure HTTPS origin (or `localhost`) with
+`?role=client&invite=<HOST_AETHER_UID>&pushService=<PUSH_SERVICE_UID>&vapidPublic=<PUSH_VAPID_PUBLIC>`.
+Serve `index.html`, `index.js`, `index.wasm` and `push-worker.js` from the same
+directory. The page needs the existing WebAssembly pthreads isolation headers
+(`Cross-Origin-Opener-Policy: same-origin` and
+`Cross-Origin-Embedder-Policy: require-corp`). Click **Enable notifications**
+and grant browser permission. The browser subscribes and registers its endpoint
+through binary Aether method 4 under its own UID. The existing Windows sender
+must be in `PUSH_ALLOWED_SENDERS`. When that sender chats to this browser UID,
+the ordinary message and `Notify` command use the same path as Android.
+
+The service sends a payload-free Web Push signal, so no browser encryption keys
+or message text leave the Aether service. A visible chat tab suppresses the
+system notification. A background or closed tab receives a generic **New
+message** notification; clicking it focuses or opens the chat. Browsers may
+expire subscriptions, and the page re-registers its existing subscription on
+the next load. Supported push endpoints are the FCM, Mozilla, Apple and Windows
+Notification Service hosts; the service rejects other hosts to avoid requests to
+arbitrary addresses. A 2xx reply means the push service accepted the signal,
+not that the user saw it.
+
 ## Binary contract v1
 
 All integers are unsigned, big-endian. UTF-8 strings have a u16 byte length.
@@ -115,14 +157,16 @@ No host struct layouts, native UUID encodings or Java serialization.
 | 0..3 | ASCII `ATPN` |
 | 4..5 | Total frame length, including header, at most 4096 |
 | 6 | Version, currently 1 |
-| 7 | Method: 1 FCM Register, 2 Notify, 3 APNs Register; 0x81/0x82/0x83 response |
+| 7 | Method: 1 FCM Register, 2 Notify, 3 APNs Register, 4 Web Push Register; high bit denotes response |
 | 8..15 | Request ID, u64; echoed in response |
 | 16.. | Request: u16 length + string (max 2048 bytes); response: one status byte |
 
 Method 1's string is the FCM token; method 3's string is the APNs address
-described below. Its owner is the authenticated sender UID.
+described below; method 4's string is the HTTPS Web Push endpoint. The
+authenticated sender UID owns each registration.
 Notify's string is the target UID in canonical UUID text. Responses: 0 means
-registration stored or FCM accepted the message, 1 rejected/target missing,
+registration stored or the configured push provider accepted the signal,
+1 rejected/target missing,
 2 provider/storage failure or temporary service overload. Success does **not**
 confirm display or reading. Both codecs reject malformed UTF-8 and unknown v1
 methods/status values; truncated stream frames wait for their remaining bytes.
@@ -139,7 +183,10 @@ ordinary chat replication stays unchanged. Do not enable UDP for this raw stream
 `./gradlew.bat test` checks shared binary bytes, every stream split point,
 UTF-8/length/method/status validation, registration replacement, SQLite restart,
 sender authorization, provider failures, queue overload and shutdown/exception
-handling. `apptraverse_push_protocol_test` is also registered with ordinary CTest.
+handling, plus Web Push VAPID signing and endpoint validation.
+`node --test examples/shared_node_chat/web/push-worker.test.cjs` checks browser
+notification suppression and click handling. `apptraverse_push_protocol_test`
+is also registered with ordinary CTest.
 Standalone C++ fixture test (from repository root, with a C++20 compiler):
 
 ```powershell

@@ -1,23 +1,44 @@
 #include <gtk/gtk.h>
+#include <gio/gio.h>
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cstdlib>
 #include <filesystem>
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 #include "chat_ui_session.h"
 #include "apptraverse/platform/linux/linux_ui_client_mount.h"
 #include "apptraverse/noninteractive_crt.h"
 
 namespace gui = apptraverse::chat::gui;
 namespace {
+void NotifyNewMessage(){
+  // The Freedesktop notification service is shared by GNOME, KDE and other
+  // desktops. Resolve the session bus asynchronously so UI publication stays
+  // responsive even when no notification daemon is running.
+  g_bus_get(G_BUS_TYPE_SESSION,nullptr,[](GObject*,GAsyncResult* result,gpointer){
+    GError* error=nullptr;
+    auto* bus=g_bus_get_finish(result,&error);
+    if(!bus){if(error)g_error_free(error);return;}
+    g_dbus_connection_call(bus,"org.freedesktop.Notifications","/org/freedesktop/Notifications",
+      "org.freedesktop.Notifications","Notify",
+      g_variant_new("(susss@as@a{sv}i)","SharedNode Chat",0,"","SharedNode Chat","New message",
+        g_variant_new_strv(nullptr,0),g_variant_new_array(G_VARIANT_TYPE("{sv}"),nullptr,0),-1),
+      G_VARIANT_TYPE("(u)"),G_DBUS_CALL_FLAGS_NONE,3000,nullptr,nullptr,nullptr);
+    g_object_unref(bus);
+  },nullptr);
+}
 struct Application final : gui::Presentation {
   GtkWidget* window{};
   GtkWidget* mount{};
   std::array<GtkWidget*,static_cast<unsigned>(gui::Control::Count)> controls{};
   std::array<GtkWidget*,static_cast<unsigned>(gui::Control::Count)> contents{};
   std::array<std::uint64_t,static_cast<unsigned>(gui::Control::Count)> pending_edits{};
+  std::vector<std::string> shown_messages;
+  bool messages_initialized{};
   std::uint64_t submitted_edit{};
   std::unique_ptr<gui::Session> session;
   std::atomic<bool> closing{false}, queued{false};
@@ -102,6 +123,15 @@ struct Application final : gui::Presentation {
       auto* buffer=gtk_text_view_get_buffer(GTK_TEXT_VIEW(contents[index]));
       GtkTextIter begin,end;gtk_text_buffer_get_bounds(buffer,&begin,&end);auto* prior=gtk_text_buffer_get_text(buffer,&begin,&end,FALSE);
       if(text!=prior)gtk_text_buffer_set_text(buffer,text.c_str(),static_cast<int>(text.size()));g_free(prior);
+      if(id==gui::Control::Messages&&shown_messages!=state.rows){
+        bool remote=false;
+        auto const own=model.editing.name+": ";
+        for(std::size_t i=shown_messages.size();i<state.rows.size();++i)
+          if(state.rows[i].compare(0,own.size(),own)!=0)remote=true;
+        if(messages_initialized&&remote&&window&&!gtk_window_is_active(GTK_WINDOW(window)))NotifyNewMessage();
+        shown_messages=state.rows;
+      }
+      if(id==gui::Control::Messages)messages_initialized=true;
     } else gtk_label_set_text(GTK_LABEL(widget),state.text.c_str());
     gtk_fixed_move(GTK_FIXED(mount),widget,state.frame.x,state.frame.y);
     gtk_widget_set_size_request(widget,state.frame.width,state.frame.height);
@@ -124,6 +154,7 @@ int main(int argc,char** argv) {
   }
   if(!gtk_init_check(nullptr,nullptr))return 1;
   Application app;app.session=std::make_unique<gui::Session>(profile,name,host,invite,[&]{app.Publish();},true);
+  if(auto* push=std::getenv("APPTRAVERSE_PUSH_SERVICE_UID"))app.session->ConfigurePush(push);
   app.session->Start();gtk_main();app.closing=true;app.session->Stop();
   while(g_source_remove_by_user_data(&app)){}
   return 0;

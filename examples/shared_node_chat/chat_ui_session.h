@@ -17,6 +17,7 @@ class Session {
   Session(Session const&)=delete;
   void ConfigurePush(std::string service_uid);
   void RegisterPushToken(std::string token, bool apple = false);
+  void RegisterWebPush(std::string endpoint);
   void Start();
   void Stop();
   void Checkpoint(std::function<void(bool)> completion);

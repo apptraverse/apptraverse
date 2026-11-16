@@ -35,16 +35,16 @@ inline bool ValidUtf8(std::string_view text) {
   return true;
 }
 struct Packet {
-  std::uint8_t method{}; // 1 FCM register, 2 notify, 3 APNs register; high bit marks response
+  std::uint8_t method{}; // 1 FCM, 2 notify, 3 APNs, 4 Web Push; high bit marks response
   std::uint64_t request{};
-  std::string value; // FCM token / APNs address for register; target UID for notify
+  std::string value; // FCM token / APNs address / Web endpoint; target UID for notify
   std::uint8_t status{}; // response: 0 registered/provider accepted; 1 rejected; 2 provider error
 };
 inline void Number(Bytes& b, std::uint64_t n, unsigned size) {
   for (unsigned i=size; i>0; --i) b.push_back(static_cast<std::uint8_t>(n >> ((i-1)*8)));
 }
 inline Bytes Encode(Packet const& p) {
-  if (p.method!=1&&p.method!=2&&p.method!=3&&p.method!=0x81&&p.method!=0x82&&p.method!=0x83) return {};
+  if (p.method!=1&&p.method!=2&&p.method!=3&&p.method!=4&&p.method!=0x81&&p.method!=0x82&&p.method!=0x83&&p.method!=0x84) return {};
   if (p.value.size()>kMaxValue||!ValidUtf8(p.value)) return {};
   if ((p.method&0x80)&&p.status>2) return {};
   Bytes b{'A','T','P','N',0,0,1,p.method}; Number(b,p.request,8);
@@ -57,8 +57,8 @@ inline bool Decode(Bytes const& b, Packet& p) {
       ((std::size_t(b[4])<<8)|b[5])!=b.size()) return false;
   p={}; p.method=b[7];
   for (unsigned i=8;i<16;++i) p.request=(p.request<<8)|b[i];
-  if(p.method==0x81||p.method==0x82||p.method==0x83) {if(b.size()!=17||b[16]>2)return false;p.status=b[16];return true;}
-  if((p.method!=1&&p.method!=2&&p.method!=3)||b.size()<18) return false;
+  if(p.method==0x81||p.method==0x82||p.method==0x83||p.method==0x84) {if(b.size()!=17||b[16]>2)return false;p.status=b[16];return true;}
+  if((p.method!=1&&p.method!=2&&p.method!=3&&p.method!=4)||b.size()<18) return false;
   auto n=(std::size_t(b[16])<<8)|b[17];
   if(n>kMaxValue||n+18!=b.size())return false;
   p.value.assign(b.begin()+18,b.end()); return ValidUtf8(p.value);

@@ -7,7 +7,7 @@ import java.util.function.Consumer;
 public final class Protocol {
   public record Packet(int method, long request, String value, int status) {}
   public static byte[] encode(Packet p) {
-    if(p.method()!=1&&p.method()!=2&&p.method()!=3&&p.method()!=129&&p.method()!=130&&p.method()!=131)
+    if(p.method()!=1&&p.method()!=2&&p.method()!=3&&p.method()!=4&&p.method()!=129&&p.method()!=130&&p.method()!=131&&p.method()!=132)
       throw new IllegalArgumentException("method");
     byte[] text;
     try {
@@ -29,13 +29,13 @@ public final class Protocol {
     if(b.getInt()!=0x4154504e||Short.toUnsignedInt(b.getShort())!=bytes.length||b.get()!=1)
       throw new IllegalArgumentException("frame header/version");
     int method=Byte.toUnsignedInt(b.get());long request=b.getLong();
-    if(method==129||method==130||method==131){
+    if(method==129||method==130||method==131||method==132){
       if(b.remaining()!=1)throw new IllegalArgumentException("response");
       int status=Byte.toUnsignedInt(b.get());
       if(status>2)throw new IllegalArgumentException("status");
       return new Packet(method,request,"",status);
     }
-    if((method!=1&&method!=2&&method!=3)||b.remaining()<2)throw new IllegalArgumentException("method");
+    if((method!=1&&method!=2&&method!=3&&method!=4)||b.remaining()<2)throw new IllegalArgumentException("method");
     int n=Short.toUnsignedInt(b.getShort());if(n>2048||n!=b.remaining())throw new IllegalArgumentException("string size");
     try {
       String text=StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).decode(b).toString();

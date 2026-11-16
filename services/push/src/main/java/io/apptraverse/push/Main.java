@@ -12,24 +12,28 @@ public final class Main {
   public static void main(String[] args)throws Exception {
     Path directory=Path.of(env("PUSH_STATE_DIR","state"));Files.createDirectories(directory);
     // ADC reads GOOGLE_APPLICATION_CREDENTIALS. Never ship this key with clients.
-    FirebaseApp firebase=env("PUSH_FCM_ENABLED","true").equals("false")?null:FirebaseApp.initializeApp(FirebaseOptions.builder()
-        .setCredentials(GoogleCredentials.getApplicationDefault())
-        .setConnectTimeout(10000).setReadTimeout(20000).setWriteTimeout(10000).build());
-    Set<UUID> senders=new HashSet<>();
-    for(String uid:env("PUSH_ALLOWED_SENDERS","").split(","))if(!uid.isBlank())senders.add(UUID.fromString(uid.trim()));
+    FirebaseApp firebase="false".equalsIgnoreCase(env("PUSH_FCM_ENABLED","true"))?null:
+        FirebaseApp.initializeApp(FirebaseOptions.builder()
+          .setCredentials(GoogleCredentials.getApplicationDefault())
+          .setConnectTimeout(10000).setReadTimeout(20000).setWriteTimeout(10000).build());
+    String vapidPublic=env("PUSH_VAPID_PUBLIC","");
+    String vapidPrivate=env("PUSH_VAPID_PRIVATE","");
+    if(vapidPublic.isEmpty()!=vapidPrivate.isEmpty())throw new IllegalArgumentException("Incomplete VAPID key pair");
+    WebPushSender web=vapidPublic.isEmpty()?null:new WebPushSender(vapidPublic,vapidPrivate,
+        env("PUSH_VAPID_SUBJECT",""));
     String appleKey=env("APNS_KEY_FILE","");
     ApplePush apple=appleKey.isBlank()?null:new ApplePush(env("APNS_TEAM_ID",""),env("APNS_KEY_ID",""),Path.of(appleKey));
-    PushService service=new PushService(directory.resolve("devices.db").toString(),senders,token->{
-      if(firebase==null)throw new IllegalStateException("FCM disabled");
+    Set<UUID> senders=new HashSet<>();
+    for(String uid:env("PUSH_ALLOWED_SENDERS","").split(","))if(!uid.isBlank())senders.add(UUID.fromString(uid.trim()));
+    PushService.Delivery firebaseDelivery=firebase==null?null:token->{
       Message message=Message.builder().setToken(token)
         .setNotification(Notification.builder().setTitle("SharedNode Chat").setBody("New message").build())
         .setAndroidConfig(AndroidConfig.builder().setPriority(AndroidConfig.Priority.HIGH)
           .setNotification(AndroidNotification.builder().setChannelId("chat_messages").build()).build()).build();
       FirebaseMessaging.getInstance(firebase).send(message);
-    },address->{
-      if(apple==null)throw new IllegalStateException("APNs not configured");
-      apple.send(address);
-    });
+    };
+    PushService service=new PushService(directory.resolve("devices.db").toString(),senders,
+        firebaseDelivery,apple==null?null:apple::send,web==null?null:web::send);
     UUID parent=UUID.fromString(env("AETHER_PARENT_UID","3ac93165-3d37-4970-87a6-fa4ee27744e4"));
     ClientStateInFile state=new ClientStateInFile(parent,List.of(URI.create(env("AETHER_REGISTRATION_URI","tcp://registration.aethernet.io:9010"))),directory.resolve("identity.bin").toFile());
     AetherCloudClient client=new AetherCloudClient(state,"apptraverse-push");

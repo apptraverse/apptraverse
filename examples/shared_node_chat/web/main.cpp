@@ -63,6 +63,7 @@ EM_JS(void,InstallLifecycle,(),{
   addEventListener('pagehide',()=>Module._SharedSave());
   document.addEventListener('visibilitychange',()=>{if(document.hidden)Module._SharedSave();});
 });
+EM_JS(void,EnableWebPush,(),{if(window.setupWebPush)window.setupWebPush();});
 }
 extern "C" {
 EMSCRIPTEN_KEEPALIVE void SharedStored(Barrier* barrier,int ok){std::lock_guard lock(barrier->mutex);barrier->ok=ok;barrier->done=true;barrier->ready.notify_one();}
@@ -70,25 +71,27 @@ EMSCRIPTEN_KEEPALIVE void SharedResize(int width,int height){if(session)session-
 EMSCRIPTEN_KEEPALIVE void SharedEdit(unsigned id,const char* text){if(session)session->Proxy().Invoke(gui::RootId(),id==3?&gui::ChatUi::EditInvite:&gui::ChatUi::EditDraft,std::string{text});}
 EMSCRIPTEN_KEEPALIVE void SharedAction(unsigned id){if(session)session->Proxy().Invoke(gui::RootId(),id==4?&gui::ChatUi::Join:&gui::ChatUi::Send);}
 EMSCRIPTEN_KEEPALIVE void SharedCopyResult(int ok){if(session)session->Proxy().Invoke(gui::RootId(),&gui::ChatUi::ClipboardResult,ok!=0);}
+EMSCRIPTEN_KEEPALIVE void SharedRegisterWebPush(const char* endpoint){if(session)session->RegisterWebPush(endpoint);}
 EMSCRIPTEN_KEEPALIVE int SharedSave(){
   if(!session||!session->Mirror())return 1;
   std::vector<std::uint8_t> bytes;
   return session->CaptureUser(bytes)&&apptraverse::web::CommitIdbfsFileForPageLifecycle("/shared-ui",profile+"/user.bin",bytes);
 }
-EMSCRIPTEN_KEEPALIVE void SharedStart(const char* who,const char* invited,const char* profile_name,int is_host,int load_only){
-  auto name=std::string{who},invite=std::string{invited},key=std::string{profile_name};profile="/shared-ui/"+key;
-  apptraverse::web::MountIdbfsAndSyncLoad("/shared-ui",[name,invite,key,is_host,load_only]{
-    apptraverse::web::MountIdbfsAndSyncLoad("/shared-network",[name,invite,key,is_host,load_only]{
+EMSCRIPTEN_KEEPALIVE void SharedStart(const char* who,const char* invited,const char* profile_name,int is_host,int load_only,const char* push_service){
+  auto name=std::string{who},invite=std::string{invited},key=std::string{profile_name},push=std::string{push_service};profile="/shared-ui/"+key;
+  apptraverse::web::MountIdbfsAndSyncLoad("/shared-ui",[name,invite,key,is_host,load_only,push]{
+    apptraverse::web::MountIdbfsAndSyncLoad("/shared-network",[name,invite,key,is_host,load_only,push]{
       session=std::make_unique<gui::Session>(profile,name,is_host,invite,Changed,load_only,FlushTransport,"/shared-network/"+key);
-      session->Start();InstallLifecycle();
+      if(!push.empty())session->ConfigurePush(push);
+      session->Start();InstallLifecycle();EnableWebPush();
     },ShowChatLoadError);
   },ShowChatLoadError);
 }
 EM_JS(void,BeginQuery,(),{
     var query=new URLSearchParams(location.search),profile=query.get('profile')||'default';
     if(!/^[A-Za-z0-9_-]+$/.test(profile))throw new Error('Invalid profile');
-    var args=[query.get('name')||'Web',query.get('invite')||'',profile].map(value=>stringToNewUTF8(value));
-    Module._SharedStart(args[0],args[1],args[2],query.get('role')==='client'?0:1,query.get('loadOnly')==='1'?1:0);
+    var args=[query.get('name')||'Web',query.get('invite')||'',profile,query.get('pushService')||''].map(value=>stringToNewUTF8(value));
+    Module._SharedStart(args[0],args[1],args[2],query.get('role')==='client'?0:1,query.get('loadOnly')==='1'?1:0,args[3]);
     args.forEach(ptr=>_free(ptr));
 });
 EMSCRIPTEN_KEEPALIVE void SharedBoot(){BeginQuery();}

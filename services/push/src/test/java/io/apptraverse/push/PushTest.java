@@ -16,6 +16,10 @@ class PushTest {
     for(byte b:expected)reader.feed(new byte[]{b},received::add);
     reader.feed(expected,received::add);assertEquals(List.of(packet,packet),received);
     expected[6]=2;assertThrows(IllegalArgumentException.class,()->Protocol.decode(expected));
+    var web=new Protocol.Packet(4,9,"https://fcm.googleapis.com/fcm/send/test",0);
+    assertEquals(web,Protocol.decode(Protocol.encode(web)));
+    var webAck=new Protocol.Packet(132,9,"",0);
+    assertEquals(webAck,Protocol.decode(Protocol.encode(webAck)));
   }
   @Test void registrationOwnershipAuthorizationAndRestart()throws Exception{
     String db=directory.resolve("devices.db").toString();List<String> delivered=new ArrayList<>();
@@ -28,6 +32,30 @@ class PushTest {
       assertEquals(0,service.handle(WINDOWS,new Protocol.Packet(2,4,PHONE.toString(),0)).status());
       assertEquals(List.of("updated"),delivered);
       assertEquals(1,service.handle(WINDOWS,new Protocol.Packet(2,5,WINDOWS.toString(),0)).status());
+    }
+  }
+  @Test void webRegistrationAndNotificationUseAuthenticatedUid()throws Exception {
+    String db=directory.resolve("web-devices.db").toString();
+    String endpoint="https://updates.push.services.mozilla.com/wpush/v2/test-subscription";
+    List<String> sent=new ArrayList<>(),fcm=new ArrayList<>();
+    try(var service=new PushService(db,Set.of(WINDOWS),fcm::add,null,sent::add)){
+      assertEquals(1,service.handle(PHONE,new Protocol.Packet(4,1,"http://localhost/push",0)).status());
+      assertEquals(0,service.handle(PHONE,new Protocol.Packet(1,9,"old-fcm-token",0)).status());
+      assertEquals(0,service.handle(PHONE,new Protocol.Packet(4,2,endpoint,0)).status());
+      assertEquals(1,service.handle(PHONE,new Protocol.Packet(2,3,PHONE.toString(),0)).status());
+      assertEquals(0,service.handle(WINDOWS,new Protocol.Packet(2,4,PHONE.toString(),0)).status());
+      assertTrue(fcm.isEmpty());
+    }
+    try(var service=new PushService(db,Set.of(WINDOWS),token->{},null,sent::add)){
+      assertEquals(0,service.handle(WINDOWS,new Protocol.Packet(2,5,PHONE.toString(),0)).status());
+      assertEquals(List.of(endpoint,endpoint),sent);
+    }
+    try(var service=new PushService(db,Set.of(WINDOWS),token->{},null,value->{throw new Exception("provider down");})){
+      assertEquals(2,service.handle(WINDOWS,new Protocol.Packet(2,6,PHONE.toString(),0)).status());
+    }
+    try(var service=new PushService(db,Set.of(WINDOWS),null,null,sent::add)){
+      assertEquals(1,service.handle(PHONE,new Protocol.Packet(1,7,"fcm-token",0)).status());
+      assertEquals(0,service.handle(WINDOWS,new Protocol.Packet(2,8,PHONE.toString(),0)).status());
     }
   }
   @Test void providerFailureIsNotAcknowledgedAsSuccess()throws Exception{
@@ -50,7 +78,7 @@ class PushTest {
     }
     assertThrows(IllegalArgumentException.class,()->Protocol.encode(new Protocol.Packet(1,1,"x".repeat(2049),0)));
     assertThrows(IllegalArgumentException.class,()->Protocol.encode(new Protocol.Packet(1,1,"\ud800",0)));
-    assertThrows(IllegalArgumentException.class,()->Protocol.encode(new Protocol.Packet(4,1,"",0)));
+    assertThrows(IllegalArgumentException.class,()->Protocol.encode(new Protocol.Packet(5,1,"",0)));
     assertThrows(IllegalArgumentException.class,()->Protocol.encode(new Protocol.Packet(129,1,"",3)));
   }
   @Test void malformedFramesAndReaderRecovery(){

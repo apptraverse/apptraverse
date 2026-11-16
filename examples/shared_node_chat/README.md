@@ -235,3 +235,31 @@ It never joins or modifies a user's manually running chat.
 ## Optional Android push demo
 
 See [the binary push service](../../services/push/README.md) for the minimal Windows to Aether service to Firebase to Android flow. It is opt-in.
+
+## Web and Linux notifications
+
+The WebAssembly chat can subscribe to standard browser Web Push. Set the push
+service UID and VAPID public key in its URL, then click **Enable notifications**.
+The service worker and server setup are described in [the push service
+instructions](../../services/push/README.md#optional-browser-push).
+With Emscripten and Ninja installed, build it from the repository root:
+
+```sh
+emcmake cmake -S . -B build/chat-web -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+  -DAPPTRAVERSE_BUILD_AETHER_LINK=ON -DAPPTRAVERSE_BUILD_SHARED_NODE_CHAT=ON
+cmake --build build/chat-web --target shared_node_chat_web
+```
+
+Serve `build/chat-web/examples/shared_node_chat/web/` as one directory with
+HTTPS and the COOP/COEP headers noted in the service instructions.
+
+The GTK Linux chat uses the Freedesktop desktop notification service (the usual
+interface on GNOME, KDE and other Linux desktops). It shows **New message** for
+new remote messages while its window is inactive. It does not need Firebase,
+VAPID or an extra daemon beyond the desktop's notification service. The Linux
+chat process must be running; this does not wake a closed desktop app.
+Build the `shared_node_chat` target with the same two CMake options on Linux;
+GTK 3 development headers and a session D-Bus are required.
+Set `APPTRAVERSE_PUSH_SERVICE_UID` before launch if this Linux chat should send
+push signals to its peers through the Aether service.

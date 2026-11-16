@@ -13,6 +13,10 @@ int main(){
   if(!reader.Feed(bytes,[&](Packet const&){++count;})||count!=3)return 3;
   Packet packet;expected[6]=2;if(Decode(expected,packet))return 4;
   auto ack=Encode({0x81,9,"",0});if(!Decode(ack,packet)||packet.request!=9||packet.status!=0)return 5;
+  auto web=Encode({4,10,"https://fcm.googleapis.com/fcm/send/test"});
+  if(!Decode(web,packet)||packet.method!=4||packet.request!=10)return 17;
+  auto web_ack=Encode({0x84,10,"",0});
+  if(!Decode(web_ack,packet)||packet.method!=0x84||packet.status!=0)return 18;
   for(auto const& value:std::vector<std::string>{"", "\xd0\x9f\xd1\x83\xd1\x88 \xf0\x9f\x94\x94", std::string(2048,'x')}){
     auto frame=Encode({1,UINT64_MAX,value});
     if(!Decode(frame,packet)||packet.value!=value||packet.request!=UINT64_MAX)return 6;
@@ -23,7 +27,7 @@ int main(){
          !parts.Feed(Bytes(frame.begin()+split,frame.end()),accept)||received!=1)return 7;
     }
   }
-  if(!Encode({1,1,std::string(2049,'x')}).empty()||!Encode({4,1,""}).empty()||!Encode({129,1,"",3}).empty())return 8;
+  if(!Encode({1,1,std::string(2049,'x')}).empty()||!Encode({5,1,""}).empty()||!Encode({129,1,"",3}).empty())return 8;
   for(auto const& invalid:std::vector<std::string>{"\xc0\x80","\xed\xa0\x80","\xf4\x90\x80\x80","\xf0\x9f","\x80"}){
     if(!Encode({1,1,invalid}).empty())return 9;
     auto frame=Encode({1,1,std::string(invalid.size(),'x')});

@@ -10,3 +10,4 @@ target_link_options(shared_node_chat_web PRIVATE
   "--shell-file=${CMAKE_CURRENT_SOURCE_DIR}/shell.html")
 set_target_properties(shared_node_chat_web PROPERTIES OUTPUT_NAME index SUFFIX .html)
 set_property(TARGET shared_node_chat_web APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/shell.html")
+configure_file(push-worker.js ${CMAKE_CURRENT_BINARY_DIR}/push-worker.js COPYONLY)

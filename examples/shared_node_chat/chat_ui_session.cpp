@@ -100,9 +100,7 @@ struct Session::Impl {
     root->send=[this](std::string text,std::uint64_t revision){
       auto const started=std::chrono::steady_clock::now();
       transport.Send(std::move(text),[this,revision,started](bool accepted){
-#if defined(_WIN32)
         if(accepted)transport.NotifyPushPeers();
-#endif
         (void)runtime.TryPost([this,revision,accepted,started](ae::Domain& model){
           auto* root=model.Find(RootId()).as<ChatUi>();
           root->CompleteSend(revision,accepted);
@@ -130,6 +128,7 @@ Session::Session(std::filesystem::path profile,std::string name,bool host,
 Session::~Session(){Stop();}
 void Session::ConfigurePush(std::string uid){impl_->transport.ConfigurePush(std::move(uid));}
 void Session::RegisterPushToken(std::string token,bool apple){impl_->transport.RegisterPushToken(std::move(token),apple);}
+void Session::RegisterWebPush(std::string endpoint){impl_->transport.RegisterWebPush(std::move(endpoint));}
 void Session::Start(){
   if(impl_->started||impl_->stopping.load())return;
 #if defined(_WIN32)
