@@ -448,11 +448,11 @@ MinimalApp служит независимым минимальным потре
 | Платформа | Существующая опора в репозитории | Смысл библиотечного backend |
 | --- | --- | --- |
 | Windows | `src/platform/windows`, `WinApplicationHost`, Win presenters, WindowCatalog | Native окна и controls; сообщения поступают в общую модель через proxy |
-| Linux | `examples/surfaces_demo/linux`, GTK3 presenters и host | Та же композиция и события через GTK, без Win32-объектов в общем графе |
-| macOS | `examples/surfaces_demo/macos`, AppKit/ObjC++ и SwiftUI content | Главное UI-окружение и native представления при общей C++-модели |
-| iOS/iPadOS | `examples/surfaces_demo/ios`, UIKit/SwiftUI и mobile presenter | Страницы/области той же модели и платформенный lifecycle |
-| Android | `examples/surfaces_demo/android/native`, JNI и native runtime | Мост native оболочки к общей модели; представления не сериализуют JNI handles |
-| Web | `examples/surfaces_demo/web`, DOM bridge, Emscripten и IDBFS | Браузерный UI, отдельная модельная работа и локальное состояние браузера |
+| Linux | `examples/window_catalog/linux`, GTK3 presenters и host | Та же композиция и события через GTK, без Win32-объектов в общем графе |
+| macOS | `examples/window_catalog/macos`, AppKit/ObjC++ и SwiftUI content | Главное UI-окружение и native представления при общей C++-модели |
+| iOS/iPadOS | `examples/window_catalog/ios`, UIKit/SwiftUI и mobile presenter | Страницы/области той же модели и платформенный lifecycle |
+| Android | `examples/window_catalog/android/native`, JNI и native runtime | Мост native оболочки к общей модели; представления не сериализуют JNI handles |
+| Web | `examples/window_catalog/web`, DOM bridge, Emscripten и IDBFS | Браузерный UI, отдельная модельная работа и локальное состояние браузера |
 | Headless | `tests/application_contract_headless_test.cpp`, `tests/application_model_runtime_test.cpp`, `tests/model_persistence_test.cpp`, `tests/window_catalog_headless_test.cpp` | Тот же DomainGraph и storage; модель, Commit и replay без HWND/GTK/JNI/DOM; WindowCatalog chrome E2E через mirror/proxy (Debug win64, одна машина) |
 
 Таблица описывает имеющиеся исходные опоры, не доказанную готовность одного WindowCatalog на всех системах и не совместимость сохранённых native ClassId между backend. Порт старого Surface-примера может содержать полезную native реализацию, но его product-specific граф, команды и lifecycle не становятся автоматически библиотечным template.
@@ -686,19 +686,19 @@ A уже имеет собственный S0 и origin=P. Новый код п�
 
 **[C15] Общие компоненты и строковые данные.** `include/apptraverse/ui/ui_push_button.h`, `ui_push_button_presenter.h`, `ui_localization_string.h`, `ui_string.h`: модель контрола, нейтральный presenter и UTF-8 payload. [Открыть каталог компонентов][C15].
 
-**[C16] Прикладная оконная модель.** `examples/surfaces_demo/common/window_catalog_model.h`, `window_catalog_model.cpp`: holder, выбор, open-state, Add/Delete Events и текущая ручная сборка нового окна. [Открыть реализацию][C16].
+**[C16] Прикладная оконная модель.** `examples/window_catalog/common/window_catalog_model.h`, `window_catalog_model.cpp`: holder, выбор, open-state, Add/Delete Events и текущая ручная сборка нового окна. [Открыть реализацию][C16].
 
-**[C17] Композиция WindowCatalog.** `examples/surfaces_demo/windows/window_catalog_graph.cpp`: прикладные кнопки и текущая зависимость графа от native Windows presenters. [Открыть реализацию][C17].
+**[C17] Композиция WindowCatalog.** `examples/window_catalog/windows/window_catalog_graph.cpp`: прикладные кнопки и текущая зависимость графа от native Windows presenters. [Открыть реализацию][C17].
 
 **[C18] Windows host.** `include/apptraverse/platform/windows/win_application_host.h`, `src/platform/windows/win_application_host.cpp`: модельный поток, доставка публикаций, proxy, loading/message host, join и UI session. [Открыть реализацию][C18].
 
-**[C19] Lifecycle приложений.** `examples/surfaces_demo/common/window_catalog_lifecycle.cpp`, `examples/minimal_app/common/minimal_app_lifecycle.cpp`: runtime bootstrap, загрузка checkpoint и штатное сохранение. [Открыть WindowCatalog lifecycle][C19].
+**[C19] Lifecycle приложений.** `examples/window_catalog/common/window_catalog_lifecycle.cpp`, `examples/minimal_app/common/minimal_app_lifecycle.cpp`: runtime bootstrap, загрузка checkpoint и штатное сохранение. [Открыть WindowCatalog lifecycle][C19].
 
 **[C20] Состав библиотек.** `CMakeLists.txt`, `cmake/aether_version.cmake`, `cmake/apptraverse_compile_policy.cmake`: состав core/UI, девять patches, pinned Æther Objects и компиляционная политика. [Открыть CMake][C20].
 
-**[C21] Платформенные исходники.** `examples/surfaces_demo/{linux,macos,ios,android,web,mobile}`: native опоры старого Surface-примера, не автоматическое доказательство общего WindowCatalog. [Открыть каталог примера][C21].
+**[C21] Платформенные исходники.** `examples/window_catalog/{linux,macos,ios,android,web,mobile}`: native опоры старого Surface-примера, не автоматическое доказательство общего WindowCatalog. [Открыть каталог примера][C21].
 
-**[C22] Web-конфигурация.** `examples/surfaces_demo/web/CMakeLists.txt`: Emscripten, DOM-bridge exports, IDBFS и присутствующие exception flags. [Открыть CMake][C22].
+**[C22] Web-конфигурация.** `examples/window_catalog/web/CMakeLists.txt`: Emscripten, DOM-bridge exports, IDBFS и присутствующие exception flags. [Открыть CMake][C22].
 
 **[C23] Локальная материализация и native текст.** `src/ui/ui_localization_string.cpp`, `src/platform/windows/win_ui_push_button_presenter.cpp`: локальная загрузка/выгрузка строки и преобразование на границе Windows. [Открыть локализацию][C23].
 
@@ -722,12 +722,12 @@ A уже имеет собственный S0 и origin=P. Новый код п�
 [C13]: https://github.com/apptraverse/apptraverse/blob/8c863bcd2904f2d918255b57cdf5d4c8bde1cbbf/src/overlay_domain_storage.cpp
 [C14]: https://github.com/apptraverse/apptraverse/blob/8c863bcd2904f2d918255b57cdf5d4c8bde1cbbf/src/directory_domain_storage.cpp
 [C15]: https://github.com/apptraverse/apptraverse/tree/8c863bcd2904f2d918255b57cdf5d4c8bde1cbbf/include/apptraverse/ui
-[C16]: https://github.com/apptraverse/apptraverse/blob/8c863bcd2904f2d918255b57cdf5d4c8bde1cbbf/examples/surfaces_demo/common/window_catalog_model.cpp
-[C17]: https://github.com/apptraverse/apptraverse/blob/8c863bcd2904f2d918255b57cdf5d4c8bde1cbbf/examples/surfaces_demo/windows/window_catalog_graph.cpp
+[C16]: https://github.com/apptraverse/apptraverse/blob/8c863bcd2904f2d918255b57cdf5d4c8bde1cbbf/examples/window_catalog/common/window_catalog_model.cpp
+[C17]: https://github.com/apptraverse/apptraverse/blob/8c863bcd2904f2d918255b57cdf5d4c8bde1cbbf/examples/window_catalog/windows/window_catalog_graph.cpp
 [C18]: https://github.com/apptraverse/apptraverse/blob/8c863bcd2904f2d918255b57cdf5d4c8bde1cbbf/src/platform/windows/win_application_host.cpp
-[C19]: https://github.com/apptraverse/apptraverse/blob/8c863bcd2904f2d918255b57cdf5d4c8bde1cbbf/examples/surfaces_demo/common/window_catalog_lifecycle.cpp
+[C19]: https://github.com/apptraverse/apptraverse/blob/8c863bcd2904f2d918255b57cdf5d4c8bde1cbbf/examples/window_catalog/common/window_catalog_lifecycle.cpp
 [C20]: https://github.com/apptraverse/apptraverse/blob/8c863bcd2904f2d918255b57cdf5d4c8bde1cbbf/CMakeLists.txt
-[C21]: https://github.com/apptraverse/apptraverse/tree/8c863bcd2904f2d918255b57cdf5d4c8bde1cbbf/examples/surfaces_demo
-[C22]: https://github.com/apptraverse/apptraverse/blob/8c863bcd2904f2d918255b57cdf5d4c8bde1cbbf/examples/surfaces_demo/web/CMakeLists.txt
+[C21]: https://github.com/apptraverse/apptraverse/tree/8c863bcd2904f2d918255b57cdf5d4c8bde1cbbf/examples/window_catalog
+[C22]: https://github.com/apptraverse/apptraverse/blob/8c863bcd2904f2d918255b57cdf5d4c8bde1cbbf/examples/window_catalog/web/CMakeLists.txt
 [C23]: https://github.com/apptraverse/apptraverse/blob/8c863bcd2904f2d918255b57cdf5d4c8bde1cbbf/src/ui/ui_localization_string.cpp
 [C24]: https://github.com/apptraverse/apptraverse/blob/8c863bcd2904f2d918255b57cdf5d4c8bde1cbbf/include/apptraverse/embedded_distilled_domain.h

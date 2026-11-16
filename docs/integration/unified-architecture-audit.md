@@ -36,7 +36,7 @@
 
 ### A.3 Application Runtime (model thread)
 
-`ApplicationModelRuntime::Run` (`src/application_model_runtime.cpp:30`): `BindReachableNodesMaterializedChangeNotifier` → `SerializeInitialPublication` → цикл работ (`Post`) → `SerializeStructuralNodePublication` по `PendingDirtyNodes` → `ClearLiveReachableNodesMaterializedChangeNotifier` (`:107`). Приложения: `WindowCatalogModelSession::Run` (`examples/surfaces_demo/common/window_catalog_lifecycle.cpp`), `RunMinimalApplicationModel` (`examples/minimal_app/common/minimal_app_lifecycle.cpp`).
+`ApplicationModelRuntime::Run` (`src/application_model_runtime.cpp:30`): `BindReachableNodesMaterializedChangeNotifier` → `SerializeInitialPublication` → цикл работ (`Post`) → `SerializeStructuralNodePublication` по `PendingDirtyNodes` → `ClearLiveReachableNodesMaterializedChangeNotifier` (`:107`). Приложения: `WindowCatalogModelSession::Run` (`examples/window_catalog/common/window_catalog_lifecycle.cpp`), `RunMinimalApplicationModel` (`examples/minimal_app/common/minimal_app_lifecycle.cpp`).
 
 ### A.4 UI Runtime
 
@@ -48,7 +48,7 @@
 
 ### A.6 Build-time distillation (временный bootstrap до 9D/9E)
 
-Под `APPTRAVERSE_ENABLE_DISTILLATION` (задаётся в `examples/surfaces_demo/windows/CMakeLists.txt:10,74`, `examples/minimal_app/windows/CMakeLists.txt:28`): при отсутствии профиля — `Build*Graph` → `FinalizeDistilledGraph` → `SaveDistilledRoot` в `DirectoryDomainStorage`. Отдельно — export tools (`minimal_app_export.cpp:72`, `export_surfaces_distilled_graph.cpp:48`) с `StabilizeDistilledPersistentSnapshot`.
+Под `APPTRAVERSE_ENABLE_DISTILLATION` (задаётся в `examples/window_catalog/windows/CMakeLists.txt:10,74`, `examples/minimal_app/windows/CMakeLists.txt:28`): при отсутствии профиля — `Build*Graph` → `FinalizeDistilledGraph` → `SaveDistilledRoot` в `DirectoryDomainStorage`. Отдельно — export tools (`minimal_app_export.cpp:72`, `export_surfaces_distilled_graph.cpp:48`) с `StabilizeDistilledPersistentSnapshot`.
 
 ### A.7 Future Release R/E/B/S
 
@@ -96,7 +96,7 @@ MinimalApp отличается шагом 8: `StabilizeDistilledPersistentSnaps
 | U4-09 | Minor | `CMakeLists.txt:161-162` | `AE_DISTILLATION=1 AE_FILTRATION=1` PUBLIC на core `apptraverse`, но используются только aether-client демо | `aether_presence_monitor/main.cpp:245`, `chat_aether_runtime.cpp:86`, `chat_ui_runtime_demo/windows/aether_runtime.cpp:106`; в aether-objects не используются | DEFER (затрагивает только legacy/aether builds) |
 | U4-10 | Minor | `CMakeLists.txt:174` | `NOMINMAX WIN32_LEAN_AND_MEAN` PUBLIC на platform-neutral `apptraverse` вместо `apptraverse_ui_windows` | код | DEFER (безвредно; перенос может вскрыть неявные `windows.h` include) |
 | U4-11 | Minor | `src/model_persistence.cpp:106-143` `PersistentSnapshotPatchSession`; `include/apptraverse/model_persistence.h:49-66` `PersistentSnapshotPatchGuard` | Записи патчей в `SanitizeLoadedPersistentObjPtrs` не используются; `PersistentSnapshotPatchGuard` нигде не используется | grep | FIX U5.5 (опционально) или DEFER |
-| U4-12 | Minor | `CMakeLists.txt:268, 276`; `examples/surfaces_demo/CMakeLists.txt:114` | `BUILD_TESTING` читается до `include(CTest)`; на первом configure не определён (маскируется `APPTRAVERSE_BUILD_EXAMPLES=ON` по умолчанию) | код | DEFER |
+| U4-12 | Minor | `CMakeLists.txt:268, 276`; `examples/window_catalog/CMakeLists.txt:114` | `BUILD_TESTING` читается до `include(CTest)`; на первом configure не определён (маскируется `APPTRAVERSE_BUILD_EXAMPLES=ON` по умолчанию) | код | DEFER |
 | U4-13 | Minor | `object_clone.cpp:14-34` `InjectLayerBytes`/`InjectClassData`; `object_serialization.cpp` `InjectObjectBytes`; `node.h:317` `CaptureBaseStateInto` | Несколько копий raw-inject слоёв (scratch save + `Store`/`Write`) | код | DEFER до **13.3** (Clone графов затронет этот путь) |
 | U4-14 | Deferred | `window_catalog_lifecycle.cpp:39-59`, `minimal_app_lifecycle.cpp:33-53` | Дублирующиеся distill bootstrap блоки | `#ifdef APPTRAVERSE_ENABLE_DISTILLATION` | DEFER **9D/9E** (заменяется embedded startup) |
 | U4-15 | Deferred | `AppendUnloadedCheckpointTargets` (`object_serialization.cpp:1377-1405`) | Checkpoint не самодостаточен: планируются только unloaded-рёбра root и их замыкание; unloaded-рёбра внутри loaded-подграфа (`holder->primary_text` после `Reset()`, `window_catalog_model.cpp:100`) берутся из storage; отсутствующие цели пропускаются молча (`:1399`). Сейчас корректно, т.к. storage тот же | код | DEFER **9D** (при BACKING+USER проверить тестом) |
@@ -149,7 +149,7 @@ U4-06, U4-07 → **U6**; U4-14, U4-15, U4-17 → **9D/9E**; U4-16 → **11/14**;
 
 ### U5.1 — Явная ошибка shutdown-save (U4-01)
 
-- **Файлы:** `examples/surfaces_demo/common/window_catalog_lifecycle.{h,cpp}`, `examples/surfaces_demo/windows/window_catalog_main.cpp`, `examples/minimal_app/common/minimal_app_lifecycle.{h,cpp}`, `examples/minimal_app/windows/minimal_app_main.cpp`, `tests/window_catalog_model_test.cpp` (`ShutdownSaveCatalog`).
+- **Файлы:** `examples/window_catalog/common/window_catalog_lifecycle.{h,cpp}`, `examples/window_catalog/windows/window_catalog_main.cpp`, `examples/minimal_app/common/minimal_app_lifecycle.{h,cpp}`, `examples/minimal_app/windows/minimal_app_main.cpp`, `tests/window_catalog_model_test.cpp` (`ShutdownSaveCatalog`).
 - **Изменение:** `durable_storage.BeginSaveSession()` перед shutdown-save; успех = `SavePersistentModelSnapshotToStorage(...) && !durable_storage.SaveSessionHadFailure()`; при неуспехе — сообщение в stderr (`WriteFatalStderr`) и признак ошибки в session/результате `Run…`; `main` возвращает ненулевой код после `host.Run()` (model thread уже присоединён, `win_application_host.cpp:75`). Паттерн — существующий `surfaces_lifecycle.cpp:255-263`. Без abort, без отката, без удаления sidecar (удаление сделало бы следующий старт хуже — см. A.9 п.3). В тесте — `CHECK` результата.
 - **Инвариант:** ошибка persistence явно доходит до вызывающего кода (политика пользователя).
 - **Тесты:** `apptraverse_window_catalog_model_test`; `apptraverse_minimal_app_win32_acceptance_test` (ожидает `exit_code == 0`, строка 380).

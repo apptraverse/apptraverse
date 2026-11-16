@@ -12,7 +12,7 @@ if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS" AND
     target_link_libraries(${_test}_swift PRIVATE apptraverse_ui_macos_swift)
     target_compile_options(${_test}_swift PRIVATE
       "SHELL:-import-objc-header ${CMAKE_CURRENT_SOURCE_DIR}/macos_window_catalog_acceptance.h"
-      "SHELL:-Xcc -I${PROJECT_SOURCE_DIR}/examples/surfaces_demo/macos"
+      "SHELL:-Xcc -I${PROJECT_SOURCE_DIR}/examples/window_catalog/macos"
       "SHELL:-Xcc -I${PROJECT_SOURCE_DIR}/include")
     add_executable(${_test}
       ${CMAKE_CURRENT_SOURCE_DIR}/macos_window_catalog_acceptance_link.mm)

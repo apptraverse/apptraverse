@@ -76,7 +76,7 @@ Release, arbitrary abrupt termination or production deployment.
 
 ## Reproduction and evidence
 
-[Web README](../../examples/surfaces_demo/web/README.md) gives build, server,
+[Web README](../../examples/window_catalog/web/README.md) gives build, server,
 Node and browser commands. Build directory: `build/wasm-ninja-debug`.
 
 Local evidence under `.artifacts/`:

@@ -42,7 +42,7 @@ if(_release GREATER 4294967295)
 endif()
 
 set(_header
-  "#ifndef APPTRAVERSE_SURFACES_EMBEDDED_RELEASE_H_\n#define APPTRAVERSE_SURFACES_EMBEDDED_RELEASE_H_\n\nnamespace apptraverse::surfaces_demo {\n\n// Build-time Release R from release.json (not runtime state/active-release).\n// Semantic range: uint32_t (validated at generate time).\ninline constexpr unsigned kEmbeddedRelease = ${_release}u;\n\n}  // namespace apptraverse::surfaces_demo\n\n#endif  // APPTRAVERSE_SURFACES_EMBEDDED_RELEASE_H_\n"
+  "#ifndef APPTRAVERSE_SURFACES_EMBEDDED_RELEASE_H_\n#define APPTRAVERSE_SURFACES_EMBEDDED_RELEASE_H_\n\nnamespace apptraverse::window_catalog {\n\n// Build-time Release R from release.json (not runtime state/active-release).\n// Semantic range: uint32_t (validated at generate time).\ninline constexpr unsigned kEmbeddedRelease = ${_release}u;\n\n}  // namespace apptraverse::window_catalog\n\n#endif  // APPTRAVERSE_SURFACES_EMBEDDED_RELEASE_H_\n"
 )
 
 file(WRITE "${OUTPUT}.tmp" "${_header}")

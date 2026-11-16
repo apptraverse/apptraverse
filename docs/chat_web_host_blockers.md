@@ -9,7 +9,7 @@ unavailable on the overnight Windows host.
 | Prerequisite | Status on overnight host |
 | --- | --- |
 | Emscripten (`emcc`) in PATH | **Not installed** |
-| `examples/surfaces_demo/web` reference host | Exists for surfaces only; no `examples/chat_demo/web` |
+| `examples/window_catalog/web` reference host | Exists for surfaces only; no `examples/chat_demo/web` |
 | Browser Aether transport branch | Not integrated; native pin unchanged |
 | `BrowserChatConnection` / chat session bridge | **Not present** in-tree |
 
@@ -27,7 +27,7 @@ untouched.
 
 Even if Emscripten were available, browser durability for chat would require:
 
-- IndexedDB / IDBFS initialization before model profiles (surfaces_demo pattern).
+- IndexedDB / IDBFS initialization before model profiles (window_catalog pattern).
 - Explicit checkpoint after `Application::Save` and async IDBFS sync.
 - Separate proof that application ACK boundaries align with browser persistence.
 
@@ -36,7 +36,7 @@ messages until checkpoint semantics are wired for `ChatSession`.
 
 ## Reference only
 
-`surfaces_demo/web` demonstrates surfaces WASM patterns (`web_surfaces_demo`,
+`window_catalog/web` demonstrates surfaces WASM patterns (`web_window_catalog`,
 IDBFS sync on publication). Those patterns are **not** copied into chat_demo
 in this delivery slice.
 

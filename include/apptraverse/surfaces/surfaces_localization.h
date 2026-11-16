@@ -9,7 +9,7 @@
 #include "apptraverse/ui/ui_localization_string.h"
 #include "apptraverse/ui/ui_locale_settings.h"
 
-#include "apptraverse/surfaces/surfaces_demo_revision.h"
+#include "apptraverse/surfaces/window_catalog_revision.h"
 #include "apptraverse/surfaces/surfaces_model.h"
 
 namespace apptraverse {

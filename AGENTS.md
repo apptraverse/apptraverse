@@ -57,7 +57,7 @@ supersedes demo profile-restore acceptance; SDK identity storage is separate.
 
 - **Never** add an AeroAdmin dependency or copy AeroAdmin sources.
 - Windows is the first platform; the common model must stay cross-platform (no HWND, Win32 paths, or Win32 keycodes in `src/common/`).
-- Model first: `surfaces_demo` / WindowCatalog semantics — model thread → publication → UI mirror → presenters; GUI → `ModelObjectProxy` → model Events.
+- Model first: `window_catalog` / WindowCatalog semantics — model thread → publication → UI mirror → presenters; GUI → `ModelObjectProxy` → model Events.
 - UI mirror and presenters must not mutate persistent model directly.
 - Keep presenters thin; one logical control → one presenter responsibility where practical.
 - Persistent vs runtime separation is mandatory (HWND, transport handles are runtime-only).

@@ -18,7 +18,7 @@
   - Virtual Display: `/usr/bin/xvfb-run` available
   - Java: `/usr/bin/java` (OpenJDK 17.0.18)
   - Windows Toolchain: No `x86_64-w64-mingw32-g++` on this Linux host (Win32 target guarded by `if(WIN32)` in CMakeLists.txt; compiled on Windows runners; Win32 smoke tests guarded).
-  - Android SDK / NDK / Gradle: Gradle wrapper and project template exist in `examples/surfaces_demo/android/`. Standalone `ANDROID_HOME`/`adb` not pre-installed in default system PATH on this container. Native C++ chat code will build for Android via CMake / JNI bridge.
+  - Android SDK / NDK / Gradle: Gradle wrapper and project template exist in `examples/window_catalog/android/`. Standalone `ANDROID_HOME`/`adb` not pre-installed in default system PATH on this container. Native C++ chat code will build for Android via CMake / JNI bridge.
   - Emscripten / emcc: Not installed in system PATH.
 - Build Tree: `/workspace/build/linux-x64-ninja-gcc-debug` active and healthy.
 

@@ -491,7 +491,7 @@ if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES)
 endif()
 
 if(APPTRAVERSE_BUILD_EXAMPLES OR BUILD_TESTING)
-  add_subdirectory(examples/surfaces_demo)
+  add_subdirectory(examples/window_catalog)
 endif()
 
 if(APPTRAVERSE_BUILD_EXAMPLES OR BUILD_TESTING)

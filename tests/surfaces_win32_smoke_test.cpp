@@ -30,7 +30,7 @@
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "apptraverse/surfaces/surface_button_presenter.h"
 #include "apptraverse/ui/ui_presenters.h"
-#include "surfaces_demo_win32_registration.h"
+#include "window_catalog_win32_registration.h"
 #include "apptraverse/surfaces/surface_language_button_presenter.h"
 #include "apptraverse/surfaces/surface_window_presenter.h"
 #include "apptraverse/surfaces/surfaces_ids.h"
@@ -171,8 +171,8 @@ int QueryModelLanguageIndex(WinApp& app) {
   std::future<int> future = promise.get_future();
   CHECK(app.PostModelWork([&](ae::Domain& domain) {
     auto application = LoadApplication<Application>(
-        domain, ae::ObjId{surfaces_demo::ToObjId(
-                    surfaces_demo::ObjId::Application)});
+        domain, ae::ObjId{window_catalog::ToObjId(
+                    window_catalog::ObjId::Application)});
     promise.set_value(application->locale->language_index());
   }));
   auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{30};
@@ -474,8 +474,8 @@ void TestCloseButtonRemovesOne() {
   CHECK(add1 != nullptr);
   CHECK(close1 != nullptr);
   CHECK(app.PostModelWork([&](ae::Domain& domain) {
-    auto app_obj = domain.Find(ae::ObjId{surfaces_demo::ToObjId(
-        surfaces_demo::ObjId::Application)});
+    auto app_obj = domain.Find(ae::ObjId{window_catalog::ToObjId(
+        window_catalog::ObjId::Application)});
     CHECK(app_obj);
     Surface& surface =
         *static_cast<Application&>(*app_obj).surfaces->surfaces[0];
@@ -548,8 +548,8 @@ void TestCloseButtonRemovesOne() {
   DirectoryDomainStorage storage{dir};
   ae::Domain domain{storage};
   auto application = LoadApplication<Application>(
-      domain, ae::ObjId{surfaces_demo::ToObjId(
-                  surfaces_demo::ObjId::Application)});
+      domain, ae::ObjId{window_catalog::ToObjId(
+                  window_catalog::ObjId::Application)});
   CHECK(application->surfaces->surfaces.size() == 3);
   CHECK(application->surfaces->surfaces[0]->number == 1);
   CHECK(application->surfaces->surfaces[1]->number == 3);
@@ -616,8 +616,8 @@ void TestNativeXKeepsAllSurfaces() {
   DirectoryDomainStorage storage{dir};
   ae::Domain domain{storage};
   auto application = LoadApplication<Application>(
-      domain, ae::ObjId{surfaces_demo::ToObjId(
-                  surfaces_demo::ObjId::Application)});
+      domain, ae::ObjId{window_catalog::ToObjId(
+                  window_catalog::ObjId::Application)});
   CHECK(application->surfaces->surfaces.size() == 3);
   CHECK(application->surfaces->surfaces[0]->number == 1);
   CHECK(application->surfaces->surfaces[1]->number == 2);
@@ -652,8 +652,8 @@ void TestNativeXKeepsAllSurfaces() {
   DirectoryDomainStorage storage2{dir};
   ae::Domain domain2{storage2};
   auto application2 = LoadApplication<Application>(
-      domain2, ae::ObjId{surfaces_demo::ToObjId(
-                   surfaces_demo::ObjId::Application)});
+      domain2, ae::ObjId{window_catalog::ToObjId(
+                   window_catalog::ObjId::Application)});
   CHECK(application2->surfaces->surfaces.size() == 1);
   CHECK(application2->surfaces->surfaces[0]->number == 3);
 
@@ -752,8 +752,8 @@ void TestActiveZOrderRestored() {
   DirectoryDomainStorage storage{dir};
   ae::Domain domain{storage};
   auto application = LoadApplication<Application>(
-      domain, ae::ObjId{surfaces_demo::ToObjId(
-                  surfaces_demo::ObjId::Application)});
+      domain, ae::ObjId{window_catalog::ToObjId(
+                  window_catalog::ObjId::Application)});
   CHECK(application->surfaces->mobile_current);
   CHECK(application->surfaces->mobile_current->number == 2);
   CHECK(application->surfaces->desktop_z_order.size() == 3);
@@ -830,8 +830,8 @@ void TestFullDesktopZOrderDistinctStacksSameTop() {
     DirectoryDomainStorage storage{dir};
     ae::Domain domain{storage};
     auto application = LoadApplication<Application>(
-        domain, ae::ObjId{surfaces_demo::ToObjId(
-                    surfaces_demo::ObjId::Application)});
+        domain, ae::ObjId{window_catalog::ToObjId(
+                    window_catalog::ObjId::Application)});
     CHECK(application->surfaces->desktop_z_order.size() == 4);
     for (std::size_t i = 0; i < scenario.stack.size(); ++i) {
       CHECK(application->surfaces->desktop_z_order[i]->number ==
@@ -1023,8 +1023,8 @@ void TestControlsFollowPresentationSize() {
   DirectoryDomainStorage storage{dir};
   ae::Domain domain{storage};
   auto application = LoadApplication<Application>(
-      domain, ae::ObjId{surfaces_demo::ToObjId(
-                  surfaces_demo::ObjId::Application)});
+      domain, ae::ObjId{window_catalog::ToObjId(
+                  window_catalog::ObjId::Application)});
   Surface& surface = *application->surfaces->surfaces[0];
   CHECK(surface.presentation_width == 700);
   CHECK(surface.presentation_height == 300);
@@ -1138,8 +1138,8 @@ void TestDynamicAddLibraryPushButtonNotifierAndEnabled() {
   std::future<bool> notifier_future = notifier_promise.get_future();
   CHECK(app.PostModelWork([&](ae::Domain& domain) {
     auto application = LoadApplication<Application>(
-        domain, ae::ObjId{surfaces_demo::ToObjId(
-                    surfaces_demo::ObjId::Application)});
+        domain, ae::ObjId{window_catalog::ToObjId(
+                    window_catalog::ObjId::Application)});
     CHECK(application->surfaces->surfaces.size() == 2);
     Surface& surface2 = *application->surfaces->surfaces[1];
     auto add_presenter =
@@ -1161,8 +1161,8 @@ void TestDynamicAddLibraryPushButtonNotifierAndEnabled() {
 
   CHECK(app.PostModelWork([&](ae::Domain& domain) {
     auto application = LoadApplication<Application>(
-        domain, ae::ObjId{surfaces_demo::ToObjId(
-                    surfaces_demo::ObjId::Application)});
+        domain, ae::ObjId{window_catalog::ToObjId(
+                    window_catalog::ObjId::Application)});
     Surface& surface2 = *application->surfaces->surfaces[1];
     auto add_presenter =
         ui::UiPushButtonPresenter::ptr{surface2.chrome.add_button};
@@ -1175,8 +1175,8 @@ void TestDynamicAddLibraryPushButtonNotifierAndEnabled() {
 
   CHECK(app.PostModelWork([&](ae::Domain& domain) {
     auto application = LoadApplication<Application>(
-        domain, ae::ObjId{surfaces_demo::ToObjId(
-                    surfaces_demo::ObjId::Application)});
+        domain, ae::ObjId{window_catalog::ToObjId(
+                    window_catalog::ObjId::Application)});
     Surface& surface2 = *application->surfaces->surfaces[1];
     auto add_presenter =
         ui::UiPushButtonPresenter::ptr{surface2.chrome.add_button};
@@ -1220,8 +1220,8 @@ void TestLibraryLanguageSingleModelToggle() {
     std::future<void> future = promise.get_future();
     CHECK(app.PostModelWork([&](ae::Domain& domain) {
       auto application = LoadApplication<Application>(
-          domain, ae::ObjId{surfaces_demo::ToObjId(
-                      surfaces_demo::ObjId::Application)});
+          domain, ae::ObjId{window_catalog::ToObjId(
+                      window_catalog::ObjId::Application)});
       CHECK(application->locale->language_index() == active_lang);
       ui::UiLocalizationString* localized[] = {
           &*application->label_add,
@@ -1365,8 +1365,8 @@ void TestDynamicLanguageLibraryPushButtonNotifierAndEnabled() {
   std::future<bool> notifier_future = notifier_promise.get_future();
   CHECK(app.PostModelWork([&](ae::Domain& domain) {
     auto application = LoadApplication<Application>(
-        domain, ae::ObjId{surfaces_demo::ToObjId(
-                    surfaces_demo::ObjId::Application)});
+        domain, ae::ObjId{window_catalog::ToObjId(
+                    window_catalog::ObjId::Application)});
     Surface& surface2 = *application->surfaces->surfaces[1];
     auto lang_presenter =
         ui::UiPushButtonPresenter::ptr{surface2.chrome.language_button};
@@ -1387,8 +1387,8 @@ void TestDynamicLanguageLibraryPushButtonNotifierAndEnabled() {
   int const index_before = QueryModelLanguageIndex(app);
   CHECK(app.PostModelWork([&](ae::Domain& domain) {
     auto application = LoadApplication<Application>(
-        domain, ae::ObjId{surfaces_demo::ToObjId(
-                    surfaces_demo::ObjId::Application)});
+        domain, ae::ObjId{window_catalog::ToObjId(
+                    window_catalog::ObjId::Application)});
     Surface& surface2 = *application->surfaces->surfaces[1];
     auto lang_presenter =
         ui::UiPushButtonPresenter::ptr{surface2.chrome.language_button};
@@ -1404,8 +1404,8 @@ void TestDynamicLanguageLibraryPushButtonNotifierAndEnabled() {
 
   CHECK(app.PostModelWork([&](ae::Domain& domain) {
     auto application = LoadApplication<Application>(
-        domain, ae::ObjId{surfaces_demo::ToObjId(
-                    surfaces_demo::ObjId::Application)});
+        domain, ae::ObjId{window_catalog::ToObjId(
+                    window_catalog::ObjId::Application)});
     Surface& surface2 = *application->surfaces->surfaces[1];
     auto lang_presenter =
         ui::UiPushButtonPresenter::ptr{surface2.chrome.language_button};
@@ -1488,8 +1488,8 @@ void TestDynamicCloseLibraryPushButtonNotifierAndEnabled() {
   std::future<bool> notifier_future = notifier_promise.get_future();
   CHECK(app.PostModelWork([&](ae::Domain& domain) {
     auto application = LoadApplication<Application>(
-        domain, ae::ObjId{surfaces_demo::ToObjId(
-                    surfaces_demo::ObjId::Application)});
+        domain, ae::ObjId{window_catalog::ToObjId(
+                    window_catalog::ObjId::Application)});
     Surface& surface2 = *application->surfaces->surfaces[1];
     auto close_presenter =
         ui::UiPushButtonPresenter::ptr{surface2.chrome.close_button};
@@ -1509,8 +1509,8 @@ void TestDynamicCloseLibraryPushButtonNotifierAndEnabled() {
 
   CHECK(app.PostModelWork([&](ae::Domain& domain) {
     auto application = LoadApplication<Application>(
-        domain, ae::ObjId{surfaces_demo::ToObjId(
-                    surfaces_demo::ObjId::Application)});
+        domain, ae::ObjId{window_catalog::ToObjId(
+                    window_catalog::ObjId::Application)});
     Surface& surface2 = *application->surfaces->surfaces[1];
     auto close_presenter =
         ui::UiPushButtonPresenter::ptr{surface2.chrome.close_button};
@@ -1526,8 +1526,8 @@ void TestDynamicCloseLibraryPushButtonNotifierAndEnabled() {
 
   CHECK(app.PostModelWork([&](ae::Domain& domain) {
     auto application = LoadApplication<Application>(
-        domain, ae::ObjId{surfaces_demo::ToObjId(
-                    surfaces_demo::ObjId::Application)});
+        domain, ae::ObjId{window_catalog::ToObjId(
+                    window_catalog::ObjId::Application)});
     Surface& surface2 = *application->surfaces->surfaces[1];
     auto close_presenter =
         ui::UiPushButtonPresenter::ptr{surface2.chrome.close_button};
@@ -1615,8 +1615,8 @@ void TestLibraryAddCustomLabelModelEvent() {
 
   CHECK(app.PostModelWork([&](ae::Domain& domain) {
     auto loaded = LoadApplication<Application>(
-        domain, ae::ObjId{surfaces_demo::ToObjId(
-                    surfaces_demo::ObjId::Application)});
+        domain, ae::ObjId{window_catalog::ToObjId(
+                    window_catalog::ObjId::Application)});
     CommitAddLabelSlotUtf8(domain, *loaded, 0, "Create window");
     CommitAddLabelSlotUtf8(domain, *loaded, 1, "Создать окно");
   }));
@@ -1693,8 +1693,8 @@ void TestLocalizationEnRuEn() {
   DirectoryDomainStorage storage{dir};
   ae::Domain domain{storage};
   auto application = LoadApplication<Application>(
-      domain, ae::ObjId{surfaces_demo::ToObjId(
-                  surfaces_demo::ObjId::Application)});
+      domain, ae::ObjId{window_catalog::ToObjId(
+                  window_catalog::ObjId::Application)});
   CHECK(application->locale->language_index() == 0);
 
   std::filesystem::remove_all(dir);
@@ -1764,8 +1764,8 @@ void TestLoadOnlyRestoresRuProfile() {
   DirectoryDomainStorage probe{dir};
   ae::Domain probe_domain{probe};
   auto saved = LoadApplication<Application>(
-      probe_domain, ae::ObjId{surfaces_demo::ToObjId(
-                        surfaces_demo::ObjId::Application)});
+      probe_domain, ae::ObjId{window_catalog::ToObjId(
+                        window_catalog::ObjId::Application)});
   CHECK(saved->locale->language_index() == 1);
   check_lazy_localization_slots(probe_domain, probe, *saved);
 
@@ -1847,8 +1847,8 @@ void TestLoadOnlyRestoresRuProfile() {
   DirectoryDomainStorage storage{dir};
   ae::Domain domain{storage};
   auto application = LoadApplication<Application>(
-      domain, ae::ObjId{surfaces_demo::ToObjId(
-                  surfaces_demo::ObjId::Application)});
+      domain, ae::ObjId{window_catalog::ToObjId(
+                  window_catalog::ObjId::Application)});
   CHECK(application->locale->language_index() == 1);
   check_lazy_localization_slots(domain, storage, *application);
 

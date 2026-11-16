@@ -49,13 +49,13 @@
 #include "apptraverse/ui/ui_localization_string.h"
 #include "apptraverse/ui/ui_push_button.h"
 #include "apptraverse/ui/ui_push_button_presenter.h"
-#include "surfaces_demo_add_button.h"
-#include "surfaces_demo_close_button.h"
-#include "surfaces_demo_language_button.h"
+#include "window_catalog_add_button.h"
+#include "window_catalog_close_button.h"
+#include "window_catalog_language_button.h"
 #include "apptraverse/platform/windows/surfaces_win_presenters.h"
-#include "surfaces_demo_surface_window_host.h"
-#include "surfaces_demo_win32_registration.h"
-#include "surfaces_demo_win32_attach.h"
+#include "window_catalog_surface_window_host.h"
+#include "window_catalog_win32_registration.h"
+#include "window_catalog_win32_attach.h"
 #endif
 
 namespace apptraverse::test {
@@ -127,8 +127,8 @@ void RunOnModel(SurfacesModelSession& session,
   std::promise<void> done;
   auto future = done.get_future();
   session.Post([&](ae::Domain& domain) {
-    auto app = domain.Find(ae::ObjId{surfaces_demo::ToObjId(
-        surfaces_demo::ObjId::Application)});
+    auto app = domain.Find(ae::ObjId{window_catalog::ToObjId(
+        window_catalog::ObjId::Application)});
     CHECK(app);
     body(static_cast<Application&>(*app));
     done.set_value();
@@ -321,8 +321,8 @@ void TestRestartPersistence() {
   DirectoryDomainStorage storage{dir};
   ae::Domain domain{storage};
   auto application = LoadApplication<Application>(
-      domain, ae::ObjId{surfaces_demo::ToObjId(
-                  surfaces_demo::ObjId::Application)});
+      domain, ae::ObjId{window_catalog::ToObjId(
+                  window_catalog::ObjId::Application)});
   Surfaces& surfaces = *application->surfaces;
   CHECK(surfaces.surfaces.size() == 2);
   CHECK(surfaces.surfaces[0]->number == 1);
@@ -517,14 +517,14 @@ void TestShutdownDrain() {
   TakeAndWake(session);
 
   session.Post([](ae::Domain& domain) {
-    auto object = domain.Find(ae::ObjId{surfaces_demo::ToObjId(
-        surfaces_demo::ObjId::Surface1)});
+    auto object = domain.Find(ae::ObjId{window_catalog::ToObjId(
+        window_catalog::ObjId::Surface1)});
     CHECK(object);
     object.as<Surface>()->AddSurface();
   });
   session.Post([](ae::Domain& domain) {
-    auto object = domain.Find(ae::ObjId{surfaces_demo::ToObjId(
-        surfaces_demo::ObjId::Surface1)});
+    auto object = domain.Find(ae::ObjId{window_catalog::ToObjId(
+        window_catalog::ObjId::Surface1)});
     CHECK(object);
     object.as<Surface>()->AddSurface();
   });
@@ -534,8 +534,8 @@ void TestShutdownDrain() {
   DirectoryDomainStorage storage{dir};
   ae::Domain domain{storage};
   auto application = LoadApplication<Application>(
-      domain, ae::ObjId{surfaces_demo::ToObjId(
-                  surfaces_demo::ObjId::Application)});
+      domain, ae::ObjId{window_catalog::ToObjId(
+                  window_catalog::ObjId::Application)});
   Surfaces& surfaces = *application->surfaces;
   CHECK(surfaces.surfaces.size() == 3);
   CHECK(surfaces.surfaces[0]->number == 1);
@@ -637,8 +637,8 @@ void TestPresentationSizePersistence() {
   DirectoryDomainStorage storage{dir};
   ae::Domain domain{storage};
   auto application = LoadApplication<Application>(
-      domain, ae::ObjId{surfaces_demo::ToObjId(
-                  surfaces_demo::ObjId::Application)});
+      domain, ae::ObjId{window_catalog::ToObjId(
+                  window_catalog::ObjId::Application)});
   CHECK(application->surfaces->surfaces[0]->presentation_width == 640);
   CHECK(application->surfaces->surfaces[0]->presentation_height == 480);
   SurfacePresenter::ptr presenter{application->surfaces->surfaces[0]->chrome.window};
@@ -1062,8 +1062,8 @@ void TestGeometryPersistence() {
   DirectoryDomainStorage storage{dir};
   ae::Domain domain{storage};
   auto application = LoadApplication<Application>(
-      domain, ae::ObjId{surfaces_demo::ToObjId(
-                  surfaces_demo::ObjId::Application)});
+      domain, ae::ObjId{window_catalog::ToObjId(
+                  window_catalog::ObjId::Application)});
   Surfaces& surfaces = *application->surfaces;
   CHECK(surfaces.surfaces.size() == 3);
   CHECK(surfaces.surfaces[0]->obj_id == surface1_id);
@@ -1177,8 +1177,8 @@ void TestCurrentPagePersistence() {
   DirectoryDomainStorage storage{dir};
   ae::Domain domain{storage};
   auto application = LoadApplication<Application>(
-      domain, ae::ObjId{surfaces_demo::ToObjId(
-                  surfaces_demo::ObjId::Application)});
+      domain, ae::ObjId{window_catalog::ToObjId(
+                  window_catalog::ObjId::Application)});
   Surfaces& surfaces = *application->surfaces;
   CHECK(surfaces.surfaces.size() == 3);
   CHECK(surfaces.mobile_current);
@@ -1777,8 +1777,8 @@ void TestModelWorkRunsWhilePublicationUnread() {
 
   session.Post([](ae::Domain& domain) {
     auto app = LoadApplication<Application>(
-        domain, ae::ObjId{surfaces_demo::ToObjId(
-                    surfaces_demo::ObjId::Application)});
+        domain, ae::ObjId{window_catalog::ToObjId(
+                    window_catalog::ObjId::Application)});
     app->surfaces->surfaces[0]->AddSurface();
   });
   WaitPublished(session);
@@ -1788,8 +1788,8 @@ void TestModelWorkRunsWhilePublicationUnread() {
   auto second_add_fut = second_add_done.get_future();
   session.Post([&](ae::Domain& domain) {
     auto app = LoadApplication<Application>(
-        domain, ae::ObjId{surfaces_demo::ToObjId(
-                    surfaces_demo::ObjId::Application)});
+        domain, ae::ObjId{window_catalog::ToObjId(
+                    window_catalog::ObjId::Application)});
     app->surfaces->surfaces[0]->AddSurface();
     second_add_done.set_value();
   });
@@ -1816,8 +1816,8 @@ void TestModelWorkRunsWhilePublicationUnread() {
     auto fut = count.get_future();
     session.Post([&](ae::Domain& domain) {
       auto app = LoadApplication<Application>(
-          domain, ae::ObjId{surfaces_demo::ToObjId(
-                      surfaces_demo::ObjId::Application)});
+          domain, ae::ObjId{window_catalog::ToObjId(
+                      window_catalog::ObjId::Application)});
       count.set_value(app->surfaces->surfaces.size());
     });
     CHECK(fut.wait_for(std::chrono::seconds{30}) == std::future_status::ready);
@@ -1847,8 +1847,8 @@ void TestShutdownDrainsWorkWithUnreadPublication() {
 
   session.Post([](ae::Domain& domain) {
     auto app = LoadApplication<Application>(
-        domain, ae::ObjId{surfaces_demo::ToObjId(
-                    surfaces_demo::ObjId::Application)});
+        domain, ae::ObjId{window_catalog::ToObjId(
+                    window_catalog::ObjId::Application)});
     app->surfaces->surfaces[0]->AddSurface();
   });
   WaitPublished(session);
@@ -1856,8 +1856,8 @@ void TestShutdownDrainsWorkWithUnreadPublication() {
 
   session.Post([](ae::Domain& domain) {
     auto app = LoadApplication<Application>(
-        domain, ae::ObjId{surfaces_demo::ToObjId(
-                    surfaces_demo::ObjId::Application)});
+        domain, ae::ObjId{window_catalog::ToObjId(
+                    window_catalog::ObjId::Application)});
     app->surfaces->surfaces[0]->AddSurface();
   });
   session.RequestStop();
@@ -1867,8 +1867,8 @@ void TestShutdownDrainsWorkWithUnreadPublication() {
     DirectoryDomainStorage storage{dir};
     ae::Domain domain{storage};
     auto app = LoadApplication<Application>(
-        domain, ae::ObjId{surfaces_demo::ToObjId(
-                    surfaces_demo::ObjId::Application)});
+        domain, ae::ObjId{window_catalog::ToObjId(
+                    window_catalog::ObjId::Application)});
     CHECK(app->surfaces->surfaces.size() == 3);
   }
   std::filesystem::remove_all(dir);
@@ -1959,8 +1959,8 @@ void TestStructuralApplyOnModelChangedOnce() {
 
   session.Post([&](ae::Domain& domain) {
     auto app = LoadApplication<Application>(
-        domain, ae::ObjId{surfaces_demo::ToObjId(
-                    surfaces_demo::ObjId::Application)});
+        domain, ae::ObjId{window_catalog::ToObjId(
+                    window_catalog::ObjId::Application)});
     auto event = ui::SetUiLanguageIndexEvent::ptr::Create(
         ae::CreateWith{domain});
     event->language_index = 1;
@@ -1990,8 +1990,8 @@ void AddWin32LibrarySurface(Surface& from) {
   sibling->number = next_number;
   AssignInitialDesktopBounds(*sibling);
   sibling->surfaces = from.surfaces;
-  auto application = parent.domain->Find(ae::ObjId{surfaces_demo::ToObjId(
-      surfaces_demo::ObjId::Application)});
+  auto application = parent.domain->Find(ae::ObjId{window_catalog::ToObjId(
+      window_catalog::ObjId::Application)});
   assert(application && "AddWin32LibrarySurface requires Application");
   example::surfaces::AttachSurfacesDemoWin32SurfacePresenters(
       *sibling, static_cast<Application&>(*application), *parent.domain);
@@ -2020,8 +2020,8 @@ void AddWin32LibrarySurface(Surface& from) {
 }
 
 Application::ptr BuildWin32LibraryAddRoundtripGraph(ae::Domain& domain) {
-  using surfaces_demo::ObjId;
-  using surfaces_demo::ToObjId;
+  using window_catalog::ObjId;
+  using window_catalog::ToObjId;
 
   auto application = Application::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::Application)));
@@ -2162,7 +2162,7 @@ void TestBootstrapSaveLoadChromePresenterClassIds() {
   ae::Domain load_domain{load_storage};
   auto loaded = LoadApplication<Application>(
       load_domain,
-      ae::ObjId{surfaces_demo::ToObjId(surfaces_demo::ObjId::Application)});
+      ae::ObjId{window_catalog::ToObjId(window_catalog::ObjId::Application)});
   Surface& loaded_surface = *loaded->surfaces->surfaces[0];
   CHECK(loaded_surface.chrome.add_button->GetClassId() ==
         ui::windows::WinPushButtonPresenter::kClassId);
@@ -2332,7 +2332,7 @@ void TestLibraryAddButtonLabelSerializationRoundtrip() {
   ae::Domain load_domain{load_storage};
   auto loaded = LoadApplication<Application>(
       load_domain,
-      ae::ObjId{surfaces_demo::ToObjId(surfaces_demo::ObjId::Application)});
+      ae::ObjId{window_catalog::ToObjId(window_catalog::ObjId::Application)});
   Surface& loaded_surface = *loaded->surfaces->surfaces[0];
   auto loaded_add =
       ui::windows::WinPushButtonPresenter::ptr{loaded_surface.chrome.add_button};
@@ -2564,7 +2564,7 @@ void TestLocaleCommitAndPersistence() {
   ae::Domain load_domain{load_storage};
   auto loaded = LoadApplication<Application>(
       load_domain,
-      ae::ObjId{surfaces_demo::ToObjId(surfaces_demo::ObjId::Application)});
+      ae::ObjId{window_catalog::ToObjId(window_catalog::ObjId::Application)});
   CHECK(loaded->locale->language_index() == 1);
   ui::UiLocalizationString* localized[] = {
       &*loaded->label_add,

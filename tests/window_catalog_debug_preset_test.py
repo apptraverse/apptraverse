@@ -36,7 +36,7 @@ def main():
     supply.write_text("// configure-only supply placeholder\n", encoding="utf-8")
     fixture = work / "source"
     fixture.mkdir(exist_ok=True)
-    catalog_cmake = (source / "examples/surfaces_demo/windows").as_posix()
+    catalog_cmake = (source / "examples/window_catalog/windows").as_posix()
     (fixture / "CMakeLists.txt").write_text(
         'cmake_minimum_required(VERSION 3.20)\n'
         'project(WindowCatalogDebugPresetProbe LANGUAGES CXX)\n'

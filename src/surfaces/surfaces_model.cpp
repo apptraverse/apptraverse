@@ -184,8 +184,8 @@ void Surface::AddSurface() {
   sibling->number = next_number;
   AssignInitialDesktopBounds(*sibling);
   sibling->surfaces = surfaces;
-  auto application = parent.domain->Find(ae::ObjId{surfaces_demo::ToObjId(
-      surfaces_demo::ObjId::Application)});
+  auto application = parent.domain->Find(ae::ObjId{window_catalog::ToObjId(
+      window_catalog::ObjId::Application)});
   assert(application && "AddSurface requires live Application in domain");
   AttachPlatformSurfacePresenters(*sibling, static_cast<Application&>(*application),
                                     *parent.domain);

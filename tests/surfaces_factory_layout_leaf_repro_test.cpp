@@ -18,11 +18,11 @@
 #include "apptraverse/ui/ui_locale_settings.h"
 #include "apptraverse/ui/ui_push_button.h"
 
-#include "surfaces_demo_language_button.h"
-#include "surfaces_demo_layout_push_button_presenter.h"
-#include "surfaces_demo_surface_window_host.h"
-#include "surfaces_demo_win32_layout_repro_registration.h"
-#include "surfaces_demo_win32_registration.h"
+#include "window_catalog_language_button.h"
+#include "window_catalog_layout_push_button_presenter.h"
+#include "window_catalog_surface_window_host.h"
+#include "window_catalog_win32_layout_repro_registration.h"
+#include "window_catalog_win32_registration.h"
 
 namespace apptraverse::test {
 namespace {

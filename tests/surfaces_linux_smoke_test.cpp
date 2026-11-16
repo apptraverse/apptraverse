@@ -338,8 +338,8 @@ void TestCloseButtonRemovesOne() {
   DirectoryDomainStorage storage{dir};
   ae::Domain domain{storage};
   auto application = LoadApplication<Application>(
-      domain, ae::ObjId{surfaces_demo::ToObjId(
-                  surfaces_demo::ObjId::Application)});
+      domain, ae::ObjId{window_catalog::ToObjId(
+                  window_catalog::ObjId::Application)});
   CHECK(application->surfaces->surfaces.size() == 3);
   CHECK(application->surfaces->surfaces[0]->number == 1);
   CHECK(application->surfaces->surfaces[1]->number == 3);
@@ -401,8 +401,8 @@ void TestNativeCloseKeepsAllSurfaces() {
   DirectoryDomainStorage storage{dir};
   ae::Domain domain{storage};
   auto application = LoadApplication<Application>(
-      domain, ae::ObjId{surfaces_demo::ToObjId(
-                  surfaces_demo::ObjId::Application)});
+      domain, ae::ObjId{window_catalog::ToObjId(
+                  window_catalog::ObjId::Application)});
   CHECK(application->surfaces->surfaces.size() == 3);
   CHECK(application->surfaces->surfaces[0]->number == 1);
   CHECK(application->surfaces->surfaces[1]->number == 2);
@@ -438,8 +438,8 @@ void TestNativeCloseKeepsAllSurfaces() {
   DirectoryDomainStorage storage2{dir};
   ae::Domain domain2{storage2};
   auto application2 = LoadApplication<Application>(
-      domain2, ae::ObjId{surfaces_demo::ToObjId(
-                   surfaces_demo::ObjId::Application)});
+      domain2, ae::ObjId{window_catalog::ToObjId(
+                   window_catalog::ObjId::Application)});
   CHECK(application2->surfaces->surfaces.size() == 1);
   CHECK(application2->surfaces->surfaces[0]->number == 3);
 
@@ -477,8 +477,8 @@ void TestActiveZOrderRestored() {
   DirectoryDomainStorage storage{dir};
   ae::Domain domain{storage};
   auto application = LoadApplication<Application>(
-      domain, ae::ObjId{surfaces_demo::ToObjId(
-                  surfaces_demo::ObjId::Application)});
+      domain, ae::ObjId{window_catalog::ToObjId(
+                  window_catalog::ObjId::Application)});
   CHECK(application->surfaces->mobile_current);
   CHECK(application->surfaces->mobile_current->number == 2);
 
@@ -554,8 +554,8 @@ void TestControlsFollowPresentationSize() {
   DirectoryDomainStorage storage{dir};
   ae::Domain domain{storage};
   auto application = LoadApplication<Application>(
-      domain, ae::ObjId{surfaces_demo::ToObjId(
-                  surfaces_demo::ObjId::Application)});
+      domain, ae::ObjId{window_catalog::ToObjId(
+                  window_catalog::ObjId::Application)});
   Surface& surface = *application->surfaces->surfaces[0];
   CHECK(surface.presentation_width == 700);
   CHECK(surface.presentation_height == 300);

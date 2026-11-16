@@ -62,9 +62,9 @@ Observed at surfaces freeze (2026-09-12), after Linux + Apple adaptive merges:
 
 `677a5f7adc5e401fb796a492f0fe7abe588a41b4`
 
-### surfaces_demo — FEATURE COMPLETE / FROZEN FOR NOW
+### window_catalog — FEATURE COMPLETE / FROZEN FOR NOW
 
-`surfaces_demo` is **feature-complete and frozen** for architectural work:
+`window_catalog` is **feature-complete and frozen** for architectural work:
 
 - do **not** add SharedNode / chat architecture into this demo
 - performance optimizations and known platform limitations stay deferred
@@ -129,18 +129,18 @@ Linux surfaces path.
 4. foundation hardening + UI ownership / ObjId proxy [done]
 5. dynamic_objects cleanup (invariants / Win32 routing) [done]
 6. Disable RTTI + invariant-driven coding policy [done]
-7. surfaces_demo — common model + headless [done]
-8. surfaces_demo — Windows multi-window + persisted geometry [done]
-9. surfaces_demo — Android pager + `mobile_current` [done]
-10. surfaces_demo — Web/WASM tabs + IDBFS checkpoint [done]
-11. surfaces_demo — Linux desktop host [done as **GTK3**; X11 was historical]
-12. surfaces_demo — macOS desktop port [done]
-13. surfaces_demo — iOS / iPhone Simulator [done]
+7. window_catalog — common model + headless [done]
+8. window_catalog — Windows multi-window + persisted geometry [done]
+9. window_catalog — Android pager + `mobile_current` [done]
+10. window_catalog — Web/WASM tabs + IDBFS checkpoint [done]
+11. window_catalog — Linux desktop host [done as **GTK3**; X11 was historical]
+12. window_catalog — macOS desktop port [done]
+13. window_catalog — iOS / iPhone Simulator [done]
 14. pre-shared runtime hardening [done]
 15. model-driven adaptive presentation size — Windows / Android / Web [done]
 16. model-driven adaptive — Linux GTK3 [done on canonical]
 17. model-driven adaptive — macOS / iOS [done on canonical]
-18. surfaces_demo — **FEATURE COMPLETE / FROZEN** (architectural work stops here)
+18. window_catalog — **FEATURE COMPLETE / FROZEN** (architectural work stops here)
 
 Deferred relative to surfaces / SharedNode:
 
@@ -213,7 +213,7 @@ Useful concepts to retain from experiments (including older sync sessions):
 
 ## NEXT direction — generic sharing first
 
-`surfaces_demo` is frozen. Next architectural work:
+`window_catalog` is frozen. Next architectural work:
 
 ```
 sharing (generic SharedNode, headless)
@@ -225,7 +225,7 @@ sharing (generic SharedNode, headless)
 ```
 
 **No GUI** in the first SharedNode milestones.
-Do **not** implement SharedNode inside `surfaces_demo`.
+Do **not** implement SharedNode inside `window_catalog`.
 
 ---
 

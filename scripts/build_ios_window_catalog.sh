@@ -13,7 +13,7 @@ clang_cxx="${CXX:-/opt/local/bin/clang++-mp-20}"
   -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DAE_NO_DEBUG_LOG=ON
 "$cmake_bin" --build "$host_build" --target apptraverse_export_window_catalog_ios \
   --parallel "${CMAKE_BUILD_PARALLEL_LEVEL:-4}"
-exporter="$host_build/examples/surfaces_demo/ios/host_export/apptraverse_export_window_catalog_ios"
+exporter="$host_build/examples/window_catalog/ios/host_export/apptraverse_export_window_catalog_ios"
 "$cmake_bin" -S "$repo_dir" -B "$ios_build" -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$repo_dir/cmake/toolchains/ios-simulator.cmake" \
   -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=OFF -DAPPTRAVERSE_BUILD_IOS_ACCEPTANCE=ON \

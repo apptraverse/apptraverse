@@ -46,7 +46,7 @@ startup reads USER against the embedded supply in a separate process.
 A macOS Debug preparation executable builds the same iOS graph and exports the
 embedded supply. Simulator runtime consumers do not link its graph builders.
 Build instructions and reusable scripts/toolchain are in
-[the iOS application README](../../examples/surfaces_demo/ios/README.md).
+[the iOS application README](../../examples/window_catalog/ios/README.md).
 Other example applications, CI and physical-device distribution are excluded.
 
 ## Executed checks

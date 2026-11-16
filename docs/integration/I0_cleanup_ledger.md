@@ -24,7 +24,7 @@ had no builds; **I0.2 slice verified** with incremental Release/MinSizeRel build
 | `apptraverse_ui_extended` | **EXCLUDE_FROM_ALL** — edit box / bitmap (not in catalog/minimal graph) |
 | `apptraverse_ui_windows_extended` | **EXCLUDE_FROM_ALL** — extended Win presenters |
 | `minimal_app_common` | MinimalApplication types + lifecycle |
-| `surfaces_demo_window_catalog` | WindowCatalog model + graph |
+| `window_catalog_window_catalog` | WindowCatalog model + graph |
 | `win32_minimal_app`, `win32_minimal_app_load_only` | Minimal app executables |
 | `win32_window_catalog_demo`, `win32_window_catalog_demo_load_only` | WindowCatalog executables |
 | `apptraverse_export_minimal_distilled_graph` | Build-time embedded header exporter (9C) |
@@ -68,7 +68,7 @@ link or run.
 
 `examples/model_ui_runtime_demo`, `chat_ui_runtime_demo`, `main_window_runtime_demo`,
 `dynamic_objects_demo`, `shared_node_demo`, `chat_demo`, full multi-platform
-`surfaces_demo` (only `surfaces_demo_window_catalog` + `windows/` win32 demos build).
+`window_catalog` (only `window_catalog_window_catalog` + `windows/` win32 demos build).
 
 ---
 
@@ -89,7 +89,7 @@ Status legend: **ACTIVE** | **TEST-ONLY** | **COMPILED-UNREFERENCED** (in
 | Publication load | `LoadInitialPublication`, `ApplyStructuralPublicationAndUpdatePresenters` (`object_serialization.cpp`) | `ApplicationUiSession`, contract/model/catalog tests | **ACTIVE** | Not a duplicate of persistent `DomainGraph` save — different scope (`GraphSerializationScope::MaterializedPublication` / structural) | Keep | `apptraverse_application_contract_headless_test`, `apptraverse_application_ui_session_test`, catalog model test | Low |
 | Presenter wiring | `ComposePresentedWindow` (`ui_presented_window_composition.h`) | `minimal_app_graph.cpp`, `window_catalog_graph.cpp`, contract test | **ACTIVE** | Required typed cross-links (window ↔ presenter ↔ title/locale) | Keep | `apptraverse_application_contract_headless_test` | Low |
 | Presenter lifecycle | `LoadPresentedWindow` / `SavePresentedWindow` / `UnloadPresentedWindow` | `minimal_app_lifecycle.cpp`, `window_catalog_model.cpp` | **ACTIVE** | App-specific call sites; helpers are shared | Keep | Win32 acceptance, catalog model test | Low |
-| Direct presenter init | `InitializePresenters` (`ui_presenters.cpp`) | `ApplicationUiSession` ctor; disabled `surfaces_demo` platform apps | **ACTIVE** (via session) | Old demos called directly; production apps use session | Keep | `apptraverse_application_ui_session_test` | Low |
+| Direct presenter init | `InitializePresenters` (`ui_presenters.cpp`) | `ApplicationUiSession` ctor; disabled `window_catalog` platform apps | **ACTIVE** (via session) | Old demos called directly; production apps use session | Keep | `apptraverse_application_ui_session_test` | Low |
 | Runtime lifecycle API | `runtime_lifecycle.h` (header only) | Chat demo sources (not built) | **DISABLED/HISTORICAL** | `.cpp` **removed I0.2**; header kept | Defer header removal until chat demo dropped | None active | Low–Med |
 | SharedNode / transport | `shared_node.h`, `shared_sync_runtime.h`, etc. (headers only) | FUTURE roadmap; disabled demos | **DEFERRED/FUTURE** | `.cpp` **removed I0.2**; `APPTRAVERSE_ENABLE_SHARED_NODE=0` | Restore implementation when SharedNode returns | N/A | Low |
 | Persistent checkpoint | `SavePersistentModelSnapshotToStorage` / `LoadPersistentModelSnapshot` | `minimal_app_lifecycle`, `window_catalog_lifecycle`, catalog/minimal tests | **ACTIVE** | Separate from layer-wise `DirectoryDomainStorage` + optional checkpoint blob | Keep; embedded startup (9D) must define whether checkpoint remains | `apptraverse_minimal_app_win32_acceptance_test`, catalog model test | Med (9D design) |

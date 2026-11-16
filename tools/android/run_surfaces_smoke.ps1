@@ -184,7 +184,7 @@ function Assert-NoFatal([string]$Logs) {
 $repo_root = Resolve-RepoRoot
 $sdk = Resolve-AndroidSdk
 $adb = Get-Tool $sdk "platform-tools\adb.exe"
-$android_dir = Join-Path $repo_root "examples\surfaces_demo\android"
+$android_dir = Join-Path $repo_root "examples\window_catalog\android"
 
 Write-Host "Repository root      : $repo_root"
 Write-Host "Selected Android SDK : $sdk"

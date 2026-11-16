@@ -18,7 +18,7 @@ exactly one host definition when `Surface::AddSurface` or distillation is used.
 ### Fixed `Application` lookup in `Surface::AddSurface`
 
 `Surface::AddSurface()` (model thread) resolves the owning application with a **fixed**
-`ObjId` from `apptraverse/surfaces/surfaces_ids.h` (`surfaces_demo::ObjId::Application`).
+`ObjId` from `apptraverse/surfaces/surfaces_ids.h` (`window_catalog::ObjId::Application`).
 It then calls `AttachPlatformSurfacePresenters` on the new sibling.
 
 This is **surfaces-demo schema**, not a generic “find root Application” API. Hosts with

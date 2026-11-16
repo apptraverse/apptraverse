@@ -175,7 +175,7 @@ P3.T3 выполнять **по одному backend** в порядке H → W
 
 **NEXT:** **P3.T3.I — iOS/iPadOS MinimalApp**, отдельная итерация; в P3.T3.M не начинался. **P3.T3.M macOS PASS**: Swift/AppKit/SwiftUI, thin Objective-C++ bridge, embedded BACKING + USER, two-process native E2E ([PROGRESS §P3.T3.M](./PROGRESS.md#p3t3m--macos-minimalapp-embedded-user-2026-11-05--pass)). Ранее: **P3.T3.AE PASS**, **P3.T3.Web6 PASS**, **P3.T3.O1 PASS**; origin как ссылка в Obj/S0 и доставка новых слоёв prefab экземплярам — разные механизмы, Obj/S1 для origin не используется; история WindowCatalog обязательного графа (pass 1–7) — [PROGRESS §WindowCatalog required links](./PROGRESS.md#windowcatalog-required-links-fatal-2026-11-02).
 
-**Reference only (не переносить session):** `examples/surfaces_demo/linux`, CTest `apptraverse_surfaces_linux_smoke_test` — GTK idioms; **не** `SurfacesModelSession` / ручное mirror для template.
+**Reference only (не переносить session):** `examples/window_catalog/linux`, CTest `apptraverse_surfaces_linux_smoke_test` — GTK idioms; **не** `SurfacesModelSession` / ручное mirror для template.
 
 #### Границы ответственности и зависимости
 
@@ -432,9 +432,9 @@ Resolver, новые storage API и политики const/dynamic в 02 **не*
 
 | Элемент | Значение |
 | --- | --- |
-| Config | [`examples/surfaces_demo/release.json`](../../examples/surfaces_demo/release.json) |
+| Config | [`examples/window_catalog/release.json`](../../examples/window_catalog/release.json) |
 | Поле | **`release`** — обязательное JSON-число, неотрицательное **целое**, диапазон **`0` … `4294967295`** (`std::uint32_t`) |
-| Генерация | [`cmake/generate_surfaces_release_metadata.cmake`](../../cmake/generate_surfaces_release_metadata.cmake) → build-tree header `surfaces_embedded_release.h` с `apptraverse::surfaces_demo::kEmbeddedRelease` (`unsigned`, диапазон проверяется как `uint32_t`) |
+| Генерация | [`cmake/generate_surfaces_release_metadata.cmake`](../../cmake/generate_surfaces_release_metadata.cmake) → build-tree header `surfaces_embedded_release.h` с `apptraverse::window_catalog::kEmbeddedRelease` (`unsigned`, диапазон проверяется как `uint32_t`) |
 | Подключение | [`cmake/apptraverse_surfaces_release_metadata.cmake`](../../cmake/apptraverse_surfaces_release_metadata.cmake) — `apptraverse_embed_surfaces_release_metadata(target, config_json)`; зависимость от config → инкрементальная пересборка target |
 | Проверка | `apptraverse_release_metadata_probe` + CTest ([`release_metadata_probe_test.py`](../../tests/release_metadata_probe_test.py)); runner читает JSON отдельно от EXE |
 | Surfaces Demo EXE | Config **не** подключён к GUI startup в 03; `--state-dir` без изменений |

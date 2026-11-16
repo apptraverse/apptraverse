@@ -90,7 +90,7 @@ Release packaging, native Wayland and other examples are NOT RUN here.
 
 ## Evidence and reproduction
 
-Portable build/adb commands: [Android README](../../examples/surfaces_demo/android/README.md).
+Portable build/adb commands: [Android README](../../examples/window_catalog/android/README.md).
 Local evidence under `.artifacts/`:
 
 - `android-debug-final-build.log`, `android-loadonly-final-build.log`

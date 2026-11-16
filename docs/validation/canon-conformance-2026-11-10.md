@@ -27,7 +27,7 @@ removed with it. This finding is from source inspection, not an observed crash.
 
 ### C2 — P2: a headless prefab needs post-clone business-link repair
 
-`examples/surfaces_demo/common/window_catalog_graph_mobile_prefab.cpp:41–43`
+`examples/window_catalog/common/window_catalog_graph_mobile_prefab.cpp:41–43`
 deliberately leaves `close_button->catalog` unset despite receiving `catalog`.
 `window_catalog_model.cpp:64–68,657` fills it in `WireWindowCloseButton` after
 Clone and reassigns the existing window/presenter links. This is a persistent
@@ -71,7 +71,7 @@ Do not report it as an observed failure of the valid Windows application supply.
 `.github/workflows/window-catalog-validation.yml:6` only triggers on the old
 branch, has no PR trigger, and omits `examples/minimal_app/**` from its path
 filter. Lines 25–34 configure Release/MinSizeRel without first preparing Debug
-supply. Catalog's `examples/surfaces_demo/windows/CMakeLists.txt:106` rejects that
+supply. Catalog's `examples/window_catalog/windows/CMakeLists.txt:106` rejects that
 configuration when the required header is absent. Local PASS does not establish
 reproducible CI. Update the workflow to the current branch/PR policy and build
 Debug supply before its runtime consumers; include both Windows examples.
@@ -160,7 +160,7 @@ Logs: `.artifacts/remove-runtime-trace-active-build.log` and
 `.artifacts/remove-runtime-trace-tests.log`. No MinSizeRel or other-platform
 build/run and no fresh latency benchmark was performed.
 
-An additional attempt to link the old `win32_surfaces_demo` failed on missing
+An additional attempt to link the old `win32_window_catalog` failed on missing
 `EnsureSurfacesDemoWin32Registration` and `AttachSurfacesDemoWin32SurfacePresenters`.
 Their implementation files were already excluded from that target's dependency
 sources at the starting revision; this change does not alter those registrations.

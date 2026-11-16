@@ -90,7 +90,7 @@ def main():
     stamp = time.strftime("%Y%m%d-%H%M%S")
     evidence = options.artifacts / stamp
     evidence.mkdir(parents=True)
-    apps = options.build / "examples/surfaces_demo"
+    apps = options.build / "examples/window_catalog"
     # Acceptance targets are defined by an include in this directory.
     definitions = [
         ("debug", "org.apptraverse.WindowCatalog.ios.acceptance.debug"),

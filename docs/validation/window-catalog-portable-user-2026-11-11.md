@@ -169,7 +169,7 @@ or changed. All temporary input diagnostics were removed.
 The original installed APK was restored without launching its default profile;
 the original 7,964-byte USER retained SHA-256
 `db911cab158e3d50dd8f44de72cac49d492f8aba152680f9af9c0509a5547689`.
-The tested new APK remains in `examples/surfaces_demo/android/app/build/outputs/apk/debugLoadOnly/app-debugLoadOnly.apk` (11,850,714 bytes, SHA-256
+The tested new APK remains in `examples/window_catalog/android/app/build/outputs/apk/debugLoadOnly/app-debugLoadOnly.apk` (11,850,714 bytes, SHA-256
 `0d700d63c451632a8f30267be39bd86fe0e2a7e8d356a9f6c9b6809bb77b3f48`).
 The restored original APK has SHA-256
 `03318756f9b4cff0193971e6e820782aa9795338a4203c0773bc93772cc929ba`.

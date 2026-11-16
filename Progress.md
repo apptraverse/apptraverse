@@ -2,7 +2,7 @@
 
 **Active (2026-11-08):** **`GetMostRelatedFactory` contract** — `KnownStoredClasses` ∩ `IsExisting` ⇒ `classes.back()` always has a registry factory; leaf-only `IsLast` fallback **removed** (`get-most-related-stored-factory.patch`); cold load uses stored most-derived class (no auto-upgrade to newer registered leaf). **`TestColdLoadStoredClassFactoryContract`** + derived/disk historical in `apptraverse_ui_control_materialization_test` **PASS**; loader matrix **PASS** (`ui_control`, `historical_base`, `model_persistence`, `object_clone`, `application_contract_headless`, WindowCatalog model/headless/embedded_overlay). Android Debug / Win32 acceptance **NOT RUN** this pass.
 
-**Active (2026-11-06):** **Window Catalog adaptive (`feature/window-catalog-adaptive`, worktree `apptraverse-wt-adaptive`)** — shared `ComputeWindowCatalogMainChromeLayout` + `SetWindowCatalogMainClientViewportEvent`; Close in prefab graph (`CatalogWindow.close_button*`); Web full host (`WebApplicationHost`, IDBFS USER, mobile pager shell); Android JNI/touch/save + `AndroidCatalogMainWindowPresenter` 1:1 chrome. **MSVC C1054 (mirror nesting):** serializable chrome lives in nested `WindowCatalogPersisted` on `WindowCatalog` so the registrar does not flatten a huge meta list; call sites use `catalog.persisted.*`. **Android (2026-11-06, verified):** `ReadActivityDensityDpi` uses `Resources.getDisplayMetrics()` with signature `()Landroid/util/DisplayMetrics;` (API 34+ removed the `DisplayMetrics` out-param overload). NDK `:app:assembleRelease` runs a nested **Ninja** host build (`b/wc-ahe/${ANDROID_ABI}`) that produces `examples/surfaces_demo/android/generated/embedded_distilled_window_catalog_android_supply.h` so presenter 18 Close geometry matches the prefab (e.g. kLayerBytes56 decodes to **w=456 h=48** at y≈260 in model space for 480×320 client, not stale 90×28 @ y≈280). `bindListRow` paints list selection from the mirror (`selected`) with contrast background + readable text. **Manual acceptance (emulator-5554, physical density 420):** profile `stateSubdir=wc_two_list` — two rows, tap **Window 2** (`selected=true` on B, false on A), Open → child **Window 2** with Close bounds **[12,613][468,661]** ⇒ **48 px tall ≈ 18.3 dp** at 420 dpi; PNG artifacts under `docs/smoke_artifacts/window_catalog_android_accept_20251106/` (`accept_1_catalog_B_selected.png`, `accept_2_child_B_title_Close.png`). Signed Release APK `examples/surfaces_demo/android/app/build/outputs/apk/release/app-release-signed.apk` SHA-256 `0D7547D5A4F890DEE83FF102B226349687EADFDB735D56EA0D5AD005A2943E1D`. **Windows verified (`win64-ninja-msvc-debug`):** `apptraverse_window_catalog_headless_test`, `apptraverse_window_catalog_model_test`, `apptraverse_window_catalog_embedded_overlay_test` **PASS** (executed). **Web:** `web_window_catalog_demo` **build PASS** (`wasm-ninja-debug`); serve **8920** **UP**; smoke script **FAIL** (expects `#catalog-title`, shell uses inline title). **Linux MinSizeRel manual:** **BLOCKED** (WSL preset needs `clang++` in PATH). **NEXT:** Linux GTK build + manual resize; extend `wasm_window_catalog_browser_smoke.py` for new shell. [PLAN](docs/versioning/PLAN.md), [PROGRESS](docs/versioning/PROGRESS.md).
+**Active (2026-11-06):** **Window Catalog adaptive (`feature/window-catalog-adaptive`, worktree `apptraverse-wt-adaptive`)** — shared `ComputeWindowCatalogMainChromeLayout` + `SetWindowCatalogMainClientViewportEvent`; Close in prefab graph (`CatalogWindow.close_button*`); Web full host (`WebApplicationHost`, IDBFS USER, mobile pager shell); Android JNI/touch/save + `AndroidCatalogMainWindowPresenter` 1:1 chrome. **MSVC C1054 (mirror nesting):** serializable chrome lives in nested `WindowCatalogPersisted` on `WindowCatalog` so the registrar does not flatten a huge meta list; call sites use `catalog.persisted.*`. **Android (2026-11-06, verified):** `ReadActivityDensityDpi` uses `Resources.getDisplayMetrics()` with signature `()Landroid/util/DisplayMetrics;` (API 34+ removed the `DisplayMetrics` out-param overload). NDK `:app:assembleRelease` runs a nested **Ninja** host build (`b/wc-ahe/${ANDROID_ABI}`) that produces `examples/window_catalog/android/generated/embedded_distilled_window_catalog_android_supply.h` so presenter 18 Close geometry matches the prefab (e.g. kLayerBytes56 decodes to **w=456 h=48** at y≈260 in model space for 480×320 client, not stale 90×28 @ y≈280). `bindListRow` paints list selection from the mirror (`selected`) with contrast background + readable text. **Manual acceptance (emulator-5554, physical density 420):** profile `stateSubdir=wc_two_list` — two rows, tap **Window 2** (`selected=true` on B, false on A), Open → child **Window 2** with Close bounds **[12,613][468,661]** ⇒ **48 px tall ≈ 18.3 dp** at 420 dpi; PNG artifacts under `docs/smoke_artifacts/window_catalog_android_accept_20251106/` (`accept_1_catalog_B_selected.png`, `accept_2_child_B_title_Close.png`). Signed Release APK `examples/window_catalog/android/app/build/outputs/apk/release/app-release-signed.apk` SHA-256 `0D7547D5A4F890DEE83FF102B226349687EADFDB735D56EA0D5AD005A2943E1D`. **Windows verified (`win64-ninja-msvc-debug`):** `apptraverse_window_catalog_headless_test`, `apptraverse_window_catalog_model_test`, `apptraverse_window_catalog_embedded_overlay_test` **PASS** (executed). **Web:** `web_window_catalog_demo` **build PASS** (`wasm-ninja-debug`); serve **8920** **UP**; smoke script **FAIL** (expects `#catalog-title`, shell uses inline title). **Linux MinSizeRel manual:** **BLOCKED** (WSL preset needs `clang++` in PATH). **NEXT:** Linux GTK build + manual resize; extend `wasm_window_catalog_browser_smoke.py` for new shell. [PLAN](docs/versioning/PLAN.md), [PROGRESS](docs/versioning/PROGRESS.md).
 
 **Release versioning (R0–R5):** детальный журнал — [docs/versioning/PROGRESS.md](docs/versioning/PROGRESS.md); **P0–P6** — единственная активная очередь на unified. Rules: `.cursor/rules/apptraverse-coding-agent.mdc`.
 
@@ -1312,7 +1312,7 @@ Status: documentation-only. Not accepted.
 
 - Windows / Android / WASM / Linux GTK3 / macOS SwiftUI / iOS SwiftUI+rotation:
   adaptive presentation-size Event path present under `677a5f7`.
-- `surfaces_demo` marked **COMPLETE / FROZEN**.
+- `window_catalog` marked **COMPLETE / FROZEN**.
 - SharedNode / Link roadmap retained from `docs/shared-node-plan-v1`.
 - Old `feature/shared-chat-headless-v1`: abandoned experiment (not merged).
 
@@ -1404,7 +1404,7 @@ Status: implemented, verified in the iPhone simulator. Not accepted.
 ## Toolchain
 
 - Xcode 15.2 / Swift 5.9.2 with C++ on `clang++-mp-20`.
-- Swift target `surfaces_demo_ios_content` (static, own target ? Swift cannot
+- Swift target `window_catalog_ios_content` (static, own target ? Swift cannot
   share a target with ObjC++); `-import-objc-header ios_surface_actions.h`.
 - The simulator needs both `CMAKE_Swift_FLAGS "-sdk ..."` and
   `CMAKE_Swift_COMPILER_TARGET x86_64-apple-ios17.0-simulator`: CMake leaves
@@ -1417,7 +1417,7 @@ Status: implemented, verified in the iPhone simulator. Not accepted.
   generated `-Swift.h` (it needs clang modules, unavailable under
   `clang++-mp-20`).
 - Incremental build only, in `build/ios-sim-x86_64-debug-surfaces-demo`;
-  `ios_surfaces_demo` and `ios_surfaces_demo_load_only` both link.
+  `ios_window_catalog` and `ios_window_catalog_load_only` both link.
 
 ## Tests
 
@@ -1478,7 +1478,7 @@ Status: implemented, verified locally on macOS. Not accepted.
 ## Toolchain
 
 - Xcode 15.2 / Swift 5.9.2 with C++ on `clang++-mp-20`.
-- Swift target `surfaces_demo_macos_content` (static, own target ? Swift cannot
+- Swift target `window_catalog_macos_content` (static, own target ? Swift cannot
   share a target with ObjC++); `-import-objc-header mac_surface_actions.h`;
   `CMAKE_Swift_FLAGS` must pass `-sdk` explicitly.
 - Executables and the smoke test pin `LINKER_LANGUAGE OBJCXX` plus Swift
@@ -1626,7 +1626,7 @@ Status: implemented, verified locally. Not accepted.
 
 ## Console / logs
 
-- `win32_surfaces_demo` `main`: `FreeConsole()` + `EnableNoninteractiveCrt()`.
+- `win32_window_catalog` `main`: `FreeConsole()` + `EnableNoninteractiveCrt()`.
 - `aether-objects` built with `AE_NO_DEBUG_LOG=1` (no OBJ_SYS Save spam in
   Debug).
 
@@ -1656,8 +1656,8 @@ Status: implemented, verified locally. Not accepted.
 
 ## Conflict files
 
-- macOS merge: `examples/surfaces_demo/CMakeLists.txt`, `tests/CMakeLists.txt`, `plan.md`
-- iOS merge: `examples/surfaces_demo/CMakeLists.txt`, `mobile/mobile_surface_presenter.{h,cpp}`, `plan.md`, `Progress.md`
+- macOS merge: `examples/window_catalog/CMakeLists.txt`, `tests/CMakeLists.txt`, `plan.md`
+- iOS merge: `examples/window_catalog/CMakeLists.txt`, `mobile/mobile_surface_presenter.{h,cpp}`, `plan.md`, `Progress.md`
 
 ## Common / mobile resolution
 
@@ -1712,7 +1712,7 @@ Status: implemented, verified locally on Linux. Not accepted.
 
 ## Conflicts
 
-- `examples/surfaces_demo/CMakeLists.txt` ? kept Windows + Emscripten/web + Linux;
+- `examples/window_catalog/CMakeLists.txt` ? kept Windows + Emscripten/web + Linux;
   Linux gated `UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN`.
 - `plan.md` ? kept canonical `surfaces-demo` roadmap; marked Linux as landed (X11/Xlib).
 
@@ -1772,7 +1772,7 @@ Not accepted-by-user.
 ---
 Status: implemented, verified on emulator. Not accepted.
 
-# surfaces_demo ? Android pager port
+# window_catalog ? Android pager port
 
 ## Starting / final
 
@@ -1857,7 +1857,7 @@ reopened the first page. On request the current page became model state:
   ? GUI mirror resolves `mobile_current` to the mirror's own Surface.
 
 `apptraverse_surfaces_win32_smoke_test` ? OK after the schema bump, and
-`win32_surfaces_demo` still links.
+`win32_window_catalog` still links.
 
 ## Emulator verification (`tools/android/run_surfaces_smoke.ps1`, 7 phases)
 
@@ -1882,9 +1882,9 @@ reopened the first page. On request the current page became model state:
 
 ## Common files changed
 
-- `examples/surfaces_demo/CMakeLists.txt`: added the `surfaces_demo_mobile`
+- `examples/window_catalog/CMakeLists.txt`: added the `window_catalog_mobile`
   target.
-- `examples/surfaces_demo/common/surfaces_model.h/.cpp`: `Surfaces` v1 with
+- `examples/window_catalog/common/surfaces_model.h/.cpp`: `Surfaces` v1 with
   `mobile_current`, `SetCurrentSurfaceEvent`, `Surface::MakeCurrent`,
   `SurfacePresenter::PageShown`. Desktop presenters and the Win32 host are
   unchanged, but existing state dirs must be recreated.
@@ -1895,7 +1895,7 @@ Not accepted-by-user.
 ---
 Status: implemented, verified locally. Not accepted.
 
-# surfaces_demo ? Linux desktop port (X11)
+# window_catalog ? Linux desktop port (X11)
 
 ## Starting / final
 
@@ -1932,7 +1932,7 @@ and `DesktopSurfacePresenter` API unchanged.
 
 ## Targets
 
-- `linux_surfaces_demo` / `linux_surfaces_demo_load_only`
+- `linux_window_catalog` / `linux_window_catalog_load_only`
 - `apptraverse_surfaces_linux_smoke_test`
 
 ## `-fno-rtti` proof
@@ -1951,7 +1951,7 @@ Not accepted-by-user.
 ---
 Status: implemented, verified locally. Not accepted.
 
-# surfaces_demo ? macOS desktop port
+# window_catalog ? macOS desktop port
 
 ## Starting / final
 
@@ -1971,12 +1971,12 @@ DesktopSurfacePresenter
   ?? MacSurfacePresenter   [THIS]
 ```
 
-- `examples/surfaces_demo/macos/` ? `MacApp`, `MacSurfacePresenter` (`.mm` + ARC)
+- `examples/window_catalog/macos/` ? `MacApp`, `MacSurfacePresenter` (`.mm` + ARC)
 - NSWindow per Surface; Add / Close this window; red X + Cmd-Q ? one stop path
   (snapshot all frames ? `RequestStop`)
 - Primary-screen coordinate conversion (common top-left ? AppKit); multi-monitor
   out of scope
-- Targets: `macos_surfaces_demo`, `macos_surfaces_demo_load_only`
+- Targets: `macos_window_catalog`, `macos_window_catalog_load_only`
 - `-fno-rtti` on CXX and OBJCXX; no C++ `dynamic_cast`
 
 ## Toolchain note
@@ -1998,7 +1998,7 @@ Not accepted-by-user.
 ---
 Status: implemented, verified locally. Not accepted.
 
-# surfaces_demo ? iOS simulator port
+# window_catalog ? iOS simulator port
 
 ## Starting / final
 
@@ -2019,8 +2019,8 @@ MobileSurfacePresenter   (platform-neutral; no desktop geometry)
   ?? IOSSurfacePresenter [THIS]  (UIKit page UIView)
 ```
 
-- `examples/surfaces_demo/mobile/` ? `MobileSurfacePresenter`
-- `examples/surfaces_demo/ios/` ? `IOSApp`, `IOSSurfacePresenter`, `main.mm`,
+- `examples/window_catalog/mobile/` ? `MobileSurfacePresenter`
+- `examples/window_catalog/ios/` ? `IOSApp`, `IOSSurfacePresenter`, `main.mm`,
   `Info.plist.in`, `run_simulator.sh`
 - One UIWindow / root VC; `UIScrollView` paging; pages follow `Surfaces::surfaces`
 - Host buttons: `[ Add ] [ Remove current ]`; current page = host
@@ -2029,7 +2029,7 @@ MobileSurfacePresenter   (platform-neutral; no desktop geometry)
 - Remove current ? `RemoveClick` when count > 1; disabled when count == 1
 - `desktop_*` ignored on mobile
 - State dir: Application Support/`AppTraverseSurfaces` (optional `--state-dir`)
-- Targets: `ios_surfaces_demo` (distill), `ios_surfaces_demo_load_only`
+- Targets: `ios_window_catalog` (distill), `ios_window_catalog_load_only`
 - `-fno-rtti` on OBJCXX; ARC on `.mm`
 - CMake: `if(IOS)` only (not macOS `APPLE`)
 
@@ -2041,7 +2041,7 @@ MobileSurfacePresenter   (platform-neutral; no desktop geometry)
   `88714D26-E069-4135-9F63-35B02D75DDFA` (iOS 17.2)
 - Bundle id: `com.apptraverse.surfaces`
 - App:
-  `build/ios-sim-x86_64-debug/examples/surfaces_demo/ios/ios_surfaces_demo.app`
+  `build/ios-sim-x86_64-debug/examples/window_catalog/ios/ios_window_catalog.app`
 
 ## Build / launch
 
@@ -2055,8 +2055,8 @@ cmake -S . -B build/ios-sim-x86_64-debug -G Ninja \
   -DCMAKE_CXX_COMPILER=/opt/local/bin/clang++-mp-20 \
   -DCMAKE_OBJCXX_COMPILER=/opt/local/bin/clang++-mp-20 \
   -DAPPTRAVERSE_BUILD_AETHER_DEMOS=OFF -DBUILD_TESTING=OFF
-cmake --build build/ios-sim-x86_64-debug --target ios_surfaces_demo
-# or: examples/surfaces_demo/ios/run_simulator.sh
+cmake --build build/ios-sim-x86_64-debug --target ios_window_catalog
+# or: examples/window_catalog/ios/run_simulator.sh
 ```
 
 simctl: install exit 0; launch `com.apptraverse.surfaces: 17397`; process stayed
@@ -2072,8 +2072,8 @@ alive after launch.
 
 ## Files outside `ios/`
 
-- `examples/surfaces_demo/mobile/` (new mobile presenter layer)
-- `examples/surfaces_demo/CMakeLists.txt` ? `surfaces_demo_mobile` + `if(IOS)`
+- `examples/window_catalog/mobile/` (new mobile presenter layer)
+- `examples/window_catalog/CMakeLists.txt` ? `window_catalog_mobile` + `if(IOS)`
 - `plan.md` / `Progress.md` ? this section
 
 No common/desktop/windows API changes. No common API blocker.
@@ -2084,7 +2084,7 @@ Not accepted-by-user.
 Status: implemented, verified locally. Not accepted.
 
 
-# surfaces_demo ? Windows semantics + persisted window geometry
+# window_catalog ? Windows semantics + persisted window geometry
 
 ## Starting / final
 
@@ -2116,14 +2116,14 @@ Status: implemented, verified locally. Not accepted.
 - `/GR-` on desktop/Win32/smoke TUs
 - Regressions: dynamic_objects_add, dynamic_objects_win32_smoke, presenter_load_order, publication_channel
 
-Manual: `build/win64-ninja-msvc-debug/examples/surfaces_demo/windows/win32_surfaces_demo.exe`
+Manual: `build/win64-ninja-msvc-debug/examples/window_catalog/windows/win32_window_catalog.exe`
 
 Not accepted-by-user.
 
 ---
 Status: implemented, verified locally. Not accepted.
 
-# surfaces_demo slice 2 ? Windows minimal multi-window
+# window_catalog slice 2 ? Windows minimal multi-window
 
 ## Starting / final
 
@@ -2168,8 +2168,8 @@ only in `OnUnload`. Survivors keep identity across Add/Remove.
 
 ## Manual executable
 
-`build/win64-ninja-msvc-debug/examples/surfaces_demo/windows/win32_surfaces_demo.exe`
-(`--state-dir <path>`). Load-only: `win32_surfaces_demo_load_only.exe`.
+`build/win64-ninja-msvc-debug/examples/window_catalog/windows/win32_window_catalog.exe`
+(`--state-dir <path>`). Load-only: `win32_window_catalog_load_only.exe`.
 
 ## `/GR-` proof
 
@@ -2187,7 +2187,7 @@ Not accepted-by-user.
 
 Status: implemented, verified locally. Not accepted.
 
-# surfaces_demo slice 1 ? common model + headless
+# window_catalog slice 1 ? common model + headless
 
 ## Starting / final
 
@@ -2243,7 +2243,7 @@ Not accepted-by-user.
 
 Status: implemented, verified locally. Not accepted.
 
-# Disable RTTI and enforce AppTraverse invariants (before surfaces_demo)
+# Disable RTTI and enforce AppTraverse invariants (before window_catalog)
 
 ## Starting / final
 
@@ -2326,10 +2326,10 @@ GCC/Clang policy is wired as `-fno-rtti` (not exercised on this Windows slice).
 
 ## plan.md
 
-Next: **surfaces_demo common model + headless only**.
+Next: **window_catalog common model + headless only**.
 Then Windows minimal multi-window (no resize/Z-order/DPI), then macOS/Linux,
 then mobile, then SharedNode / Chat / AeroAdmin-X.
-`surfaces_demo` **not started** in this slice.
+`window_catalog` **not started** in this slice.
 
 ## Tests (local incremental)
 
@@ -2356,7 +2356,7 @@ Not accepted-by-user.
 
 Status: implemented, verified locally. Not accepted.
 
-# dynamic_objects_demo final cleanup (before surfaces_demo)
+# dynamic_objects_demo final cleanup (before window_catalog)
 
 ## Starting / final
 
@@ -2384,11 +2384,11 @@ Status: implemented, verified locally. Not accepted.
 PASS: dynamic add/proxy/Ready/WndProc-source, Win32 smoke, two-main,
 presenter load order, publication_channel, main_window lifecycle/window/smoke.
 
-Not started: surfaces_demo.
+Not started: window_catalog.
 
 Not accepted-by-user.
 
-# UI ownership + ModelObjectProxy (before surfaces_demo)
+# UI ownership + ModelObjectProxy (before window_catalog)
 
 ## Starting / final
 
@@ -2444,11 +2444,11 @@ Win32 click ? Win32*Presenter ? AddItemPresenter::Click / ItemPresenter::RemoveC
 MCP `apptraverse_build_start` hit a transient `unknown target` against this tree;
 proof is the local MSVC+ninja incremental script.
 
-Not started: surfaces_demo.
+Not started: window_catalog.
 
 Not accepted-by-user.
 
-# Foundation hardening for surfaces_demo
+# Foundation hardening for window_catalog
 
 ## Starting point
 
@@ -2459,7 +2459,7 @@ Branch `prep/deps-objects-assert-mcp-v1` at `6a63fd6` (Remove Item Progress SHA)
 Storage Save/Load / DirectoryDomainStorage / filesystem failures are assumed
 impossible in this architecture. No error propagation work.
 
-SharedNode, transport, presence, chat, surfaces_demo implementation, structural
+SharedNode, transport, presence, chat, window_catalog implementation, structural
 delta/bandwidth optimization ? not started. TODO recorded for structural payload
 size only.
 
@@ -2513,7 +2513,7 @@ Commits: `7fab099` (presenter lifecycle / structural keepalive), `2ce939a`
 (Win32 multi-window prep), `52c386f` (shutdown drain / distill / CMake / plan).
 Pushed to `origin/prep/deps-objects-assert-mcp-v1`.
 
-Not implemented: surfaces_demo.
+Not implemented: window_catalog.
 
 Not accepted-by-user.
 
@@ -3590,15 +3590,15 @@ Exes:
 
 - `build/win64-ninja-msvc-debug/tests/apptraverse_surfaces_model_test.exe`
 - `build/win64-ninja-msvc-debug/tests/apptraverse_surfaces_win32_smoke_test.exe`
-- `build/win64-ninja-msvc-debug/examples/surfaces_demo/windows/win32_surfaces_demo.exe`
-- `build/win64-ninja-msvc-debug/examples/surfaces_demo/windows/win32_surfaces_demo_load_only.exe`
+- `build/win64-ninja-msvc-debug/examples/window_catalog/windows/win32_window_catalog.exe`
+- `build/win64-ninja-msvc-debug/examples/window_catalog/windows/win32_window_catalog_load_only.exe`
 
 Desktop does not use `mobile_current` for focus/activation.
 
 ## Android (verified)
 
 - Script: `tools/android/run_surfaces_smoke.ps1` ? PASS on `emulator-5554` (AVD API 34).
-- APK: `examples/surfaces_demo/android/app/build/outputs/apk/debug/app-debug.apk`
+- APK: `examples/window_catalog/android/app/build/outputs/apk/debug/app-debug.apk`
 - Incremental Gradle (no clean / no `.cxx` wipe).
 - `-fno-rtti` on Android `jni_bridge.cpp` compile line.
 - Restart restores selected Surface; remove-non-current keeps identity current.
@@ -3606,8 +3606,8 @@ Desktop does not use `mobile_current` for focus/activation.
 ## WASM (verified)
 
 - Tree: `build/wasm-ninja-debug` (`-fno-rtti`, pthreads, COOP/COEP).
-- Artifacts: `build/wasm-ninja-debug/examples/surfaces_demo/web/web_surfaces_demo.{html,js,wasm}`
-- Serve: `tools/serve_wasm.py` ? `http://127.0.0.1:8765/web_surfaces_demo.html`
+- Artifacts: `build/wasm-ninja-debug/examples/window_catalog/web/web_window_catalog.{html,js,wasm}`
+- Serve: `tools/serve_wasm.py` ? `http://127.0.0.1:8765/web_window_catalog.html`
 - Smoke: `tools/wasm_surfaces_browser_smoke.py` ? PASS
   - `crossOriginIsolated=true`, SharedArrayBuffer available
   - Add ?2, select Surface 2, real browser reload ? Surface 2 current
@@ -3799,7 +3799,7 @@ No promoted Host/Client package while live convergence FAILS.
 
 ---
 
-# surfaces_demo presenter + locale completion (2026-10-18)
+# window_catalog presenter + locale completion (2026-10-18)
 
 Branch: `cursor/surfaces-presenter-decomposition`.
 
@@ -3814,11 +3814,11 @@ Branch: `cursor/surfaces-presenter-decomposition`.
 
 ## Verified (Windows)
 - Release: `apptraverse_surfaces_model_test`, `apptraverse_surfaces_win32_smoke_test`,
-  `apptraverse_directory_domain_storage_test`; `win32_surfaces_demo` +
-  `win32_surfaces_demo_load_only` link.
+  `apptraverse_directory_domain_storage_test`; `win32_window_catalog` +
+  `win32_window_catalog_load_only` link.
 - Debug: `apptraverse_surfaces_model_test`, `apptraverse_surfaces_win32_smoke_test` (incl.
   `TestStructuralApplyOnModelChangedOnce`, load_only RU restore).
-- Screenshots: `docs/surfaces_demo_acceptance/*.bmp`.
+- Screenshots: `docs/window_catalog_acceptance/*.bmp`.
 
 Status: implemented/verified in isolated worktree; pushed on branch.
 
@@ -3839,7 +3839,7 @@ Branch: `cursor/surfaces-presenter-decomposition` (worktree `apptraverse-wt-pres
 
 ## Verified
 - Debug: `apptraverse_surfaces_model_test` (incl. coalesce + live-field journal timing), `apptraverse_surfaces_win32_smoke_test`.
-- Release: same tests PASS; `win32_surfaces_demo.exe` SHA256 `61A6BCFD8902DD8AB9EED4E583C0CB84A3DD8D27804A20D6288B91052CAC34C3` (`build-presenter-decomp-msvc-rel/examples/surfaces_demo/windows/`).
+- Release: same tests PASS; `win32_window_catalog.exe` SHA256 `61A6BCFD8902DD8AB9EED4E583C0CB84A3DD8D27804A20D6288B91052CAC34C3` (`build-presenter-decomp-msvc-rel/examples/window_catalog/windows/`).
 - Manual 60 s edge drag + row/column toggles: not re-run in this agent pass (rely on coalesce tests + existing smoke resize paths).
 
 Status: `e57be6d` pushed to `origin/cursor/surfaces-presenter-decomposition`.
@@ -3867,7 +3867,7 @@ Branch: `cursor/surfaces-presenter-decomposition` (worktree `apptraverse-wt-pres
 ## Verified (Windows Release, `build-presenter-decomp-msvc-rel`)
 - `apptraverse_surfaces_model_test` OK (coalesce, stream+Add, two-session routing, journal timing).
 - `apptraverse_surfaces_win32_smoke_test` OK incl. long acceptance **`outer_rect_changes=0`**.
-- Demo EXE SHA256 **`E4241CD75E010F03345AE3713E92063428864D20D924CDC31BD08200BEC64242`** (`win32_surfaces_demo.exe`).
+- Demo EXE SHA256 **`E4241CD75E010F03345AE3713E92063428864D20D924CDC31BD08200BEC64242`** (`win32_window_catalog.exe`).
 
 ---
 
@@ -3985,7 +3985,7 @@ Demo EXE SHA256 (close pass, pre-trace-summary): **`AC4749D3DE3357B7146118B2E543
 - Summaries now include **`close_to_ui_state_queued`**, **`ui_state_queued_to_model_drained`**, **`model_drained_to_clear_notifiers`**, **`clear_notifiers_to_save_start`**, **`application_save`**, graph teardown, **`model_destroyed_to_done_event`**, **`done_event_to_unload_presenters`** (includes UI wait, not pure destructors), **`unload_presenters_to_windows_gone`**, **`windows_gone_to_process_exit`**.
 
 ### Artifacts
-- Release **`win32_surfaces_demo.exe`** SHA256: **`708042E0F3CC81C728741F032E24D0F363849CFC9384D371A7CFE2E8E5679330`**
+- Release **`win32_window_catalog.exe`** SHA256: **`708042E0F3CC81C728741F032E24D0F363849CFC9384D371A7CFE2E8E5679330`**
 - Source HEAD (this pass): branch **`cursor/surfaces-presenter-decomposition`** (commit pending push after **`12acee4`**).
 
 ### Still open (manual profile)
@@ -4020,7 +4020,7 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **`APPTRAVERSE_BUILD_EXAMPLES=OFF`**: configure + build consumer **PASS**; example-dependent CTest targets gated on **`APPTRAVERSE_BUILD_EXAMPLES`**.
 
 ### Application contract (not universal API)
-- Documented in **`docs/surfaces_library_application_contract.md`**: host **`AttachPlatformSurfacePresenters`**, fixed **`surfaces_demo::ObjId::Application`** in **`Surface::AddSurface`**, Win32 class registration + non-null **`ModelObjectProxy`** for **`WM_SIZE`** during init.
+- Documented in **`docs/surfaces_library_application_contract.md`**: host **`AttachPlatformSurfacePresenters`**, fixed **`window_catalog::ObjId::Application`** in **`Surface::AddSurface`**, Win32 class registration + non-null **`ModelObjectProxy`** for **`WM_SIZE`** during init.
 
 ### Verified (Release `build-presenter-decomp-msvc-rel`)
 - **`apptraverse_surfaces_win32_library_consumer_test`**: **PASS** (examples OFF config).
@@ -4028,7 +4028,7 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **`apptraverse_surfaces_model_test`**: one run **FAIL** timing `AddSurface with long journal` (**4605 ms** > 4000 ms threshold); unrelated to library CMake (retry if needed).
 
 ### Artifacts
-- **`win32_surfaces_demo.exe`** SHA256: **`FBA59EC393D12E32C0E23A2B3EE77D613FA260FBFC7FF088CA014600E2C427A2`** (unchanged vs Z-order pass).
+- **`win32_window_catalog.exe`** SHA256: **`FBA59EC393D12E32C0E23A2B3EE77D613FA260FBFC7FF088CA014600E2C427A2`** (unchanged vs Z-order pass).
 - **`apptraverse_surfaces_win32_library_consumer_test.exe`** SHA256: **`1593CFAA0D6F92F9F855CDE13C6D7EBC3BB5A268CFB56F69D656B5EA5C1E6806`**
 
 ## Serialization v0 work: build prerequisites (2026-10-21)
@@ -4195,7 +4195,7 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **`apptraverse_win_ui_native_push_button_test`**: desktop host + test **`TestBorderlessHostPresenter`** at screen origin (layout 0,0 / no redundant **`SetWindowPos`**).
 - Release verify (2026-10-21): push button + fatal, materialization, edit headless, surfaces smoke **PASS**. Surface Add **not** switched.
 
-### Surface Add → library WinPushButton (surfaces_demo Windows)
+### Surface Add → library WinPushButton (window_catalog Windows)
 - **Add chain**: `BM_CLICK` / `DispatchChildCommand` → `WinPushButtonPresenter::NotifyClickedFromUi` → `UiPushButton::NotifyClicked` → `SurfacesDemoAddButton::HandlePushButtonClicked` → `Surface::AddSurface` (model thread). Close/Language unchanged (`Win32SurfaceButtonPresenter` / `Win32SurfaceLanguageButtonPresenter`).
 - Demo types (v0): `SurfacesDemoAddButton`, `SurfacesDemoSurfaceWindowHostPresenter` (`NativeChildParentHandle` → existing Surface `hwnd`); `WinPushButtonPresenter` layout **12/12/88/28** via shared `kSurfaceAddButtonLayout*` constants.
 - **`WireSurfaceChromeLocalization`**: class-id dispatch for legacy `SurfaceButtonPresenter` vs `UiPushButtonPresenter` Add owners.
@@ -4214,7 +4214,7 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Tests**: smoke **`TestDynamicAddLibraryPushButtonNotifierAndEnabled`** (notifier on model, disable/enable HWND via publication, one Add after re-enable); model **`TestDynamicAddLibraryPushButtonMaterializedNotifier`** (pending dirty on enabled commit). Pre-fix smoke fails **`notifier_future.get()`** at **`surfaces_win32_smoke_test.cpp`**.
 - Release verify (2026-10-21, **`build-surfaces-library-controls-msvc-rel`**): listed Release tests **PASS** (model test may need retry on 10k journal timing gate only).
 
-### Surface Language → library WinPushButton (surfaces_demo Windows)
+### Surface Language → library WinPushButton (window_catalog Windows)
 - **Starting SHA**: **`fa9ad254d72cf7c74b5b0d2f2b1bc6b145bcae9a`**
 - **Model**: **`SurfacesDemoLanguageButton`** (`UiPushButton`, v0 **`base_` + `locale`** only). **`HandlePushButtonClicked`** reads **`locale->language_index()`** on model thread and calls **`SubmitLanguageIndexFromUi`** (no new Event). **`button.label`** → **`application.language_switch_label`**; caption locale via shared **`SurfacesDemoSurfaceWindowHostPresenter::locale`**.
 - **UI chain**: **`BM_CLICK`** → **`WinPushButtonPresenter::NotifyClickedFromUi`** → model proxy → **`UiPushButton::NotifyClicked`** → **`SurfacesDemoLanguageButton::HandlePushButtonClicked`** → **`UiLocaleSettings::SubmitLanguageIndexFromUi`** → publication → mirror/GUI.
@@ -4239,13 +4239,13 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Full model suite**: last observed **FAIL** on unstable **`TestCollectLiveReachableStableWithLongJournal`** 10k gate (`surfaces_model_test.cpp:1021`); **not fixed in this step** (thresholds unchanged; full suite not re-run for flaky PASS).
 - Log: **`verification-functional-model-suite-20251021.txt`** (not committed).
 
-### Surface Close → library WinPushButton (surfaces_demo Windows)
+### Surface Close → library WinPushButton (window_catalog Windows)
 - **Starting SHA**: **`91910cac71fa715ca877a74aba648cbc280f9600`**
 - **Model**: demo-only **`SurfacesDemoCloseButton`** (`UiPushButton`, v0 **`base_` + `surface`**). **`HandlePushButtonClicked`** on model thread: **`Surface::Remove()`** only when the bound surface is still in the list and **`surfaces.size() > 1`**; last surface never removed (no **`RemoveSurfaceEvent`** on single-window Close).
 - **UI chain (multi-window)**: **`WM_COMMAND` / `BN_CLICKED`** → **`WinPushButtonPresenter::NotifyClickedFromUi`** → model proxy → **`SurfacesDemoCloseButton::HandlePushButtonClicked`** → **`Surface::Remove()`** → publication → GUI update. Add/Language/Close share **`WinPushButtonPresenter::kClassId`** and **`SurfacesDemoSurfaceWindowHostPresenter`**; distinct button **`ObjId`** / demo model types.
 - **Last-window Close**: per-**`Win32SurfaceWindowPresenter`** runtime **`child_command_handler`** (not serialized). **`SurfacesDemoSurfaceWindowHostPresenter::OnLoad`** / **`OnUnload`** attach/detach **`TryHandleDemoLibraryCloseChildCommand`** after parent **`hwnd`** exists; **`SurfaceHostWndProc`** invokes only that window’s handler before **`DispatchChildCommand`**. Shared **`TryParseSurfaceChildBnClicked`** validates **`BN_CLICKED`**, parent, control id, and presenter **`GWLP_USERDATA`** once; demo handler adds Close chrome/model/host/surface/enabled checks and **`WM_APPTRAVERSE_STOP`** when mirror has one surface (no **`RemoveSurfaceEvent`**).
 - **Layout**: host **`ResolveChildLayout`** for Close + Language via **`ComputeSurfaceChromeButtonLayout`**; Add fixed geometry pass-through.
-- **Build/link**: **`AttachSurfacesDemoWin32SurfacePresenters`** in **`surfaces_demo_win32_attach.cpp`**; **`surface_graph_win.cpp`** only exports **`AttachPlatformSurfacePresenters`** for demo binaries. Model tests keep test **`AttachPlatformSurfacePresenters`** + **`AddWin32LibrarySurface`** for library chrome graphs.
+- **Build/link**: **`AttachSurfacesDemoWin32SurfacePresenters`** in **`window_catalog_win32_attach.cpp`**; **`surface_graph_win.cpp`** only exports **`AttachPlatformSurfacePresenters`** for demo binaries. Model tests keep test **`AttachPlatformSurfacePresenters`** + **`AddWin32LibrarySurface`** for library chrome graphs.
 - **Release verify** (2026-10-21, **`build-presenter-decomp-msvc-rel`**): **`apptraverse_surfaces_model_functional_test`**, **`apptraverse_surfaces_win32_smoke_test`**, native push button + fatal, UI materialization, edit headless, isolated probes A/B/C **PASS**. Log: **`verification-close-library-20251021.txt`** (not committed).
 
 ### Close last-window routing: per-presenter handler (not global hook)
@@ -4255,14 +4255,14 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Smoke**: **`TestPerWindowCloseChildCommandHandlerRouting`** (mismatched **`WM_COMMAND`** ignored; multi-surface Close remove + last-surface exit). Existing **`TestCloseButtonRemovesOne`** / load_only ObjId unchanged.
 - **Release verify** (2026-10-21, **`build-presenter-decomp-msvc-rel`**): functional model, Win32 smoke, library consumer, native push button + fatal, UI materialization, edit headless **PASS**.
 
-### WindowCatalog sequential replay — complete distilled base (surfaces_demo)
+### WindowCatalog sequential replay — complete distilled base (window_catalog)
 - **Starting SHA**: **`23500979992f6d9e93df7431b8947ecdb0ffaebf`** (stash workaround); root cause fix replaces it.
 - **Established cause**: **`BuildWindowCatalogGraph`** called **`InitializeRuntimeNode(*catalog)`** before chrome wiring and **`InitializeRuntimeNode(*list)`** before **`list->catalog = catalog`**. **`CaptureBaseState`** on the catalog therefore persisted a base layer **without** valid **`list` / main_window / locale / buttons / presenters`** ObjIds ( **`id().is_valid()` / `is_valid()`** on those **`ObjPtr`** fields). After list replay, catalog **`TryReplayFromBase`** **`DomainGraph::Load`** returned Ok but **`catalog.list`** failed replay checks: **`list.is_valid()==false`** ( **`ObjPtr`** identity/cached handle), while **`is_loaded()`** is the **`cached`**-presence predicate — these are related but not interchangeable wording. Preflight **`CanApplyTo`** on the journal did not prove ordered replay. Loader-only cycle failure was **not reproduced** as the primary defect.
 - **Fix**: Bootstrap order in **`window_catalog_graph.cpp`**: wire **`list↔catalog`**, then **`InitializeRuntimeNode(*list)`**; assign all catalog chrome; **`InitializeRuntimeNode(*catalog)`** last. Removed **`WindowCatalog`** list stash / manual **`Declare+Load`** (unnecessary after complete base). **`CheckDistilledCatalogBaseLinks`** asserts **`catalog.base`** forward refs (fixed ObjIds where assigned); live **`list->catalog`**; list base **`catalog`** back-ref not asserted on the detached base object (live link verified).
 - **Regression**: **`TestWindowCatalogOpenCloseEventJournalCheckpoint`** — base completeness, list→catalog replay, chrome/selection/flags/journal invariants; **replay → `ShutdownSaveCatalog` on same Domain/storage → destroy Domain → cold `LoadApplication`+checkpoint** (lazy window still unloaded; **`Find(window_id)`** absent); explicit **`OpenHolderWindow`** on cold graph for lazy window + geometry; repeat-open does not duplicate open-events; invalid-base negative unchanged.
 - **Release verify** (2026-10-23, **`build-presenter-decomp-msvc-rel`**): **`apptraverse_window_catalog_model_test`**, **`apptraverse_window_catalog_win32_acceptance_test`** **PASS** (post cold-load completion **`d820c85`** follow-up).
 
-### WindowCatalog chrome button distilled base (surfaces_demo)
+### WindowCatalog chrome button distilled base (window_catalog)
 - **Starting SHA**: **`d820c85dbae0732f35634ee07a84a8fda1f85ef6`**
 - **FAIL before fix**: **`InitializeRuntimeNode(*Catalog*Button)`** ran before **`catalog`/`label`** wiring and before **`RefreshChromeButtonEnabledState`**. Each button base lacked label/catalog ObjIds; Open/Delete base had **`enabled_==true`**. **`TryReplayFromBase`** on a button restored wrong enabled (Open/Delete enabled without selection) and broke label identity checks in **`TestWindowCatalogChromeButtonDistilledBaseReplay`**.
 - **Fix**: In **`BuildWindowCatalogGraph`**, wire four demo buttons, assign into **`catalog->buttons`**, presenters, then **`RefreshChromeButtonEnabledState`**, then one **`InitializeRuntimeNode`** per button, then catalog last (unchanged rule).
@@ -4342,7 +4342,7 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
   `apptraverse_win_ui_command_routing_test`.
 - **MinSizeRel verify** (2026-10-24, **`build-b18-msvc-minsizerel`**): same **7** tests **PASS**.
 - **`apptraverse_application_contract_headless_test`**: links only `apptraverse`
-  (dumpbin: no `user32`/`gdi32`; no `surfaces_demo` / WindowCatalog link).
+  (dumpbin: no `user32`/`gdi32`; no `window_catalog` / WindowCatalog link).
 
 ---
 
@@ -4456,7 +4456,7 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Removed**: `WindowCatalogWinApp` (`window_catalog_win_app.h/.cpp`); `WindowCatalogPublicationKind`; session `Post`/`RequestStop` forwards.
 - **Entry**: `window_catalog_main.cpp` wires `WindowCatalogModelSession` + `WinApplicationHostCallbacks` directly (same behavior: focus sidecar, main vs child close, loading options).
 - **Lifecycle**: `WindowCatalogModelSession::Run(ApplicationPublishedCallback)` passes library callback through to `ApplicationModelRuntime::Run` without enum adapter.
-- **CMake dependency graph (logical)**: `apptraverse` ← `apptraverse_ui_windows` ← `{minimal_app_common → win32_minimal_app*}`, `{surfaces_demo_window_catalog → win32_window_catalog_demo*}`; no cross-link between example apps; core libraries include no `examples/` headers.
+- **CMake dependency graph (logical)**: `apptraverse` ← `apptraverse_ui_windows` ← `{minimal_app_common → win32_minimal_app*}`, `{window_catalog_window_catalog → win32_window_catalog_demo*}`; no cross-link between example apps; core libraries include no `examples/` headers.
 - **Application-specific code remaining in WindowCatalog**: model graph/events, localization, `WindowHolder`/`CatalogWindow`, Add/Open/Delete, lazy window state, `pending_focus_for_ui` sidecar, persistence in `window_catalog_lifecycle.cpp`.
 - **Audit**: no `WINDOW_CATALOG` / `minimal_application` in `include/` or `src/`; host/runtime/ui session unchanged for catalog.
 - **Release verify** (`build-presenter-decomp-msvc-rel`): **13/13** CTests **PASS**. Minimal dev **379392** B; load-only **370176** B; catalog dev **445952** B; catalog load-only **434176** B.
@@ -4548,7 +4548,7 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **Baseline**: **`36b0a5c08780a7a0136587a7bf3858b86b334982`** (`integration/application-versioning`).
 - **Scope**: inventory and documentation only — **no C++, CMake, or test changes**; **builds and CTest not run** for this step.
 - **Ledger**: [`docs/integration/I0_cleanup_ledger.md`](docs/integration/I0_cleanup_ledger.md).
-- **Reviewed**: root and app CMake targets; `tests/CMakeLists.txt` (17 active CTests); production path `ApplicationModelRuntime` / `ApplicationUiSession` / `WinApplicationHost`; legacy `ModelRuntime` / `UiMirror` / `CopyModelGraphToUiDomain`; composition/lifecycle helpers; registration entry points; persistent vs publication vs embedded serialization; Æther patches in `cmake/aether_version.cmake`; `examples/minimal_app` and `examples/surfaces_demo` (window catalog).
+- **Reviewed**: root and app CMake targets; `tests/CMakeLists.txt` (17 active CTests); production path `ApplicationModelRuntime` / `ApplicationUiSession` / `WinApplicationHost`; legacy `ModelRuntime` / `UiMirror` / `CopyModelGraphToUiDomain`; composition/lifecycle helpers; registration entry points; persistent vs publication vs embedded serialization; Æther patches in `cmake/aether_version.cmake`; `examples/minimal_app` and `examples/window_catalog` (window catalog).
 - **Duplicate / overlap categories found**:
   - Legacy model/UI runtime vs application runtime + publication pipeline (legacy compiled, not used by minimal/catalog).
   - Runtime distill bootstrap vs build-time embedded export (MinimalApplication only — **9D**, not cleanup).
@@ -4601,7 +4601,7 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 ## I0.3B1 — WindowCatalog required main window cold load (2026-10-25)
 
 - **Baseline**: **`d3e6e3f7e82e9c1ddab5fc9f024fc3bbcf3db079`** (`integration/application-versioning`).
-- **Production**: `examples/surfaces_demo/common/window_catalog_lifecycle.cpp` — `ui::LoadPresentedWindow(catalog->main_window)` after checkpoint, before `MaterializeCatalogStrings` / holder materialization.
+- **Production**: `examples/window_catalog/common/window_catalog_lifecycle.cpp` — `ui::LoadPresentedWindow(catalog->main_window)` after checkpoint, before `MaterializeCatalogStrings` / holder materialization.
 - **Tests**: `tests/window_catalog_win32_acceptance_test.cpp` — four load-only negative scenarios (missing root, empty main window ref, empty presenter ref, removed presenter object) using profile copy from positive acceptance; checkpoint sidecar stripped for cases 2–4.
 - **Unchanged**: `LoadPresentedWindow` implementation, `RestoreLoadedCatalogWindows`, graph builder, schemas, CMake, runtime bootstrap.
 - **Verify**: incremental Release + MinSizeRel; **Release 17/17 CTest PASS**; **MinSizeRel 17/17 CTest PASS**.
@@ -4611,7 +4611,7 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 ## I0.3B2a — WindowCatalog required list / locale cold load (2026-10-25)
 
 - **Baseline**: **`7d3b02d7366fe1f7e63668af1b9c7f4c5ed48661`** (`integration/application-versioning`).
-- **Production**: `examples/surfaces_demo/common/window_catalog_lifecycle.cpp` — after checkpoint + `LoadPresentedWindow(main_window)`, unconditional `catalog->list.Load()` / `catalog->locale.Load()` with `WriteFatalStderr` + `abort` when empty (before `language_index()` / list row iteration).
+- **Production**: `examples/window_catalog/common/window_catalog_lifecycle.cpp` — after checkpoint + `LoadPresentedWindow(main_window)`, unconditional `catalog->list.Load()` / `catalog->locale.Load()` with `WriteFatalStderr` + `abort` when empty (before `language_index()` / list row iteration).
 - **Tests**: `tests/window_catalog_win32_acceptance_test.cpp` — four load-only negatives: empty `list` ref, `Remove(CatalogList)`, empty `locale` ref, `Remove` of persisted locale ObjId (resolved via reload; not fixed demo enum id 14); profile re-load / storage enumerate asserts before child spawn; list-object case may fail earlier at `LoadApplication failed`.
 - **Unchanged**: main-window boundary, chrome, lazy holders, `RestoreLoadedCatalogWindows`, constructors, Load/Save, schema v0, CMake, runtime bootstrap.
 - **Verify**: incremental `build-application-versioning-msvc-rel` + `build-application-versioning-msvc-minsizerel`; **Release 17/17 CTest PASS**; **MinSizeRel 17/17 CTest PASS**.
@@ -4621,7 +4621,7 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 ## I0.3B2b — WindowCatalog required chrome presenters cold load (2026-10-25)
 
 - **Baseline**: **`95db3606d4b2c04a40d0c1f85abd452d99927516`** (`integration/application-versioning`).
-- **Production**: `examples/surfaces_demo/common/window_catalog_lifecycle.cpp` — after list/locale load, `Load()` on five `WindowCatalog::presenters` refs; one fatal `WindowCatalog required chrome presenter missing` before `MaterializeCatalogStrings` / `runtime.Run`.
+- **Production**: `examples/window_catalog/common/window_catalog_lifecycle.cpp` — after list/locale load, `Load()` on five `WindowCatalog::presenters` refs; one fatal `WindowCatalog required chrome presenter missing` before `MaterializeCatalogStrings` / `runtime.Run`.
 - **Tests**: `tests/window_catalog_win32_acceptance_test.cpp` — six load-only negatives: empty ref for `list_presenter`, `add_button_presenter`, `open_button_presenter`, `delete_button_presenter`, `language_button_presenter`; `Remove` of persisted `add_button_presenter` ObjId (not hardcoded demo enum ids).
 - **Unchanged**: `WindowCatalog` Load/Save/fields, `BuildWindowCatalogGraph`, main window + lazy holders, buttons/strings, schema v0, CMake, bootstrap.
 - **Verify**: incremental Release + MinSizeRel; **Release 17/17 CTest PASS**; **MinSizeRel 17/17 CTest PASS**; positive acceptance (Add/Open/Delete, EN/RU, geometry, persistence) preserved.

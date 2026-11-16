@@ -169,7 +169,7 @@ Set `TEMP` and `TMP` to writable, separate test directories, then run:
 ```powershell
 ctest --test-dir build/win64-ninja-msvc-debug -C Debug --output-on-failure
 ctest --test-dir build/win64-ninja-msvc-minsizerel -C MinSizeRel -L binary_contract --output-on-failure
-python scripts/inspect_windows_binary.py build/win64-ninja-msvc-minsizerel/examples/surfaces_demo/windows/win32_window_catalog_demo.exe --runtime-only --json catalog-size.json
+python scripts/inspect_windows_binary.py build/win64-ninja-msvc-minsizerel/examples/window_catalog/windows/win32_window_catalog_demo.exe --runtime-only --json catalog-size.json
 ```
 
 The script also works without `--runtime-only` for baseline inspection. Maps

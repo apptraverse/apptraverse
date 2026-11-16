@@ -29,7 +29,7 @@ fresh distillation runs produce identical IDs or bytes.
    regular Debug application, invokes its preparation mode, then embeds the
    generated supply into the load-only consumer.
 2. Configure/build MinSizeRel. By default it copies the header prepared in
-   `build/win64-ninja-msvc-debug/examples/surfaces_demo/generated_distilled`.
+   `build/win64-ninja-msvc-debug/examples/window_catalog/generated_distilled`.
    `APPTRAVERSE_WINDOW_CATALOG_DEBUG_SUPPLY_HEADER` selects a different prepared
    header explicitly. It must already exist; MinSizeRel never distills a graph.
 3. After changing the initial graph, rebuild the Debug supply before rebuilding

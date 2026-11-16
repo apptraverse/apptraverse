@@ -10,7 +10,7 @@ on:
       - 'cmake/**'
       - 'include/**'
       - 'src/**'
-      - 'examples/surfaces_demo/**'
+      - 'examples/window_catalog/**'
       - 'tests/**'
 
 permissions:

@@ -27,10 +27,10 @@
 #include "apptraverse/ui/ui_push_button.h"
 #include "apptraverse/ui/ui_string.h"
 
-#include "surfaces_demo_language_button.h"
-#include "surfaces_demo_layout_push_button_presenter.h"
-#include "surfaces_demo_surface_window_host.h"
-#include "surfaces_demo_win32_registration.h"
+#include "window_catalog_language_button.h"
+#include "window_catalog_layout_push_button_presenter.h"
+#include "window_catalog_surface_window_host.h"
+#include "window_catalog_win32_registration.h"
 #include "surfaces_distill.h"
 
 namespace apptraverse::test {
@@ -197,8 +197,8 @@ void ProbeA_WinPushButtonStaysWin() {
 Application::ptr BuildMinimalLanguageGraph(ae::Domain& domain,
                                            char const* switch_slot0,
                                            char const* switch_slot1) {
-  using surfaces_demo::ObjId;
-  using surfaces_demo::ToObjId;
+  using window_catalog::ObjId;
+  using window_catalog::ToObjId;
   auto application = Application::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::Application)));
   auto surfaces = Surfaces::ptr::Create(ae::CreateWith{domain});
@@ -308,7 +308,7 @@ void ProbeB_MinimalLanguageGraph() {
 
   DirectoryDomainStorage load_storage{dir};
   ae::Domain load_domain{load_storage};
-  ae::ObjId app_id{surfaces_demo::ToObjId(surfaces_demo::ObjId::Application)};
+  ae::ObjId app_id{window_catalog::ToObjId(window_catalog::ObjId::Application)};
   auto loaded = TryLoadApplicationNoAbort(load_domain, app_id);
   if (!loaded) {
     DiagnoseStoredGraphLoads(load_domain, load_storage, dir, app_id);
@@ -338,7 +338,7 @@ void ProbeC_RealBuildSurfacesGraph() {
   EnsureRegistration();
   AssertDemoRegistryHasNoLayoutHeir();
 
-  auto const demo_dir = TempDir("apptraverse_probe_c_surfaces_demo_graph");
+  auto const demo_dir = TempDir("apptraverse_probe_c_window_catalog_graph");
   DirectoryDomainStorage demo_storage{demo_dir};
   ae::Domain demo_domain{demo_storage};
   auto demo_app = BuildSurfacesGraph(demo_domain);
@@ -362,7 +362,7 @@ void ProbeC_RealBuildSurfacesGraph() {
 
   DirectoryDomainStorage demo_load_storage{demo_dir};
   ae::Domain demo_load_domain{demo_load_storage};
-  ae::ObjId app_id{surfaces_demo::ToObjId(surfaces_demo::ObjId::Application)};
+  ae::ObjId app_id{window_catalog::ToObjId(window_catalog::ObjId::Application)};
   auto demo_loaded = TryLoadApplicationNoAbort(demo_load_domain, app_id);
   if (!demo_loaded) {
     DiagnoseStoredGraphLoads(demo_load_domain, demo_load_storage, demo_dir,

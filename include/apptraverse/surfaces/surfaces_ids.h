@@ -5,7 +5,7 @@
 
 #include "aether-objects/obj/obj_id.h"
 
-namespace apptraverse::surfaces_demo {
+namespace apptraverse::window_catalog {
 
 enum class ObjId : ae::ObjId::Type {
   Application = 1,
@@ -18,6 +18,6 @@ inline constexpr ae::ObjId::Type ToObjId(ObjId id) {
   return static_cast<ae::ObjId::Type>(id);
 }
 
-}  // namespace apptraverse::surfaces_demo
+}  // namespace apptraverse::window_catalog
 
 #endif  // APPTRAVERSE_SURFACES_IDS_H_

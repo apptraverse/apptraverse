@@ -245,12 +245,12 @@ retained here for auditability. Tests appear in a separate table.
 | `RootSharedNode` | `SharedNode` | 2 | 0,1,2 | 2 | `examples/shared_node_demo/shared_node_demo_model.h` |
 | `LocalOnlyPayload` | `ae::Obj` | 0 | reflection | reflection | `examples/shared_node_demo/shared_node_demo_model.h` |
 | `LocalPtrHolder` | `ae::Obj` | 0 | reflection | reflection | `examples/shared_node_demo/shared_node_demo_model.h` |
-| `AndroidSurfacePresenter` | `MobileSurfacePresenter` | 0 | reflection | reflection | `examples/surfaces_demo/android/native/android_surface_presenter.h` |
-| `IOSSurfacePresenter` | `MobileSurfacePresenter` | 0 | 0 | 0 | `examples/surfaces_demo/ios/ios_presenters.h` |
-| `LinuxSurfacePresenter` | `DesktopSurfacePresenter` | 0 | reflection | reflection | `examples/surfaces_demo/linux/linux_presenters.h` |
-| `MacSurfacePresenter` | `DesktopSurfacePresenter` | 0 | reflection | reflection | `examples/surfaces_demo/macos/mac_presenters.h` |
-| `MobileSurfacePresenter` | `SurfacePresenter` | 0 | 0 | 0 | `examples/surfaces_demo/mobile/mobile_surface_presenter.h` |
-| `WebSurfacePresenter` | `SurfacePresenter` | 0 | 0 | 0 | `examples/surfaces_demo/web/web_surface_presenter.h` |
+| `AndroidSurfacePresenter` | `MobileSurfacePresenter` | 0 | reflection | reflection | `examples/window_catalog/android/native/android_surface_presenter.h` |
+| `IOSSurfacePresenter` | `MobileSurfacePresenter` | 0 | 0 | 0 | `examples/window_catalog/ios/ios_presenters.h` |
+| `LinuxSurfacePresenter` | `DesktopSurfacePresenter` | 0 | reflection | reflection | `examples/window_catalog/linux/linux_presenters.h` |
+| `MacSurfacePresenter` | `DesktopSurfacePresenter` | 0 | reflection | reflection | `examples/window_catalog/macos/mac_presenters.h` |
+| `MobileSurfacePresenter` | `SurfacePresenter` | 0 | 0 | 0 | `examples/window_catalog/mobile/mobile_surface_presenter.h` |
+| `WebSurfacePresenter` | `SurfacePresenter` | 0 | 0 | 0 | `examples/window_catalog/web/web_surface_presenter.h` |
 
 ### Tests
 

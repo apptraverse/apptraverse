@@ -43,6 +43,6 @@ void write_unsigned_line(unsigned value) {
 }  // namespace
 
 int main() {
-  write_unsigned_line(apptraverse::surfaces_demo::kEmbeddedRelease);
+  write_unsigned_line(apptraverse::window_catalog::kEmbeddedRelease);
   return 0;
 }

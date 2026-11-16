@@ -276,42 +276,42 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
 
   if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES AND WIN32)
     add_dependencies(apptraverse_application_evolution_fixtures
-      win32_surfaces_demo win32_surfaces_demo_v1)
+      win32_window_catalog win32_window_catalog_v1)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/surfaces demo version states")
     add_test(
-      NAME apptraverse_surfaces_demo_version_matrix
+      NAME apptraverse_window_catalog_version_matrix
       COMMAND "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_LIST_DIR}/surfaces_demo_version_matrix.py"
-        --a "$<TARGET_FILE:win32_surfaces_demo>"
-        --b "$<TARGET_FILE:win32_surfaces_demo_v1>"
+        "${CMAKE_CURRENT_LIST_DIR}/window_catalog_version_matrix.py"
+        --a "$<TARGET_FILE:win32_window_catalog>"
+        --b "$<TARGET_FILE:win32_window_catalog_v1>"
         --work-root "${CMAKE_CURRENT_BINARY_DIR}/surfaces demo version states"
     )
-    set_tests_properties(apptraverse_surfaces_demo_version_matrix PROPERTIES
+    set_tests_properties(apptraverse_window_catalog_version_matrix PROPERTIES
       TIMEOUT 120
       LABELS "serialization;evolution;surfaces"
     )
 
     add_test(
-      NAME apptraverse_surfaces_demo_lifecycle_matrix
+      NAME apptraverse_window_catalog_lifecycle_matrix
       COMMAND "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_LIST_DIR}/surfaces_demo_lifecycle_matrix.py"
-        --a "$<TARGET_FILE:win32_surfaces_demo>"
-        --b "$<TARGET_FILE:win32_surfaces_demo_v1>"
+        "${CMAKE_CURRENT_LIST_DIR}/window_catalog_lifecycle_matrix.py"
+        --a "$<TARGET_FILE:win32_window_catalog>"
+        --b "$<TARGET_FILE:win32_window_catalog_v1>"
         --work-root "${CMAKE_CURRENT_BINARY_DIR}/surfaces demo lifecycle states"
     )
-    set_tests_properties(apptraverse_surfaces_demo_lifecycle_matrix PROPERTIES
+    set_tests_properties(apptraverse_window_catalog_lifecycle_matrix PROPERTIES
       TIMEOUT 180
       LABELS "serialization;surfaces;lifecycle"
     )
     add_test(
-      NAME apptraverse_surfaces_demo_lifecycle_corruption_guard
+      NAME apptraverse_window_catalog_lifecycle_corruption_guard
       COMMAND "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_LIST_DIR}/surfaces_demo_lifecycle_corruption_guard.py"
-        --a "$<TARGET_FILE:win32_surfaces_demo>"
-        --b "$<TARGET_FILE:win32_surfaces_demo_v1>"
+        "${CMAKE_CURRENT_LIST_DIR}/window_catalog_lifecycle_corruption_guard.py"
+        --a "$<TARGET_FILE:win32_window_catalog>"
+        --b "$<TARGET_FILE:win32_window_catalog_v1>"
         --work-root "${CMAKE_CURRENT_BINARY_DIR}/surfaces demo lifecycle states"
     )
-    set_tests_properties(apptraverse_surfaces_demo_lifecycle_corruption_guard PROPERTIES
+    set_tests_properties(apptraverse_window_catalog_lifecycle_corruption_guard PROPERTIES
       TIMEOUT 180
       LABELS "serialization;surfaces;lifecycle;rollback"
     )
@@ -369,7 +369,7 @@ target_link_libraries(apptraverse_release_metadata_probe PRIVATE
   apptraverse_compile_policy)
 apptraverse_embed_surfaces_release_metadata(
   apptraverse_release_metadata_probe
-  "${CMAKE_SOURCE_DIR}/examples/surfaces_demo/release.json")
+  "${CMAKE_SOURCE_DIR}/examples/window_catalog/release.json")
 
 add_executable(apptraverse_release_metadata_probe_alt release_metadata_probe.cpp)
 target_compile_features(apptraverse_release_metadata_probe_alt PRIVATE cxx_std_20)
@@ -389,7 +389,7 @@ add_test(
   COMMAND "${Python3_EXECUTABLE}"
     "${CMAKE_CURRENT_LIST_DIR}/release_metadata_probe_test.py"
     --probe "$<TARGET_FILE:apptraverse_release_metadata_probe>"
-    --config "${CMAKE_SOURCE_DIR}/examples/surfaces_demo/release.json"
+    --config "${CMAKE_SOURCE_DIR}/examples/window_catalog/release.json"
   WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}")
 
 add_test(
@@ -397,7 +397,7 @@ add_test(
   COMMAND "${Python3_EXECUTABLE}"
     "${CMAKE_CURRENT_LIST_DIR}/release_metadata_probe_test.py"
     --probe "$<TARGET_FILE:apptraverse_release_metadata_probe>"
-    --config "${CMAKE_SOURCE_DIR}/examples/surfaces_demo/release.json"
+    --config "${CMAKE_SOURCE_DIR}/examples/window_catalog/release.json"
     --isolated-cwd
   WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}")
 
@@ -406,7 +406,7 @@ add_test(
   COMMAND "${Python3_EXECUTABLE}"
     "${CMAKE_CURRENT_LIST_DIR}/release_metadata_probe_dual_test.py"
     --probe0 "$<TARGET_FILE:apptraverse_release_metadata_probe>"
-    --config0 "${CMAKE_SOURCE_DIR}/examples/surfaces_demo/release.json"
+    --config0 "${CMAKE_SOURCE_DIR}/examples/window_catalog/release.json"
     --probe1 "$<TARGET_FILE:apptraverse_release_metadata_probe_alt>"
     --config1 "${CMAKE_CURRENT_LIST_DIR}/fixtures/release_metadata/release_1.json"
   WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}")
@@ -494,15 +494,15 @@ if(TARGET apptraverse_export_surfaces_distilled_graph)
   )
   target_link_libraries(apptraverse_surfaces_distilled_load_consumer PRIVATE
     apptraverse_surfaces
-    surfaces_demo_presentation
+    window_catalog_presentation
     apptraverse
   )
   target_include_directories(apptraverse_surfaces_distilled_load_consumer PRIVATE
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/common
   )
   apptraverse_embed_surfaces_release_metadata(
     apptraverse_surfaces_distilled_load_consumer
-    "${CMAKE_SOURCE_DIR}/examples/surfaces_demo/release.json")
+    "${CMAKE_SOURCE_DIR}/examples/window_catalog/release.json")
   apptraverse_embed_distilled_supply(
     apptraverse_surfaces_distilled_load_consumer
     apptraverse_export_surfaces_distilled_graph
@@ -514,7 +514,7 @@ if(TARGET apptraverse_export_surfaces_distilled_graph)
     COMMAND "${Python3_EXECUTABLE}"
       "${CMAKE_CURRENT_LIST_DIR}/surfaces_distilled_load_test.py"
       --consumer "$<TARGET_FILE:apptraverse_surfaces_distilled_load_consumer>"
-      --config "${CMAKE_SOURCE_DIR}/examples/surfaces_demo/release.json"
+      --config "${CMAKE_SOURCE_DIR}/examples/window_catalog/release.json"
   )
   set_tests_properties(apptraverse_surfaces_distilled_embedded_matrix PROPERTIES
     TIMEOUT 90
@@ -899,26 +899,26 @@ if(WIN32)
   if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES)
   add_executable(apptraverse_surfaces_win32_smoke_test
     surfaces_win32_smoke_test.cpp
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/windows/win_app.cpp
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_lifecycle.cpp
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/windows/win_app.cpp
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/common/surfaces_lifecycle.cpp
   )
   target_compile_definitions(apptraverse_surfaces_win32_smoke_test PRIVATE
     APPTRAVERSE_ENABLE_DISTILLATION
-    "APPTRAVERSE_SURFACES_ACCEPTANCE_DIR=\"${CMAKE_SOURCE_DIR}/docs/surfaces_demo_acceptance\""
-    "APPTRAVERSE_SURFACES_LOAD_ONLY_EXE=R\"($<TARGET_FILE:win32_surfaces_demo_load_only>)\""
+    "APPTRAVERSE_SURFACES_ACCEPTANCE_DIR=\"${CMAKE_SOURCE_DIR}/docs/window_catalog_acceptance\""
+    "APPTRAVERSE_SURFACES_LOAD_ONLY_EXE=R\"($<TARGET_FILE:win32_window_catalog_load_only>)\""
   )
   add_dependencies(apptraverse_surfaces_win32_smoke_test
-    win32_surfaces_demo_load_only)
+    win32_window_catalog_load_only)
   target_link_libraries(apptraverse_surfaces_win32_smoke_test PRIVATE
-    surfaces_demo_distill
-    surfaces_demo_win32
+    window_catalog_distill
+    window_catalog_win32
     apptraverse_surfaces_windows
     user32
     gdi32
   )
   target_include_directories(apptraverse_surfaces_win32_smoke_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/windows
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/common
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/windows
     ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows
   )
   target_link_libraries(apptraverse_surfaces_win32_smoke_test PRIVATE
@@ -945,22 +945,22 @@ if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES AND APPTRAVERSE_BUILD_LINUX_GUI AND UNIX AN
   pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0)
   add_executable(apptraverse_surfaces_linux_smoke_test
     surfaces_linux_smoke_test.cpp
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/linux/linux_app.cpp
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/linux/linux_presenters.cpp
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/linux/linux_fatal.cpp
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_lifecycle.cpp
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/linux/linux_app.cpp
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/linux/linux_presenters.cpp
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/linux/linux_fatal.cpp
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/common/surfaces_lifecycle.cpp
   )
   target_compile_definitions(apptraverse_surfaces_linux_smoke_test PRIVATE
     APPTRAVERSE_ENABLE_DISTILLATION
   )
   target_link_libraries(apptraverse_surfaces_linux_smoke_test PRIVATE
-    surfaces_demo_distill
+    window_catalog_distill
     apptraverse_surfaces
     PkgConfig::GTK3
   )
   target_include_directories(apptraverse_surfaces_linux_smoke_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/linux
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/common
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/linux
   )
   add_test(
     NAME apptraverse_surfaces_linux_smoke_test
@@ -978,29 +978,29 @@ if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES AND APPLE AND NOT CMAKE_SYSTEM_NAME STREQUA
   enable_language(OBJCXX)
   set_source_files_properties(
     surfaces_macos_smoke_test.mm
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/macos/mac_app.mm
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/macos/mac_presenters.mm
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/macos/mac_app.mm
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/macos/mac_presenters.mm
     PROPERTIES COMPILE_FLAGS "-fobjc-arc"
   )
   add_executable(apptraverse_surfaces_macos_smoke_test
     surfaces_macos_smoke_test.mm
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/macos/mac_app.mm
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/macos/mac_presenters.mm
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/surfaces_lifecycle.cpp
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/macos/mac_app.mm
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/macos/mac_presenters.mm
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/common/surfaces_lifecycle.cpp
   )
   target_compile_definitions(apptraverse_surfaces_macos_smoke_test PRIVATE
     APPTRAVERSE_ENABLE_DISTILLATION
   )
   target_link_libraries(apptraverse_surfaces_macos_smoke_test PRIVATE
-    surfaces_demo_distill
+    window_catalog_distill
     apptraverse_surfaces
-    surfaces_demo_macos_content
+    window_catalog_macos_content
     "-framework AppKit"
     "-framework Foundation"
   )
   target_include_directories(apptraverse_surfaces_macos_smoke_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/macos
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/common
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/macos
   )
   target_compile_options(apptraverse_surfaces_macos_smoke_test PRIVATE
     $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-rtti>
@@ -1595,12 +1595,12 @@ apptraverse_add_test(apptraverse_historical_base_materialization_test
 
 apptraverse_add_test(apptraverse_window_catalog_headless_test
   window_catalog_headless_test.cpp
-  surfaces_demo_window_catalog_headless)
+  window_catalog_window_catalog_headless)
 
-if(TARGET surfaces_demo_window_catalog)
-  set(_window_catalog_test_library surfaces_demo_window_catalog)
-elseif(TARGET surfaces_demo_window_catalog_linux)
-  set(_window_catalog_test_library surfaces_demo_window_catalog_linux)
+if(TARGET window_catalog_window_catalog)
+  set(_window_catalog_test_library window_catalog_window_catalog)
+elseif(TARGET window_catalog_window_catalog_linux)
+  set(_window_catalog_test_library window_catalog_window_catalog_linux)
 endif()
 
 if(_window_catalog_test_library)
@@ -1610,7 +1610,7 @@ if(_window_catalog_test_library)
     ${_window_catalog_test_library})
   target_include_directories(apptraverse_window_catalog_portable_user_fixture PRIVATE
     ${APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR}
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common)
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/common)
   add_dependencies(apptraverse_window_catalog_portable_user_fixture
     apptraverse_window_catalog_embedded_supply)
   if(WIN32)
@@ -1630,7 +1630,7 @@ if(_window_catalog_test_library)
       ${_window_catalog_test_library})
     target_include_directories(${_target} PRIVATE
       ${APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR}
-      ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common)
+      ${CMAKE_SOURCE_DIR}/examples/window_catalog/common)
     if(MSVC)
       target_compile_options(${_target} PRIVATE /utf-8)
     endif()
@@ -1643,7 +1643,7 @@ if(_window_catalog_test_library)
     PROPERTIES LABELS "window_catalog;diagnostic")
 endif() # native WindowCatalog graph
 
-if(TARGET surfaces_demo_window_catalog_linux)
+if(TARGET window_catalog_window_catalog_linux)
   apptraverse_add_test(apptraverse_linux_ui_client_mount_test
     linux_ui_client_mount_test.cpp apptraverse_ui_linux)
   set_tests_properties(apptraverse_linux_ui_client_mount_test PROPERTIES
@@ -1653,11 +1653,11 @@ if(TARGET surfaces_demo_window_catalog_linux)
   set(_linux_catalog_acceptance_sources
     window_catalog_linux_acceptance_main.cpp
     window_catalog_linux_session_automation.cpp
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/window_catalog_lifecycle.cpp)
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/common/window_catalog_lifecycle.cpp)
   add_executable(apptraverse_window_catalog_linux_acceptance_runner
     ${_linux_catalog_acceptance_sources})
   target_link_libraries(apptraverse_window_catalog_linux_acceptance_runner PRIVATE
-    surfaces_demo_window_catalog_linux)
+    window_catalog_window_catalog_linux)
   target_compile_definitions(apptraverse_window_catalog_linux_acceptance_runner PRIVATE
     APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
   target_include_directories(apptraverse_window_catalog_linux_acceptance_runner PRIVATE
@@ -1673,9 +1673,9 @@ if(TARGET surfaces_demo_window_catalog_linux)
   if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_executable(apptraverse_window_catalog_linux_fresh_runner
       ${_linux_catalog_acceptance_sources}
-      ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common/window_catalog_distillation.cpp)
+      ${CMAKE_SOURCE_DIR}/examples/window_catalog/common/window_catalog_distillation.cpp)
     target_link_libraries(apptraverse_window_catalog_linux_fresh_runner PRIVATE
-      surfaces_demo_window_catalog_linux)
+      window_catalog_window_catalog_linux)
     target_compile_definitions(apptraverse_window_catalog_linux_fresh_runner PRIVATE
       APPTRAVERSE_WINDOW_CATALOG_DEBUG_BOOTSTRAP)
     list(APPEND _linux_catalog_fresh_args --fresh-exe
@@ -1699,8 +1699,8 @@ if(TARGET surfaces_demo_window_catalog_linux)
 endif()
 
 target_include_directories(apptraverse_window_catalog_headless_test PRIVATE
-  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common
-  ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/headless)
+  ${CMAKE_SOURCE_DIR}/examples/window_catalog/common
+  ${CMAKE_SOURCE_DIR}/examples/window_catalog/headless)
 if(MSVC)
   target_compile_options(apptraverse_window_catalog_headless_test PRIVATE /utf-8)
 endif()
@@ -1759,16 +1759,16 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
 
   set(_android_wc_embedded_test_sources
     window_catalog_android_embedded_session_test.cpp
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/android/window_catalog_graph_android.cpp
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/android/window_catalog_graph_builder_android.cpp)
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/android/window_catalog_graph_android.cpp
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/android/window_catalog_graph_builder_android.cpp)
   add_executable(apptraverse_window_catalog_android_embedded_session_test
     ${_android_wc_embedded_test_sources})
   target_link_libraries(apptraverse_window_catalog_android_embedded_session_test PRIVATE
-    surfaces_demo_window_catalog_common apptraverse apptraverse_ui_android_presenters)
+    window_catalog_window_catalog_common apptraverse apptraverse_ui_android_presenters)
   target_include_directories(apptraverse_window_catalog_android_embedded_session_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/android/generated
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/android
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common)
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/android/generated
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/android
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/common)
   target_compile_definitions(apptraverse_window_catalog_android_embedded_session_test PRIVATE
     APPTRAVERSE_ENABLE_DISTILLATION)
   if(MSVC)
@@ -1800,15 +1800,15 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
     PROPERTIES LABELS "window_catalog;android_embedded")
   add_executable(apptraverse_window_catalog_android_portable_user_fixture
     window_catalog_portable_user_fixture.cpp
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/android/window_catalog_graph_android.cpp)
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/android/window_catalog_graph_android.cpp)
   add_dependencies(apptraverse_window_catalog_android_portable_user_fixture
     apptraverse_android_headless_supply)
   target_link_libraries(apptraverse_window_catalog_android_portable_user_fixture PRIVATE
-    surfaces_demo_window_catalog_common apptraverse apptraverse_ui_android_presenters)
+    window_catalog_window_catalog_common apptraverse apptraverse_ui_android_presenters)
   target_include_directories(apptraverse_window_catalog_android_portable_user_fixture PRIVATE
     "${_android_headless_supply_dir}"
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/android
-    ${CMAKE_SOURCE_DIR}/examples/surfaces_demo/common)
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/android
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/common)
   target_compile_definitions(apptraverse_window_catalog_android_portable_user_fixture PRIVATE
     APPTRAVERSE_PORTABLE_ANDROID APPTRAVERSE_PORTABLE_PLATFORM="android-host")
   if(MSVC)
@@ -1833,7 +1833,7 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
   foreach(name apptraverse_window_catalog_model_test
                apptraverse_window_catalog_win32_acceptance_test)
     string(REPLACE "apptraverse_" "" source ${name})
-    apptraverse_add_test(${name} ${source}.cpp surfaces_demo_window_catalog)
+    apptraverse_add_test(${name} ${source}.cpp window_catalog_window_catalog)
     if(MSVC)
       target_compile_options(${name} PRIVATE /utf-8)
     endif()
@@ -1857,7 +1857,7 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
     apptraverse_ui_windows apptraverse)
 
   apptraverse_add_test(apptraverse_window_catalog_win32_chrome_adaptive_test
-    window_catalog_win32_chrome_adaptive_test.cpp surfaces_demo_window_catalog)
+    window_catalog_win32_chrome_adaptive_test.cpp window_catalog_window_catalog)
   target_link_libraries(apptraverse_window_catalog_win32_chrome_adaptive_test PRIVATE
     apptraverse_ui_windows apptraverse)
   if(MSVC)
@@ -1868,7 +1868,7 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
     LABELS "window_catalog")
 
   apptraverse_add_test(apptraverse_window_catalog_win32_close_timing_diagnostic_test
-    window_catalog_win32_close_timing_diagnostic_test.cpp surfaces_demo_window_catalog)
+    window_catalog_win32_close_timing_diagnostic_test.cpp window_catalog_window_catalog)
   target_link_libraries(apptraverse_window_catalog_win32_close_timing_diagnostic_test PRIVATE
     apptraverse_ui_windows apptraverse)
   add_dependencies(apptraverse_window_catalog_win32_close_timing_diagnostic_test

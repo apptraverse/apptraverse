@@ -1,0 +1,252 @@
+#include "surfaces_lifecycle.h"
+
+#ifdef APPTRAVERSE_ENABLE_DISTILLATION
+#include <filesystem>
+
+#include "surfaces_distill.h"
+#endif
+
+#include <cassert>
+#include <optional>
+#include <unordered_set>
+#include <vector>
+
+#include "apptraverse/directory_domain_storage.h"
+#include "apptraverse/distill.h"
+#include "apptraverse/object_serialization.h"
+#include "apptraverse/node.h"
+#include "apptraverse/runtime_node.h"
+
+#include "apptraverse/surfaces/surfaces_ids.h"
+#include "apptraverse/surfaces/surfaces_model.h"
+#include "apptraverse/surfaces/window_catalog_revision.h"
+#include "apptraverse/surfaces/surfaces_registration.h"
+#include "apptraverse/ui/ui_localization_string.h"
+
+#if defined(_WIN32)
+#include "apptraverse/platform/windows/win_ui_presenters.h"
+#include "apptraverse/ui/ui_presenters.h"
+#include "window_catalog_win32_registration.h"
+#endif
+
+#if APPTRAVERSE_SURFACE_DEMO_REVISION == 1
+#include "surfaces_v1_package.h"
+#endif
+
+namespace apptraverse {
+
+void SurfacesModelSession::RequestStop() {
+  {
+    std::lock_guard<std::mutex> lock{mu};
+    stop = true;
+  }
+  cv.notify_all();
+}
+
+void SurfacesModelSession::Post(ModelWork work) {
+  {
+    std::lock_guard<std::mutex> lock{mu};
+    if (stop) {
+      return;
+    }
+    pending_work.push_back(std::move(work));
+  }
+  cv.notify_all();
+}
+
+void ApplySurfacesStructural(std::vector<std::uint8_t> const& bytes,
+                             Application& ui_application,
+                             ae::IDomainStorage& ui_storage, void* host,
+                             ModelObjectProxy* model_proxy) {
+  ByteSource in;
+  in.data = bytes.data();
+  in.size = bytes.size();
+  ApplyStructuralPublicationAndUpdatePresenters(
+      in, *ui_application.domain, ui_storage, ui_application, host,
+      model_proxy);
+}
+
+void SurfacesModelSession::Run(
+    std::function<void(SurfacesPublicationKind)> on_published) {
+  EnsureSurfacesRegistration();
+#if defined(_WIN32)
+  ui::EnsureUiPresenterRegistration();
+  ui::windows::EnsureWinUiPresenterRegistration();
+  example::surfaces::EnsureSurfacesDemoWin32Registration();
+#endif
+  presentation_size_queue.BindPostWork(
+      [this](ModelObjectProxy::ModelWork work) { Post(std::move(work)); });
+
+  bool state_missing = true;
+#ifdef APPTRAVERSE_ENABLE_DISTILLATION
+  if (std::filesystem::exists(state_dir)) {
+    DirectoryDomainStorage probe{state_dir};
+    state_missing =
+        probe
+            .Enumerate(ae::ObjId{window_catalog::ToObjId(
+                window_catalog::ObjId::Application)})
+            .empty();
+  }
+  if (state_missing) {
+    DirectoryDomainStorage bootstrap_storage{state_dir};
+    ae::Domain bootstrap_domain{bootstrap_storage};
+    auto bootstrap_app = BuildSurfacesGraph(bootstrap_domain);
+    FinalizeDistilledGraph(*bootstrap_app);
+    SaveDistilledRoot(*bootstrap_app);
+  }
+#endif
+
+#if APPTRAVERSE_SURFACE_DEMO_REVISION == 1
+  if (!state_missing) {
+    SurfacesDemoInstallBundledV1Layers(
+        state_dir, SurfacesDemoBundledV1PackageDirectory());
+    SurfacesDemoEnsureMissingSurfaceV1Layers(state_dir);
+  }
+#endif
+
+  {
+    DirectoryDomainStorage durable_storage{state_dir};
+    ae::Domain domain{durable_storage};
+    auto application = LoadApplication<Application>(
+        domain, ae::ObjId{window_catalog::ToObjId(
+                    window_catalog::ObjId::Application)});
+    int const language = application->locale->language_index();
+    application->label_add->MaterializeLanguage(language);
+    application->label_close->MaterializeLanguage(language);
+    application->window_title_prefix->MaterializeLanguage(language);
+    application->language_switch_label->MaterializeLanguage(language);
+    PendingDirtyNodes pending_dirty;
+    BindReachableNodesMaterializedChangeNotifier(
+        *application, &pending_dirty, &PendingDirtyNodesNotify);
+
+    auto* buffer = channel.AcquireProducer();
+    SerializeInitialPublication(*application, buffer->sink);
+    {
+      std::lock_guard<std::mutex> lock{mu};
+      channel.NotePublished();
+      channel.PublishProducer();
+    }
+    cv.notify_all();
+    on_published(SurfacesPublicationKind::Initial);
+
+    for (;;) {
+      std::optional<ModelWork> work;
+      bool draining = false;
+      {
+        std::unique_lock<std::mutex> lock{mu};
+        cv.wait(lock, [&] {
+          if (stop) {
+            return true;
+          }
+          if (!pending_work.empty()) {
+            return true;
+          }
+          return !pending_dirty.empty() && !channel.is_publication_busy();
+        });
+        if (stop) {
+          if (pending_work.empty()) {
+            break;
+          }
+          work = std::move(pending_work.front());
+          pending_work.pop_front();
+          draining = true;
+        } else if (!pending_work.empty()) {
+          work = std::move(pending_work.front());
+          pending_work.pop_front();
+        }
+      }
+
+      if (work) {
+        // Unread GUI publication must not block accepted ModelWork.
+        (*work)(domain);
+      }
+
+      if (draining) {
+        continue;
+      }
+
+      {
+        std::lock_guard<std::mutex> lock{mu};
+        if (stop || pending_dirty.empty() || channel.is_publication_busy()) {
+          continue;
+        }
+      }
+
+      // Publish at most one structural snapshot while the channel is free.
+      // Further dirty Nodes stay pending (first-dirty order) until GUI consumes.
+      std::unordered_set<std::uint32_t> live_ids;
+      {
+        std::vector<ae::Obj*> live;
+        CollectLiveReachableObjects(*application, live);
+        live_ids.reserve(live.size());
+        for (ae::Obj* obj : live) {
+          live_ids.insert(obj->obj_id.id());
+        }
+      }
+      {
+        bool publish_surfaces_for_locale = false;
+        {
+          std::lock_guard<std::mutex> lock{mu};
+          if (!stop && !channel.is_publication_busy() && !pending_dirty.empty() &&
+              pending_dirty.membership.count(
+                  application->locale->obj_id.id()) != 0) {
+            publish_surfaces_for_locale = true;
+          }
+        }
+        if (publish_surfaces_for_locale) {
+          auto* pub = channel.AcquireProducer();
+          SerializeStructuralNodePublication(*application->surfaces, pub->sink);
+          {
+            std::lock_guard<std::mutex> lock{mu};
+            pending_dirty.Clear();
+            channel.NotePublished();
+            channel.PublishProducer();
+          }
+          cv.notify_all();
+          on_published(SurfacesPublicationKind::Incremental);
+          continue;
+        }
+      }
+      for (;;) {
+        std::uint32_t pending_id = 0;
+        {
+          std::lock_guard<std::mutex> lock{mu};
+          if (stop || channel.is_publication_busy() || pending_dirty.empty()) {
+            break;
+          }
+          pending_id = pending_dirty.PopFront();
+        }
+        if (live_ids.count(pending_id) == 0) {
+          continue;
+        }
+        auto object = domain.Find(ae::ObjId{pending_id});
+        if (!object) {
+          continue;
+        }
+        Node* const to_publish = object.as<Node>();
+        if (to_publish == nullptr) {
+          continue;
+        }
+        auto* pub = channel.AcquireProducer();
+        SerializeStructuralNodePublication(*to_publish, pub->sink);
+        {
+          std::lock_guard<std::mutex> lock{mu};
+          channel.NotePublished();
+          channel.PublishProducer();
+        }
+        cv.notify_all();
+        on_published(SurfacesPublicationKind::Incremental);
+      }
+    }
+
+    ClearLiveReachableNodesMaterializedChangeNotifier(*application);
+
+    durable_storage.BeginSaveSession();
+    application.Save();
+    if (durable_storage.SaveSessionHadFailure()) {
+      shutdown_exit_code = 1;
+    }
+  }
+}
+
+}  // namespace apptraverse

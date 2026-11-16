@@ -11,7 +11,7 @@ Windows catalog host: main window (ListBox + Add/Open/Delete + EN/RU), lazy chil
 
 Build (Release, unified worktree example):
 
-`build/win64-ninja-msvc-release/examples/surfaces_demo/windows/win32_window_catalog_demo.exe`
+`build/win64-ninja-msvc-release/examples/window_catalog/windows/win32_window_catalog_demo.exe`
 
 Manual profile (U2): `--state-dir` e.g. `manual-test-state/window-catalog` under the worktree — **not** shared with CTest temp dirs.
 

@@ -104,4 +104,4 @@ The common direct proxy route for native geometry in other backends was not
 changed or audited beyond this port's corresponding boundary. Release/MinSizeRel,
 universal binaries and distribution signing/notarization were not requested.
 
-Build/launch instructions: [macOS README](../../examples/surfaces_demo/macos/README.md).
+Build/launch instructions: [macOS README](../../examples/window_catalog/macos/README.md).

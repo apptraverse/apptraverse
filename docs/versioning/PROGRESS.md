@@ -520,7 +520,7 @@ Branch: `feature/domain-hierarchy-cloning`; completion work started from `580f36
 
 **Worktree:** `apptraverse-wt-adaptive`. **Ветка:** `feature/window-catalog-adaptive`. **База этапа (resize coalesce):** `d7fb0267e7fc0f4e0675d57265b020d5ddf211e4`. **Google Doc** «архитектура / каталог» и «версионирование» — **прямая сверка не выполнена** (403); опора — repo `docs/architecture/AppTraverse_Architecture_RU.md` (§25.3 production hooks), [PLAN](./PLAN.md).
 
-**Debug exe:** `build/win64-ninja-msvc-debug/examples/surfaces_demo/windows/win32_window_catalog_demo.exe`
+**Debug exe:** `build/win64-ninja-msvc-debug/examples/window_catalog/windows/win32_window_catalog_demo.exe`
 
 **Ручная приёмка (мышь/клавиатура):** новый профиль, напр. `--state-dir %TEMP%\apptraverse_wc_manual_acceptance` — **NOT RUN** (агент; полный чеклист — задача пользователя).
 
@@ -661,19 +661,19 @@ Google Doc **§5.1** — платформенный потомок presenter и�
 
 ### Переиспользование
 
-- Общая модель: `examples/surfaces_demo/common/window_catalog_*` (builder, model, actions, prepare, localization, `WindowCatalogModelSession` + `RunEmbeddedApplicationModelSession`).
+- Общая модель: `examples/window_catalog/common/window_catalog_*` (builder, model, actions, prepare, localization, `WindowCatalogModelSession` + `RunEmbeddedApplicationModelSession`).
 - Платформа: `LinuxApplicationHost`, `LinuxPresentationHost`, `LinuxDesktopWindowPresenter`, `LinuxListContainerPresenter`, `LinuxPushButtonPresenter`.
 - Образец embedded: `examples/minimal_app/linux/` (exporter + `apptraverse_embed_distilled_supply.cmake`).
-- Legacy **`linux_surfaces_demo`** / `linux_app` / `linux_presenters` **не** трогались.
+- Legacy **`linux_window_catalog`** / `linux_app` / `linux_presenters` **не** трогались.
 
 ### Добавлено
 
-- `examples/surfaces_demo/linux/window_catalog_graph_linux.cpp` — `CatalogListContainerPresenter` + `BuildWindowCatalogGraph` (Linux factories).
-- `examples/surfaces_demo/linux/window_catalog_export_linux.cpp` — host exporter → `embedded_distilled_window_catalog_supply.h` (Linux ClassId/layers).
-- `examples/surfaces_demo/linux/window_catalog_main.cpp` — thin GTK host (close/focus/persist; flush frames + native Z capture on main close; Z restore after initial load).
+- `examples/window_catalog/linux/window_catalog_graph_linux.cpp` — `CatalogListContainerPresenter` + `BuildWindowCatalogGraph` (Linux factories).
+- `examples/window_catalog/linux/window_catalog_export_linux.cpp` — host exporter → `embedded_distilled_window_catalog_supply.h` (Linux ClassId/layers).
+- `examples/window_catalog/linux/window_catalog_main.cpp` — thin GTK host (close/focus/persist; flush frames + native Z capture on main close; Z restore after initial load).
 - `window_catalog_linux_desktop_zorder.*`, `linux_desktop_window_stack.*` — X11 stack + catalog wiring.
-- `examples/surfaces_demo/linux/window_catalog_linux_session_automation.*` + `tools/linux_window_catalog_l3_smoke.py`.
-- `examples/surfaces_demo/common/window_catalog_graph.h` (общий заголовок graph API; Windows graph .cpp без изменения семантики).
+- `examples/window_catalog/linux/window_catalog_linux_session_automation.*` + `tools/linux_window_catalog_l3_smoke.py`.
+- `examples/window_catalog/common/window_catalog_graph.h` (общий заголовок graph API; Windows graph .cpp без изменения семантики).
 - Маркеры embedded load в `window_catalog_lifecycle.cpp`: `WINDOW_CATALOG_LOADED_FROM_EMBEDDED_BACKING` / `…_PROFILE`.
 
 **Target:** `linux_window_catalog_demo` (`APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL`).
@@ -702,8 +702,8 @@ Google Doc **§5.1** — платформенный потомок presenter и�
 | **Оригинал** (not stripped) | 769 984 | ~752.0 |
 | **Копия + `strip`** (оригинал не заменялся) | 501 984 | ~490.2 |
 
-**Путь:** `build/linux-x64-minsizerel/examples/surfaces_demo/linux/linux_window_catalog_demo`  
-**Debug:** `build/linux-x64-debug/examples/surfaces_demo/linux/linux_window_catalog_demo`  
+**Путь:** `build/linux-x64-minsizerel/examples/window_catalog/linux/linux_window_catalog_demo`
+**Debug:** `build/linux-x64-debug/examples/window_catalog/linux/linux_window_catalog_demo`
 
 **Динамические зависимости (ldd):** `libgtk-3`, `libgdk-3`, GLib/GObject/GIO, Pango/Cairo, X11/Wayland client libs, … — **размер ELF не включает** системные GTK/shared libraries.
 
@@ -712,7 +712,7 @@ Google Doc **§5.1** — платформенный потомок presenter и�
 PowerShell:
 
 ```powershell
-wsl -d Ubuntu env GDK_BACKEND=x11 /mnt/c/Users/nickc/Projects/apptraverse-wt-web5/build/linux-x64-minsizerel/examples/surfaces_demo/linux/linux_window_catalog_demo --state-dir /mnt/c/Users/nickc/Projects/apptraverse-wt-web5/build/manual_profiles/linux_window_catalog_geom_z_manual_wslg
+wsl -d Ubuntu env GDK_BACKEND=x11 /mnt/c/Users/nickc/Projects/apptraverse-wt-web5/build/linux-x64-minsizerel/examples/window_catalog/linux/linux_window_catalog_demo --state-dir /mnt/c/Users/nickc/Projects/apptraverse-wt-web5/build/manual_profiles/linux_window_catalog_geom_z_manual_wslg
 ```
 
 Повтор с тем же `--state-dir` восстанавливает USER overlay. Профили **`linux_window_catalog_manual_wslg`**, **`linux_window_catalog_clean_state`** не удалялись. После прогона агента MinSizeRel оставлен открытым на **`linux_window_catalog_geom_z_manual_wslg`**.
@@ -754,7 +754,7 @@ wsl -d Ubuntu env GDK_BACKEND=x11 /mnt/c/Users/nickc/Projects/apptraverse-wt-web
 
 ### Supply (единый артеfact)
 
-- Одна CMake-команда → **`build/.../examples/surfaces_demo/generated_distilled/embedded_distilled_window_catalog_supply.h`** (`apptraverse_window_catalog_embedded_supply`): main, load_only, overlay-тест.
+- Одна CMake-команда → **`build/.../examples/window_catalog/generated_distilled/embedded_distilled_window_catalog_supply.h`** (`apptraverse_window_catalog_embedded_supply`): main, load_only, overlay-тест.
 - Exporter: уникальный temp dir per output path (нет гонок `remove_all`).
 
 ### Продукт (без новой политики загрузки)
@@ -783,7 +783,7 @@ wsl -d Ubuntu env GDK_BACKEND=x11 /mnt/c/Users/nickc/Projects/apptraverse-wt-web
 
 ### Executable
 
-- `build/win64-ninja-msvc-debug/examples/surfaces_demo/windows/win32_window_catalog_demo.exe`
+- `build/win64-ninja-msvc-debug/examples/window_catalog/windows/win32_window_catalog_demo.exe`
 - `…/win32_window_catalog_demo_load_only.exe` (`--state-dir`; schema/unknown ClassId negatives — `--user-only-load-probe`, не embedded subprocess).
 
 ### Ограничение (не блокер среза)
@@ -796,9 +796,9 @@ wsl -d Ubuntu env GDK_BACKEND=x11 /mnt/c/Users/nickc/Projects/apptraverse-wt-web
 
 | | Путь |
 | --- | --- |
-| Exe | `build/win64-ninja-msvc-minsizerel/examples/surfaces_demo/windows/MinSizeRel/win32_window_catalog_demo.exe` (~405 504 B) |
+| Exe | `build/win64-ninja-msvc-minsizerel/examples/window_catalog/windows/MinSizeRel/win32_window_catalog_demo.exe` (~405 504 B) |
 | Профиль | `…/MinSizeRel/surfaces_catalog_s0_proto_state` — **DefaultStateDir** (явный `--state-dir` не требовался) |
-| Embedded BACKING, linked при сборке exe | `build/win64-ninja-msvc-minsizerel/examples/surfaces_demo/generated_distilled/embedded_distilled_window_catalog_supply.h` — `kEmbeddedGraph` **165** layers, `kSupplyConstantIds[] = {15, 16}` |
+| Embedded BACKING, linked при сборке exe | `build/win64-ninja-msvc-minsizerel/examples/window_catalog/generated_distilled/embedded_distilled_window_catalog_supply.h` — `kEmbeddedGraph` **165** layers, `kSupplyConstantIds[] = {15, 16}` |
 
 **Ограничение снимка «34 файла / 3 окна»:** тот же каталог профиля после ручных сессий **перезаписан** (агентская фиксация ~12:08: **34** layer-файла, **10** ObjId-подкаталогов, ~**300** B; аудит на HEAD того же пути: **302** файла, **89** ObjId-подкаталогов). Пофайловую таблицу для раннего снимка **восстановить нельзя** (копия не сохранялась); ниже — установленные факты и разбор наблюдения **34**.
 
@@ -822,7 +822,7 @@ wsl -d Ubuntu env GDK_BACKEND=x11 /mnt/c/Users/nickc/Projects/apptraverse-wt-web
 
 ### WindowCatalog model — удаление избыточных guard (2026-11-05)
 
-**Scope:** `examples/surfaces_demo/common/window_catalog_model.cpp` only. **Не** исправление воспроизведённого сбоя — снятие дублирующих проверок там, где граф уже гарантирует `locale` и `list`/`domain`.
+**Scope:** `examples/window_catalog/common/window_catalog_model.cpp` only. **Не** исправление воспроизведённого сбоя — снятие дублирующих проверок там, где граф уже гарантирует `locale` и `list`/`domain`.
 
 - **`MakeHolderTitleString`:** `language_index` через `catalog.locale->language_index()` (без `catalog.locale ? … : 0`).
 - **`AddWindow`:** убраны `!list` / `list->domain == nullptr` + fatal/abort; тело без замены guard.
@@ -972,7 +972,7 @@ wsl -d Ubuntu env GDK_BACKEND=x11 /mnt/c/Users/nickc/Projects/apptraverse-wt-web
 | Android `connectedDebugAndroidTest`, **первый прогон** | **13/13 существующих PASS; новый `EmbeddedColdStart` FAIL** (liveness до kill) |
 | Android, второй прогон (реальная liveness) | **10 PASS / 4 FAIL** — `EmbeddedColdStart`, `NewPidColdReload`, `SaveColdReload`×2: «demo pid still alive after kill» |
 | Android, третий прогон (`Process.killProcess`) | **14/14 PASS** |
-| Windows full incremental build | **FAIL** (первый FAIL контура): link `win32_surfaces_demo{,_v1,_load_only}.exe` — `surfaces_demo_win32_registration.cpp` / `_attach.cpp` не в CMake sources; `examples/surfaces_demo` срезом не менялся, на HEAD отдельно не проверялось; остальные цели собраны (`-k 0`) |
+| Windows full incremental build | **FAIL** (первый FAIL контура): link `win32_window_catalog{,_v1,_load_only}.exe` — `window_catalog_win32_registration.cpp` / `_attach.cpp` не в CMake sources; `examples/window_catalog` срезом не менялся, на HEAD отдельно не проверялось; остальные цели собраны (`-k 0`) |
 | Windows 14 + embedded export + Android exporter на host | **14/14 PASS**; exporter → `kEmbeddedGraph = {127991809u, …, 224}` |
 | Linux materialization/model runtime/headless/historical base + Android exporter; L3 | **4/4 PASS**, exporter тот же граф, **L3 PASS** |
 | WASM origin facet + MinimalApp / presenter lifecycle / WindowCatalog smoke | **PASS** |
@@ -1113,7 +1113,7 @@ prefab P (S0) в BACKING → два экземпляра A, B (`CloneCanonicalRo
 | Windows 14 + embedded export | **14/14 PASS** |
 | win64 prefab/evolution/persistence (prefab ×10, application evolution, window schema, event downgrade ×2, lazy/surfaces distilled, checkpoint ×2, persistence ×4, directory/overlay storage, embedded distilled + origin 5) | **30/31**: FAIL `apptraverse_surfaces_distilled_embedded_matrix` («LABEL_ADD_EN expected Add, got »). **Pre-existing:** тот же вывод consumer, собранного в отдельном worktree на `6e39ef2` (исходная цепочка patches) |
 | `apptraverse_event_version_matrix` win64 | **FAIL** (первый прогон и повтор на финальной цепочке): «known-prefix A compact-zero journal_len expected 2, got 3». **Pre-existing:** тот же FAIL на `6e39ef2` (worktree). Ожидание не менялось |
-| win64 полный incremental build | все targets, кроме legacy `win32_surfaces_demo`, `_v1`, `_load_only` — LNK2019 `EnsureSurfacesDemoWin32Registration`/`AttachSurfacesDemoWin32SurfacePresenters` (определяющие `.cpp` не входят ни в один CMakeLists). **Pre-existing:** тот же LNK2019 на `6e39ef2` |
+| win64 полный incremental build | все targets, кроме legacy `win32_window_catalog`, `_v1`, `_load_only` — LNK2019 `EnsureSurfacesDemoWin32Registration`/`AttachSurfacesDemoWin32SurfacePresenters` (определяющие `.cpp` не входят ни в один CMakeLists). **Pre-existing:** тот же LNK2019 на `6e39ef2` |
 | Linux ctest (materialization, model runtime, minimal headless, Object Core 9 + origin evolution) | **13/13 PASS** |
 | Linux L3 `linux_minimal_app_l3_smoke.py` | **PASS** |
 | Linux `window_schema_layers` fixtures | **NOT BUILT** (pre-existing: `throw` при `-fno-exceptions`); вне Linux scope |
@@ -1181,7 +1181,7 @@ prefab P (S0) в BACKING → два экземпляра A, B (`CloneCanonicalRo
 - **NDK clang 21** на том же probe: `Report<1,1>` (как em++) — т.е. до patch Android тоже выбирал versioned путь для reflection-only классов; patch меняет фактическую сериализацию на Android (payload сохраняется).
 - **Перезапуск host-процесса emulator** (`adb emu kill`, тот же `-avd … -no-snapshot-load`; qemu работал с 2026-11-02) → **прогон 6 patched: 13/13 PASS**, ANR-файлов за прогон нет.
 
-**Pre-existing (вне среза):** полный WASM tree build падает (`surfaces_demo_evolution` `throw` при `-fno-exceptions`; lazy/prefab test exporters «failed to write» без NODERAWFS) — собирались только названные targets.
+**Pre-existing (вне среза):** полный WASM tree build падает (`window_catalog_evolution` `throw` при `-fno-exceptions`; lazy/prefab test exporters «failed to write» без NODERAWFS) — собирались только названные targets.
 
 ## WindowCatalog headless active-only localization EN→RU→EN (post-`760dfc0`, 2026-11-03) — PASS (tests/docs)
 
@@ -1309,13 +1309,13 @@ prefab P (S0) в BACKING → два экземпляра A, B (`CloneCanonicalRo
 
 ### Воспроизведение (incremental **`web_window_catalog_demo`**, dedicated **`serve_wasm.py`** **8911**, COOP/COEP подтверждены curl)
 
-- Артефакты: **`build/wasm-ninja-debug/examples/surfaces_demo/web/web_window_catalog_demo.{html,js,wasm,worker.js}`** (mtime **2026-11-03** post-Prepare rebuild).
+- Артефакты: **`build/wasm-ninja-debug/examples/window_catalog/web/web_window_catalog_demo.{html,js,wasm,worker.js}`** (mtime **2026-11-03** post-Prepare rebuild).
 - **5×** catalog smoke с обновлённым скриптом: **PASS** (нет FAIL для сбора stderr).
 - **Статус:** зависание **не воспроизведено**, **корневая причина не установлена**.
 
 ## WindowCatalog Prepare: drop redundant required-graph fatals (post-`e5543a0`, 2026-11-03) — PASS
 
-**Base:** `e5543a0`. Scope: **`examples/surfaces_demo/common/window_catalog_prepare.cpp`**, **`tests/window_catalog_win32_acceptance_test.cpp`**.
+**Base:** `e5543a0`. Scope: **`examples/window_catalog/common/window_catalog_prepare.cpp`**, **`tests/window_catalog_win32_acceptance_test.cpp`**.
 
 ### Production
 
@@ -1366,7 +1366,7 @@ prefab P (S0) в BACKING → два экземпляра A, B (`CloneCanonicalRo
 
 ### Confirmed mismatch (pre-fix)
 
-- Incremental binaries: **`build/win64-ninja-msvc-debug/tests/apptraverse_window_catalog_win32_acceptance_test.exe`** (same dir as test via `DemoExe`); load-only child **`…/examples/surfaces_demo/windows/win32_window_catalog_demo_load_only.exe`** (fallback `ExeDir/../examples/surfaces_demo/windows/`).
+- Incremental binaries: **`build/win64-ninja-msvc-debug/tests/apptraverse_window_catalog_win32_acceptance_test.exe`** (same dir as test via `DemoExe`); load-only child **`…/examples/window_catalog/windows/win32_window_catalog_demo_load_only.exe`** (fallback `ExeDir/../examples/window_catalog/windows/`).
 - **First failing scenario:** `RunRequiredMainWindowNegativeTests` → **`missing_main_window`** — expected `fatal: LoadPresentedWindow required window missing`; child stderr was **`ObjPtr` assert** (`Dereferencing invalid object`), exit ≠ 0. Production removed those fatals in **`76ed215`**; stale expectations on **`2d79624`**, not stale demo binaries.
 
 ### Test cleanup
@@ -1404,7 +1404,7 @@ prefab P (S0) в BACKING → два экземпляра A, B (`CloneCanonicalRo
 | Linux runtime + materialization + headless + L3 | **PASS** |
 | WASM ×3 (`serve_wasm.py` **8881**, **8883**; lifecycle on **`apptraverse_web_presenter_lifecycle_test.html`**) | **PASS** |
 | Android **`connectedDebugAndroidTest`** | **PASS** 13/13 |
-| Full tree build / full CTest | **NOT RUN** (surfaces_demo link flake unrelated to slice) |
+| Full tree build / full CTest | **NOT RUN** (window_catalog link flake unrelated to slice) |
 
 ## UI LoadPresentedWindow + list row primary text: drop redundant graph validation (post-`2a25408`, 2026-11-03) — PASS
 
@@ -1837,7 +1837,7 @@ Embedded USER save вызывал **`FinalizeUiNodeState`** (UI publication): с
 
 ## WindowCatalog Windows build-time embedded — audit (SHA `5b2bb90`, 2026-11-02) — PASS (scope)
 
-**Кто использует embedded BACKING (без runtime distill bootstrap):** только **`win32_window_catalog_demo`** и **`win32_window_catalog_demo_load_only`** при сборке **`MinSizeRel`** (`APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL` в `examples/surfaces_demo/windows/CMakeLists.txt`). **`RunEmbeddedApplicationModelSession`** + **`generated/window_catalog_distilled.h`** (`embedded_distilled::window_catalog::kEmbeddedGraph`; supply constants **ObjId 15/16** = WindowPrefab / WindowPrefabPresenter). Exporter: **`apptraverse_export_window_catalog_distilled_graph`** → target **`apptraverse_generate_window_catalog_distilled_header`**.
+**Кто использует embedded BACKING (без runtime distill bootstrap):** только **`win32_window_catalog_demo`** и **`win32_window_catalog_demo_load_only`** при сборке **`MinSizeRel`** (`APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL` в `examples/window_catalog/windows/CMakeLists.txt`). **`RunEmbeddedApplicationModelSession`** + **`generated/window_catalog_distilled.h`** (`embedded_distilled::window_catalog::kEmbeddedGraph`; supply constants **ObjId 15/16** = WindowPrefab / WindowPrefabPresenter). Exporter: **`apptraverse_export_window_catalog_distilled_graph`** → target **`apptraverse_generate_window_catalog_distilled_header`**.
 
 **Debug `win64-ninja-msvc-debug` exe (текущий preset):** **`win32_window_catalog_demo`** — **`APPTRAVERSE_ENABLE_DISTILLATION`** (runtime distill в USER при пустом profile); **`win32_window_catalog_demo_load_only`** — без embedded и без distill (только существующий USER). Это **не** build-time embedded path.
 
@@ -1884,7 +1884,7 @@ Embedded USER save вызывал **`FinalizeUiNodeState`** (UI publication): с
 
 **WindowCatalog prototype schema (2026-10-29):** единый прикладной **S0** — `window_prefab` + `desktop_z_order` в Load/Save S0; S1/S2 удалены. Default paths: Win **`surfaces_catalog_s0_proto_state`**, Web **`/persistent/window_catalog_s0_proto_state`**. **Catalog acceptance:** root unsupported-schema **S0→S1**; диагностика до CHECK.
 
-**Regressions (win64-ninja-msvc-debug, 2026-10-29):** **PASS** — `apptraverse_win_ui_command_routing_test`, `apptraverse_win_ui_native_push_button_test`, `apptraverse_win_application_host_test`, `apptraverse_minimal_app_win32_acceptance_test`, `apptraverse_window_catalog_win32_acceptance_test`, `apptraverse_minimal_app_headless_test`, `apptraverse_window_catalog_headless_test`, `apptraverse_ui_control_materialization_test`. **WASM (post-`ea6a599`, 2026-10-29):** `CMAKE_HOME_DIRECTORY` = `apptraverse-wt-unified`, `EMSCRIPTEN=1`; target `web_window_catalog_demo` (link via `em++`, `--shell-file=…/window_catalog_shell.html`, `OUTPUT_NAME` + `.html`) — артефакты **`build/wasm-ninja-debug/examples/surfaces_demo/web/`**: `web_window_catalog_demo.html`, `.js`, `.wasm`, `.worker.js`. **Причина ложного «нет HTML» после W1:** поиск артефактов не в каталоге link output (корень `build/wasm-ninja-debug` / пустой recursive glob) + «ninja: no work to do» при сборке только static-lib targets без проверки `examples/surfaces_demo/web/`. Incremental `--target web_window_catalog_demo` — **build PASS** (без перелинковки). **Browser smoke PASS:** `python tools/serve_wasm.py build/wasm-ninja-debug/examples/surfaces_demo/web --port 8781` + `python tools/wasm_window_catalog_browser_smoke.py --url http://127.0.0.1:8781/web_window_catalog_demo.html` → `WINDOW_CATALOG_INITIAL_RENDER_OK`, screenshot `docs/smoke_artifacts/window_catalog_web_initial.png`. Исторические WASM smoke PASS (другие SHA) сохранены.
+**Regressions (win64-ninja-msvc-debug, 2026-10-29):** **PASS** — `apptraverse_win_ui_command_routing_test`, `apptraverse_win_ui_native_push_button_test`, `apptraverse_win_application_host_test`, `apptraverse_minimal_app_win32_acceptance_test`, `apptraverse_window_catalog_win32_acceptance_test`, `apptraverse_minimal_app_headless_test`, `apptraverse_window_catalog_headless_test`, `apptraverse_ui_control_materialization_test`. **WASM (post-`ea6a599`, 2026-10-29):** `CMAKE_HOME_DIRECTORY` = `apptraverse-wt-unified`, `EMSCRIPTEN=1`; target `web_window_catalog_demo` (link via `em++`, `--shell-file=…/window_catalog_shell.html`, `OUTPUT_NAME` + `.html`) — артефакты **`build/wasm-ninja-debug/examples/window_catalog/web/`**: `web_window_catalog_demo.html`, `.js`, `.wasm`, `.worker.js`. **Причина ложного «нет HTML» после W1:** поиск артефактов не в каталоге link output (корень `build/wasm-ninja-debug` / пустой recursive glob) + «ninja: no work to do» при сборке только static-lib targets без проверки `examples/window_catalog/web/`. Incremental `--target web_window_catalog_demo` — **build PASS** (без перелинковки). **Browser smoke PASS:** `python tools/serve_wasm.py build/wasm-ninja-debug/examples/window_catalog/web --port 8781` + `python tools/wasm_window_catalog_browser_smoke.py --url http://127.0.0.1:8781/web_window_catalog_demo.html` → `WINDOW_CATALOG_INITIAL_RENDER_OK`, screenshot `docs/smoke_artifacts/window_catalog_web_initial.png`. Исторические WASM smoke PASS (другие SHA) сохранены.
 
 ---
 
@@ -1898,7 +1898,7 @@ Embedded USER save вызывал **`FinalizeUiNodeState`** (UI publication): с
 
 **Native E2E:** `TestListNativeSelectionViaProxyAndPublication` — три сценария selection/text/remove; **`TestListTopIndexPreservedWhenTitlePublicationUnchangedSelection`** — 26 строк (`ExtendCommandRoutingListGraphForScroll`), selection 0 + `LB_SETTOPINDEX`, publication только title (`SetUiLocalizationSlotUtf8Event` на `window_presenter->title`). Границы mirror/HWND до/после `ApplyStructural`.
 
-**Regressions (win64-ninja-msvc-debug, scroll follow-up):** **PASS** — тот же набор §W2 + `apptraverse_win_ui_command_routing_test`. **История:** `apptraverse_window_catalog_win32_acceptance_test` — отдельный прогон W2: 1-й run timeout `IsIconic`, повтор **PASS** (причина не установлена). **WASM:** build + browser smoke (`serve_wasm.py`, `examples/surfaces_demo/web`, port **8785**) **PASS**.
+**Regressions (win64-ninja-msvc-debug, scroll follow-up):** **PASS** — тот же набор §W2 + `apptraverse_win_ui_command_routing_test`. **История:** `apptraverse_window_catalog_win32_acceptance_test` — отдельный прогон W2: 1-й run timeout `IsIconic`, повтор **PASS** (причина не установлена). **WASM:** build + browser smoke (`serve_wasm.py`, `examples/window_catalog/web`, port **8785**) **PASS**.
 
 **Windows scope (точно):** библиотечные **Window / List / Button** presenters + **MinimalApp** lifecycle/acceptance/headless; семь backend и переносимость профиля **не** заявлены.
 
@@ -2236,7 +2236,7 @@ Embedded USER save вызывал **`FinalizeUiNodeState`** (UI publication): с
 
 **Проверки (pass 2, incremental Debug, `apptraverse-wt-web5`):** WindowCatalog headless + win32 acceptance + model **PASS**; §W2 **PASS**; Linux L3 smoke **PASS** (WSL, существующий `linux-x64-debug` exe); WASM ×3 **PASS** (`wasm-ninja-debug`, serve **8766** / **8770** / **8765**); Android **12/12 — BLOCKED** (1-й прогон `connectedDebugAndroidTest`: CMake `apptraverse_surfaces` duplicate target @ android `native/CMakeLists.txt:38`, APK не собран; повтор не запускался).
 
-**Android surfaces CMake (2026-11-02):** **`add_subdirectory(${APPTRAVERSE_ROOT})`** поднимает статический **`apptraverse_surfaces`** (root `CMakeLists.txt`); JNI shared target в `examples/surfaces_demo/android/native/CMakeLists.txt` совпадал по имени → CMP0002. **Fix:** CMake target **`apptraverse_surfaces_jni`**, `OUTPUT_NAME` / `System.loadLibrary` без изменений; Gradle `targets "apptraverse_surfaces_jni"`. **12/12:** `examples/minimal_app/android` `connectedDebugAndroidTest` на **`Aether_NDK_Smoke_x86_64`** — **PASS** (1-й прогон, 0 failed). Surfaces demo APK **build PASS** (instrumented tests в модуле нет). §W2 / Headless / Linux / WASM — **NOT RUN** (только Android-native CMake + Gradle).
+**Android surfaces CMake (2026-11-02):** **`add_subdirectory(${APPTRAVERSE_ROOT})`** поднимает статический **`apptraverse_surfaces`** (root `CMakeLists.txt`); JNI shared target в `examples/window_catalog/android/native/CMakeLists.txt` совпадал по имени → CMP0002. **Fix:** CMake target **`apptraverse_surfaces_jni`**, `OUTPUT_NAME` / `System.loadLibrary` без изменений; Gradle `targets "apptraverse_surfaces_jni"`. **12/12:** `examples/minimal_app/android` `connectedDebugAndroidTest` на **`Aether_NDK_Smoke_x86_64`** — **PASS** (1-й прогон, 0 failed). Surfaces demo APK **build PASS** (instrumented tests в модуле нет). §W2 / Headless / Linux / WASM — **NOT RUN** (только Android-native CMake + Gradle).
 
 **Follow-up (2026-11-02, pass 3):** **`Apply(SetWindowCatalogSelectionEvent)`** — убран `if (list)`; перед записью **`selection_index`**: **`list.Load()`** (replay/cold). **`RefreshChromeButtonEnabledState`** — убраны `if (open_button|delete_button)`; **`buttons.open_button.Load()`** / **`delete_button.Load()`** перед **`MaterializeEnabled`**. Пустой selection без изменений. **Prepare** по-прежнему грузит list и chrome buttons до UI.
 
@@ -2529,7 +2529,7 @@ Embedded USER save вызывал **`FinalizeUiNodeState`** (UI publication): с
 | **P2.f.2** — `RunApplicationModelSession` (Load→Prepare→Run→Persist) | §P2.f.2 | **PASS** — `apptraverse_application_model_runtime_test`; demo targets build |
 | **P2.f.3** — embedded BACKING/USER через `RunEmbeddedApplicationModelSession` | §P2.f.3 | **PASS** — `TestEmbeddedModelSessionRoundTrip` |
 | **P2.f** — библиотечный lifecycle | §P2.f | **IN_PROGRESS** |
-| **P3.1a** — WindowCatalog common core/actions (без Win32 graph) | §P3.1a | **PASS** — `surfaces_demo_window_catalog_common`; model + overlay tests |
+| **P3.1a** — WindowCatalog common core/actions (без Win32 graph) | §P3.1a | **PASS** — `window_catalog_window_catalog_common`; model + overlay tests |
 | **P3.1b** — общая композиция graph builder; Windows/Headless adapters; Headless E2E | §P3.1b | **PASS** (win64-ninja-msvc-debug, локально) — `apptraverse_window_catalog_headless_test`; model + overlay tests; demos build. |
 | **P3.2a** — Web initial WindowCatalog chrome (mirror + DOM) | §P3.2a | **PASS (исторически `2c73b99`)** — smoke с ручным CPM cache `7295` (origin-facet append снят). **Актуально на `9d4edb2` + полная patch chain: smoke FAIL** (`LoadApplication id=1`) — см. **P3.T1**. |
 | **P3.2 (оставшееся)** — Web actions + persist | PLAN §P4 | **Перенесено в P4.C2/Web**; не DONE, не текущий NEXT |
@@ -2898,11 +2898,11 @@ Embedded USER save вызывал **`FinalizeUiNodeState`** (UI publication): с
 
 ## P2.e.5 — WindowCatalog Add через presented-window prefab (2026-10-28)
 
-**Модель:** `WindowCatalog` class version **1**; **`WindowCatalog/S1`** — только `window_prefab` (`CatalogWindow::ptr`, lazy unloaded). S0 и ClassId без изменений. Prefab ID **15** (W), presenter **16** (V) в [`window_catalog_ids.h`](../../examples/surfaces_demo/common/window_catalog_ids.h).
+**Модель:** `WindowCatalog` class version **1**; **`WindowCatalog/S1`** — только `window_prefab` (`CatalogWindow::ptr`, lazy unloaded). S0 и ClassId без изменений. Prefab ID **15** (W), presenter **16** (V) в [`window_catalog_ids.h`](../../examples/window_catalog/common/window_catalog_ids.h).
 
-**Дистилляция:** [`BuildWindowCatalogGraph`](../../examples/surfaces_demo/windows/window_catalog_graph.cpp) — `ComposePresentedWindow` (title prefix + locale), frame 160×120 / 480×320 via FrameEvent/Apply, `SaveRoot` W+V, `catalog.window_prefab` = Declare (`kUnloadedByDefault|kUnloaded`); W/V evicted from domain RAM before `InitializeRuntimeNode(*catalog)`.
+**Дистилляция:** [`BuildWindowCatalogGraph`](../../examples/window_catalog/windows/window_catalog_graph.cpp) — `ComposePresentedWindow` (title prefix + locale), frame 160×120 / 480×320 via FrameEvent/Apply, `SaveRoot` W+V, `catalog.window_prefab` = Declare (`kUnloadedByDefault|kUnloaded`); W/V evicted from domain RAM before `InitializeRuntimeNode(*catalog)`.
 
-**AddWindow:** [`window_catalog_model.cpp`](../../examples/surfaces_demo/common/window_catalog_model.cpp) — `CloneCanonicalRoot` from prefab (stable origin W, `stable_prefab_ids` {W,V}, boundary title prefix + locale); per-instance presenter `title` → holder `primary_text`; no Win32 / no platform presenter create in common code; prefab link restored unloaded after Add.
+**AddWindow:** [`window_catalog_model.cpp`](../../examples/window_catalog/common/window_catalog_model.cpp) — `CloneCanonicalRoot` from prefab (stable origin W, `stable_prefab_ids` {W,V}, boundary title prefix + locale); per-instance presenter `title` → holder `primary_text`; no Win32 / no platform presenter create in common code; prefab link restored unloaded after Add.
 
 **Storage:** по-прежнему один `DirectoryDomainStorage` для catalog demo (не production embedded BACKING/USER split).
 
@@ -2980,29 +2980,29 @@ SHA последних связанных коммитов на baseline: `19d7d
 
 ## Итерация 01A — аудит Surfaces startup/distillation
 
-**Область:** [`surfaces_lifecycle.cpp`](../../examples/surfaces_demo/common/surfaces_lifecycle.cpp), [`surfaces_distill.*`](../../examples/surfaces_demo/common/surfaces_distill.cpp), [`surfaces_v1_package.*`](../../examples/surfaces_demo/common/surfaces_v1_package.cpp), [`surfaces_evolution_ops.cpp`](../../examples/surfaces_demo/common/surfaces_evolution_ops.cpp), [`distill.h`](../../include/apptraverse/distill.h), Win32 targets в [`examples/surfaces_demo/windows/CMakeLists.txt`](../../examples/surfaces_demo/windows/CMakeLists.txt). **HEAD аудита:** `d782666`. **T01–T18:** не PASS.
+**Область:** [`surfaces_lifecycle.cpp`](../../examples/window_catalog/common/surfaces_lifecycle.cpp), [`surfaces_distill.*`](../../examples/window_catalog/common/surfaces_distill.cpp), [`surfaces_v1_package.*`](../../examples/window_catalog/common/surfaces_v1_package.cpp), [`surfaces_evolution_ops.cpp`](../../examples/window_catalog/common/surfaces_evolution_ops.cpp), [`distill.h`](../../include/apptraverse/distill.h), Win32 targets в [`examples/window_catalog/windows/CMakeLists.txt`](../../examples/window_catalog/windows/CMakeLists.txt). **HEAD аудита:** `d782666`. **T01–T18:** не PASS.
 
-**Факт (кратко):** начальный граф создаётся в USER через runtime `BuildSurfacesGraph` + `SaveDistilledRoot` при `state_missing` (если включена `APPTRAVERSE_ENABLE_DISTILLATION`); каталог — `--state-dir` / `session_.state_dir`. При уже существующем USER (revision B) перед `LoadApplication` в USER дописывают Surface v1 (`InstallBundledV1Layers`, затем `EnsureMissingSurfaceV1Layers`). Основной цикл и evolution ops используют только `DirectoryDomainStorage`; `OverlayDomainStorage` в Surfaces Demo **не** подключается. `win32_surfaces_demo_load_only` собран **без** `APPTRAVERSE_ENABLE_DISTILLATION` — bootstrap в lifecycle отсутствует.
+**Факт (кратко):** начальный граф создаётся в USER через runtime `BuildSurfacesGraph` + `SaveDistilledRoot` при `state_missing` (если включена `APPTRAVERSE_ENABLE_DISTILLATION`); каталог — `--state-dir` / `session_.state_dir`. При уже существующем USER (revision B) перед `LoadApplication` в USER дописывают Surface v1 (`InstallBundledV1Layers`, затем `EnsureMissingSurfaceV1Layers`). Основной цикл и evolution ops используют только `DirectoryDomainStorage`; `OverlayDomainStorage` в Surfaces Demo **не** подключается. `win32_window_catalog_load_only` собран **без** `APPTRAVERSE_ENABLE_DISTILLATION` — bootstrap в lifecycle отсутствует.
 
 | Файл / функция | Текущее поведение | Соответствие PLAN | Что делать позже | Защищающий тест |
 | --- | --- | --- | --- | --- |
 | `SurfacesModelSession::Run` — `state_missing` | `true`, если каталога нет или в нём нет перечисления классов у Application | INVESTIGATE | Согласовать с «пустой USER + embedded EXE» (ит. **06**); не путать отсутствие каталога с отсутствием поставки | — |
-| `Run` — блок `APPTRAVERSE_ENABLE_DISTILLATION` | При `state_missing`: `BuildSurfacesGraph` → `FinalizeDistilledGraph` → `SaveDistilledRoot` в `state_dir` | REPLACE | Целевой старт: дистиллированный граф из EXE/backing, USER пуст или только пользовательские слои; dev-distill оставить за флагом/отдельной целью (ит. **05–06**) | `apptraverse_surfaces_demo_version_matrix` (`create` через EXE A — тот же distill-путь) |
+| `Run` — блок `APPTRAVERSE_ENABLE_DISTILLATION` | При `state_missing`: `BuildSurfacesGraph` → `FinalizeDistilledGraph` → `SaveDistilledRoot` в `state_dir` | REPLACE | Целевой старт: дистиллированный граф из EXE/backing, USER пуст или только пользовательские слои; dev-distill оставить за флагом/отдельной целью (ит. **05–06**) | `apptraverse_window_catalog_version_matrix` (`create` через EXE A — тот же distill-путь) |
 | `FinalizeDistilledGraph` / `SaveDistilledRoot` ([`distill.h`](../../include/apptraverse/distill.h)) | **KEEP** (библиотека): `FinalizeDistilledGraph` инициализирует runtime `Node::base` без журнала; `SaveDistilledRoot` вызывает `Save()` через storage **Domain** объекта (диск только если Domain на `DirectoryDomainStorage`). **REPLACE** — bootstrap в Surfaces, который пишет начальное состояние прямо в пользовательский `state_dir`; полнота исходного графа — отдельная проверка, не гарантия `SaveDistilledRoot` | Offline/embedded distill + lazy load; не equate runtime bootstrap save с поставкой EXE | matrix `create`; GUI bootstrap с `APPTRAVERSE_ENABLE_DISTILLATION` |
-| `BuildSurfacesGraph` ([`surfaces_distill.cpp`](../../examples/surfaces_demo/common/surfaces_distill.cpp)) | In-memory граф Application/Surface v0, presenters, localization | KEEP (dev) | Источник для embedded/backing; комментарий «production load never calls» уже верен | matrix `create` |
+| `BuildSurfacesGraph` ([`surfaces_distill.cpp`](../../examples/window_catalog/common/surfaces_distill.cpp)) | In-memory граф Application/Surface v0, presenters, localization | KEEP (dev) | Источник для embedded/backing; комментарий «production load never calls» уже верен | matrix `create` |
 | `Run` — v1 при `!state_missing` (rev B) | После bootstrap **не** вызывается; при повторном запуске: install + ensure, затем load | REPLACE | Начальный S1 не должен материализоваться в USER из EXE-adjunct; см. PLAN «динамика из EXE» (ит. **10**) | matrix не покрывает auto second-start; `install-bundled` / lifecycle B — отдельно |
 | `SurfacesDemoInstallBundledV1Layers` | Копирует файл слоя `Surface/1` из `surface_v1_package` (рядом с EXE или `APPTRAVERSE_SURFACE_V1_PACKAGE`) в `state_dir`, только если есть v0 и нет v1 | REPLACE | Пакет рядом с EXE — зачаток offline-поставки; не копировать начальные динамические слои в USER (ит. **07–08**) | matrix `prepare` (ручное копирование после `package` — эквивалент проверки v1 bytes); до удаления нужен embedded lifecycle |
 | `SurfacesDemoEnsureMissingSurfaceV1Layers` | `LoadRoot` v0, задаёт `window_title_suffix` из runtime (` [demo-v1]` / ` [sN]`), `SaveVersion<1>` в USER | REPLACE | Противоречит правилу «начальные динамические слои в EXE, не synthesize в USER»; заменить embedded/backing + overlay skip (ит. **10**) | matrix `supplied-v1-layer`, `rollback` (suffix через реальный v1 на диске); evolution `set-suffix` / B load path |
-| `RunSurfacesEvolutionOp` — `create` / `bootstrap` | Пустой каталог → тот же distill + save, JSON inspect | REPLACE (prod) / KEEP (fixture) | Matrix опирается на EXE A `create`; позже — empty USER + load from EXE | `apptraverse_surfaces_demo_version_matrix` |
+| `RunSurfacesEvolutionOp` — `create` / `bootstrap` | Пустой каталог → тот же distill + save, JSON inspect | REPLACE (prod) / KEEP (fixture) | Matrix опирается на EXE A `create`; позже — empty USER + load from EXE | `apptraverse_window_catalog_version_matrix` |
 | `RunSurfacesEvolutionOp` — `package` (EXE B) | Пишет только synthetic v1 layer в каталог (без v0) | KEEP | Аналог offline-генерации слоя до `state/R`; не путать с USER seed | matrix `prepare` (`package` + digest v1) |
 | `RunSurfacesEvolutionOp` — `install-bundled` | Install + ensure без load session | REMOVE LATER | Дублирует lifecycle v1 seeding; удалить после embedded path | Нет в matrix; заменить сценарием embedded/T11 до удаления |
 | `RunSurfacesEvolutionOp` — load path (B, не `inspect`) | Перед `LoadApplication`: install + ensure | REMOVE LATER | То же, что lifecycle B; убрать когда v1 только из backing | matrix `rollback` / `move` / `set-suffix` (ожидают v1 в USER после prepare) |
 | `Run` — `DirectoryDomainStorage` + `LoadApplication` + shutdown `application.Save()` | Единственный storage в GUI lifecycle; save session на exit | KEEP | Позже overlay/backing для констант и lazy (PLAN fixtures; ит. **04**, **08**) | matrix + ручные demo runs |
 | `OverlayDomainStorage` | Не используется в Surfaces Demo | KEEP (библиотека) | Подключить по PLAN для EXE/backing vs USER (не в scope 01A) | `model_persistence`, window/event matrices (не Surfaces) |
-| `win32_surfaces_demo` vs `win32_surfaces_demo_load_only` | Полный demo: distill включён; load-only: v0 libs, **без** distill define | KEEP | Load-only — эталон «только load» до embedded bootstrap | INVESTIGATE — отдельный CTest при необходимости |
+| `win32_window_catalog` vs `win32_window_catalog_load_only` | Полный demo: distill включён; load-only: v0 libs, **без** distill define | KEEP | Load-only — эталон «только load» до embedded bootstrap | INVESTIGATE — отдельный CTest при необходимости |
 | POST_BUILD `surface_v1_package` → output dir | Копирует bundled v1 рядом с EXE B (если каталог есть в tree) | REMOVE LATER | Заменить embedded ресурсом EXE; в tree каталог может отсутствовать → install no-op, срабатывает ensure | Lifecycle B second start; `install-bundled` |
 
-**Тесты vs старый v1-механизм ([`surfaces_demo_version_matrix.py`](../../tests/surfaces_demo_version_matrix.py)):** `prepare` создаёт v0 через EXE A `create` (distill), v1 — через EXE B `package` и **явное** `shutil.copyfile` в USER (не `install-bundled`). Проверяются отказ B без v1 (`MISSING_STATE_LAYER`), неизменность v0 при установке v1, rollback с раздельными v0/v1. **Нельзя** снять matrix без эквивалента: cross-process A/B, сохранение suffix в v1, move только в v0, отказ B без слоя. Операции `install-bundled` и auto install+ensure в lifecycle **не** покрыты matrix напрямую — при REPLACE нужны новые checks embedded/overlay.
+**Тесты vs старый v1-механизм ([`window_catalog_version_matrix.py`](../../tests/window_catalog_version_matrix.py)):** `prepare` создаёт v0 через EXE A `create` (distill), v1 — через EXE B `package` и **явное** `shutil.copyfile` в USER (не `install-bundled`). Проверяются отказ B без v1 (`MISSING_STATE_LAYER`), неизменность v0 при установке v1, rollback с раздельными v0/v1. **Нельзя** снять matrix без эквивалента: cross-process A/B, сохранение suffix в v1, move только в v0, отказ B без слоя. Операции `install-bundled` и auto install+ensure в lifecycle **не** покрыты matrix напрямую — при REPLACE нужны новые checks embedded/overlay.
 
 ---
 
@@ -3058,7 +3058,7 @@ SHA последних связанных коммитов на baseline: `19d7d
 
 ## Итерация 01D — избыточность и порядок очистки
 
-**Область (срез аудита `7dd187f`, опирается на [01A](#итерация-01a--аудит-surfaces-startupdistillation)–[01C](#итерация-01c--константность-и-ссылки)):** [`apptraverse.cpp`](../../src/apptraverse.cpp), [`surfaces_registration.*`](../../src/surfaces/surfaces_registration.cpp), [`surfaces_lifecycle.cpp`](../../examples/surfaces_demo/common/surfaces_lifecycle.cpp), [`surfaces_evolution_ops.cpp`](../../examples/surfaces_demo/common/surfaces_evolution_ops.cpp), [`surfaces_v1_package.cpp`](../../examples/surfaces_demo/common/surfaces_v1_package.cpp), [`overlay_domain_storage.cpp`](../../src/overlay_domain_storage.cpp). **T01–T18:** не PASS.
+**Область (срез аудита `7dd187f`, опирается на [01A](#итерация-01a--аудит-surfaces-startupdistillation)–[01C](#итерация-01c--константность-и-ссылки)):** [`apptraverse.cpp`](../../src/apptraverse.cpp), [`surfaces_registration.*`](../../src/surfaces/surfaces_registration.cpp), [`surfaces_lifecycle.cpp`](../../examples/window_catalog/common/surfaces_lifecycle.cpp), [`surfaces_evolution_ops.cpp`](../../examples/window_catalog/common/surfaces_evolution_ops.cpp), [`surfaces_v1_package.cpp`](../../examples/window_catalog/common/surfaces_v1_package.cpp), [`overlay_domain_storage.cpp`](../../src/overlay_domain_storage.cpp). **T01–T18:** не PASS.
 
 **Параллельные пути подготовки USER (Surfaces):** (1) runtime bootstrap — `BuildSurfacesGraph` + `SaveDistilledRoot` при `state_missing` ([01A](#итерация-01a--аудит-surfaces-startupdistillation)); (2) копирование bundled v1 — `SurfacesDemoInstallBundledV1Layers`; (3) синтез v1 — `SurfacesDemoEnsureMissingSurfaceV1Layers`; (4) evolution `install-bundled`; (5) fixtures — evolution `create` / `package` + matrix `prepare`. Dev-distill и fixture `package` **KEEP** как dev/offline; **REPLACE** использование (2–4) для начальных динамических слоёв в USER — после embedded/backing (**ит. 06**, **10**, **14**).
 
@@ -3067,9 +3067,9 @@ SHA последних связанных коммитов на baseline: `19d7d
 | `EnsureObjectRegistration` ([`apptraverse.cpp`](../../src/apptraverse.cpp)) | Линковка core/UI registrars | **KEEP** | Не удалять по имени | Много CTest entrypoints; `journal_retention_test` и др. |
 | `EnsureSurfacesRegistration` | `RegisterLiveGraphEdgeAppender` + touch surfaces registrars + presenter regs | **KEEP** | Нужен для live-graph edges и surfaces classes | `surfaces_model_test`, smoke tests |
 | `EnsureSurfacesModelRegistration` | Alias в header; **вызовов в repo не найдено** (кроме inline) | **INVESTIGATE** | Удалить alias после grep=0 и согласования demo/tests | Прямой проверки alias **нет** |
-| `EnsureSurfacesRegistration` в `SurfacesDemoEnsureMissingSurfaceV1Layers` | Повтор после `RunSurfacesEvolutionOp` (стр. 101–102) или после `SurfacesModelSession::Run` (стр. 66) | **INVESTIGATE** | Убрать только если доказано, что appender/registrars уже инициализированы в **той же** цепочке; иначе риск отдельного entry | `apptraverse_surfaces_demo_version_matrix`; evolution ops |
+| `EnsureSurfacesRegistration` в `SurfacesDemoEnsureMissingSurfaceV1Layers` | Повтор после `RunSurfacesEvolutionOp` (стр. 101–102) или после `SurfacesModelSession::Run` (стр. 66) | **INVESTIGATE** | Убрать только если доказано, что appender/registrars уже инициализированы в **той же** цепочке; иначе риск отдельного entry | `apptraverse_window_catalog_version_matrix`; evolution ops |
 | `EnsureSurfacesRegistration` в demo `main` + в `Run` / evolution | Независимые entry: `main` → Object+Surfaces, session только Surfaces | **KEEP** | Разные точки входа, не дубль в одном стеке | Platform smoke tests |
-| `SurfacesDemoInstallBundledV1Layers` + lifecycle/evolution auto-call | Дублирует смысл offline v1 в USER ([01A](#итерация-01a--аудит-surfaces-startupdistillation)) | **REMOVE LATER** | После embedded v1/backing (**10**, **06**); matrix эквивалент | `surfaces_demo_version_matrix` `prepare` / `rollback` |
+| `SurfacesDemoInstallBundledV1Layers` + lifecycle/evolution auto-call | Дублирует смысл offline v1 в USER ([01A](#итерация-01a--аудит-surfaces-startupdistillation)) | **REMOVE LATER** | После embedded v1/backing (**10**, **06**); matrix эквивалент | `window_catalog_version_matrix` `prepare` / `rollback` |
 | `SurfacesDemoEnsureMissingSurfaceV1Layers` | Runtime `SaveVersion<1>` defaults в USER | **REMOVE LATER** | То же; замена embedded + overlay | matrix + B lifecycle second-start |
 | `RunSurfacesEvolutionOp` — `install-bundled` | Обёртка install+ensure без session | **REMOVE LATER** | После embedded path (**14**) | Прямой CTest **нет**; matrix не вызывает |
 | `BackingComparedStorageWriter::failed_` | Инициал `false`; проверки в `Write`/dtor; **присваивания `true` нет** | **INVESTIGATE** | Локально убрать поле/ветки после подтверждения в коде; не трогать compare logic | `TestUnchangedBackingLayerIsNotMaterialized` (overlay) |
@@ -3224,7 +3224,7 @@ Happy path и семантические инварианты — сейчас; 
 | --- | --- | --- | --- | --- |
 | 01 | PASS | — | — | Аудит **01A–01D** (doc only); код не менялся |
 | 02 | PASS | — | — | Layout `state/`, `user/`, `<R>/`, `active-release` ([PLAN §02](./PLAN.md#решение-итерации-02--каталоги-и-номера-поставок)); код не менялся |
-| 03 | PASS | — | `ctest -R release_metadata` Debug + Release (9/9 each) | `examples/surfaces_demo/release.json` + probe; не Surfaces GUI |
+| 03 | PASS | — | `ctest -R release_metadata` Debug + Release (9/9 each) | `examples/window_catalog/release.json` + probe; не Surfaces GUI |
 | 04 | PASS | — | `apptraverse_overlay_domain_storage_test` + `apptraverse_model_persistence_test` Debug/Release | Storage discard-only; без runtime const checks |
 | 05 | PASS | `b3134f4` | `apptraverse_*_distilled_embedded_matrix`, overlay + model_persistence Debug/Release | Exporter→generated header→consumer |
 | 06 | PASS | `ce46b80` | `apptraverse_prefab_release_matrix` Debug/Release | Headless prefab R0→R2 + **06B** delta-first base S1, v30 BACKING replay, lazy B, journal unknown; Surfaces **не** менялись |
@@ -3291,7 +3291,7 @@ Happy path и семантические инварианты — сейчас; 
 - **2026-10-23** — **04 (doc):** нормативный контракт в [PLAN §04](./PLAN.md#решение-итерации-04--контракт-const-vs-dynamic); срез **`b5d6f5a`**; **`6969ad2`** link fix (SHA — отдельные commits).
 - **2026-10-23** — **04 (storage):** `OverlayDomainStorage` supply constants + overlay tests; push — `3cf56cd`.
 - **2026-10-23** — **04 (policy):** runtime const-mutation checks **отменены**; storage discard-only для const USER; Cursor rule Events; **04 PASS**; Debug/Release overlay + model_persistence; push — SHA commit ниже.
-- **2026-10-24** — **05:** build-time `BuildSurfacesGraph`/lazy distill → `WriteEmbeddedDistilledSupplyHeader`; `InstallEmbeddedDistilledBacking` + `OverlayDomainStorage` supply ids; load-only consumers + Python matrix (пустой cwd); headless distill embed (`surfaces_demo_distill_embed`); **05 PASS**; Debug/Release 4/4 ctest; push — **`b3134f4`**.
+- **2026-10-24** — **05:** build-time `BuildSurfacesGraph`/lazy distill → `WriteEmbeddedDistilledSupplyHeader`; `InstallEmbeddedDistilledBacking` + `OverlayDomainStorage` supply ids; load-only consumers + Python matrix (пустой cwd); headless distill embed (`window_catalog_distill_embed`); **05 PASS**; Debug/Release 4/4 ctest; push — **`b3134f4`**.
 - **2026-10-24** — **07:** prototype `distilled_supply_package` (BinaryArchive: supply ids + upsert layers); split embed R0/R2; R1 delta `main-title-A→B`; R0 `--supply-package`; semantic lifecycle matrix (без corrupt-package tests); **07 PASS** (push SHA — commit упрощения).
 - **2026-10-24** — **07 (prototype wire):** убран APSP/CRC/corrupt validation; BinaryArchive-only package; правило в `.cursor/rules/apptraverse-coding-agent.mdc`; **07 PASS**; push — **`ad022fe`**.
 - **2026-10-24** — **08:** `active-release` + fixture backing chain `embedded → packages`; matrix A–E + R2/T13; `--supply-package` matrix сохранена; **08 PASS**; push — **`045761a`**.
@@ -3501,7 +3501,7 @@ See [full evidence and scope](../validation/window-catalog-minsizerel-2026-11-10
 - Final emulator Android14/API34 x86_64: **Debug 5/5 PASS, 40.007s; debugLoadOnly 5/5 PASS, 41.807s**. Native input, localization, rotation, same-process Activity replacement, no working writes, one-file background save, cold restore and fresh Debug file preservation verified. Android runtime symbols exclude builders/distillation; C++ runtime is static.
 - Shared regression: focused model/Android embedded **2/2 PASS**; final Linux private Xvfb/Openbox **15/15 PASS, 46.67s**. Windows batch **24/25 PASS, 142.49s**, then the unchanged native foreground test **1/1 PASS, 11.10s** after activating only the test's main window once. Emulator foreground ownership caused the earlier focus failure; no production/test workaround was added. All 25 checks are covered across the batch and focused rerun; not a clean 25/25 batch claim. Final Windows Close 5x4 diagnostic also PASS.
 - Existing dependency sources and incremental Debug builds retained. ARM64/physical devices/Release/other examples NOT RUN. Linux's WSLg exact-position limitation and deferred maximization remain unchanged. Apple branch untouched.
-- [Detailed implementation, failures, evidence and scope](../validation/window-catalog-android-port-2026-11-10.md); [portable Android reproduction](../../examples/surfaces_demo/android/README.md). Emulator remains running with normal Debug for inspection.
+- [Detailed implementation, failures, evidence and scope](../validation/window-catalog-android-port-2026-11-10.md); [portable Android reproduction](../../examples/window_catalog/android/README.md). Emulator remains running with normal Debug for inspection.
 
 ## 2026-11-10 — WebAssembly WindowCatalog port — PASS
 
@@ -3510,7 +3510,7 @@ See [full evidence and scope](../validation/window-catalog-minsizerel-2026-11-10
 - Builder/distillation remain in the Debug Node producer; one registration entry point and runtime-only objects serve both browser consumers. Fixed actual Wasm i32/uint32 ObjId mismatch that made cloned pages unreachable by DOM lookup; no fallback added.
 - Final Emscripten3.1.64 Debug build PASS. SDK Node24.19.0 embedded-session **PASS,0.876s**. Chrome157.0.8103.39 real browser acceptance **PASS,9.830s**: native DOM actions, touch swipes, locale, resize, one-file shutdown, two cold restarts, fresh Debug preservation. Runtime Wasm symbols exclude the inspected graph builders/distiller. Python syntax/diff checks PASS.
 - No shared-source changes after the Android checkpoint's Windows/Linux/Android regressions. Other browsers/devices, Release, production deployment and other examples NOT RUN. macOS/iOS branch untouched; maximization remains deferred.
-- [Detailed Web verification](../validation/window-catalog-web-port-2026-11-10.md); [portable reproduction](../../examples/surfaces_demo/web/README.md). Local server remains at `http://127.0.0.1:8785/web_window_catalog_demo.html`.
+- [Detailed Web verification](../validation/window-catalog-web-port-2026-11-10.md); [portable reproduction](../../examples/window_catalog/web/README.md). Local server remains at `http://127.0.0.1:8785/web_window_catalog_demo.html`.
 
 ## 2026-11-11 — Android/Web ordinary close and restart
 

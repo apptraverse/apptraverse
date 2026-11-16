@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Browser smoke for web_surfaces_demo on the integration SHA."""
+"""Browser smoke for web_window_catalog on the integration SHA."""
 
 from __future__ import annotations
 
@@ -57,7 +57,7 @@ def clear_idb(page) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--url", default="http://127.0.0.1:8765/web_surfaces_demo.html"
+        "--url", default="http://127.0.0.1:8765/web_window_catalog.html"
     )
     args = parser.parse_args()
 

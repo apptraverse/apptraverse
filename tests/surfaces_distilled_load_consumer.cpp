@@ -44,13 +44,13 @@ int main() {
   ae::Domain domain{overlay};
 
   ae::ObjId const root_id{
-      apptraverse::surfaces_demo::ToObjId(
-          apptraverse::surfaces_demo::ObjId::Application)};
+      apptraverse::window_catalog::ToObjId(
+          apptraverse::window_catalog::ObjId::Application)};
   auto application =
       apptraverse::LoadApplication<apptraverse::Application>(domain, root_id);
 
   WriteUnsignedLine("EMBEDDED_RELEASE",
-                    apptraverse::surfaces_demo::kEmbeddedRelease);
+                    apptraverse::window_catalog::kEmbeddedRelease);
   WriteUnsignedLine("SURFACE_COUNT",
                     static_cast<unsigned>(
                         application->surfaces->surfaces.size()));
