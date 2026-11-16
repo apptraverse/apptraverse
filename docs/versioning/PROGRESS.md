@@ -3765,3 +3765,14 @@ native/OS-background matrix passed; full macOS cold native-click scope remains
 blocked by the interactive foreground precondition. See
 [scoped validation](../validation/apple-host-extension-2026-11-14.md). Other
 backend runtimes and physical iPhone runtime are not claimed.
+
+## 2026-11-16: SwiftUI consumer build verification
+
+The public-safe Apple host integration at 188cd3e, with the pinned Aether SDK
+8d7b507 (iOS c-ares CMake platform guard), linked the AeroAdmin Chat SwiftUI
+consumer in MinSizeRel for macOS x86_64, iOS ARM64 and iOS Simulator x86_64
+using Xcode 15.2. macOS visible-window launch, ordinary quit with USER save
+and cold launch passed. These are consuming-application build/lifecycle checks,
+not a rerun of the WindowCatalog or other backend runtime matrices. Physical
+iPhone and a new network roundtrip were not run. Simulator UI acceptance is
+recorded independently by the consumer; no uncompleted UI test is marked PASS.
