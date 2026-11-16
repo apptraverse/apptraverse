@@ -1,5 +1,6 @@
 #include "apptraverse/connection_hub.h"
 
+#include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <map>
@@ -156,7 +157,10 @@ class ChannelPresence final : public IPresenceSource {
 struct ConnectionHub::Impl {
   std::shared_ptr<Shared> shared = std::make_shared<Shared>();
   std::unique_ptr<ConnectionRuntime> manual;
-  std::jthread worker;
+  std::thread worker;
+  std::atomic<bool> stop{false};
+  std::mutex wake_mutex;
+  std::condition_variable wake;
   std::vector<PresenceTarget> watched;
   bool bound{false};
   std::string last_sent_channel;
@@ -257,15 +261,13 @@ ConnectionHub::ConnectionHub(Factory factory, bool run_worker)
     return;
   }
   impl_->worker =
-      std::jthread([this, factory = std::move(factory)](std::stop_token stop) {
+      std::thread([this, factory = std::move(factory)] {
         ConnectionRuntime runtime{factory()};
-        std::mutex mutex;
-        std::condition_variable_any wake;
-        while (!stop.stop_requested()) {
+        while (!impl_->stop.load()) {
           impl_->Service(runtime, ReadConnectionTime());
-          std::unique_lock lock{mutex};
-          wake.wait_for(lock, stop, std::chrono::milliseconds{10},
-                        [] { return false; });
+          std::unique_lock lock{impl_->wake_mutex};
+          impl_->wake.wait_for(lock, std::chrono::milliseconds{10},
+                               [this] { return impl_->stop.load(); });
         }
         if (impl_->bound) runtime.Transport().SetReceiver({});
         std::lock_guard lock{impl_->shared->mutex};
@@ -275,7 +277,8 @@ ConnectionHub::ConnectionHub(Factory factory, bool run_worker)
       });
 }
 ConnectionHub::~ConnectionHub() {
-  impl_->worker.request_stop();
+  impl_->stop.store(true);
+  impl_->wake.notify_all();
   if (impl_->worker.joinable()) impl_->worker.join();
   if (impl_->manual && impl_->bound) impl_->manual->Transport().SetReceiver({});
 }

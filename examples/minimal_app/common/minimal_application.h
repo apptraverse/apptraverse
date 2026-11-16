@@ -105,6 +105,7 @@ class MinimalAuxiliaryCloserButton
   ae::ObjPtr<MinimalApplication> application;
 
   void HandlePushButtonClicked() override;
+  void QueueClickFromUi(ModelObjectProxy& proxy) const override;
 };
 
 struct MinimalAuxiliaryWindowState {
@@ -189,6 +190,7 @@ class MinimalApplication : public NodeFor<MinimalApplication> {
   void LoadAuxiliaryPresentation();
   void OpenAuxiliaryWindowImpl();
   void CloseAuxiliaryWindowImpl();
+  void NotifyAuxiliaryCloseFromUi(std::uint32_t window_obj_id);
 
 };
 

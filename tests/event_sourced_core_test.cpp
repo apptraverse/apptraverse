@@ -199,7 +199,7 @@ void TestMonotonicTimestampWithoutSleep() {
   CHECK(doc->value == 20);
 }
 
-void TestOrderUsesTimestampOnly() {
+void TestTimestampIsPrimaryOrder() {
   EventRecord const early{.order = EventOrder{.timestamp_us = 100}};
   EventRecord const late{.order = EventOrder{.timestamp_us = 200}};
   CHECK(EventRecordOrderLess(early, late));
@@ -244,6 +244,37 @@ void TestMidJournalEventReplaysByTimestamp() {
   CHECK(doc->value == 6);
 }
 
+void TestEqualTimestampConvergesInEitherArrivalOrder() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto first_base = CounterDocument::ptr::Create(ae::CreateWith{domain}.with_id(60));
+  auto second_base = CounterDocument::ptr::Create(ae::CreateWith{domain}.with_id(61));
+  auto first = CounterDocument::ptr::Create(ae::CreateWith{domain}.with_id(62));
+  auto second = CounterDocument::ptr::Create(ae::CreateWith{domain}.with_id(63));
+  first->base = first_base;
+  second->base = second_base;
+  first->CaptureBaseState();
+  second->CaptureBaseState();
+  auto a = AddEvent::ptr::Create(ae::CreateWith{domain}.with_id(70));
+  auto b = AddEvent::ptr::Create(ae::CreateWith{domain}.with_id(71));
+  a->tag = "A";
+  b->tag = "B";
+  first->InsertAtForTest(500, a);
+  first->InsertAtForTest(500, b);
+  second->InsertAtForTest(500, b);
+  second->InsertAtForTest(500, a);
+  CHECK(first->label == "AB" && second->label == "AB");
+  CHECK(first->journal[0].event.id() == a.id());
+  CHECK(second->journal[0].event.id() == a.id());
+  first->SetJournalRetentionPolicy({.max_events = 0});
+  second->SetJournalRetentionPolicy({.max_events = 0});
+  first->CompactJournal(apptraverse::SystemUtcMicros());
+  second->CompactJournal(apptraverse::SystemUtcMicros());
+  CHECK(first->label == second->label);
+  CHECK(first->journal.empty() && second->journal.empty());
+  CHECK(first->journal.size() == second->journal.size());
+}
+
 void TestStableClassIdsAreUnique() {
   using apptraverse::Event;
   using apptraverse::Node;
@@ -273,8 +304,9 @@ int main() {
   apptraverse::test::TestSaveLoad();
   apptraverse::test::TestStableClassIdsAreUnique();
   apptraverse::test::TestMonotonicTimestampWithoutSleep();
-  apptraverse::test::TestOrderUsesTimestampOnly();
+  apptraverse::test::TestTimestampIsPrimaryOrder();
   apptraverse::test::TestMidJournalEventReplaysByTimestamp();
+  apptraverse::test::TestEqualTimestampConvergesInEitherArrivalOrder();
   std::cout << "event_sourced_core_test OK\n";
   return 0;
 }

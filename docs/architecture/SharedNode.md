@@ -435,10 +435,12 @@ and optional real-cloud execution evidence have separate validation records.
 Removal/rejoin, admission by multiple coordinators, host failover during
 admission and generic merging of independently formed rooms are not implemented.
 
-Ordering remains by `timestamp_us` within the agreed single-computer scope.
-Event identity does not become a hidden ordering key. Equal-timestamp behavior
-must be settled before claiming general convergence. Cross-machine clock
-ordering remains outside the demonstrated scope.
+Ordering uses `timestamp_us` as the primary key within the agreed
+single-computer scope. For equal timestamps, the serialized Event ID is an
+explicit ascending tie-breaker, independent of delivery order. Per-author
+indexes remain delivery cursors. This resolves equal-time journal replay for
+replicas with the same Events; it does not synchronize clocks or establish
+cross-machine chronological order.
 
 ## Headless entry point
 

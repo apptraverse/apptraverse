@@ -1,5 +1,6 @@
 #include "apptraverse/process_services.h"
 
+#include <atomic>
 #include <condition_variable>
 #include <map>
 #include <mutex>
@@ -43,7 +44,10 @@ struct ProcessServices::Impl {
   std::int64_t utc{0};
   std::uint64_t network_sequence{1}, clock_sequence{1};
   std::unique_ptr<NetworkSubscription> observer;
-  std::jthread clock;
+  std::thread clock;
+  std::atomic<bool> stop{false};
+  std::mutex wake_mutex;
+  std::condition_variable wake;
   std::vector<std::shared_ptr<Slot>> Live() {
     std::vector<std::shared_ptr<Slot>> result;
     std::erase_if(slots, [&](auto const& w) {
@@ -61,19 +65,18 @@ ProcessServices::ProcessServices(NetworkObserverFactory factory, bool run_clock)
   if (factory)
     impl_->observer = factory([this](auto value) { ObserveNetwork(value); });
   if (run_clock)
-    impl_->clock = std::jthread([this](std::stop_token stop) {
-      std::mutex mutex;
-      std::condition_variable_any wake;
-      while (!stop.stop_requested()) {
+    impl_->clock = std::thread([this] {
+      while (!impl_->stop.load()) {
         ObserveClock(ReadConnectionTime().utc_us / 1000000 * 1000000);
-        std::unique_lock lock{mutex};
-        wake.wait_for(lock, stop, std::chrono::seconds{1},
-                      [] { return false; });
+        std::unique_lock lock{impl_->wake_mutex};
+        impl_->wake.wait_for(lock, std::chrono::seconds{1},
+                             [this] { return impl_->stop.load(); });
       }
     });
 }
 ProcessServices::~ProcessServices() {
-  impl_->clock.request_stop();
+  impl_->stop.store(true);
+  impl_->wake.notify_all();
   if (impl_->clock.joinable()) impl_->clock.join();
   impl_->observer.reset();
 }
