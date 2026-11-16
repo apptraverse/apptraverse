@@ -166,6 +166,11 @@ option(APPTRAVERSE_BUILD_AETHER_LINK
 if(APPTRAVERSE_BUILD_AETHER_LINK)
   include(cmake/shared_aether.cmake)
   apptraverse_add_shared_aether()
+  if(EMSCRIPTEN AND APPTRAVERSE_MINIMUM_64)
+    # The pinned SDK's -Werror treats variables used only by Debug asserts as
+    # release failures. Keep its diagnostics visible in the Web size build.
+    target_compile_options(aether PRIVATE -Wno-error)
+  endif()
   add_library(apptraverse_shared_chat_session STATIC EXCLUDE_FROM_ALL src/chat_session.cpp)
   target_link_libraries(apptraverse_shared_chat_session PUBLIC apptraverse_shared_aether)
   if(WIN32 AND BUILD_TESTING)

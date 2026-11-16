@@ -4,6 +4,13 @@ Minimal Windows/macOS demonstration: one host creates a room, participants join 
 the host Aether ID, and each participant sends its own Events directly to every peer.
 Fixed English labels; no localization or extra chat features.
 
+The native `shared_node_chat_headless` target uses the same `ChatSession`,
+SharedNode journal and embedded transport supply without a UI graph or window.
+Run `shared_node_chat_headless PROFILE NAME` on Windows, Linux or macOS, then enter
+`host`, `join HOST-AETHER-UID`, `send MESSAGE`, or `stop` on stdin. It prints
+the local UID and newly materialized messages. Use a separate private profile
+per process. Push configuration is optional and not needed for ordinary chat.
+
 Enable `APPTRAVERSE_BUILD_AETHER_LINK=ON` and
 `APPTRAVERSE_BUILD_SHARED_NODE_CHAT=ON` in an existing Debug build. The SDK must
 match the exact public revision in `cmake/shared_aether.cmake`.

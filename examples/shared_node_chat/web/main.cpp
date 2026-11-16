@@ -28,7 +28,7 @@ EM_JS(void,PresentControl,(unsigned id,const char* text,int x,int y,int width,in
     element=document.createElement(tag);element.id='control-'+id;element.pending=0n;root.appendChild(element);
     if(id===3||id===9)element.addEventListener('input',function(){
       Module.sharedRevision=(Module.sharedRevision||0n)+1n;element.pending=Module.sharedRevision;
-      var ptr=stringToNewUTF8(element.value);Module._SharedEdit(id,BigInt(ptr));_free(ptr);
+      var ptr=stringToNewUTF8(element.value);Module._SharedEdit(id,ptr);_free(ptr);
     });
     if(id===2)element.addEventListener('click',function(){
       navigator.clipboard.writeText(document.getElementById('control-1').value).then(()=>Module._SharedCopyResult(1),()=>Module._SharedCopyResult(0));
@@ -56,7 +56,7 @@ struct Host:gui::Presentation{
 } host;
 void Render(){if(session)session->ApplyPublication(host);}
 void Changed(){if(!emscripten_proxy_async(queue,emscripten_main_runtime_thread_id(),[](void*){Render();},nullptr))std::abort();}
-EM_JS(void,Error,(),{document.getElementById('loading').textContent='Could not load saved state';});
+EM_JS(void,ShowChatLoadError,(),{document.getElementById('loading').textContent='Could not load saved state';});
 EM_JS(void,InstallLifecycle,(),{
   var resize=()=>Module._SharedResize(document.documentElement.clientWidth,window.innerHeight);
   addEventListener('resize',resize);resize();
@@ -81,14 +81,14 @@ EMSCRIPTEN_KEEPALIVE void SharedStart(const char* who,const char* invited,const 
     apptraverse::web::MountIdbfsAndSyncLoad("/shared-network",[name,invite,key,is_host,load_only]{
       session=std::make_unique<gui::Session>(profile,name,is_host,invite,Changed,load_only,FlushTransport,"/shared-network/"+key);
       session->Start();InstallLifecycle();
-    },Error);
-  },Error);
+    },ShowChatLoadError);
+  },ShowChatLoadError);
 }
 EM_JS(void,BeginQuery,(),{
     var query=new URLSearchParams(location.search),profile=query.get('profile')||'default';
     if(!/^[A-Za-z0-9_-]+$/.test(profile))throw new Error('Invalid profile');
     var args=[query.get('name')||'Web',query.get('invite')||'',profile].map(value=>stringToNewUTF8(value));
-    Module._SharedStart(BigInt(args[0]),BigInt(args[1]),BigInt(args[2]),query.get('role')==='client'?0:1,query.get('loadOnly')==='1'?1:0);
+    Module._SharedStart(args[0],args[1],args[2],query.get('role')==='client'?0:1,query.get('loadOnly')==='1'?1:0);
     args.forEach(ptr=>_free(ptr));
 });
 EMSCRIPTEN_KEEPALIVE void SharedBoot(){BeginQuery();}

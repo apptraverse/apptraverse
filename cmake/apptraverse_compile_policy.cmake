@@ -5,7 +5,7 @@ if(MSVC)
     /GR- /EHs-c- /utf-8 /Zc:preprocessor /Zc:__cplusplus /Zc:externConstexpr /bigobj
     $<$<NOT:$<CONFIG:Debug>>:/Gy;/Gw;/GF>
     $<$<CONFIG:MinSizeRel>:/O1;/Ob1;/Oi;/Os;/Oy;/GL;/GS->
-    $<$<CONFIG:MinSizeRel>:/fp:fast;/fp:except->)
+    $<$<CONFIG:MinSizeRel>:/fp:precise;/fp:except->)
   target_compile_definitions(apptraverse_compile_policy INTERFACE _HAS_EXCEPTIONS=0)
   target_link_options(apptraverse_compile_policy INTERFACE
     $<$<NOT:$<CONFIG:Debug>>:/OPT:REF;/OPT:ICF=5>)

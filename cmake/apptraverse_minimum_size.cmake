@@ -1,11 +1,11 @@
 # Opt-in shipping profile, applied before dependency targets are created.
-option(APPTRAVERSE_MINIMUM_64 "Minimal 64-bit shipping consumers" OFF)
+option(APPTRAVERSE_MINIMUM_64 "Minimal shipping consumers (native 64-bit; Web wasm32)" OFF)
 if(NOT APPTRAVERSE_MINIMUM_64)
   return()
 endif()
 include_guard(GLOBAL)
-if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
-  message(FATAL_ERROR "APPTRAVERSE_MINIMUM_64 requires 64-bit pointers (Web: MEMORY64=1)")
+if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8 AND NOT EMSCRIPTEN)
+  message(FATAL_ERROR "APPTRAVERSE_MINIMUM_64 requires 64-bit native pointers")
 endif()
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL ON)
 set(CMAKE_POLICY_DEFAULT_CMP0069 NEW)
@@ -15,12 +15,12 @@ set(AE_NATIVE_WEBSOCKET OFF CACHE BOOL "Native minimum profile uses TCP directly
 add_compile_definitions("$<$<CONFIG:MinSizeRel>:AE_TELE_ENABLED=0>")
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:DebugDLL>")
 if(MSVC)
-  add_compile_options("$<$<CONFIG:MinSizeRel>:/O1;/Ob1;/Oi;/Os;/Oy;/GL;/Gy;/Gw;/GF;/GS-;/d2Qvec-;/fp:fast;/fp:except->"
+  add_compile_options("$<$<CONFIG:MinSizeRel>:/O1;/Ob1;/Oi;/Os;/Oy;/GL;/Gy;/Gw;/GF;/GS-;/d2Qvec-;/fp:precise;/fp:except->"
     "$<$<AND:$<CONFIG:MinSizeRel>,$<COMPILE_LANGUAGE:CXX>>:/GR-;/EHs-c->")
   add_compile_definitions("$<$<AND:$<CONFIG:MinSizeRel>,$<COMPILE_LANGUAGE:CXX>>:_HAS_EXCEPTIONS=0>")
   add_link_options("$<$<CONFIG:MinSizeRel>:/LTCG;/OPT:REF;/OPT:ICF=5;/INCREMENTAL:NO;/GUARD:NO>")
 else()
-  add_compile_options("$<$<CONFIG:MinSizeRel>:-Oz;-ffunction-sections;-fdata-sections;-fno-stack-protector;-ffast-math;-fno-math-errno;-fno-trapping-math;-fomit-frame-pointer>"
+  add_compile_options("$<$<CONFIG:MinSizeRel>:-Oz;-ffunction-sections;-fdata-sections;-fno-stack-protector;-fomit-frame-pointer>"
     "$<$<AND:$<CONFIG:MinSizeRel>,$<COMPILE_LANGUAGE:CXX>>:-fno-rtti;-fno-exceptions>")
   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     add_compile_options("$<$<CONFIG:MinSizeRel>:-fno-vectorize;-fno-slp-vectorize>")
