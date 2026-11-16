@@ -1,3 +1,15 @@
+## SharedNode Chat cross-platform matrix — 2026-11-15
+
+The same ChatSession now has a native headless consumer. Debug and MinSizeRel
+builds and runtime smoke checks PASS on Windows x64, Linux x64 (MinSizeRel with
+GCC), Android x86_64 emulator and Web Chromium. Windows native GUI real-cloud
+acceptance and Windows↔Linux Debug headless cloud delivery, including offline
+delivery after restart, PASS. Linux MinSizeRel headless cold restore and GTK
+window startup PASS; Linux GUI interaction and Apple native execution were not
+verified on this Windows host. Native minimum builds embed the Debug transport
+supply, keep USER separate and no longer use fast-math flags; Web minimum uses
+wasm32. [Artifact sizes and limits](../validation/shared-node-chat-platform-matrix-2026-11-15.md).
+
 ## SharedNode queued sends — 2026-11-14
 
 Send stays enabled during local commits. Submission captures its text, clears
