@@ -25,10 +25,11 @@ APPTRAVERSE_EM_JS_HANDLE(ApptraverseCreatePushButtonElement, (int control_id), (
 
 EM_JS(void, ApptraverseSetPushButtonMirror, (emscripten::EM_VAL button,
                                               const char* label_utf8,
-                                              int enabled), {
+                                              int enabled, int visible), {
   var el = Emval.toValue(Number(button));
   el.textContent = UTF8ToString(Number(label_utf8));
   el.disabled = enabled ? 0 : 1;
+  el.hidden = !visible;
 });
 
 EM_JS(void, ApptraverseSetPushButtonLayout, (emscripten::EM_VAL button, int x,
@@ -45,7 +46,8 @@ EM_JS(void, ApptraverseBindPushButtonClick, (emscripten::EM_VAL button,
                                              void* self), {
   var el = Emval.toValue(Number(button));
   var fn = function(ev) {
-    Module['_ApptraverseWebUiPushButtonClicked'](self);
+    var id=Module['_ApptraverseWebUiPushButtonClicked'](self);
+    if(id){var target=el.parentElement.querySelector('[data-apptraverse-control-id="'+id+'"]');if(target)target.focus();}
   };
   el.__apptraversePushClick = fn;
   el.addEventListener('click', fn);
@@ -64,8 +66,8 @@ EM_JS(void, ApptraverseUnbindPushButtonClick, (emscripten::EM_VAL button), {
 
 extern "C" {
 
-EMSCRIPTEN_KEEPALIVE void ApptraverseWebUiPushButtonClicked(void* ctx) {
-  static_cast<WebPushButtonPresenter*>(ctx)->NotifyClickedFromUi();
+EMSCRIPTEN_KEEPALIVE unsigned ApptraverseWebUiPushButtonClicked(void* ctx) {
+  auto& p=*static_cast<WebPushButtonPresenter*>(ctx);p.NotifyClickedFromUi();return p.button->FocusControlAfterClick();
 }
 
 }  // extern "C"
@@ -102,7 +104,8 @@ void WebPushButtonPresenter::SyncFromMirror() {
   int const language_index = window_presenter->locale->language_index();
   std::string const label = button->label->Resolve(language_index);
   ApptraverseSetPushButtonMirror(dom_refs_->button_element, label.c_str(),
-                                 button->enabled() ? 1 : 0);
+                                 button->enabled() ? 1 : 0, button->visible() ? 1 : 0);
+  if(!button->visible())return;
   ui::UiControlLayout const layout =
       window_presenter->ResolveChildLayout({layout_x, layout_y, layout_width,
                                             layout_height, control_id});

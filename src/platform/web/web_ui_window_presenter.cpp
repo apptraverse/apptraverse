@@ -91,7 +91,7 @@ APPTRAVERSE_EM_JS_HANDLE(ApptraverseMeasureDesktopControl,
     (emscripten::EM_VAL handle, double available), (handle, available), {
   var original = Emval.toValue(Number(handle));
   var style = getComputedStyle(original), clone = original.cloneNode(false);
-  clone.textContent = original.tagName === 'BUTTON' ? original.textContent : 'Mg';
+  clone.textContent = original.tagName === 'BUTTON' || original.tagName === 'SPAN' ? original.textContent : 'Mg';
   clone.removeAttribute('id');
   clone.style.cssText = original.style.cssText;
   clone.style.position = 'fixed'; clone.style.visibility = 'hidden';
@@ -104,7 +104,7 @@ APPTRAVERSE_EM_JS_HANDLE(ApptraverseMeasureDesktopControl,
   var minWidth = min.width, minHeight = min.height;
   clone.style.width = available > 0 ? available + 'px' : 'max-content';
   var pref = clone.getBoundingClientRect();
-  var result = original.tagName === 'BUTTON' ? [minWidth, Math.max(minHeight, pref.height), pref.width, pref.height] : [0, minHeight, 0, 0];
+  var result = original.tagName === 'BUTTON' || original.tagName === 'SPAN' ? [minWidth, Math.max(minHeight, pref.height), pref.width, pref.height] : [0, minHeight, 0, 0];
   clone.remove(); return Emval.toHandle(result);
 });
 EM_JS(void, ApptraverseArrangeDesktopControl, (emscripten::EM_VAL handle, double x, double y, double width, double height), {

@@ -13,16 +13,16 @@
 #include <functional>
 #include <mutex>
 #include <map>
+#include <set>
 #include <thread>
 #include <utility>
 
-#include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/embedded_distilled_domain.h"
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/shared_sync.h"
-#include "apptraverse/single_file_user_storage.h"
+#include "apptraverse/object_serialization.h"
 #if APPTRAVERSE_CHAT_DISTILLATION
 #  include "apptraverse/chat_supply_export.h"
 #  include "apptraverse/distill.h"
@@ -336,12 +336,13 @@ enum class ChatFrameKind : std::uint8_t {
 // Application routing, not an alternative graph format: both this frame and
 // the enclosed SharedNode messages use the SDK's ordinary BinaryArchive.
 struct ChatFrame {
-  std::uint16_t version{1};
+  std::uint16_t version{2};
   ChatFrameKind kind{ChatFrameKind::Sync};
   ae::ObjId room;
   std::string name;
+  ae::ObjId join_request;
   std::vector<std::uint8_t> bytes;
-  AE_REFLECT_MEMBERS(version, kind, room, name, bytes)
+  AE_REFLECT_MEMBERS(version, kind, room, name, join_request, bytes)
 };
 bool EncodeFrame(ChatFrame const& frame, std::vector<std::uint8_t>& bytes) {
   ae::seri::BinaryVectorBuffer buffer{bytes};
@@ -354,11 +355,11 @@ bool DecodeFrame(std::vector<std::uint8_t> const& bytes, ChatFrame& frame) {
   ae::seri::BinaryArchive archive{buffer};
   return archive.Load(frame).IsOk() &&
          archive.buffer().read_position() == copy.size() &&
-         frame.version == 1 &&
+         frame.version == 2 &&
          ((frame.kind == ChatFrameKind::Sync && !frame.bytes.empty() &&
            frame.name.empty()) ||
           (frame.kind == ChatFrameKind::JoinRequest && frame.room.is_valid() &&
-           !frame.name.empty() && frame.name.size() <= 256 &&
+           !frame.name.empty() && frame.name.size() <= 256 && frame.join_request.is_valid() &&
            frame.bytes.empty()) ||
           (frame.kind == ChatFrameKind::ResolveRequest &&
            !frame.room.is_valid() && frame.name.empty() && frame.bytes.empty()) ||
@@ -368,7 +369,7 @@ bool DecodeFrame(std::vector<std::uint8_t> const& bytes, ChatFrame& frame) {
 
 class ChatLink final : public IByteLink {
  public:
-  using Join = std::function<void(std::string const&, ae::ObjId, std::string)>;
+  using Join = std::function<void(std::string const&, ae::ObjId, std::string, ae::ObjId)>;
   using Resolve = std::function<void(std::string const&, ae::ObjId)>;
   ChatLink(IByteLink& native, Join on_join, Resolve on_resolve)
       : native_{native}, on_join_{std::move(on_join)},
@@ -379,7 +380,7 @@ class ChatLink final : public IByteLink {
         return;
       }
       if (frame.kind == ChatFrameKind::JoinRequest) {
-        on_join_(source, frame.room, std::move(frame.name));
+        on_join_(source, frame.room, std::move(frame.name), frame.join_request);
       } else if (frame.kind == ChatFrameKind::ResolveRequest ||
                  frame.kind == ChatFrameKind::ResolveReply) {
         on_resolve_(source, frame.room);
@@ -403,11 +404,12 @@ class ChatLink final : public IByteLink {
     return native_.Availability(peer);
   }
   bool RequestJoin(std::string const& host, ae::ObjId room,
-                   std::string const& name) {
+                   std::string const& name, ae::ObjId request) {
     ChatFrame frame;
     frame.kind = ChatFrameKind::JoinRequest;
     frame.room = room;
     frame.name = name;
+    frame.join_request = request;
     std::vector<std::uint8_t> encoded;
     return EncodeFrame(frame, encoded) && native_.Send(host, encoded);
   }
@@ -548,15 +550,14 @@ struct ChatSession::Impl {
     });
   }
 
+  ae::ObjId joining_request;
+  std::map<std::string,std::set<ae::ObjId>> seen_join_requests;
+
   bool CommitMemory() {
-    // ACK only after the complete native graph and delivery obligations are
-    // durable. A single USER file also keeps the application root stable.
+    // Acknowledgement promises the complete native graph and delivery
+    // obligations in this process's RAM. SDK identity has independent storage.
     ae::RamDomainStorage snapshot;
     SavePersistedObjectGraphToRam(*app, snapshot);
-    if (!SaveUserStorageFile(snapshot, profile)) {
-      return false;
-    }
-    if (flush_profile && !flush_profile()) return false;
     storage = std::move(snapshot);
     return true;
   }
@@ -614,9 +615,6 @@ struct ChatSession::Impl {
 
   bool InitializeModel() {
     storage = {};
-    if (!LoadUserStorageFile(storage, profile)) {
-      return false;
-    }
     bool const first_launch = storage.state.empty();
     backing = {};
 #if !APPTRAVERSE_CHAT_DISTILLATION
@@ -667,15 +665,15 @@ struct ChatSession::Impl {
     Observe(*app);
     link = std::make_unique<ChatLink>(
         *native,
-        [this](auto const& source, ae::ObjId room, std::string person_name) {
-          OnJoinRequest(source, room, std::move(person_name));
+        [this](auto const& source, ae::ObjId room, std::string person_name, ae::ObjId request) {
+          OnJoinRequest(source, room, std::move(person_name), request);
         },
         [this](auto const& source, ae::ObjId room) {
           OnResolveRoom(source, room);
         });
     sync = std::make_unique<SharedSyncRuntime>(
         *domain, *model_storage, *link,
-        // Rebuild runtime retries from the persisted SharedNode obligations.
+        // Rebuild runtime retries from the RAM SharedNode obligations.
         native->EndpointId(), [this] { return CommitMemory(); });
     if (app->room.is_valid()) {
       sync->RegisterNode(app->room);
@@ -725,6 +723,7 @@ struct ChatSession::Impl {
       SetStatus("Invalid host Aether ID");
       return;
     }
+    joining_request = ae::ObjId::GenerateUnique();
     resolving_host = std::move(host);
     next_join_request = 0;
     SetStatus("Finding the host room...");
@@ -787,20 +786,24 @@ struct ChatSession::Impl {
   }
 
   void OnJoinRequest(std::string const& source, ae::ObjId room_id,
-                     std::string person_name) {
+                     std::string person_name, ae::ObjId request) {
     auto* room = CurrentRoom();
     person_name = Trim(std::move(person_name));
     if (failed || !room || !sync || room->obj_id != room_id ||
         room->host_uid != native->EndpointId() || person_name.empty()) {
       return;
     }
-    // A repeated request leaves the original frozen admission/snapshot intact.
-    // The runtime retries it until the joining replica acknowledges its RAM
-    // state.
+    // A request identity belongs to one fresh RAM replica. Retries never
+    // replace its frozen packet, including delayed duplicates after the ACK.
+    if(seen_join_requests[source].contains(request))return;
     auto const known = std::any_of(
         room->links.begin(), room->links.end(),
         [&](auto const& peer) { return peer->endpoint_uid == source; });
     if (known) {
+      if(!sync->QueueInitialState(room_id,source,true)){
+        SetError("Could not commit the returning participant snapshot");return;
+      }
+      seen_join_requests[source].insert(request);
       return;
     }
     if (!WatchPeer(source)) {
@@ -809,8 +812,8 @@ struct ChatSession::Impl {
     auto event = JoinEvent::ptr::Create(ae::CreateWith{*domain});
     event->person = MakeParticipant(*domain, source, std::move(person_name));
     if (!sync->AdmitPeer(room_id, std::move(event), source)) {
-      SetError("Could not save the participant admission");
-    }
+      SetError("Could not commit the participant admission");
+    } else seen_join_requests[source].insert(request);
   }
 
   void DrainCommands() {
@@ -986,7 +989,9 @@ struct ChatSession::Impl {
                 if (!valid) std::cerr << "Rejected malformed push response\n";
               }, [this] { push_reader.Reset(); });
         }
-        if(!InitializeModel())SetError("Could not initialize the chat");
+        // Flush only the independently owned SDK identity, before any chat model.
+        if(flush_profile&&!flush_profile())SetError("Could not store SDK identity");
+        if(!failed&&!InitializeModel())SetError("Could not initialize the chat");
       }
       auto observed=connection->Observation();
       if(observed!=last_connection){last_connection=std::move(observed);view_dirty=true;}
@@ -1009,13 +1014,13 @@ struct ChatSession::Impl {
           link->ResolveRoom(resolving_host);
           next_join_request = now + 1000000ULL;
         } else if (app->expected.is_valid() && now >= next_join_request) {
-          link->RequestJoin(app->source, app->expected, app->name);
+          link->RequestJoin(app->source, app->expected, app->name, joining_request);
           next_join_request = now + 1000000ULL;
         }
         sync->Service(now);
         if (auto* room = CurrentRoom(); room && now >= next_progress) {
           if (!sync->PublishProgress(room->obj_id)) {
-            SetError("Could not persist delivery progress");
+            SetError("Could not commit delivery progress");
           } else {
             // Refusal is normal until every member has confirmed the prefix.
             (void)sync->CompactConfirmed(room->obj_id);
@@ -1145,7 +1150,7 @@ void ChatSession::Checkpoint(std::function<void(bool)> completion) {
   impl_->Enqueue(
       [impl = impl_.get(), completion = std::move(completion)](ae::Domain&) {
         bool const ok = impl->CommitMemory();
-        if (!ok) impl->SetError("Could not persist chat checkpoint");
+        if (!ok) impl->SetError("Could not commit chat RAM checkpoint");
         completion(ok);
       }, std::move(reject));
 }

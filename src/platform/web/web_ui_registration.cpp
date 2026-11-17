@@ -2,6 +2,7 @@
 #include "apptraverse/platform/web/web_ui_push_button_presenter.h"
 #include "apptraverse/platform/web/web_ui_window_presenter.h"
 
+#include "apptraverse/platform/web/web_ui_text_control_presenter.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/ui/ui_presenters.h"
 
@@ -11,6 +12,7 @@ namespace {
 APPTRAVERSE_REGISTER(WebDesktopWindowPresenter);
 APPTRAVERSE_REGISTER(WebPushButtonPresenter);
 APPTRAVERSE_REGISTER(WebListContainerPresenter);
+APPTRAVERSE_REGISTER(WebTextControlPresenter);
 
 }  // namespace
 
@@ -19,6 +21,7 @@ void EnsureWebUiPresenterRegistration() {
   (void)&g_apptraverse_registrar_WebDesktopWindowPresenter;
   (void)&g_apptraverse_registrar_WebPushButtonPresenter;
   (void)&g_apptraverse_registrar_WebListContainerPresenter;
+  (void)&g_apptraverse_registrar_WebTextControlPresenter;
 }
 
 }  // namespace apptraverse::ui::web

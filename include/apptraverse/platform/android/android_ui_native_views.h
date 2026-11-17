@@ -6,6 +6,7 @@ namespace apptraverse::ui::android {
 class AndroidDesktopWindowPresenter;
 class AndroidPushButtonPresenter;
 class AndroidListContainerPresenter;
+class AndroidTextControlPresenter;
 
 // Native View side of the Android presenters. The presenter classes carry the
 // serializable description (ClassId, fields, links) and build on any host; the
@@ -23,6 +24,10 @@ class AndroidUiNativeViews {
   virtual void LoadListContainer(AndroidListContainerPresenter& presenter) = 0;
   virtual void SyncListContainer(AndroidListContainerPresenter& presenter) = 0;
   virtual void UnloadListContainer(AndroidListContainerPresenter& presenter) = 0;
+
+  virtual void LoadTextControl(AndroidTextControlPresenter& presenter) = 0;
+  virtual void SyncTextControl(AndroidTextControlPresenter& presenter) = 0;
+  virtual void UnloadTextControl(AndroidTextControlPresenter& presenter) = 0;
 
  protected:
   ~AndroidUiNativeViews() = default;

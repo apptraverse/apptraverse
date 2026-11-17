@@ -76,7 +76,7 @@ void DynamicModelSession::Run(
   if (state_missing) {
     DirectoryDomainStorage bootstrap_storage{state_dir};
     ae::Domain bootstrap_domain{bootstrap_storage};
-    auto bootstrap_app = BuildDynamicObjectsGraph(bootstrap_domain);
+    auto bootstrap_app = (build_graph ? build_graph(bootstrap_domain) : BuildDynamicObjectsGraph(bootstrap_domain));
     FinalizeDistilledGraph(*bootstrap_app);
     SaveDistilledRoot(*bootstrap_app);
   }
@@ -92,6 +92,8 @@ void DynamicModelSession::Run(
     PendingDirtyNodes pending_dirty;
     BindReachableNodesMaterializedChangeNotifier(
         *application, &pending_dirty, &PendingDirtyNodesNotify);
+
+    if (prepare_model) prepare_model(*application);
 
     auto* buffer = channel.AcquireProducer();
     SerializeInitialPublication(*application, buffer->sink);

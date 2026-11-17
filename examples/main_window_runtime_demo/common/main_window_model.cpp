@@ -12,13 +12,13 @@ void MainWindow::Apply(WindowChangedEvent const& event) {
   NoteMaterializedChange();
 }
 
-Application::ptr BuildMainWindowGraph(ae::Domain& domain) {
+Application::ptr BuildMainWindowGraph(ae::Domain& domain, MainWindowPresenterFactory factory) {
   auto application = Application::ptr::Create(ae::CreateWith{domain}.with_id(
       main_window::ToObjId(main_window::ObjId::Application)));
   auto window = MainWindow::ptr::Create(ae::CreateWith{domain}.with_id(
       main_window::ToObjId(main_window::ObjId::MainWindow)));
-  auto presenter = MainWindowPresenter::ptr::Create(ae::CreateWith{domain}.with_id(
-      main_window::ToObjId(main_window::ObjId::MainWindowPresenter)));
+  ae::ObjId presenter_id{main_window::ToObjId(main_window::ObjId::MainWindowPresenter)};
+  auto presenter = factory ? factory(domain, presenter_id) : MainWindowPresenter::ptr::Create(ae::CreateWith{domain}.with_id(presenter_id));
   window->x = main_window::kDefaultX;
   window->y = main_window::kDefaultY;
   window->width = main_window::kDefaultWidth;

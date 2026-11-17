@@ -17,20 +17,29 @@ match the exact public revision in `cmake/shared_aether.cmake`.
 `APPTRAVERSE_AETHER_CLIENT_SOURCE` accepts a clean checkout at that revision.
 The default native configuration uses direct `P2pStream` over TCP, with no
 SafeStream or adaptive stream. Native archive fragments carry whole SharedSync
-messages; SharedSync owns durable ACK/retry and duplicate suppression.
+messages; SharedSync owns in-process RAM ACK/retry and duplicate suppression.
 Ordinary builds leave both options OFF. Build target `shared_node_chat`.
 
-The current persistence acceptance uses embedded supply prepared by the Debug
-`apptraverse_chat_supply_exporter OUTPUT.h`. Build/run that exporter without
-`APPTRAVERSE_CHAT_SUPPLY_HEADER`, then configure the chat with that option
-pointing to its output header. The validation below uses this load-from-supply
-mode in Debug, including the same USER file across restarts.
+The current chat graph, messages, drafts, names and pending receipts live only
+in RAM. Send/receive, checkpoint and shutdown never write chat business USER.
+Closing a process discards that graph; a returning participant explicitly joins
+the live host again and may receive its retained snapshot. The SDK identity
+remains private under the independent `transport/sdk` profile. Native device
+preferences and window placement alone persist in `local/user.bin`, using the
+ordinary native object format. Old experimental chat business files are neither
+read nor deleted. Earlier platform restore reports retain their historical scope
+and are superseded by this policy.
+
+Normal Debug creates fresh UI LOCAL under a separate `debug-run-*` directory;
+explicit `--load-only` (or the documented platform load-only flag) reuses LOCAL.
+Shipping consumers use the matching embedded supply; the Debug exporter prepares
+that supply without adding application migrations.
 
 ```powershell
 ./examples/shared_node_chat/run_demo.ps1
 ```
 
-This opens Host, Alice and Bob with separate persistent profiles under
+This opens Host, Alice and Bob with separate private SDK identity profiles under
 `.artifacts/shared-chat-demo`. The Host creates its room automatically. Click
 **Copy** beside its **My Aether ID**, paste that ID into a client's **Host Aether
 ID** field, and click **Join** (or press Enter). No room number is exposed.
@@ -49,8 +58,8 @@ HOST-AETHER-ID` automatically resolves and joins the host's room. `--client`
 without an ID (also the default when no role is supplied) allows manual entry.
 The roles are mutually exclusive. `--profile PATH` and `--name NAME` remain
 optional; default profiles are `shared-chat-host-state` and
-`shared-chat-client-state`, respectively. Existing profile sessions are restored.
-Messages committed during an outage synchronize after reconnection/restart.
+`shared-chat-client-state`, respectively. SDK identities are restored. Chat business state starts empty after process restart.
+Messages committed during a live-process transport outage synchronize on reconnection.
 
 Room resolution uses retried request/reply frames on the existing Aether link;
 only replies from the selected host are accepted. The room object ID remains an
@@ -64,9 +73,9 @@ The model publishes changed values after materialized Node changes or status
 transitions, with runtime transport/journal diagnostics for acceptance tests.
 The Windows consumer receives `PostMessage` notifications and reads `ChatView`
 then; the Windows UI has no refresh timer. Native presence is sampled on the
-model thread. Accepted model changes and their delivery obligations are saved
-together before SharedSync acknowledges them. Runtime handles and fragment
-assemblies never enter USER.
+model thread. Accepted model changes and their delivery obligations are committed
+together to RAM before SharedSync acknowledges them. Runtime handles and fragment
+assemblies never enter object storage.
 
 The chat observes native presence and displays local/remote status.
 The link sends as soon as transport capacity permits. SharedNode keeps a
@@ -263,3 +272,33 @@ Build the `shared_node_chat` target with the same two CMake options on Linux;
 GTK 3 development headers and a session D-Bus are required.
 Set `APPTRAVERSE_PUSH_SERVICE_UID` before launch if this Linux chat should send
 push signals to its peers through the Aether service.
+
+## Explicit generic native acceptance
+
+The Linux opt-in target `apptraverse_shared_chat_linux_native_test` exercises
+actual GTK controls under a display server. Give it a new UI profile path and,
+optionally, a separately owned SDK profile to reuse its identity. The Web helper
+`tools/shared_chat_web_generic_test.py --url CHAT_URL --profile-dir NEW_BROWSER_PROFILE`
+uses headless Chrome and two private cloud participants. These cloud checks are
+explicit commands, not default CTest cases.
+
+The Android app includes a dependency-free `GenericChatInstrumentation` runner.
+Build `:app:assembleDebug` and `:app:assembleDebugAndroidTest`, install both APKs
+on the selected emulator, then run its instrumentation with an owned `profile`
+argument. The runner emits `HOST_UID` for a separate owned headless peer to join;
+after the peer receives its Unicode marker it replies with exactly
+`peer-reply Привет 🌍`. The orchestration sets font scale to 1.0 before launch,
+handles `REQUEST_ROTATION` (landscape) and `REQUEST_FONT_SCALE` (1.15), and restores
+the original system settings afterward. The test uses actual native widgets,
+Activity replacement and a delayed obsolete JNI teardown callback; it requires
+no product test hook. See the current non-Apple validation report for the exact
+executed scopes and remaining environment limits.
+
+The instrumentation also has focused `local_prepare` / `local_verify` modes for
+same-profile native LOCAL save/cold-process restore, and `long_text` for native
+IME commit and fresh-timestamp key injection. The current validation reports
+required native/lifecycle and existing-consumer checks passing. Optional
+unpaced adb40 truncation and physical Enter after the separate 40-key stress
+case remain NOT PASS; IME40 model/send and exact native fresh-key40 text/focus
+passed independently. These outcomes are separate from ordinary three- and
+15-character native typing acceptance.

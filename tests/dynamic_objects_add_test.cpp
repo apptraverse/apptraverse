@@ -174,6 +174,28 @@ APPTRAVERSE_REGISTER(TestItemPresenter);
     }                                                                        \
   } while (0)
 
+DynamicPresenterFactories TestFactories() {
+  return {
+    [](ae::Domain& d, ae::ObjId id) { return TestMainWindowPresenter::ptr::Create(ae::CreateWith{d}.with_id(id)); },
+    [](ae::Domain& d, ae::ObjId id) { return TestAddItemPresenter::ptr::Create(ae::CreateWith{d}.with_id(id)); },
+    [](ae::Domain& d, ae::ObjId id) { return TestItemListPresenter::ptr::Create(ae::CreateWith{d}.with_id(id)); },
+    [](ae::Domain& d, ae::ObjId id) { return TestItemPresenter::ptr::Create(id.is_valid() ? ae::CreateWith{d}.with_id(id) : ae::CreateWith{d}); }
+  };
+}
+Application::ptr BuildFixtureGraph(ae::Domain& domain) {
+  return BuildDynamicObjectsGraph(domain, TestFactories());
+}
+struct FixtureSession : DynamicModelSession {
+  FixtureSession() {
+    build_graph = BuildFixtureGraph;
+    prepare_model = [](Application& app) {
+      app.main_window->item_list->create_item_presenter = [](ae::Domain& d) {
+        return TestItemPresenter::ptr::Create(ae::CreateWith{d});
+      };
+    };
+  }
+};
+
 std::filesystem::path TestDir(char const* name) {
   auto path = std::filesystem::temp_directory_path() / name;
   std::filesystem::remove_all(path);
@@ -307,7 +329,7 @@ void TestParentWndProcHasNoSemanticCasts() {
 void TestPresenterGraphOwnership() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
-  auto application = BuildDynamicObjectsGraph(domain);
+  auto application = BuildFixtureGraph(domain);
   FinalizeDistilledGraph(*application);
 
   auto& window = *application->main_window;
@@ -330,7 +352,7 @@ void TestPresenterGraphOwnership() {
 void TestModelAdd() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
-  auto application = BuildDynamicObjectsGraph(domain);
+  auto application = BuildFixtureGraph(domain);
   FinalizeDistilledGraph(*application);
   ItemList& list = *application->main_window->item_list;
   CHECK(list.items.size() == 1);
@@ -356,7 +378,7 @@ void TestModelAdd() {
 void TestReplayIdentity() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
-  auto application = BuildDynamicObjectsGraph(domain);
+  auto application = BuildFixtureGraph(domain);
   FinalizeDistilledGraph(*application);
   ItemList& list = *application->main_window->item_list;
   application->main_window->add_item->Click();
@@ -384,7 +406,7 @@ void TestStructuralPublicationAndPresenterLifecycle() {
   TestItemPresenter::ResetCounts();
 
   auto dir = TestDir("apptraverse_dynamic_structural");
-  DynamicModelSession session;
+  FixtureSession session;
   session.state_dir = dir;
   auto proxy = MakeSessionProxy(session);
   std::thread model{[&] {
@@ -468,7 +490,7 @@ void TestStructuralPublicationAndPresenterLifecycle() {
 void TestGuiProxyAddAndRemove() {
   TestItemPresenter::ResetCounts();
   auto dir = TestDir("apptraverse_dynamic_gui_proxy");
-  DynamicModelSession session;
+  FixtureSession session;
   session.state_dir = dir;
   auto proxy = MakeSessionProxy(session);
   std::thread model{[&] {
@@ -488,7 +510,7 @@ void TestGuiProxyAddAndRemove() {
 
   ae::RamDomainStorage model_ref_storage;
   ae::Domain model_ref_domain{model_ref_storage};
-  auto model_ref = BuildDynamicObjectsGraph(model_ref_domain);
+  auto model_ref = BuildFixtureGraph(model_ref_domain);
   AddItem* const model_add = &*model_ref->main_window->add_item;
   CHECK(model_add->obj_id == add_id);
   CHECK(model_add != ui_add);
@@ -520,7 +542,7 @@ void TestGuiProxyAddAndRemove() {
 void TestTwoAddsAreTwoEvents() {
   TestItemPresenter::ResetCounts();
   auto dir = TestDir("apptraverse_dynamic_two_adds");
-  DynamicModelSession session;
+  FixtureSession session;
   session.state_dir = dir;
   auto proxy = MakeSessionProxy(session);
   std::thread model{[&] {
@@ -578,7 +600,7 @@ void TestTwoAddsAreTwoEvents() {
 void TestRestartRestoresAddedItem() {
   auto dir = TestDir("apptraverse_dynamic_restart");
   {
-    DynamicModelSession session;
+    FixtureSession session;
     session.state_dir = dir;
     std::thread model{[&] {
       session.Run([&session](PublicationKind) { session.cv.notify_all(); });
@@ -609,7 +631,7 @@ void TestRestartRestoresAddedItem() {
 void TestModelRemove() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
-  auto application = BuildDynamicObjectsGraph(domain);
+  auto application = BuildFixtureGraph(domain);
   FinalizeDistilledGraph(*application);
   ItemList& list = *application->main_window->item_list;
   Item* const item1 = &*list.items[0];
@@ -635,7 +657,7 @@ void TestModelRemove() {
 void TestReplayRemove() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
-  auto application = BuildDynamicObjectsGraph(domain);
+  auto application = BuildFixtureGraph(domain);
   FinalizeDistilledGraph(*application);
   ItemList& list = *application->main_window->item_list;
   application->main_window->add_item->Click();
@@ -663,7 +685,7 @@ void TestReplayRemove() {
 void TestMirrorRemoveAndHistoricalPresenter() {
   TestItemPresenter::ResetCounts();
   auto dir = TestDir("apptraverse_dynamic_mirror_remove");
-  DynamicModelSession session;
+  FixtureSession session;
   session.state_dir = dir;
   auto proxy = MakeSessionProxy(session);
   std::thread model{[&] {
@@ -728,7 +750,7 @@ void TestMirrorRemoveAndHistoricalPresenter() {
 void TestMiddleRemoveThenAdd() {
   TestItemPresenter::ResetCounts();
   auto dir = TestDir("apptraverse_dynamic_middle_remove");
-  DynamicModelSession session;
+  FixtureSession session;
   session.state_dir = dir;
   auto proxy = MakeSessionProxy(session);
   std::thread model{[&] {
@@ -792,7 +814,7 @@ void TestMiddleRemoveThenAdd() {
 
 void TestMultiOperationSequence() {
   auto dir = TestDir("apptraverse_dynamic_sequence");
-  DynamicModelSession session;
+  FixtureSession session;
   session.state_dir = dir;
   auto proxy = MakeSessionProxy(session);
   std::thread model{[&] {
@@ -855,7 +877,7 @@ void TestMultiOperationSequence() {
 
 void TestShutdownDrainsAcceptedAdds() {
   auto dir = TestDir("apptraverse_dynamic_shutdown_drain_add");
-  DynamicModelSession session;
+  FixtureSession session;
   session.state_dir = dir;
   std::thread model{[&] {
     session.Run([&session](PublicationKind) { session.cv.notify_all(); });
@@ -888,7 +910,7 @@ void TestShutdownDrainsAcceptedAdds() {
 
 void TestShutdownDrainsAcceptedRemove() {
   auto dir = TestDir("apptraverse_dynamic_shutdown_drain_remove");
-  DynamicModelSession session;
+  FixtureSession session;
   session.state_dir = dir;
   auto proxy = MakeSessionProxy(session);
   std::thread model{[&] {

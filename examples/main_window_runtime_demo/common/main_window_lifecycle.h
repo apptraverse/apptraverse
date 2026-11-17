@@ -12,6 +12,7 @@
 #include "aether-objects/obj/idomain_storage.h"
 
 #include "apptraverse/publication_channel.h"
+#include "main_window_model.h"
 
 namespace apptraverse {
 
@@ -38,6 +39,8 @@ enum class PublicationKind {
 // Native notify/completion handles stay in Windows code.
 struct ModelSession {
   std::filesystem::path state_dir;
+  std::function<Application::ptr(ae::Domain&)> build_graph = [](ae::Domain& d) { return BuildMainWindowGraph(d); };
+  std::function<void(Application&)> prepare_model;
   PublicationChannel<3> channel;
   std::mutex mu;
   std::condition_variable cv;

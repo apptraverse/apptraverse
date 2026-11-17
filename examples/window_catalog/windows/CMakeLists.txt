@@ -1,69 +1,55 @@
 if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES)
-set(_surfaces_win_sources
-  main.cpp
-  win_app.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/../common/surfaces_lifecycle.cpp
-)
-
-function(apptraverse_add_window_catalog_executable target distill_lib evolution_lib windows_lib)
-  add_executable(${target} ${_surfaces_win_sources})
-  target_compile_definitions(${target} PRIVATE APPTRAVERSE_ENABLE_DISTILLATION)
-  target_link_libraries(${target} PRIVATE
-    ${distill_lib}
-    ${evolution_lib}
-    ${windows_lib}
-    user32
-    gdi32
-  )
-  target_include_directories(${target} PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/../common
-    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows
-  )
-  if(MSVC)
-    target_compile_options(${target} PRIVATE /utf-8)
-    set_target_properties(${target} PROPERTIES WIN32_EXECUTABLE TRUE)
-    target_link_options(${target} PRIVATE /ENTRY:mainCRTStartup)
-  endif()
-  if(MINGW)
-    set_target_properties(${target} PROPERTIES EXCLUDE_FROM_ALL TRUE)
-  endif()
-endfunction()
-
-apptraverse_add_window_catalog_executable(win32_window_catalog
-  window_catalog_distill window_catalog_evolution window_catalog_win32)
-apptraverse_add_window_catalog_executable(win32_window_catalog_v1
-  window_catalog_distill_v1 window_catalog_evolution_v1 window_catalog_win32_v1)
-
-add_executable(win32_window_catalog_load_only ${_surfaces_win_sources})
-target_link_libraries(win32_window_catalog_load_only PRIVATE
-  window_catalog_win32
-  window_catalog_evolution
-  user32
-  gdi32
-)
-target_include_directories(win32_window_catalog_load_only PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}
-  ${CMAKE_CURRENT_SOURCE_DIR}/../common
-  ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows
-)
-if(MSVC)
-  target_compile_options(win32_window_catalog_load_only PRIVATE /utf-8)
-  set_target_properties(win32_window_catalog_load_only PROPERTIES WIN32_EXECUTABLE TRUE)
-  target_link_options(win32_window_catalog_load_only PRIVATE /ENTRY:mainCRTStartup)
-endif()
-
-if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/surface_v1_package")
-  foreach(_demo_target win32_window_catalog_v1)
-    add_custom_command(TARGET ${_demo_target} POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_CURRENT_SOURCE_DIR}/surface_v1_package"
-        "$<TARGET_FILE_DIR:${_demo_target}>/surface_v1_package"
-      COMMENT "Copy bundled Surface v1 package next to ${_demo_target}"
-    )
+  # Historical evolution/profile inspection is an explicit headless tool.
+  add_executable(win32_window_catalog_history ../common/surface_history_main.cpp ../common/surface_graph_headless.cpp ../common/surfaces_lifecycle.cpp)
+  target_link_libraries(win32_window_catalog_history PRIVATE window_catalog_evolution window_catalog_distill)
+  add_executable(win32_window_catalog_v1_history ../common/surface_history_main.cpp ../common/surface_graph_headless.cpp ../common/surfaces_lifecycle.cpp)
+  target_link_libraries(win32_window_catalog_v1_history PRIVATE window_catalog_evolution_v1 window_catalog_distill_v1)
+  foreach(_history win32_window_catalog_history win32_window_catalog_v1_history)
+    target_compile_definitions(${_history} PRIVATE APPTRAVERSE_SURFACE_HISTORY_HEADLESS APPTRAVERSE_ENABLE_DISTILLATION)
   endforeach()
-endif()
-
+  add_custom_command(TARGET win32_window_catalog_v1_history POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/surface_v1_package"
+      "$<TARGET_FILE_DIR:win32_window_catalog_v1_history>/surface_v1_package" VERBATIM)
+  set(_surface_ui_sources surface_ui_main.cpp ../common/surface_ui_session.cpp)
+  foreach(_surface_target win32_window_catalog win32_window_catalog_v1 win32_window_catalog_load_only)
+    add_executable(${_surface_target} ${_surface_ui_sources})
+    target_link_libraries(${_surface_target} PRIVATE surface_generic_ui apptraverse_ui_windows user32 gdi32)
+    target_compile_options(${_surface_target} PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    if(MSVC)
+      target_sources(${_surface_target} PRIVATE window_catalog.manifest)
+      target_compile_definitions(${_surface_target} PRIVATE WINVER=0x0601 _WIN32_WINNT=0x0601)
+      set_target_properties(${_surface_target} PROPERTIES WIN32_EXECUTABLE TRUE)
+      target_link_options(${_surface_target} PRIVATE /ENTRY:mainCRTStartup /SUBSYSTEM:WINDOWS,6.01)
+    endif()
+  endforeach()
+  target_compile_definitions(win32_window_catalog_v1 PRIVATE APPTRAVERSE_SURFACE_UI_V1)
+  foreach(_producer win32_window_catalog win32_window_catalog_v1)
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+      target_compile_definitions(${_producer} PRIVATE APPTRAVERSE_SURFACE_UI_DEBUG_BOOTSTRAP)
+      target_sources(${_producer} PRIVATE ../common/surface_ui_supply.cpp)
+    else()
+      set(APPTRAVERSE_SURFACE_UI_DEBUG_SUPPLY_DIR "" CACHE PATH "Surface S0 supplies prepared by Debug")
+      if(NOT EXISTS "${APPTRAVERSE_SURFACE_UI_DEBUG_SUPPLY_DIR}/${_producer}/embedded_surface_ui_supply.h")
+        message(FATAL_ERROR "Provide matching Debug Surface supplies through APPTRAVERSE_SURFACE_UI_DEBUG_SUPPLY_DIR")
+      endif()
+      target_include_directories(${_producer} PRIVATE "${APPTRAVERSE_SURFACE_UI_DEBUG_SUPPLY_DIR}/${_producer}")
+    endif()
+  endforeach()
+  set(_surface_supply_dir "${CMAKE_CURRENT_BINARY_DIR}/generated_distilled/win32_window_catalog")
+  set(_surface_supply "${_surface_supply_dir}/embedded_surface_ui_supply.h")
+  file(MAKE_DIRECTORY "${_surface_supply_dir}")
+  if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    add_custom_command(OUTPUT "${_surface_supply}"
+      COMMAND $<TARGET_FILE:win32_window_catalog> --distill-only "${_surface_supply_dir}"
+      DEPENDS win32_window_catalog VERBATIM)
+  else()
+    add_custom_command(OUTPUT "${_surface_supply}"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${APPTRAVERSE_SURFACE_UI_DEBUG_SUPPLY_DIR}/win32_window_catalog/embedded_surface_ui_supply.h" "${_surface_supply}"
+      DEPENDS "${APPTRAVERSE_SURFACE_UI_DEBUG_SUPPLY_DIR}/win32_window_catalog/embedded_surface_ui_supply.h" VERBATIM)
+  endif()
+  target_sources(win32_window_catalog_load_only PRIVATE "${_surface_supply}")
+  target_include_directories(win32_window_catalog_load_only PRIVATE "${_surface_supply_dir}")
 endif()
 
 # Debug prepares a fresh graph; consumers load the supply prepared by Debug.

@@ -2,6 +2,7 @@
 #define APPTRAVERSE_DYNAMIC_MODEL_H_
 
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 #include "aether-objects/obj/obj.h"
@@ -108,6 +109,7 @@ class ItemList : public NodeFor<ItemList> {
     dnv(base_, items, presenter, window);
   }
 
+  std::function<ItemPresenter::ptr(ae::Domain&)> create_item_presenter; // Runtime-only construction capability.
   std::vector<Item::ptr> items;
   ae::ObjPtr<ItemListPresenter> presenter;
   ae::ObjPtr<MainWindow> window;

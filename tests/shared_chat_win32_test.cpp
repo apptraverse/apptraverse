@@ -337,32 +337,35 @@ int wmain(int argc, wchar_t** argv) {
   Wait("Automatically creating a host room", [&] {
     auto const window = peers[0].Window();
     if (!window || !GetDlgItem(window, kInputControl) ||
-        !IsWindowEnabled(Control(window, kInputControl))) return false;
+        !IsWindowEnabled(Control(window, kInputControl)))
+      return false;
     invite = Text(Control(window, kUidControl));
     Require(IsWindowVisible(Control(window, kUidControl)) &&
-            !IsWindowVisible(Control(window, kInviteControl)),
+                !IsWindowVisible(Control(window, kInviteControl)),
             "Host must show only its Aether ID field");
     return invite.size() == 36 && invite.find(L'/') == std::wstring::npos;
   });
   Click(peers[0].Window(), kHostControl);
-  Require(OpenClipboard(nullptr) != FALSE, "Could not inspect clipboard");
-  auto clipboard = GetClipboardData(CF_UNICODETEXT);
-  auto* copied = clipboard ? static_cast<wchar_t*>(GlobalLock(clipboard)) : nullptr;
-  bool const copied_id = copied && std::wstring{copied} == invite;
-  if (copied) GlobalUnlock(clipboard);
-  CloseClipboard();
-  Require(copied_id, "Copy must put only the host Aether ID on the clipboard");
+  Wait("Copying the published host Aether ID", [&] {
+    if (!OpenClipboard(nullptr)) return false;
+    auto clipboard = GetClipboardData(CF_UNICODETEXT);
+    auto* copied =
+        clipboard ? static_cast<wchar_t*>(GlobalLock(clipboard)) : nullptr;
+    bool copied_id = copied && std::wstring{copied} == invite;
+    if (copied) GlobalUnlock(clipboard);
+    CloseClipboard();
+    return copied_id;
+  });
   peers[1].host_id = invite;
   for (std::size_t index = 1; index < peers.size(); ++index) {
     peers[index].Start(exe);
   }
-  Wait("Waiting for the Aether client API", [&] {
-    return Ready(peers[1]) && Ready(peers[2]);
-  });
+  Wait("Waiting for the Aether client API",
+       [&] { return Ready(peers[1]) && Ready(peers[2]); });
   for (std::size_t index = 1; index < peers.size(); ++index) {
     auto const window = peers[index].Window();
     Require(!IsWindowVisible(Control(window, kUidControl)) &&
-            IsWindowVisible(Control(window, kInviteControl)),
+                IsWindowVisible(Control(window, kInviteControl)),
             "Client must show only the host Aether ID field");
     if (index == 1) continue;  // --client UID joins without clicking.
     SetText(Control(window, kInviteControl), invite);
@@ -402,10 +405,12 @@ int wmain(int argc, wchar_t** argv) {
     return ContainsMessages(peers[0], messages) &&
            ContainsMessages(peers[1], messages);
   });
+  peers[2].host_id =
+      invite;  // RAM room state is admitted again by the live host.
   peers[2].Start(exe);
-  Wait("Restoring SDK identity and the existing chat", [&] {
+  Wait("Restoring SDK identity and rejoining the live room", [&] {
     auto const window = peers[2].Window();
-    return window && IsWindowEnabled(Control(window, kInputControl)) &&
+    return window && GetDlgItem(window,kInputControl) && GetDlgItem(window,kUidControl) && IsWindowEnabled(Control(window, kInputControl)) &&
            Text(Control(window, kUidControl)) == bob_uid;
   });
   Wait("Synchronizing the message sent while Bob was offline", [&] {
@@ -424,57 +429,73 @@ int wmain(int argc, wchar_t** argv) {
   });
 
   auto const bob_window = peers[2].Window();
-  MINMAXINFO minimum{};
-  SendMessageW(bob_window, WM_GETMINMAXINFO, 0, reinterpret_cast<LPARAM>(&minimum));
-  Require(SetWindowPos(bob_window, nullptr, 48, 72, minimum.ptMinTrackSize.x,
-                       minimum.ptMinTrackSize.y, SWP_NOZORDER) != FALSE,
-          "Could not resize chat to its native minimum");
-  Wait("Keeping controls inside the minimum client area", [&] {
-    RECT client{}, status{};
-    Require(GetClientRect(bob_window, &client) != FALSE, "Cannot measure chat client");
-    Require(client.right >= 400 && client.bottom >= 300,
-            "Native minimum must include nonclient borders");
-    Require(GetWindowRect(Control(bob_window, kStatusControl), &status) != FALSE,
-            "Cannot measure chat status");
-    MapWindowPoints(nullptr, bob_window, reinterpret_cast<POINT*>(&status), 2);
-    return status.top >= 0 && status.bottom <= client.bottom;
+  Require(SetWindowPos(bob_window, nullptr, 48, 72, 700, 520, SWP_NOZORDER) !=
+              FALSE,
+          "Could not resize generic chat window");
+  Wait("Laying out native controls with the common constraint solver", [&] {
+    RECT client{}, input{}, send{}, status{};
+    Require(GetClientRect(bob_window, &client) != FALSE,
+            "Cannot measure chat client");
+    for (auto entry :
+         {std::pair{kInputControl, &input}, std::pair{kSendControl, &send},
+          std::pair{kStatusControl, &status}}) {
+      Require(GetWindowRect(Control(bob_window, entry.first), entry.second) !=
+                  FALSE,
+              "Cannot measure native control");
+      MapWindowPoints(nullptr, bob_window,
+                      reinterpret_cast<POINT*>(entry.second), 2);
+    }
+    return input.right <= send.left && input.bottom <= status.top &&
+           send.bottom <= status.top && status.bottom <= client.bottom;
   });
-  Require(SetWindowPos(bob_window, nullptr, 48, 72, 700, 520, SWP_NOZORDER) != FALSE,
+  Call(bob_window,WM_ENTERSIZEMOVE);
+  Require(SetWindowPos(bob_window, nullptr, 48, 72, 700, 520, SWP_NOZORDER) !=
+              FALSE,
           "Could not choose restored chat frame");
+  Call(bob_window,WM_EXITSIZEMOVE);
   RECT saved_frame{};
-  Require(GetWindowRect(bob_window, &saved_frame) != FALSE, "Cannot read restored frame");
-  std::wstring const saved_draft = L"unsent-\u041f\u0440\u0438\u0432\u0435\u0442";
+  Require(GetWindowRect(bob_window, &saved_frame) != FALSE,
+          "Cannot read restored frame");
+  std::wstring const saved_draft =
+      L"unsent-\u041f\u0440\u0438\u0432\u0435\u0442";
   SetText(Control(bob_window, kInputControl), saved_draft);
   for (auto& peer : peers) {
     peer.Stop(true);
   }
 
-  // A restart consumes the saved UI graph, including identity and native frame;
-  // startup defaults cannot replace a configured profile's model values.
+  // A fresh process restores only the native LOCAL placement and SDK identity.
+  // Conversation, author name and draft are session RAM under the current
+  // policy.
   peers[2].name = L"Changed startup default";
+  peers[2].host_id.clear();
   peers[2].Start(exe);
-  Wait("Restoring draft and desktop frame from current USER", [&] {
+  Wait("Restoring LOCAL frame with fresh RAM chat state", [&] {
     auto window = peers[2].Window();
-    if (!window || !IsWindowVisible(window)) return false;
+    if (!window || !GetDlgItem(window, kInputControl)) return false;
     RECT frame{};
-    Require(GetWindowRect(window, &frame) != FALSE, "Cannot measure cold frame");
+    Require(GetWindowRect(window, &frame) != FALSE,
+            "Cannot measure cold frame");
     return frame.left == saved_frame.left && frame.top == saved_frame.top &&
-           frame.right == saved_frame.right && frame.bottom == saved_frame.bottom &&
-           Text(Control(window, kInputControl)) == saved_draft &&
-           Text(window).find(L"Bob") != std::wstring::npos;
+           frame.right == saved_frame.right &&
+           frame.bottom == saved_frame.bottom &&
+           Text(Control(window, kInputControl)).empty() &&
+           Text(Control(window, kMessagesControl)).empty() &&
+           Text(window).find(L"Changed startup default") != std::wstring::npos;
   });
   peers[2].Stop(true);
   for (auto const& peer : peers) {
-    Require(std::filesystem::exists(peer.profile / L"user.bin"),
-            "Chat did not persist its native USER graph");
-    Require(std::filesystem::exists(peer.profile / L"transport" / L"user.bin"),
-            "Chat transport did not persist its replication USER");
+    Require(!std::filesystem::exists(peer.profile / L"user.bin"),
+            "Chat wrote a business USER file");
+    Require(!std::filesystem::exists(peer.profile / L"transport" / L"user.bin"),
+            "Chat transport wrote replication USER");
+    Require(std::filesystem::exists(peer.profile / L"local" / L"user.bin"),
+            "Chat did not persist device-local UI state");
     Require(!std::filesystem::exists(peer.profile / L"root.id"),
             "Chat wrote an application-root sidecar");
   }
-  std::cout << "PASS: CLI host/client, UID-only discovery, Copy, single ID field, "
-               "event-driven native chat, Unicode, three peers, native "
-               "USER restore, offline delivery, clean shutdown"
-            << std::endl;
+  std::cout
+      << "PASS: generic native controls, CLI host/client, Copy, event-driven "
+         "Unicode three peers, RAM rejoin, LOCAL restore, clean shutdown"
+      << std::endl;
   return 0;
 }

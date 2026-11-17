@@ -23,7 +23,7 @@
 #include "apptraverse/surfaces/surfaces_registration.h"
 #include "apptraverse/ui/ui_localization_string.h"
 
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(APPTRAVERSE_SURFACE_HISTORY_HEADLESS)
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "apptraverse/ui/ui_presenters.h"
 #include "window_catalog_win32_registration.h"
@@ -69,7 +69,7 @@ void ApplySurfacesStructural(std::vector<std::uint8_t> const& bytes,
 void SurfacesModelSession::Run(
     std::function<void(SurfacesPublicationKind)> on_published) {
   EnsureSurfacesRegistration();
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(APPTRAVERSE_SURFACE_HISTORY_HEADLESS)
   ui::EnsureUiPresenterRegistration();
   ui::windows::EnsureWinUiPresenterRegistration();
   example::surfaces::EnsureSurfacesDemoWin32Registration();

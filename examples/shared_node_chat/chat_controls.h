@@ -2,7 +2,7 @@
 #define APPTRAVERSE_EXAMPLES_SHARED_NODE_CHAT_CONTROLS_H_
 
 namespace apptraverse::chat {
-inline constexpr wchar_t kWindowClass[] = L"AppTraverseSharedNodeChat";
+inline constexpr wchar_t kWindowClass[] = L"AppTraverseUiDesktopWindow";
 inline constexpr int kUidControl = 101;
 inline constexpr int kHostControl = 102;
 inline constexpr int kInviteControl = 103;

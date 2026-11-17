@@ -59,6 +59,23 @@ APPTRAVERSE_REGISTER(TestMainWindowPresenter);
     }                                                                        \
   } while (0)
 
+Application::ptr BuildFixtureGraph(ae::Domain& domain) {
+  return BuildMainWindowGraph(domain, [](ae::Domain& d, ae::ObjId id) {
+    return TestMainWindowPresenter::ptr::Create(ae::CreateWith{d}.with_id(id));
+  });
+}
+struct FixtureSession : ModelSession {
+  FixtureSession() {
+    build_graph = BuildFixtureGraph;
+    // Count the loaded model/mirror lifetime, independently of the supply producer.
+    prepare_model = [](Application&) {
+      TestMainWindowPresenter::on_load_calls.store(0);
+      TestMainWindowPresenter::on_unload_calls.store(0);
+      TestMainWindowPresenter::dtor_calls.store(0);
+    };
+  }
+};
+
 std::filesystem::path TestDir(char const* name) {
   auto path = std::filesystem::temp_directory_path() / name;
   std::filesystem::remove_all(path);
@@ -75,7 +92,7 @@ void WaitPublished(ModelSession& session) {
 void PersistFixture(std::filesystem::path const& dir) {
   DirectoryDomainStorage storage{dir};
   ae::Domain domain{storage};
-  auto application = BuildMainWindowGraph(domain);
+  auto application = BuildFixtureGraph(domain);
   FinalizeDistilledGraph(*application);
   SaveDistilledRoot(*application);
 }
@@ -109,7 +126,7 @@ void TestLoadOnlyExistingState() {
   auto dir = TestDir("apptraverse_main_window_load_only");
   PersistFixture(dir);
 
-  ModelSession session;
+  FixtureSession session;
   session.state_dir = dir;
   std::thread model{[&] {
     session.Run([&session](PublicationKind) { session.cv.notify_all(); });
@@ -143,7 +160,7 @@ void TestLoadOnlyPresenterHooks() {
   auto dir = TestDir("apptraverse_main_window_load_only_presenter");
   PersistFixture(dir);
 
-  ModelSession session;
+  FixtureSession session;
   session.state_dir = dir;
   std::thread model{[&] {
     session.Run([&session](PublicationKind) { session.cv.notify_all(); });

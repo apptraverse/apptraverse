@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AppTraverse Surfaces</title>
+<style>
+html,body{height:100%;margin:0;font:16px system-ui;color:CanvasText;background:Canvas;color-scheme:light dark}
+body{display:flex;flex-direction:column}header{display:flex;gap:8px;padding:8px;border-bottom:1px solid GrayText}
+#tabs{display:flex;flex:1;gap:8px;overflow:auto}header button{font:inherit;min-height:36px}
+#surface-mount{position:relative;flex:1;min-height:0;overflow:auto}
+.apptraverse-desktop-window{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;display:none;background:var(--at-background,Canvas);color:var(--at-text,CanvasText)}
+.apptraverse-desktop-window.active{display:block}.apptraverse-desktop-client{position:relative;width:100%!important;height:100%!important}
+.apptraverse-push-button{font:inherit;box-sizing:border-box;padding:6px 12px;white-space:normal;background:ButtonFace;color:ButtonText;border:1px solid ButtonBorder}
+#status{padding:4px 12px;min-height:20px}button[aria-selected=true]{outline:2px solid Highlight}
+</style></head>
+<body><header><div id="tabs"></div><button id="shutdown">Close application</button></header>
+<main id="surface-mount"></main><div id="status">Loading…</div>
+<script>
+var SurfaceUi={
+  render:function(csv,current){
+    var ids=csv?csv.split(','):[], tabs=document.getElementById('tabs');tabs.replaceChildren();
+    document.querySelectorAll('[data-surface-id]').forEach(function(page){
+      var id=page.dataset.surfaceId,on=Number(id)===current;
+      page.classList.toggle('active',on);
+      if(ids.indexOf(id)<0)return;
+      var button=document.createElement('button');button.type='button';button.dataset.surfaceId=id;
+      button.textContent=page.dataset.apptraverseWindowTitle;button.setAttribute('aria-selected',String(on));
+      button.onclick=function(){Module._ApptraverseSurfaceUiSelect(Number(id));};tabs.appendChild(button);
+    });
+    document.getElementById('status').textContent='';
+  },
+  blocked:function(value){document.querySelectorAll('button').forEach(function(b){b.disabled=value;});},
+  stopped:function(ok){this.blocked(true);document.getElementById('status').textContent=ok?'Saved and closed':'Save failed';}
+};
+document.getElementById('shutdown').onclick=function(){Module._ApptraverseSurfaceUiShutdown();};
+document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden'&&Module._ApptraverseSurfaceUiHidden)Module._ApptraverseSurfaceUiHidden();});
+window.addEventListener('pagehide',function(){if(Module._ApptraverseSurfaceUiHidden)Module._ApptraverseSurfaceUiHidden();});
+var query=new URLSearchParams(location.search), args=[];
+if(query.get('load')==='1')args.push('--load-only');
+if(query.has('state-dir'))args.push('--state-dir',query.get('state-dir'));
+var Module={arguments:args,print:console.log,printErr:console.error};
+</script>{{{ SCRIPT }}}</body></html>

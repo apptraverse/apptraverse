@@ -78,6 +78,21 @@ APPTRAVERSE_REGISTER(TestMainWindowPresenter);
     }                                                                        \
   } while (0)
 
+Application::ptr BuildFixtureGraph(ae::Domain& domain) {
+  return BuildMainWindowGraph(domain, [](ae::Domain& d, ae::ObjId id) {
+    return TestMainWindowPresenter::ptr::Create(ae::CreateWith{d}.with_id(id));
+  });
+}
+struct FixtureSession : ModelSession {
+  FixtureSession() {
+    build_graph = BuildFixtureGraph;
+    // Count the loaded model/mirror lifetime, independently of the supply producer.
+    prepare_model = [](Application&) {
+      TestMainWindowPresenter::ResetCounts();
+    };
+  }
+};
+
 std::filesystem::path TestDir(char const* name) {
   auto path = std::filesystem::temp_directory_path() / name;
   std::filesystem::remove_all(path);
@@ -162,7 +177,7 @@ std::size_t CountReachableWindowChangedEvents(ae::Obj& root) {
 void TestCommandUpdatesExistingMirror() {
   TestMainWindowPresenter::ResetCounts();
   auto dir = TestDir("apptraverse_window_changed_command");
-  ModelSession session;
+  FixtureSession session;
   session.state_dir = dir;
   std::thread model{[&] {
     session.Run([&session](PublicationKind) { session.cv.notify_all(); });
@@ -173,6 +188,8 @@ void TestCommandUpdatesExistingMirror() {
   ae::Domain ui_domain{ui_storage};
   auto ui_app = LoadInitialUi(TakeAndWake(session), ui_domain, ui_storage);
   InitializePresenters(*ui_app);
+  CHECK(TestMainWindowPresenter::on_model_changed_calls.load() == 1);
+  TestMainWindowPresenter::on_model_changed_calls.store(0);
   auto* app = &*ui_app;
   auto* window = &*ui_app->main_window;
   auto* presenter = &*ui_app->main_window->presenter;
@@ -208,7 +225,7 @@ void TestCommandUpdatesExistingMirror() {
 
 void TestCoalescePendingCommands() {
   auto dir = TestDir("apptraverse_window_changed_coalesce");
-  ModelSession session;
+  FixtureSession session;
   session.state_dir = dir;
   std::thread model{[&] {
     session.Run([&session](PublicationKind) { session.cv.notify_all(); });
@@ -243,7 +260,7 @@ void TestCoalescePendingCommands() {
 
 void TestNoOpCommand() {
   auto dir = TestDir("apptraverse_window_changed_noop");
-  ModelSession session;
+  FixtureSession session;
   session.state_dir = dir;
   std::thread model{[&] {
     session.Run([&session](PublicationKind) { session.cv.notify_all(); });
@@ -276,7 +293,7 @@ void TestNoOpCommand() {
 
 void TestStopBeatsPendingChange() {
   auto dir = TestDir("apptraverse_window_changed_stop");
-  ModelSession session;
+  FixtureSession session;
   session.state_dir = dir;
   std::mutex gate_mu;
   std::condition_variable gate_cv;
@@ -357,7 +374,7 @@ void TestRestartRestoresGeometry() {
 void TestStalePublicationDoesNotRollBackNative() {
   TestMainWindowPresenter::ResetCounts();
   auto dir = TestDir("apptraverse_window_changed_stale");
-  ModelSession session;
+  FixtureSession session;
   session.state_dir = dir;
   std::thread model{[&] {
     session.Run([&session](PublicationKind) { session.cv.notify_all(); });
@@ -368,6 +385,8 @@ void TestStalePublicationDoesNotRollBackNative() {
   ae::Domain ui_domain{ui_storage};
   auto ui_app = LoadInitialUi(TakeAndWake(session), ui_domain, ui_storage);
   InitializePresenters(*ui_app);
+  CHECK(TestMainWindowPresenter::on_model_changed_calls.load() == 1);
+  TestMainWindowPresenter::on_model_changed_calls.store(0);
   auto* app = &*ui_app;
   auto* window = &*ui_app->main_window;
   auto* presenter = static_cast<TestMainWindowPresenter*>(
@@ -428,7 +447,7 @@ void TestStalePublicationDoesNotRollBackNative() {
 
 void TestMultipleCommitsFlushOnceOnShutdown() {
   auto dir = TestDir("apptraverse_window_changed_multi_flush");
-  ModelSession session;
+  FixtureSession session;
   session.state_dir = dir;
   std::thread model{[&] {
     session.Run([&session](PublicationKind) { session.cv.notify_all(); });
@@ -464,7 +483,7 @@ void TestMultipleCommitsFlushOnceOnShutdown() {
 
 void TestLargeJournalCompactsOnShutdown() {
   auto dir = TestDir("apptraverse_window_changed_large_compact");
-  ModelSession session;
+  FixtureSession session;
   session.state_dir = dir;
   std::thread model{[&] {
     session.Run([&session](PublicationKind) { session.cv.notify_all(); });
@@ -518,7 +537,7 @@ void TestLargeJournalCompactsOnShutdown() {
 void TestDirectFiveHundredWindowChangedCompacts() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
-  auto application = BuildMainWindowGraph(domain);
+  auto application = BuildFixtureGraph(domain);
   FinalizeDistilledGraph(*application);
   MainWindow& window = *application->main_window;
   window.SetJournalRetentionPolicy(JournalRetentionPolicy{.max_events = 0});

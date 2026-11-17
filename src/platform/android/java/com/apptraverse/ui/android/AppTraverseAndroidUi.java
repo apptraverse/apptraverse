@@ -156,25 +156,123 @@ public final class AppTraverseAndroidUi {
     return null;
   }
 
+  private static float nativeTextSizeSp(Context context, int styleAttribute, TextView view) {
+    android.content.res.TypedArray style = context.obtainStyledAttributes(
+        null, new int[] {android.R.attr.textSize}, styleAttribute, 0);
+    TypedValue size = style.peekValue(0);
+    float sp = size != null && size.type == TypedValue.TYPE_DIMENSION
+            && (size.data & TypedValue.COMPLEX_UNIT_MASK) == TypedValue.COMPLEX_UNIT_SP
+        ? TypedValue.complexToFloat(size.data)
+        : view.getTextSize() / context.getResources().getDisplayMetrics().scaledDensity;
+    style.recycle();
+    return sp;
+  }
+
+  private static final class TextBinding implements android.text.TextWatcher {
+    long presenter;
+    boolean applying, readOnly;
+    android.text.method.KeyListener keyListener;
+    TextBinding(long p) {
+      presenter = p;
+    }
+    public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+    public void onTextChanged(CharSequence s, int start, int before, int count) {
+      if (!applying && presenter != 0)
+        nativeOnTextEdited(presenter, s.toString());
+    }
+    public void afterTextChanged(android.text.Editable e) {}
+  }
+  private static final java.util.WeakHashMap<View, TextBinding> textBindings =
+      new java.util.WeakHashMap<>();
+  public static View createTextControl(ViewGroup parent, int id, int kind, long presenter) {
+    TextView text = kind == 0 ? new TextView(parent.getContext())
+                              : new android.widget.EditText(parent.getContext());
+    text.setTag(id);
+    text.setTextIsSelectable(true);
+    TextBinding binding = new TextBinding(presenter);
+    textBindings.put(text, binding);
+    if (text instanceof android.widget.EditText) {
+      android.widget.EditText edit = (android.widget.EditText) text;
+      edit.setSingleLine(kind == 1);
+      binding.keyListener = edit.getKeyListener();
+      edit.addTextChangedListener(binding);
+      edit.setOnEditorActionListener((v, action, event) -> {
+        if (kind == 1) {
+          if (event == null
+              || (event.getAction() == android.view.KeyEvent.ACTION_DOWN
+                  && event.getRepeatCount() == 0))
+            nativeOnTextAccepted(binding.presenter);
+          return true;
+        }
+        return false;
+      });
+    }
+    ((ClientMount) parent).textSizesSp.put(text,
+        nativeTextSizeSp(parent.getContext(),
+            kind == 0 ? android.R.attr.textViewStyle : android.R.attr.editTextStyle, text));
+    parent.addView(text, new FrameLayout.LayoutParams(1, 1));
+    refreshParent(text);
+    return text;
+  }
+  public static void updateTextControl(View view, String value, String accessibleLabel,
+      boolean enabled, boolean visible, boolean readOnly, boolean apply) {
+    TextView text = (TextView) view;
+    TextBinding binding = textBindings.get(view);
+    binding.applying = true;
+    try {
+      CharSequence name = accessibleLabel.isEmpty() ? null : accessibleLabel;
+      if (!android.text.TextUtils.equals(text.getContentDescription(), name))
+        text.setContentDescription(name);
+      if (apply && !text.getText().toString().equals(value)) {
+        int a = text.getSelectionStart(), z = text.getSelectionEnd();
+        text.setText(value);
+        if (text instanceof android.widget.EditText && a >= 0 && z >= 0)
+          ((android.widget.EditText) text)
+              .setSelection(Math.min(a, value.length()), Math.min(z, value.length()));
+      }
+      text.setEnabled(enabled);
+      text.setVisibility(visible ? View.VISIBLE : View.GONE);
+      if (text instanceof android.widget.EditText) {
+        android.widget.EditText edit = (android.widget.EditText) text;
+        // Editing configuration changes only with the model's read-only state;
+        // repeated publications must not restart a native composing session.
+        if (binding.readOnly != readOnly) {
+          edit.setShowSoftInputOnFocus(!readOnly);
+          edit.setCursorVisible(!readOnly);
+          edit.setKeyListener(readOnly ? null : binding.keyListener);
+          binding.readOnly = readOnly;
+        }
+      }
+    } finally {
+      binding.applying = false;
+    }
+    refreshParent(text);
+  }
+  public static void releaseTextControl(View view) {
+    TextBinding binding = textBindings.remove(view);
+    binding.presenter = 0;
+    if (view instanceof android.widget.EditText) {
+      ((android.widget.EditText) view).removeTextChangedListener(binding);
+      ((android.widget.EditText) view).setOnEditorActionListener(null);
+    }
+    detachFromParent(view);
+  }
+  private static native void nativeOnTextEdited(long presenter, String text);
+  private static native void nativeOnTextAccepted(long presenter);
+
+  private static final java.util.WeakHashMap<Button, Integer> focusTargets =
+      new java.util.WeakHashMap<>();
   public static Button createPushButton(ViewGroup parent, int controlId, String label,
       boolean enabled, int x, int y, int width, int height, long nativePresenter) {
     Context context = parent.getContext();
     Button button = new Button(context);
-    android.content.res.TypedArray style = context.obtainStyledAttributes(null,
-        new int[] {android.R.attr.textSize}, android.R.attr.buttonStyle, 0);
-    TypedValue size = style.peekValue(0);
-    float sp = size != null && size.type == TypedValue.TYPE_DIMENSION &&
-        (size.data & TypedValue.COMPLEX_UNIT_MASK) == TypedValue.COMPLEX_UNIT_SP
-        ? TypedValue.complexToFloat(size.data)
-        : button.getTextSize() / context.getResources().getDisplayMetrics().scaledDensity;
-    style.recycle();
+    float sp = nativeTextSizeSp(context, android.R.attr.buttonStyle, button);
     ((ClientMount) parent).textSizesSp.put(button, sp);
     button.setText(label);
     button.setEnabled(enabled);
     button.setTag(controlId);
     button.setContentDescription(label);
-    FrameLayout.LayoutParams params =
-        new FrameLayout.LayoutParams(width, height);
+    FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(width, height);
     params.leftMargin = x;
     params.topMargin = y;
     parent.addView(button, params);
@@ -183,20 +281,28 @@ public final class AppTraverseAndroidUi {
       @Override
       public void onClick(View v) {
         nativeOnPushButtonClick(nativePresenter);
+        int id = focusTargets.getOrDefault(button, 0);
+        if (id != 0) {
+          View target = parent.findViewWithTag(id);
+          if (target != null)
+            target.requestFocus();
+        }
       }
     });
     return button;
   }
 
-  public static void updatePushButton(Button button, String label, boolean enabled) {
+  public static void updatePushButton(
+      Button button, String label, boolean enabled, boolean visible, int focusControl) {
     button.setText(label);
     button.setEnabled(enabled);
+    button.setVisibility(visible ? View.VISIBLE : View.GONE);
+    focusTargets.put(button, focusControl);
     button.setContentDescription(label);
     refreshParent(button);
   }
 
-  public static void updatePushButtonLayout(Button button, int x, int y, int width,
-      int height) {
+  public static void updatePushButtonLayout(Button button, int x, int y, int width, int height) {
     FrameLayout.LayoutParams frame = (FrameLayout.LayoutParams) button.getLayoutParams();
     frame.leftMargin = x;
     frame.topMargin = y;
@@ -328,6 +434,15 @@ public final class AppTraverseAndroidUi {
   }
 
   /** Measure native text widgets with platform SP/font scaling (including nonlinear scaling). */
+  private static int minimumTextWidth(View view) {
+    if (!(view instanceof TextView) || view instanceof android.widget.EditText)
+      return 0;
+    TextView text = (TextView) view;
+    float width = 0;
+    for (String word : text.getText().toString().split("\\s+"))
+      width = Math.max(width, text.getPaint().measureText(word));
+    return (int) Math.ceil(width) + view.getPaddingLeft() + view.getPaddingRight();
+  }
   public static int[] measureControls(FrameLayout client) {
     int[] result = new int[client.getChildCount() * 5];
     for (int i = 0; i < client.getChildCount(); ++i) {
@@ -336,8 +451,15 @@ public final class AppTraverseAndroidUi {
           View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
       int offset = i * 5;
       result[offset] = (Integer) child.getTag();
-      result[offset + 1] = child instanceof Button ? child.getMinimumWidth() : 0;
-      result[offset + 2] = child instanceof Button ? Math.max(child.getMinimumHeight(), child.getMeasuredHeight()) : 0;
+      result[offset + 1] =
+          child instanceof Button ? child.getMinimumWidth() : minimumTextWidth(child);
+      result[offset + 2] = child instanceof android.widget.EditText
+          ? Math.max(child.getMinimumHeight(),
+                ((TextView) child).getLineHeight() + child.getPaddingTop()
+                    + child.getPaddingBottom())
+          : child instanceof TextView
+          ? Math.max(child.getMinimumHeight(), child.getMeasuredHeight())
+          : 0;
       result[offset + 3] = child instanceof Button ? child.getMeasuredWidth() : 0;
       result[offset + 4] = result[offset + 2];
     }
@@ -348,7 +470,11 @@ public final class AppTraverseAndroidUi {
     View child = client.findViewWithTag(id);
     child.measure(View.MeasureSpec.makeMeasureSpec(Math.max(1, width), View.MeasureSpec.EXACTLY),
         View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
-    return child instanceof Button ? Math.max(child.getMinimumHeight(), child.getMeasuredHeight()) : 0;
+    return child instanceof android.widget.EditText
+        ? Math.max(child.getMinimumHeight(),
+              ((TextView) child).getLineHeight() + child.getPaddingTop() + child.getPaddingBottom())
+        : child instanceof TextView ? Math.max(child.getMinimumHeight(), child.getMeasuredHeight())
+                                    : 0;
   }
 
   public static void applyControlRects(FrameLayout client, int[] rects, int contentWidth, int contentHeight) {

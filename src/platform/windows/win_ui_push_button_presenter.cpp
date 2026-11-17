@@ -26,7 +26,7 @@ void WinPushButtonPresenter::OnLoad() {
       window_presenter->NativeChildParentHandle());
   std::wstring const caption = Utf8ToWide(
       button->label->Resolve(window_presenter->locale->language_index()));
-  ui::UiControlLayout const layout = EffectiveLayout(*this);
+  ui::UiControlLayout const layout = button->visible()?EffectiveLayout(*this):ui::UiControlLayout{0,0,1,1,control_id};
   hwnd_ = CreateChildPushButton({
       .parent_hwnd = parent_hwnd,
       .control_id = control_id,
@@ -38,6 +38,7 @@ void WinPushButtonPresenter::OnLoad() {
       .presenter_user_data = this,
       .create_fatal_operation = "CreateWindowExW Ui push button",
   });
+  ShowWindow(hwnd_,button->visible()?SW_SHOW:SW_HIDE);
   if (auto* host = WinDesktopWindowPresenter::FromNativeWindow(parent_hwnd)) host->RegisterChildControl(hwnd_, control_id);
   SyncFromMirror();
 }
@@ -50,7 +51,8 @@ void WinPushButtonPresenter::SyncFromMirror() {
     FatalWin32("SetWindowTextW Ui push button", GetLastError());
   }
   EnableWindow(hwnd_, button->enabled() ? TRUE : FALSE);
-  ApplyLayout();
+  ShowWindow(hwnd_, button->visible() ? SW_SHOW : SW_HIDE);
+  if(button->visible())ApplyLayout();
   if (auto* host = WinDesktopWindowPresenter::FromNativeWindow(GetParent(hwnd_))) host->RefreshLayout();
 }
 
@@ -81,6 +83,7 @@ bool WinPushButtonPresenter::OnCommand(std::uint32_t command_id,
     return false;
   }
   NotifyClickedFromUi();
+  if(auto target=button->FocusControlAfterClick())SetFocus(GetDlgItem(GetParent(hwnd_),target));
   return true;
 }
 

@@ -43,7 +43,7 @@ std::string RunAndroidPendingBackgroundSaveRaceProbe() {
 
   apptraverse::android::AndroidApplicationHostCallbacks callbacks;
   callbacks.run_model =
-      [&runtime, &user_storage](apptraverse::ApplicationPublishedCallback on_published) {
+      [&runtime, &user_storage, &local_storage](apptraverse::ApplicationPublishedCallback on_published) {
         {
           std::lock_guard<std::mutex> lock{phase_mu};
           run_model_ready = true;
@@ -52,7 +52,7 @@ std::string RunAndroidPendingBackgroundSaveRaceProbe() {
         return RunMinimalApplicationModel(user_storage, local_storage, probe_state_dir, runtime,
                                           std::move(on_published));
       };
-  callbacks.persist_model = [&user_storage](ae::Domain& domain) -> int {
+  callbacks.persist_model = [&user_storage, &local_storage](ae::Domain& domain) -> int {
     WaitAndroidCheckpointPersistTestGateIfEnabled();
     int const result =
         PersistAndroidMinimalUser(domain, user_storage, local_storage, probe_state_dir);

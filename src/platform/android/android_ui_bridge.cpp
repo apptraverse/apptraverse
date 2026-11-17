@@ -1,38 +1,57 @@
 #include "apptraverse/platform/android/android_ui_bridge.h"
 
-#include "android_log.h"
-#include "android_jni_util.h"
 #include <cstdlib>
+#include "android_jni_util.h"
+#include "android_log.h"
 #include "apptraverse/platform/android/android_ui_list_presenter.h"
 #include "apptraverse/platform/android/android_ui_push_button_presenter.h"
+#include "apptraverse/platform/android/android_ui_text_control_presenter.h"
 #include "apptraverse/platform/android/android_ui_window_presenter.h"
+#include "apptraverse/ui/ui_push_button.h"
 
 namespace apptraverse::android {
 using ui::android::CheckedJni;
 using ui::android::FailJni;
 
 namespace {
+void OnTextEdited(JNIEnv* env, jclass, jlong p, jstring text) {
+  reinterpret_cast<ui::android::AndroidTextControlPresenter*>(p)
+      ->QueueEditedFromUi(ui::android::JstringToUtf8(env, text));
+}
+void OnTextAccepted(JNIEnv*, jclass, jlong p) {
+  reinterpret_cast<ui::android::AndroidTextControlPresenter*>(p)
+      ->QueueAcceptFromUi();
+}
 void OnPushButton(JNIEnv*, jclass, jlong presenter) {
   ui::android::NotifyAndroidPushButtonClickedFromJava(presenter);
 }
 void OnListSelection(JNIEnv*, jclass, jlong presenter, jint row) {
   ui::android::NotifyAndroidListSelectionFromJava(presenter, row);
 }
-void OnWindowClientSize(JNIEnv*, jclass, jlong presenter,
-                        jint width, jint height, jint dpi) {
-  ui::android::NotifyAndroidWindowClientSizeFromJava(presenter, width, height, dpi);
+void OnWindowClientSize(JNIEnv*, jclass, jlong presenter, jint width,
+                        jint height, jint dpi) {
+  ui::android::NotifyAndroidWindowClientSizeFromJava(presenter, width, height,
+                                                     dpi);
 }
 }  // namespace
 
 bool RegisterAndroidUiNativeMethods(JNIEnv* env) {
-  jclass cls = env->FindClass("com/apptraverse/ui/android/AppTraverseAndroidUi");
+  jclass cls =
+      env->FindClass("com/apptraverse/ui/android/AppTraverseAndroidUi");
   if (cls == nullptr) return false;
   JNINativeMethod const methods[] = {
-      {"nativeOnPushButtonClick", "(J)V", reinterpret_cast<void*>(&OnPushButton)},
-      {"nativeOnListSelection", "(JI)V", reinterpret_cast<void*>(&OnListSelection)},
-      {"nativeOnWindowClientSize", "(JIII)V", reinterpret_cast<void*>(&OnWindowClientSize)},
+      {"nativeOnTextEdited", "(JLjava/lang/String;)V",
+       reinterpret_cast<void*>(&OnTextEdited)},
+      {"nativeOnTextAccepted", "(J)V",
+       reinterpret_cast<void*>(&OnTextAccepted)},
+      {"nativeOnPushButtonClick", "(J)V",
+       reinterpret_cast<void*>(&OnPushButton)},
+      {"nativeOnListSelection", "(JI)V",
+       reinterpret_cast<void*>(&OnListSelection)},
+      {"nativeOnWindowClientSize", "(JIII)V",
+       reinterpret_cast<void*>(&OnWindowClientSize)},
   };
-  jint const result = env->RegisterNatives(cls, methods, 3);
+  jint const result = env->RegisterNatives(cls, methods, 5);
   env->DeleteLocalRef(cls);
   return result == JNI_OK;
 }

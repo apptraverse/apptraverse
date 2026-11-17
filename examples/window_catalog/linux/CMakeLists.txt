@@ -2,35 +2,33 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0)
 
 if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES)
-set(_surfaces_linux_sources
-  main.cpp
-  linux_app.cpp
-  linux_presenters.cpp
-  linux_fatal.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/../common/surfaces_lifecycle.cpp
-)
-
-add_executable(linux_window_catalog ${_surfaces_linux_sources})
-target_compile_definitions(linux_window_catalog PRIVATE
-  APPTRAVERSE_ENABLE_DISTILLATION
-)
-target_link_libraries(linux_window_catalog PRIVATE
-  window_catalog_distill
-)
-
-add_executable(linux_window_catalog_load_only ${_surfaces_linux_sources})
-# Load-only: model + desktop/linux presenters — no distill bootstrap.
-
-foreach(_window_catalog linux_window_catalog linux_window_catalog_load_only)
-  target_link_libraries(${_window_catalog} PRIVATE
-    apptraverse_surfaces
-    PkgConfig::GTK3
-  )
-  target_include_directories(${_window_catalog} PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/../common
-  )
-endforeach()
+  add_executable(linux_window_catalog surface_ui_main.cpp ../common/surface_ui_session.cpp)
+  add_executable(linux_window_catalog_load_only surface_ui_main.cpp ../common/surface_ui_session.cpp)
+  set(_surface_supply_dir "${CMAKE_CURRENT_BINARY_DIR}/generated_distilled/linux_window_catalog")
+  set(_surface_supply "${_surface_supply_dir}/embedded_surface_ui_supply.h")
+  file(MAKE_DIRECTORY "${_surface_supply_dir}")
+  if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    target_sources(linux_window_catalog PRIVATE ../common/surface_ui_supply.cpp)
+    target_compile_definitions(linux_window_catalog PRIVATE APPTRAVERSE_SURFACE_UI_DEBUG_BOOTSTRAP)
+    add_custom_command(OUTPUT "${_surface_supply}"
+      COMMAND $<TARGET_FILE:linux_window_catalog> --distill-only "${_surface_supply_dir}"
+      DEPENDS linux_window_catalog VERBATIM)
+  else()
+    set(APPTRAVERSE_SURFACE_UI_DEBUG_SUPPLY_HEADER "" CACHE FILEPATH "Surface S0 supply prepared by Debug")
+    if(NOT EXISTS "${APPTRAVERSE_SURFACE_UI_DEBUG_SUPPLY_HEADER}")
+      message(FATAL_ERROR "Provide matching Debug Surface supply through APPTRAVERSE_SURFACE_UI_DEBUG_SUPPLY_HEADER")
+    endif()
+    add_custom_command(OUTPUT "${_surface_supply}"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different "${APPTRAVERSE_SURFACE_UI_DEBUG_SUPPLY_HEADER}" "${_surface_supply}"
+      DEPENDS "${APPTRAVERSE_SURFACE_UI_DEBUG_SUPPLY_HEADER}" VERBATIM)
+    target_sources(linux_window_catalog PRIVATE "${_surface_supply}")
+    target_include_directories(linux_window_catalog PRIVATE "${_surface_supply_dir}")
+  endif()
+  target_sources(linux_window_catalog_load_only PRIVATE "${_surface_supply}")
+  target_include_directories(linux_window_catalog_load_only PRIVATE "${_surface_supply_dir}")
+  foreach(_surface_target linux_window_catalog linux_window_catalog_load_only)
+    target_link_libraries(${_surface_target} PRIVATE surface_generic_ui apptraverse_ui_linux PkgConfig::GTK3)
+  endforeach()
 endif()
 
 # Debug prepares a fresh graph; consumers embed the supply prepared by Debug.

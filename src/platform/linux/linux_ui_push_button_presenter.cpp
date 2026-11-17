@@ -8,16 +8,28 @@ namespace apptraverse::ui::linux {
 
 void LinuxPushButtonPresenter::OnClicked(GtkButton* button, gpointer user_data) {
   (void)button;
-  static_cast<LinuxPushButtonPresenter*>(user_data)->NotifyClickedFromUi();
+  auto& p = *static_cast<LinuxPushButtonPresenter*>(user_data);
+  p.NotifyClickedFromUi();
+  auto id = p.button->FocusControlAfterClick();
+  if (!id) return;
+  auto* parent = GTK_CONTAINER(p.window_presenter->NativeChildParentHandle());
+  auto* children = gtk_container_get_children(parent);
+  auto const name = "apptraverse-control-" + std::to_string(id);
+  for (auto* item = children; item; item = item->next)
+    if (name == gtk_widget_get_name(GTK_WIDGET(item->data)))
+      gtk_widget_grab_focus(GTK_WIDGET(item->data));
+  g_list_free(children);
 }
 
 void LinuxPushButtonPresenter::OnLoad() {
-  auto* parent = static_cast<GtkWidget*>(
-      window_presenter->NativeChildParentHandle());
+  auto* parent =
+      static_cast<GtkWidget*>(window_presenter->NativeChildParentHandle());
 
   ui::UiControlLayout const layout =
-      window_presenter->ResolveChildLayout({layout_x, layout_y, layout_width,
-                                            layout_height, control_id});
+      !button->visible()
+          ? ui::UiControlLayout{0, 0, 1, 1, control_id}
+          : window_presenter->ResolveChildLayout(
+                {layout_x, layout_y, layout_width, layout_height, control_id});
 
   button_ = gtk_button_new_with_label("");
   if (button_ == nullptr) {
@@ -25,8 +37,8 @@ void LinuxPushButtonPresenter::OnLoad() {
   }
   gtk_widget_set_size_request(button_, layout.width, layout.height);
   gtk_fixed_put(GTK_FIXED(parent), button_, layout.x, layout.y);
-  clicked_handler_ = g_signal_connect(button_, "clicked",
-                                    G_CALLBACK(OnClicked), this);
+  clicked_handler_ =
+      g_signal_connect(button_, "clicked", G_CALLBACK(OnClicked), this);
   gtk_widget_show(button_);
   SyncFromMirror();
   static_cast<LinuxDesktopWindowPresenter*>(window_presenter.operator->())->RegisterChildControl(button_, control_id);
@@ -40,9 +52,11 @@ void LinuxPushButtonPresenter::SyncFromMirror() {
   gtk_label_set_line_wrap(GTK_LABEL(text), TRUE);
   gtk_label_set_line_wrap_mode(GTK_LABEL(text), PANGO_WRAP_WORD);
   gtk_widget_set_sensitive(button_, button->enabled() ? TRUE : FALSE);
+  gtk_widget_set_visible(button_, button->visible());
 
+  if (!button->visible()) return;
   // Layout may change after load (adaptive catalog chrome).
-  ui::UiControlLayout const layout =
+  ui::UiControlLayout const layout = !button->visible()?ui::UiControlLayout{0,0,1,1,control_id}:
       window_presenter->ResolveChildLayout({layout_x, layout_y, layout_width,
                                             layout_height, control_id});
   gtk_widget_set_size_request(button_, layout.width, layout.height);

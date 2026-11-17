@@ -21,6 +21,14 @@ if(EMSCRIPTEN)
   add_link_options(-pthread)
 endif()
 
+option(APPTRAVERSE_BUILD_SHARED_NODE_CHAT
+  "Build the native SharedNode chat over Aether" OFF)
+# Chat exercises many native text updates; verbose per-object Debug diagnostics
+# are opt-in. Preserve an explicit consumer override and all Debug codegen flags.
+if(APPTRAVERSE_BUILD_SHARED_NODE_CHAT AND NOT DEFINED AE_NO_DEBUG_LOG)
+  set(AE_NO_DEBUG_LOG ON CACHE BOOL "Disable verbose per-object Debug diagnostics")
+endif()
+
 include(cmake/CPM.cmake)
 include(cmake/aether_version.cmake)
 include(cmake/apptraverse_compile_policy.cmake)
@@ -138,6 +146,7 @@ add_library(apptraverse STATIC
   src/ui/ui_locale_settings.cpp
   src/ui/ui_window.cpp
   src/ui/ui_desktop_window.cpp
+  src/ui/ui_text_control.cpp
   src/ui/ui_push_button.cpp
   src/ui/ui_push_button_presenter.cpp
   src/ui/ui_list_container.cpp
@@ -214,6 +223,7 @@ if(WIN32)
     src/platform/windows/win_ui_utf8.cpp
     src/platform/windows/win_ui_frame.cpp
     src/platform/windows/win_ui_native_push_button.cpp
+    src/platform/windows/win_ui_text_control_presenter.cpp
     src/platform/windows/win_ui_push_button_presenter.cpp
     src/platform/windows/win_ui_presenters.cpp
     src/platform/windows/win_ui_registration.cpp
@@ -223,7 +233,7 @@ if(WIN32)
     src/platform/windows/win_application_host.cpp
   )
   target_link_libraries(apptraverse_ui_windows PUBLIC
-    apptraverse apptraverse_win32_support user32 gdi32 comctl32)
+    apptraverse apptraverse_win32_support user32 gdi32 comctl32 oleacc ole32 uuid)
 endif()
 
 # Android presenter classes without their JNI Views: the build-host exporter
@@ -379,6 +389,7 @@ if(ANDROID)
     src/platform/android/android_ui_layout_scale.cpp
     src/platform/android/android_ui_window_presenter.cpp
     src/platform/android/android_ui_push_button_presenter.cpp
+    src/platform/android/android_ui_text_control_presenter.cpp
     src/platform/android/android_ui_list_presenter.cpp
   )
   target_include_directories(apptraverse_ui_android PUBLIC
@@ -401,6 +412,7 @@ if(UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN AND
     src/platform/linux/linux_ui_client_mount.cpp
     src/platform/linux/linux_ui_window_presenter.cpp
     src/platform/linux/linux_ui_list_presenter.cpp
+    src/platform/linux/linux_ui_text_control_presenter.cpp
     src/platform/linux/linux_ui_push_button_presenter.cpp
     src/platform/linux/linux_ui_registration.cpp
   )
@@ -419,6 +431,7 @@ if(EMSCRIPTEN)
     src/platform/web/web_ui_window_presenter.cpp
     src/platform/web/web_ui_push_button_presenter.cpp
     src/platform/web/web_ui_list_presenter.cpp
+    src/platform/web/web_ui_text_control_presenter.cpp
     src/platform/web/web_application_host.cpp
     src/platform/web/web_idbfs.cpp
     src/platform/web/web_ui_registration.cpp
@@ -504,8 +517,6 @@ if(APPTRAVERSE_BUILD_EXAMPLES OR BUILD_TESTING)
 endif()
 
 include(CTest)
-option(APPTRAVERSE_BUILD_SHARED_NODE_CHAT
-  "Build the native SharedNode chat over Aether" OFF)
 if(APPTRAVERSE_BUILD_SHARED_NODE_CHAT)
   if(NOT APPTRAVERSE_BUILD_AETHER_LINK)
     message(FATAL_ERROR "SharedNode chat requires APPTRAVERSE_BUILD_AETHER_LINK")

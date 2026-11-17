@@ -619,13 +619,13 @@ bool SharedSyncRuntime::PersistState() {
 }
 
 bool SharedSyncRuntime::QueueInitialState(ae::ObjId node_id,
-                                          std::string const& destination) {
+                                          std::string const& destination, bool refresh_completed) {
   auto node = FindNode(node_id);
   if (failed_ || !node.is_valid()) {
     return false;
   }
   auto peer = FindPeer(*node, destination);
-  if (!peer.is_valid() || peer->initial_complete) {
+  if (!peer.is_valid() || (peer->initial_complete && !refresh_completed)) {
     return false;
   }
   for (auto const& pending : peer->pending_packets) {

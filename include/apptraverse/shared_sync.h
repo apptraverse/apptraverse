@@ -82,7 +82,10 @@ class SharedSyncRuntime {
 
   // These entry points persist frozen packets but do not send them. Service
   // drives actual transmission, enabling destruction after persist/before Send.
-  bool QueueInitialState(ae::ObjId node_id, std::string const& destination);
+  // Explicit fresh-replica requests may replace a completed bootstrap with a
+  // new frozen snapshot. An already pending initial packet remains unchanged.
+  bool QueueInitialState(ae::ObjId node_id, std::string const& destination,
+                         bool refresh_completed = false);
   // The application Join Event carries the participant's native graph. Its
   // Apply must introduce joining_endpoint in node.links. Join, snapshot and
   // delivery obligations are frozen/persisted before any transmission.

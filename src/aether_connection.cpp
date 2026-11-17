@@ -1,3 +1,4 @@
+#include <cstdarg>
 #include "apptraverse/aether_connection.h"
 
 #include <map>

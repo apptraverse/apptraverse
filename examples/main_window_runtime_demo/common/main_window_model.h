@@ -2,6 +2,7 @@
 #define APPTRAVERSE_MAIN_WINDOW_MODEL_H_
 
 #include <cstdint>
+#include <functional>
 
 #include "aether-objects/obj/obj.h"
 
@@ -121,7 +122,8 @@ class Application : public ae::Obj {
   MainWindow::ptr main_window;
 };
 
-Application::ptr BuildMainWindowGraph(ae::Domain& domain);
+using MainWindowPresenterFactory = std::function<MainWindowPresenter::ptr(ae::Domain&, ae::ObjId)>;
+Application::ptr BuildMainWindowGraph(ae::Domain& domain, MainWindowPresenterFactory factory = {});
 
 }  // namespace apptraverse
 

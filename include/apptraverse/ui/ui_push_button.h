@@ -40,6 +40,8 @@ class UiPushButton : public NodeFor<UiPushButton> {
 
   ae::ObjPtr<UiLocalizationString> label;
   bool enabled() const { return enabled_; }
+  virtual bool visible() const { return true; }
+  virtual std::uint32_t FocusControlAfterClick() const { return 0; }
 
   // Runtime input binding; called on the UI mirror, queues model work only.
   virtual void QueueClickFromUi(ModelObjectProxy& proxy) const;

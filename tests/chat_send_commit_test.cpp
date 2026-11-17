@@ -44,7 +44,7 @@ int main(int argc, char** argv) {
   if (!send("committed draft", true)) return 8;
   if (!wait([&] { return session.View().messages.size() == 1; })) return 9;
   auto const committed = session.View();
-  if (committed.message_records.size() != 1 || flushes.load() == 0) return 10;
+  if (committed.message_records.size() != 1 || flushes.load() != 1) return 10;
   auto const record = committed.message_records.front();
   if (record.id.empty() || record.author_uid != committed.local_uid ||
       record.text != "committed draft" || record.author_name != "Commit acceptance" ||
@@ -52,8 +52,9 @@ int main(int argc, char** argv) {
   session.Stop();
   if (!send("after stop", false)) return 12;
   session.Start();
-  if (!wait([&] { return session.View().ready && session.View().in_room; })) return 13;
-  if (session.View().message_records != committed.message_records) return 14;
+  if (!wait([&] { return session.View().ready && !session.View().in_room; })) return 13;
+  if (!session.View().message_records.empty() ||
+      std::filesystem::exists(std::filesystem::path{argv[1]} / "user.bin")) return 14;
   session.Stop();
 
   auto failed = std::make_shared<std::promise<bool>>();
@@ -65,5 +66,5 @@ int main(int argc, char** argv) {
   if (rejected.wait_for(std::chrono::seconds{3}) != std::future_status::ready ||
       rejected.get()) return 15;
   failure.Stop();
-  std::cout << "PASS rejected drafts, local commit, durable structured records/cold restore, shutdown and startup-failure completions\n";
+  std::cout << "PASS rejected drafts, local commit, RAM structured records/restart absence, shutdown and startup-failure completions\n";
 }

@@ -105,9 +105,11 @@ UiConstraintLayoutResult LinuxDesktopWindowPresenter::ComputeLocalLayout() const
   std::vector<UiLayoutMeasurement> measurements;
   for (auto const& child : native_children_) {
     if (!GTK_IS_BUTTON(child.widget)) {
-      auto* text = gtk_widget_create_pango_layout(child.widget, "Mg"); int w{}, h{};
-      pango_layout_get_pixel_size(text, &w, &h); g_object_unref(text);
-      measurements.push_back({child.control_id, 0, static_cast<double>(h + 8), 0, 0});
+      auto* text = gtk_widget_create_pango_layout(child.widget, GTK_IS_LABEL(child.widget)?gtk_label_get_text(GTK_LABEL(child.widget)):"Mg"); int w{}, h{};
+      pango_layout_get_pixel_size(text, &w, &h);
+      int minimum=0;if(GTK_IS_LABEL(child.widget)){pango_layout_set_width(text,1);pango_layout_set_wrap(text,PANGO_WRAP_WORD);pango_layout_get_pixel_size(text,&minimum,nullptr);}
+      g_object_unref(text);
+      measurements.push_back({child.control_id, static_cast<double>(minimum), static_cast<double>(h + 8), GTK_IS_LABEL(child.widget)?static_cast<double>(w):0, static_cast<double>(h+8)});
       continue;
     }
     auto* text = gtk_widget_create_pango_layout(child.widget, gtk_button_get_label(GTK_BUTTON(child.widget)));
@@ -116,45 +118,78 @@ UiConstraintLayoutResult LinuxDesktopWindowPresenter::ComputeLocalLayout() const
     auto* style = gtk_widget_get_style_context(child.widget);
     gtk_style_context_get_padding(style, GTK_STATE_FLAG_NORMAL, &padding);
     gtk_style_context_get_border(style, GTK_STATE_FLAG_NORMAL, &border);
-    double const horizontal = padding.left + padding.right + border.left + border.right + 8;
-    double const vertical = padding.top + padding.bottom + border.top + border.bottom + 4;
+    double const horizontal =
+        padding.left + padding.right + border.left + border.right + 8;
+    double const vertical =
+        padding.top + padding.bottom + border.top + border.bottom + 4;
     // Pango's word-wrapped minimum keeps every word readable; the engine can
     // overflow instead of shrinking the native font to fit a narrow viewport.
-    pango_layout_set_width(text, 1); pango_layout_set_wrap(text, PANGO_WRAP_WORD);
-    int minimum{}; pango_layout_get_pixel_size(text, &minimum, nullptr); g_object_unref(text);
-    measurements.push_back({child.control_id, minimum + horizontal, height + vertical,
-        width + horizontal, height + vertical});
+    pango_layout_set_width(text, 1);
+    pango_layout_set_wrap(text, PANGO_WRAP_WORD);
+    int minimum{};
+    pango_layout_get_pixel_size(text, &minimum, nullptr);
+    g_object_unref(text);
+    measurements.push_back({child.control_id, minimum + horizontal,
+                            height + vertical, width + horizontal,
+                            height + vertical});
   }
-  GtkAllocation viewport{}; gtk_widget_get_allocation(scroller_, &viewport);
+  GtkAllocation viewport{};
+  gtk_widget_get_allocation(scroller_, &viewport);
   auto remeasure = [&](std::uint32_t id, double width) {
-    auto child = std::find_if(native_children_.begin(), native_children_.end(), [&](auto const& c) { return c.control_id == id; });
-    auto measurement = *std::find_if(measurements.begin(), measurements.end(), [&](auto const& m) { return m.control_id == id; });
-    if (GTK_IS_BUTTON(child->widget)) {
-      auto* text = gtk_widget_create_pango_layout(child->widget, gtk_button_get_label(GTK_BUTTON(child->widget)));
-      pango_layout_set_width(text, static_cast<int>(std::max(1.0, width - 24) * PANGO_SCALE));
+    auto child =
+        std::find_if(native_children_.begin(), native_children_.end(),
+                     [&](auto const& c) { return c.control_id == id; });
+    auto measurement =
+        *std::find_if(measurements.begin(), measurements.end(),
+                      [&](auto const& m) { return m.control_id == id; });
+    if (GTK_IS_BUTTON(child->widget) || GTK_IS_LABEL(child->widget)) {
+      bool const button = GTK_IS_BUTTON(child->widget);
+      auto* text = gtk_widget_create_pango_layout(
+          child->widget, button
+                             ? gtk_button_get_label(GTK_BUTTON(child->widget))
+                             : gtk_label_get_text(GTK_LABEL(child->widget)));
+      pango_layout_set_width(
+          text, static_cast<int>(std::max(1.0, width - (button ? 24 : 0)) *
+                                 PANGO_SCALE));
       pango_layout_set_wrap(text, PANGO_WRAP_WORD);
-      int height{}; pango_layout_get_pixel_size(text, nullptr, &height); g_object_unref(text);
-      measurement.min_height = std::max(measurement.min_height, static_cast<double>(height + 16));
-      measurement.preferred_height = std::max(measurement.preferred_height, measurement.min_height);
+      int height{};
+      pango_layout_get_pixel_size(text, nullptr, &height);
+      g_object_unref(text);
+      measurement.min_height =
+          std::max(measurement.min_height,
+                   static_cast<double>(height + (button ? 16 : 8)));
+      measurement.preferred_height =
+          std::max(measurement.preferred_height, measurement.min_height);
     }
     return measurement;
   };
-  auto result = ComputeUiConstraintLayout(*LayoutRoot(), viewport.width, viewport.height, measurements, remeasure);
+  auto result = ComputeUiConstraintLayout(
+      *LayoutRoot(), viewport.width, viewport.height, measurements, remeasure);
   if (!result.valid) FatalLinux(result.error.c_str());
   return result;
 }
-UiControlLayout LinuxDesktopWindowPresenter::ResolveChildLayout(UiControlLayout requested) const {
+UiControlLayout LinuxDesktopWindowPresenter::ResolveChildLayout(
+    UiControlLayout requested) const {
   if (!LayoutRoot() || !NativeMeasurementsReady()) return requested;
   auto const result = ComputeLocalLayout();
-  auto found = std::find_if(result.controls.begin(), result.controls.end(), [&](auto const& r) { return r.control_id == requested.control_id; });
-  if (found == result.controls.end()) FatalLinux("required control absent from GTK layout");
-  return {static_cast<int>(std::lround(found->x)), static_cast<int>(std::lround(found->y)),
-      std::max(1, static_cast<int>(std::lround(found->width))), std::max(1, static_cast<int>(std::lround(found->height))), requested.control_id};
+  auto found = std::find_if(
+      result.controls.begin(), result.controls.end(),
+      [&](auto const& r) { return r.control_id == requested.control_id; });
+  if (found == result.controls.end())
+    FatalLinux("required control absent from GTK layout");
+  return {static_cast<int>(std::lround(found->x)),
+          static_cast<int>(std::lround(found->y)),
+          std::max(1, static_cast<int>(std::lround(found->width))),
+          std::max(1, static_cast<int>(std::lround(found->height))),
+          requested.control_id};
 }
 gboolean LinuxDesktopWindowPresenter::OnLayoutIdle(gpointer data) {
-  auto* self = static_cast<LinuxDesktopWindowPresenter*>(data); self->layout_idle_ = 0;
-  if (!self->NativeMeasurementsReady()) FatalLinux("GTK layout missing a presented control");
-  self->RefreshLayout(); return G_SOURCE_REMOVE;
+  auto* self = static_cast<LinuxDesktopWindowPresenter*>(data);
+  self->layout_idle_ = 0;
+  if (!self->NativeMeasurementsReady())
+    FatalLinux("GTK layout missing a presented control");
+  self->RefreshLayout();
+  return G_SOURCE_REMOVE;
 }
 void LinuxDesktopWindowPresenter::RefreshLayout() {
   if (!window_ || applying_layout_ || !LayoutRoot()) return;
@@ -164,18 +199,23 @@ void LinuxDesktopWindowPresenter::RefreshLayout() {
   }
   applying_layout_ = true;
   auto const result = ComputeLocalLayout();
-  gtk_widget_set_size_request(client_mount_, static_cast<int>(std::ceil(result.content_width)), static_cast<int>(std::ceil(result.content_height)));
+  gtk_widget_set_size_request(
+      client_mount_, static_cast<int>(std::ceil(result.content_width)),
+      static_cast<int>(std::ceil(result.content_height)));
   for (auto const& child : native_children_) {
-    auto const rect = ResolveChildLayout({0,0,1,1,child.control_id});
+    if (!gtk_widget_get_visible(child.widget)) continue;
+    auto const rect = ResolveChildLayout({0, 0, 1, 1, child.control_id});
     gtk_widget_set_size_request(child.widget, rect.width, rect.height);
     gtk_fixed_move(GTK_FIXED(client_mount_), child.widget, rect.x, rect.y);
   }
   applying_layout_ = false;
 }
-void LinuxDesktopWindowPresenter::OnSettingsChanged(GObject*, GParamSpec*, gpointer data) {
+void LinuxDesktopWindowPresenter::OnSettingsChanged(GObject*, GParamSpec*,
+                                                    gpointer data) {
   auto* self = static_cast<LinuxDesktopWindowPresenter*>(data);
   self->ObserveNativeEnvironment(UiEnvironmentReason::kSystemNotification);
-  self->RefreshPresentationSettings(); self->RefreshLayout();
+  self->RefreshPresentationSettings();
+  self->RefreshLayout();
 }
 void LinuxDesktopWindowPresenter::OnMonitorsChanged(GdkScreen*, gpointer data) {
   auto* self = static_cast<LinuxDesktopWindowPresenter*>(data);

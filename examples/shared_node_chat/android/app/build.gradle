@@ -7,7 +7,7 @@ if(pushEnabled) apply plugin: 'com.google.gms.google-services'
 android {
   namespace 'com.apptraverse.sharedchat'
   buildFeatures { buildConfig true }
-  sourceSets.main.java.srcDirs += [pushEnabled ? 'src/push/java' : 'src/noPush/java']
+  sourceSets.main.java.srcDirs += [pushEnabled ? 'src/push/java' : 'src/noPush/java', '../../../../src/platform/android/java']
   if(pushEnabled) sourceSets.main.manifest.srcFile 'src/push/MergedManifest.xml'
   compileSdk 34
   buildToolsVersion '36.0.0'
@@ -16,6 +16,7 @@ android {
     applicationId 'com.apptraverse.sharedchat'
     minSdk 24
     targetSdk 34
+    testInstrumentationRunner 'com.apptraverse.sharedchat.GenericChatInstrumentation'
     buildConfigField 'String', 'PUSH_SERVICE_UID', '"'+pushServiceUid+'"'
     versionCode 1
     versionName '1.0'

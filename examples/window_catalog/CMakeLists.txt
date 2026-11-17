@@ -165,6 +165,16 @@ if(BUILD_TESTING OR APPTRAVERSE_BUILD_EXAMPLES)
   target_compile_features(apptraverse_export_surfaces_distilled_graph PRIVATE cxx_std_20)
 endif()
 
+if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES AND NOT APPLE)
+  add_library(surface_generic_ui STATIC common/surface_ui_model.cpp)
+  target_include_directories(surface_generic_ui PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/common")
+  target_link_libraries(surface_generic_ui PUBLIC apptraverse)
+  target_compile_features(surface_generic_ui PUBLIC cxx_std_20)
+  if(MSVC)
+    target_compile_options(surface_generic_ui PRIVATE /utf-8 /bigobj)
+  endif()
+endif()
+
 if(WIN32 AND NOT EMSCRIPTEN)
   # Reusable-window catalog consumer (WindowCatalog application).
   add_library(window_catalog_window_catalog STATIC

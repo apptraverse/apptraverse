@@ -9,7 +9,7 @@ if(NOT ANDROID AND NOT EMSCRIPTEN AND NOT IOS)
 endif()
 if(BUILD_TESTING AND (WIN32 OR (APPLE AND NOT IOS)) AND
    (CMAKE_CONFIGURATION_TYPES OR CMAKE_BUILD_TYPE STREQUAL "Debug"))
-  # Real-cloud checkpoint acceptance is explicit, never part of default CTest.
+  # LOCAL isolation acceptance starts the optional SDK; run it explicitly.
   add_executable(apptraverse_shared_chat_ui_checkpoint_test EXCLUDE_FROM_ALL chat_ui_checkpoint_test.cpp)
   target_link_libraries(apptraverse_shared_chat_ui_checkpoint_test PRIVATE apptraverse_shared_chat_ui)
   # The model test owns its Debug producer. Do not build/link a complete SDK
@@ -18,6 +18,9 @@ if(BUILD_TESTING AND (WIN32 OR (APPLE AND NOT IOS)) AND
   target_compile_definitions(apptraverse_shared_chat_ui_model_test PRIVATE
     APPTRAVERSE_CHAT_UI_PRODUCER APPTRAVERSE_ENABLE_DISTILLATION)
   target_link_libraries(apptraverse_shared_chat_ui_model_test PRIVATE apptraverse)
+  if(WIN32)
+    target_link_libraries(apptraverse_shared_chat_ui_model_test PRIVATE apptraverse_ui_windows)
+  endif()
   set_target_properties(apptraverse_shared_chat_ui_model_test PROPERTIES
     EXCLUDE_FROM_ALL "$<NOT:$<CONFIG:Debug>>"
     EXCLUDE_FROM_DEFAULT_BUILD_RELEASE TRUE
@@ -25,6 +28,11 @@ if(BUILD_TESTING AND (WIN32 OR (APPLE AND NOT IOS)) AND
     EXCLUDE_FROM_DEFAULT_BUILD_MINSIZEREL TRUE)
   add_test(NAME apptraverse_shared_chat_ui_model_test
     COMMAND apptraverse_shared_chat_ui_model_test CONFIGURATIONS Debug)
+endif()
+if(BUILD_TESTING AND NOT ANDROID AND NOT EMSCRIPTEN AND NOT IOS)
+  add_executable(apptraverse_shared_chat_ram_test ../../tests/shared_chat_ram_test.cpp)
+  target_link_libraries(apptraverse_shared_chat_ram_test PRIVATE apptraverse_shared_chat_session)
+  add_test(NAME apptraverse_shared_chat_ram_test COMMAND apptraverse_shared_chat_ram_test)
 endif()
 if(ANDROID)
   # The Android parent owns the JNI shared target and packaging.
@@ -46,12 +54,9 @@ if(UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN)
   add_subdirectory(linux)
   return()
 endif()
-add_executable(shared_node_chat WIN32
-  main_windows.cpp
-  ../../src/platform/windows/win_ui_utf8.cpp
-  ../../src/platform/windows/win32_fatal.cpp)
+add_executable(shared_node_chat WIN32 main_windows.cpp)
 target_link_libraries(shared_node_chat PRIVATE
-  apptraverse_shared_chat_ui user32 gdi32 shell32)
+  apptraverse_shared_chat_ui apptraverse_ui_windows user32 gdi32 shell32)
 add_custom_target(apptraverse_generate_chat_ui_supply
   COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/generated"
   COMMAND $<TARGET_FILE:shared_node_chat> --distill-only "${CMAKE_CURRENT_SOURCE_DIR}/generated/chat_ui_supply.h"
@@ -59,6 +64,9 @@ add_custom_target(apptraverse_generate_chat_ui_supply
 
 # Cloud validation is explicit; normal CTest must not create SDK identities.
 if(BUILD_TESTING)
+  add_executable(apptraverse_ui_text_control_win32_test ui_text_control_win32_test.cpp)
+  target_link_libraries(apptraverse_ui_text_control_win32_test PRIVATE apptraverse_ui_windows)
+  add_test(NAME apptraverse_ui_text_control_win32_test COMMAND apptraverse_ui_text_control_win32_test)
   add_executable(apptraverse_shared_chat_latency_worker EXCLUDE_FROM_ALL
     ../../tests/shared_chat_latency_worker.cpp)
   target_link_libraries(apptraverse_shared_chat_latency_worker PRIVATE

@@ -1,8 +1,8 @@
-#include "window_title_fixture.h"
 #include <cstdlib>
 #include <deque>
 #include <iostream>
 #include <vector>
+#include "window_title_fixture.h"
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
@@ -16,24 +16,24 @@
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_desktop_window.h"
+#include "apptraverse/ui/ui_locale_settings.h"
+#include "apptraverse/ui/ui_localization_string.h"
 #include "apptraverse/ui/ui_presented_window.h"
 #include "apptraverse/ui/ui_presented_window_composition.h"
 #include "apptraverse/ui/ui_presented_window_lifecycle.h"
-#include "apptraverse/ui/ui_localization_string.h"
-#include "apptraverse/ui/ui_locale_settings.h"
 #include "apptraverse/ui/ui_presenters.h"
 #include "apptraverse/ui/ui_string.h"
 
 namespace apptraverse::test {
 namespace {
 
-#define CHECK(cond)                                                          \
-  do {                                                                       \
-    if (!(cond)) {                                                           \
-      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":"       \
-                << __LINE__ << '\n';                                         \
-      std::exit(1);                                                          \
-    }                                                                        \
+#define CHECK(cond)                                                    \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      std::cerr << "CHECK failed: " #cond << " at " << __FILE__ << ":" \
+                << __LINE__ << '\n';                                   \
+      std::exit(1);                                                    \
+    }                                                                  \
   } while (false)
 
 ae::ObjId const kRootId{0xB6B60001u};
@@ -42,6 +42,8 @@ ae::ObjId const kPresenterId{0xB6B60003u};
 ae::ObjId const kLocaleId{0xB6B60004u};
 ae::ObjId const kTitleId{0xB6B60005u};
 
+int g_session_root_layer_load_total{0};
+int g_session_presenter_layer_load_total{0};
 int g_session_presenter_load_total{0};
 int g_session_presenter_unload_total{0};
 
@@ -63,6 +65,7 @@ class SessionHeadlessPresenter : public ui::UiDesktopWindowPresenter {
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
+    ++g_session_presenter_layer_load_total;
     dnv(base_);
   }
 
@@ -113,6 +116,7 @@ class UiSessionTestRoot : public NodeFor<UiSessionTestRoot> {
 
   template <typename Dnv>
   void Load(ae::Version<0>, Dnv& dnv) {
+    ++g_session_root_layer_load_total;
     dnv(base_, presented_window, marker, presented_open);
   }
 
@@ -220,8 +224,7 @@ void UiSessionTestRoot::Apply(UiSessionOpenWindowEvent const&) {
 }
 
 SessionHeadlessPresenter& HeadlessOn(SessionWindow& window) {
-  return static_cast<SessionHeadlessPresenter&>(
-      *window.presenter.operator->());
+  return static_cast<SessionHeadlessPresenter&>(*window.presenter.operator->());
 }
 
 struct ModelFixture {
@@ -257,7 +260,9 @@ struct ModelFixture {
 
     model_root->presented_window = SessionWindow::ptr::Create(
         ae::CreateWith{model_domain}.with_id(kWindowId));
-    model_root->presented_window->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
+    model_root->presented_window->BootstrapFrame(
+        100, 100, 800, 600,
+        apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
     auto presenter = SessionHeadlessPresenter::ptr::Create(
         ae::CreateWith{model_domain}.with_id(kPresenterId));
     BuildWindowPresentationServices(*model_root->presented_window);
@@ -320,11 +325,47 @@ void TestStructuralUpdate() {
 
   CHECK(ui_root.marker == 0);
 
-  ui_session.ApplyStructural(fixture.SerializeStructural());
+  auto publication = fixture.SerializeStructural();
+  g_session_root_layer_load_total = 0;
+  g_session_presenter_layer_load_total = 0;
+  auto* canonical_root = &ui_root;
+  auto* canonical_window = ui_root.presented_window.operator->();
+  ui_session.ApplyStructural(publication);
+  CHECK(g_session_root_layer_load_total == 1);
+  CHECK(g_session_presenter_layer_load_total == 0);
+  CHECK(&ui_session.root() == canonical_root);
+  CHECK(ui_root.presented_window.operator->() == canonical_window);
+  CHECK(ui_root.domain->Find(ui_root.obj_id).get() == canonical_root);
   CHECK(ui_root.marker == 99);
   CHECK(fixture.model_root->marker == 99);
   CHECK(presenter.on_model_changed_count > model_changed_before);
   CHECK(presenter.on_load_count == 1);
+}
+
+void TestChildOnlyAndDuplicatePublication() {
+  ModelFixture fixture;
+  ApplicationUiSession session{fixture.SerializeInitial(), nullptr,
+                               fixture.model_proxy};
+  auto& root = static_cast<UiSessionTestRoot&>(session.root());
+  auto* canonical = root.presented_window.operator->();
+  auto width =
+      fixture.model_root->presented_window->restore_client_width() + 37;
+  fixture.model_root->presented_window->RequestFrame(44, 55, width, 333);
+  auto publication = fixture.SerializeStructural();
+  g_session_root_layer_load_total = 0;
+  g_session_presenter_layer_load_total = 0;
+  session.ApplyStructural(publication);
+  CHECK(g_session_root_layer_load_total == 0 &&
+        g_session_presenter_layer_load_total == 0);
+  CHECK(root.presented_window.operator->() == canonical);
+  CHECK(root.presented_window->restore_client_width() == width);
+  CHECK(root.presented_window->x() == 44 && root.presented_window->y() == 55);
+  auto duplicate = fixture.SerializeStructural();
+  session.ApplyStructural(duplicate);
+  CHECK(g_session_root_layer_load_total == 0 &&
+        g_session_presenter_layer_load_total == 0);
+  CHECK(root.presented_window.operator->() == canonical &&
+        root.presented_window->restore_client_width() == width);
 }
 
 void TestPresenterLifecycleCloseOpen() {
@@ -386,8 +427,8 @@ void TestDestructorUnloadsPresenters() {
   {
     ApplicationUiSession ui_session(fixture.SerializeInitial(), nullptr,
                                     fixture.model_proxy);
-    SessionHeadlessPresenter& presenter = HeadlessOn(
-        static_cast<SessionWindow&>(
+    SessionHeadlessPresenter& presenter =
+        HeadlessOn(static_cast<SessionWindow&>(
             *static_cast<UiSessionTestRoot&>(ui_session.root())
                  .presented_window));
     CHECK(presenter.on_load_count == 1);
@@ -407,8 +448,7 @@ void CheckInitialPublicationRefusedBeforePresenters(
   ByteSource in;
   in.data = bytes.data();
   in.size = bytes.size();
-  ae::Ptr<ae::Obj> root =
-      TryLoadInitialPublication(in, ui_domain, ui_storage);
+  ae::Ptr<ae::Obj> root = TryLoadInitialPublication(in, ui_domain, ui_storage);
   CHECK(!root);
   CHECK(!ui_domain.Find(kRootId));
   CHECK(g_session_presenter_load_total == 0);
@@ -443,8 +483,7 @@ void TestModelProxyTargetsModelDomain() {
   auto& ui_root = static_cast<UiSessionTestRoot&>(ui_session.root());
 
   fixture.model_proxy.EnqueueModelWork([&](ae::Domain& domain) {
-    auto event = UiSessionSetMarkerEvent::ptr::Create(
-        ae::CreateWith{domain});
+    auto event = UiSessionSetMarkerEvent::ptr::Create(ae::CreateWith{domain});
     event->marker = 7;
     fixture.model_root->Commit(std::move(event));
   });
@@ -460,11 +499,14 @@ int main() {
   apptraverse::EnableNoninteractiveCrt();
   apptraverse::test::TestInitialMirror();
   apptraverse::test::TestStructuralUpdate();
+  apptraverse::test::TestChildOnlyAndDuplicatePublication();
   apptraverse::test::TestPresenterLifecycleCloseOpen();
   apptraverse::test::TestDestructorUnloadsPresenters();
   apptraverse::test::TestModelProxyTargetsModelDomain();
-  apptraverse::test::TestInitialPublicationRejectsCorruptMandatoryLayerBeforePresenters();
-  apptraverse::test::TestInitialPublicationRejectsMissingMandatoryObjectBeforePresenters();
+  apptraverse::test::
+      TestInitialPublicationRejectsCorruptMandatoryLayerBeforePresenters();
+  apptraverse::test::
+      TestInitialPublicationRejectsMissingMandatoryObjectBeforePresenters();
   std::cout << "application_ui_session_test OK\n";
   return 0;
 }

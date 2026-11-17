@@ -6,6 +6,7 @@ namespace apptraverse::ui::native_schema {
 // One persistent role, one schema, one implementation per executable. Native
 // handles and callbacks belong only to the C++ implementation. These layers
 // serialize their common UI base and contain no platform-specific fields.
+inline constexpr char kText[] = "apptraverse::ui::NativeTextControlPresenter";
 inline constexpr char kWindow[] = "apptraverse::ui::NativeWindowPresenter";
 inline constexpr char kList[] = "apptraverse::ui::NativeListContainerPresenter";
 inline constexpr char kPushButton[] = "apptraverse::ui::NativePushButtonPresenter";

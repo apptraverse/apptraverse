@@ -55,7 +55,7 @@ class UiLayoutState : public NodeFor<UiLayoutState> {
     has_override = overridden;
     override_root = std::move(root);
   }
-  UiLayoutNode const& EffectiveRoot() const;
+  virtual UiLayoutNode const& EffectiveRoot() const;
   bool TrySetOverride(UiLayoutNode root);
   void SetOverride(UiLayoutNode root);
   void ClearOverride();

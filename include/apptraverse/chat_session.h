@@ -66,7 +66,7 @@ class ChatSession {
   // Runtime platform setup runs on the model worker before opening its profile.
   // Browser OPFS must be mounted there, without blocking the browser UI thread.
   using PrepareProfile = std::function<bool()>;
-  // Platform durability barrier, called on the model worker before an ACK.
+  // Compatibility hook for platform SDK storage only; chat commits never call it.
   using FlushProfile = std::function<bool()>;
   using AdaptersFactory = std::function<ConnectionAdapters(std::filesystem::path const&)>;
   ChatSession(std::filesystem::path profile, std::string name,
@@ -87,7 +87,7 @@ class ChatSession {
   void Stop();
   // OS connectivity observation, queued onto the SDK/model worker.
   void NetworkChanged(NetworkObservation observation);
-  // Ordered model-worker checkpoint; completion runs there after USER is durable.
+  // Ordered model-worker RAM checkpoint; chat/history/receipts never reach disk.
   // Keeps the model, transport and presenters alive during native deactivation.
   void Checkpoint(std::function<void(bool)> completion);
   void CreateRoom();

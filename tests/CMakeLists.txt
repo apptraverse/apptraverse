@@ -276,14 +276,14 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
 
   if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES AND WIN32)
     add_dependencies(apptraverse_application_evolution_fixtures
-      win32_window_catalog win32_window_catalog_v1)
+      win32_window_catalog_history win32_window_catalog_v1_history)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/surfaces demo version states")
     add_test(
       NAME apptraverse_window_catalog_version_matrix
       COMMAND "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_LIST_DIR}/window_catalog_version_matrix.py"
-        --a "$<TARGET_FILE:win32_window_catalog>"
-        --b "$<TARGET_FILE:win32_window_catalog_v1>"
+        --a "$<TARGET_FILE:win32_window_catalog_history>"
+        --b "$<TARGET_FILE:win32_window_catalog_v1_history>"
         --work-root "${CMAKE_CURRENT_BINARY_DIR}/surfaces demo version states"
     )
     set_tests_properties(apptraverse_window_catalog_version_matrix PROPERTIES
@@ -295,8 +295,8 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
       NAME apptraverse_window_catalog_lifecycle_matrix
       COMMAND "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_LIST_DIR}/window_catalog_lifecycle_matrix.py"
-        --a "$<TARGET_FILE:win32_window_catalog>"
-        --b "$<TARGET_FILE:win32_window_catalog_v1>"
+        --a "$<TARGET_FILE:win32_window_catalog_history>"
+        --b "$<TARGET_FILE:win32_window_catalog_v1_history>"
         --work-root "${CMAKE_CURRENT_BINARY_DIR}/surfaces demo lifecycle states"
     )
     set_tests_properties(apptraverse_window_catalog_lifecycle_matrix PROPERTIES
@@ -307,8 +307,8 @@ if(APPTRAVERSE_BUILD_EVOLUTION_TESTS)
       NAME apptraverse_window_catalog_lifecycle_corruption_guard
       COMMAND "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_LIST_DIR}/window_catalog_lifecycle_corruption_guard.py"
-        --a "$<TARGET_FILE:win32_window_catalog>"
-        --b "$<TARGET_FILE:win32_window_catalog_v1>"
+        --a "$<TARGET_FILE:win32_window_catalog_history>"
+        --b "$<TARGET_FILE:win32_window_catalog_v1_history>"
         --work-root "${CMAKE_CURRENT_BINARY_DIR}/surfaces demo lifecycle states"
     )
     set_tests_properties(apptraverse_window_catalog_lifecycle_corruption_guard PROPERTIES
@@ -1061,7 +1061,72 @@ add_test(
   COMMAND apptraverse_presenter_load_order_test
 )
 
+if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES AND NOT APPLE)
+  add_executable(apptraverse_surface_generic_model_test surface_generic_model_test.cpp
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/common/surface_ui_supply.cpp)
+  target_link_libraries(apptraverse_surface_generic_model_test PRIVATE surface_generic_ui)
+  if(MSVC)
+    target_compile_options(apptraverse_surface_generic_model_test PRIVATE /utf-8 /bigobj)
+  endif()
+  add_test(NAME apptraverse_surface_generic_model_test COMMAND apptraverse_surface_generic_model_test)
+endif()
+
+if(WIN32 AND APPTRAVERSE_BUILD_LEGACY_EXAMPLES)
+  foreach(_runtime_mode main_window dynamic_objects)
+    set(_runtime_demo_target win32_${_runtime_mode}_demo)
+    if(_runtime_mode STREQUAL "main_window")
+      set(_runtime_demo_target win32_main_window_runtime_demo)
+      set(_runtime_example_dir main_window_runtime_demo)
+    else()
+      set(_runtime_example_dir dynamic_objects_demo)
+    endif()
+    add_executable(apptraverse_${_runtime_mode}_supply_consumer_test
+      runtime_ui_supply_consumer_test.cpp
+      ${PROJECT_SOURCE_DIR}/examples/main_window_runtime_demo/common/runtime_ui_model.cpp)
+    target_link_libraries(apptraverse_${_runtime_mode}_supply_consumer_test PRIVATE apptraverse_ui_windows)
+    target_include_directories(apptraverse_${_runtime_mode}_supply_consumer_test PRIVATE
+      ${PROJECT_SOURCE_DIR}/examples/main_window_runtime_demo/common
+      ${PROJECT_BINARY_DIR}/examples/${_runtime_example_dir}/windows/generated_distilled)
+    add_dependencies(apptraverse_${_runtime_mode}_supply_consumer_test ${_runtime_demo_target}_embedded_supply)
+    add_test(NAME apptraverse_${_runtime_mode}_supply_consumer_test
+      COMMAND apptraverse_${_runtime_mode}_supply_consumer_test)
+  endforeach()
+  if(CMAKE_GENERATOR MATCHES "^Ninja")
+    add_test(NAME apptraverse_runtime_ui_build_policy_test
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/runtime_ui_build_policy_test.py
+        ${PROJECT_BINARY_DIR})
+  endif()
+endif()
+
+if(WIN32 AND APPTRAVERSE_BUILD_LEGACY_EXAMPLES)
+  add_test(NAME apptraverse_surface_generic_win32_smoke_test
+    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/surface_generic_win32_smoke_test.py"
+      $<TARGET_FILE:win32_window_catalog> $<TARGET_FILE:win32_window_catalog_load_only>
+      $<TARGET_FILE:win32_window_catalog_v1>)
+endif()
+
 if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES)
+foreach(_legacy_main main_window_window_changed main_window_lifecycle main_window_lifecycle_load_only)
+  add_executable(apptraverse_${_legacy_main}_test ${_legacy_main}_test.cpp
+    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/common/main_window_lifecycle.cpp)
+  target_link_libraries(apptraverse_${_legacy_main}_test PRIVATE main_window_runtime_demo_model)
+  if(NOT _legacy_main STREQUAL "main_window_lifecycle_load_only")
+    target_compile_definitions(apptraverse_${_legacy_main}_test PRIVATE APPTRAVERSE_ENABLE_DISTILLATION)
+  endif()
+  add_test(NAME apptraverse_${_legacy_main}_test COMMAND apptraverse_${_legacy_main}_test)
+endforeach()
+add_custom_target(apptraverse_main_window_headless_check
+  COMMAND $<TARGET_FILE:apptraverse_main_window_window_changed_test>
+  COMMAND $<TARGET_FILE:apptraverse_main_window_lifecycle_test>
+  COMMAND $<TARGET_FILE:apptraverse_main_window_lifecycle_load_only_test>
+  DEPENDS apptraverse_main_window_window_changed_test apptraverse_main_window_lifecycle_test
+    apptraverse_main_window_lifecycle_load_only_test)
+add_executable(apptraverse_dynamic_objects_add_test dynamic_objects_add_test.cpp
+  ${CMAKE_SOURCE_DIR}/examples/dynamic_objects_demo/common/dynamic_lifecycle.cpp)
+target_compile_definitions(apptraverse_dynamic_objects_add_test PRIVATE APPTRAVERSE_ENABLE_DISTILLATION
+  "APPTRAVERSE_SOURCE_ROOT=R\"(${CMAKE_SOURCE_DIR})\"")
+target_link_libraries(apptraverse_dynamic_objects_add_test PRIVATE dynamic_objects_demo_distill)
+add_test(NAME apptraverse_dynamic_objects_add_test COMMAND apptraverse_dynamic_objects_add_test)
 add_custom_target(apptraverse_dynamic_objects_headless_check
   COMMAND $<TARGET_FILE:apptraverse_dynamic_objects_add_test>
   COMMAND $<TARGET_FILE:apptraverse_publication_channel_test>
@@ -1188,99 +1253,25 @@ if(WIN32)
   )
 
   if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES)
-  add_executable(apptraverse_main_window_win32_smoke_test
-    main_window_win32_smoke_test.cpp
-    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win_app.cpp
-    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows/win_presenters.cpp
-    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/common/main_window_lifecycle.cpp
-  )
-
-  target_compile_definitions(apptraverse_main_window_win32_smoke_test PRIVATE
-    APPTRAVERSE_ENABLE_DISTILLATION
-    "WIN32_MAIN_WINDOW_DEMO_EXE=R\"($<TARGET_FILE:win32_main_window_runtime_demo>)\""
-    "WIN32_MAIN_WINDOW_LOAD_ONLY_EXE=R\"($<TARGET_FILE:win32_main_window_runtime_demo_load_only>)\""
-  )
-
-  target_link_libraries(apptraverse_main_window_win32_smoke_test PRIVATE
-    main_window_runtime_demo_model
-    apptraverse_ui_windows
-    user32
-    gdi32
-  )
-
-  target_include_directories(apptraverse_main_window_win32_smoke_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/common
-    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows
-  )
-
-  add_dependencies(apptraverse_main_window_win32_smoke_test
-    win32_main_window_runtime_demo
-    win32_main_window_runtime_demo_load_only
-  )
-
-  if(MSVC)
-    target_compile_options(apptraverse_main_window_win32_smoke_test PRIVATE /utf-8)
-  endif()
-
-  add_test(
-    NAME apptraverse_main_window_win32_smoke_test
-    COMMAND apptraverse_main_window_win32_smoke_test
-  )
-
-  add_custom_target(apptraverse_main_window_win32_smoke_check
-    COMMAND $<TARGET_FILE:apptraverse_main_window_win32_smoke_test>
-    DEPENDS apptraverse_main_window_win32_smoke_test
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    COMMENT "Main-window Loading/main HWND smoke"
-  )
-
-  add_executable(apptraverse_dynamic_objects_win32_smoke_test
-    dynamic_objects_win32_smoke_test.cpp
-    ${CMAKE_SOURCE_DIR}/examples/dynamic_objects_demo/windows/win_app.cpp
-    ${CMAKE_SOURCE_DIR}/examples/dynamic_objects_demo/windows/win_presenters.cpp
-    ${CMAKE_SOURCE_DIR}/examples/dynamic_objects_demo/common/dynamic_lifecycle.cpp
-  )
-
-  target_compile_definitions(apptraverse_dynamic_objects_win32_smoke_test PRIVATE
-    APPTRAVERSE_ENABLE_DISTILLATION
-    "WIN32_DYNAMIC_OBJECTS_DEMO_EXE=R\"($<TARGET_FILE:win32_dynamic_objects_demo>)\""
-    "WIN32_DYNAMIC_OBJECTS_LOAD_ONLY_EXE=R\"($<TARGET_FILE:win32_dynamic_objects_demo_load_only>)\""
-  )
-
-  target_link_libraries(apptraverse_dynamic_objects_win32_smoke_test PRIVATE
-    dynamic_objects_demo_distill
-    apptraverse_ui_windows
-    user32
-    gdi32
-  )
-
-  target_include_directories(apptraverse_dynamic_objects_win32_smoke_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/examples/dynamic_objects_demo/common
-    ${CMAKE_SOURCE_DIR}/examples/dynamic_objects_demo/windows
-    ${CMAKE_SOURCE_DIR}/examples/main_window_runtime_demo/windows
-  )
-
-  add_dependencies(apptraverse_dynamic_objects_win32_smoke_test
-    win32_dynamic_objects_demo
-    win32_dynamic_objects_demo_load_only
-  )
-
-  if(MSVC)
-    target_compile_options(apptraverse_dynamic_objects_win32_smoke_test PRIVATE /utf-8)
-  endif()
-
-  add_test(
-    NAME apptraverse_dynamic_objects_win32_smoke_test
-    COMMAND apptraverse_dynamic_objects_win32_smoke_test
-  )
-
-  add_custom_target(apptraverse_dynamic_objects_win32_smoke_check
-    COMMAND $<TARGET_FILE:apptraverse_dynamic_objects_win32_smoke_test>
-    DEPENDS apptraverse_dynamic_objects_win32_smoke_test
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    COMMENT "Dynamic objects Add Item Win32 smoke"
-  )
-
+  foreach(_runtime_demo main_window dynamic_objects)
+    add_executable(apptraverse_${_runtime_demo}_win32_smoke_test runtime_ui_win32_smoke_test.cpp)
+    if(_runtime_demo STREQUAL "main_window")
+      set(_runtime_target win32_main_window_runtime_demo)
+    else()
+      set(_runtime_target win32_dynamic_objects_demo)
+      target_compile_definitions(apptraverse_${_runtime_demo}_win32_smoke_test PRIVATE RUNTIME_UI_TEST_DYNAMIC)
+    endif()
+    target_compile_definitions(apptraverse_${_runtime_demo}_win32_smoke_test PRIVATE
+      "RUNTIME_UI_DEMO_EXE=R\"($<TARGET_FILE:${_runtime_target}>)\""
+      "RUNTIME_UI_LOAD_ONLY_EXE=R\"($<TARGET_FILE:${_runtime_target}_load_only>)\"")
+    target_compile_features(apptraverse_${_runtime_demo}_win32_smoke_test PRIVATE cxx_std_20)
+    target_link_libraries(apptraverse_${_runtime_demo}_win32_smoke_test PRIVATE user32)
+    add_dependencies(apptraverse_${_runtime_demo}_win32_smoke_test ${_runtime_target} ${_runtime_target}_load_only)
+    add_test(NAME apptraverse_${_runtime_demo}_win32_smoke_test COMMAND apptraverse_${_runtime_demo}_win32_smoke_test)
+    add_custom_target(apptraverse_${_runtime_demo}_win32_smoke_check
+      COMMAND $<TARGET_FILE:apptraverse_${_runtime_demo}_win32_smoke_test>
+      DEPENDS apptraverse_${_runtime_demo}_win32_smoke_test)
+  endforeach()
   add_executable(apptraverse_dynamic_two_main_win32_test
     dynamic_two_main_win32_test.cpp
     ${CMAKE_SOURCE_DIR}/examples/dynamic_objects_demo/windows/win_presenters.cpp
@@ -1798,10 +1789,10 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
   set(_android_headless_supply "${_android_headless_supply_dir}/embedded_distilled_window_catalog_android_supply.h")
   add_custom_command(OUTPUT "${_android_headless_supply}"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${_android_headless_supply_dir}"
-    COMMAND $<TARGET_FILE:apptraverse_android_supply_exporter>
+    COMMAND $<TARGET_FILE:wc_android_exporter>
             "${_android_headless_supply}"
-    DEPENDS apptraverse_android_supply_exporter
-            "$<TARGET_FILE:apptraverse_android_supply_exporter>"
+    DEPENDS wc_android_exporter
+            "$<TARGET_FILE:wc_android_exporter>"
     VERBATIM)
   # One producer owns the output. Multiple VS projects must not run exporters
   # concurrently against the same intermediate directory.

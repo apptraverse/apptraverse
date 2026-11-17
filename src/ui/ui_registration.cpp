@@ -8,6 +8,7 @@
 #include "apptraverse/ui/ui_presenters.h"
 #include "apptraverse/ui/ui_push_button.h"
 #include "apptraverse/ui/ui_string.h"
+#include "apptraverse/ui/ui_text_control.h"
 #include "apptraverse/ui/ui_window.h"
 #include "apptraverse/ui/ui_layout_state.h"
 #include "apptraverse/ui/ui_device_state.h"
@@ -54,6 +55,7 @@ APPTRAVERSE_REGISTER(UiListContainerPresenter);
 
 void EnsureUiControlRegistration() {
   EnsureClientLocalStateRegistration();
+  EnsureUiTextControlRegistration();
   (void)&g_apptraverse_registrar_UiString;
   (void)&g_apptraverse_registrar_UiPresentedWindow;
 }

@@ -15,6 +15,7 @@
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/node.h"
 #include "apptraverse/publication_channel.h"
+#include "dynamic_model.h"
 
 namespace apptraverse {
 
@@ -31,6 +32,8 @@ struct DynamicModelSession {
   using ModelWork = ModelObjectProxy::ModelWork;
 
   std::filesystem::path state_dir;
+  std::function<Application::ptr(ae::Domain&)> build_graph;
+  std::function<void(Application&)> prepare_model;
   PublicationChannel<3> channel;
   std::mutex mu;
   std::condition_variable cv;

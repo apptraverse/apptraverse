@@ -45,57 +45,39 @@ endif()
 add_custom_target(apptraverse_window_catalog_web_supply DEPENDS "${_catalog_web_supply}")
 
 if(APPTRAVERSE_BUILD_LEGACY_EXAMPLES)
-add_executable(web_window_catalog
-  main.cpp
-  web_app.cpp
-  web_bridge.cpp
-  web_surface_presenter.cpp
-  ${CMAKE_SOURCE_DIR}/examples/window_catalog/common/surfaces_lifecycle.cpp
-)
-
-target_compile_definitions(web_window_catalog PRIVATE
-  APPTRAVERSE_ENABLE_DISTILLATION
-)
-
-target_include_directories(web_window_catalog PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}
-  ${CMAKE_SOURCE_DIR}/examples/window_catalog/common
-)
-
-target_link_libraries(web_window_catalog PRIVATE
-  window_catalog_distill
-)
-
-# pthread: one model worker; DOM stays on the browser main thread.
-# FORCE_FILESYSTEM + IDBFS: DirectoryDomainStorage under /persistent.
-# ALLOW_MEMORY_GROWTH: object graph / publications are not fixed-size.
-# EXCEPTION_CATCHING: common code uses throw (e.g. schema Load paths).
-# EXPORTED_*: toolbar/tab bridge + FS.syncfs from the shell.
-target_compile_options(web_window_catalog PRIVATE
-  -pthread
-  -fexceptions
-)
-
-target_link_options(web_window_catalog PRIVATE
-  -pthread
-  -fexceptions
-  -sPTHREAD_POOL_SIZE=1
-  # Fixed heap: pthread + ALLOW_MEMORY_GROWTH has corrupted ae::Ptr cycle
-  # teardown during structural Apply (BuildDecrementGraphImpl OOB).
-  -sINITIAL_MEMORY=268435456
-  -sALLOW_MEMORY_GROWTH=0
-  -sFORCE_FILESYSTEM=1
-  -sEXIT_RUNTIME=0
-  -lidbfs.js
-  -sEXPORTED_FUNCTIONS=_main,_AppTraverseWebAddCurrent,_AppTraverseWebRemoveCurrent,_AppTraverseWebSelectSurface,_AppTraverseWebReportPresentationSize,_AppTraverseWebStop,_AppTraverseWebSyncDone,_AppTraverseWebRequestSync
-  -sEXPORTED_RUNTIME_METHODS=FS,addRunDependency,removeRunDependency,ccall,cwrap,UTF8ToString
-  --shell-file=${CMAKE_CURRENT_SOURCE_DIR}/shell.html
-)
-
-set_target_properties(web_window_catalog PROPERTIES
-  OUTPUT_NAME "web_window_catalog"
-  SUFFIX ".html"
-)
+# Distinct legacy Surface supply; GUI composition preserves per-Surface actions.
+set(_surface_web_supply_dir "${CMAKE_CURRENT_BINARY_DIR}/generated_distilled/web_window_catalog")
+set(_surface_web_supply "${_surface_web_supply_dir}/embedded_surface_ui_supply.h")
+file(MAKE_DIRECTORY "${_surface_web_supply_dir}")
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  add_executable(apptraverse_export_surface_ui_web surface_ui_main.cpp ../common/surface_ui_supply.cpp)
+  target_compile_definitions(apptraverse_export_surface_ui_web PRIVATE APPTRAVERSE_SURFACE_UI_EXPORTER)
+  target_link_libraries(apptraverse_export_surface_ui_web PRIVATE surface_generic_ui apptraverse_ui_web)
+  target_link_options(apptraverse_export_surface_ui_web PRIVATE -sENVIRONMENT=node -sNODERAWFS=1 -sEXIT_RUNTIME=1 -sINITIAL_MEMORY=67108864 --bind)
+  set_target_properties(apptraverse_export_surface_ui_web PROPERTIES SUFFIX ".js" CROSSCOMPILING_EMULATOR "${CMAKE_CROSSCOMPILING_EMULATOR}")
+  add_custom_command(OUTPUT "${_surface_web_supply}"
+    COMMAND apptraverse_export_surface_ui_web "${_surface_web_supply_dir}"
+    DEPENDS apptraverse_export_surface_ui_web VERBATIM)
+else()
+  set(APPTRAVERSE_SURFACE_WEB_DEBUG_SUPPLY_HEADER "" CACHE FILEPATH "Surface Web S0 supply prepared by Debug")
+  if(NOT EXISTS "${APPTRAVERSE_SURFACE_WEB_DEBUG_SUPPLY_HEADER}")
+    message(FATAL_ERROR "Provide matching Debug Surface supply through APPTRAVERSE_SURFACE_WEB_DEBUG_SUPPLY_HEADER")
+  endif()
+  add_custom_command(OUTPUT "${_surface_web_supply}"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${APPTRAVERSE_SURFACE_WEB_DEBUG_SUPPLY_HEADER}" "${_surface_web_supply}"
+    DEPENDS "${APPTRAVERSE_SURFACE_WEB_DEBUG_SUPPLY_HEADER}" VERBATIM)
+endif()
+add_executable(web_window_catalog surface_ui_main.cpp "${_surface_web_supply}")
+target_include_directories(web_window_catalog PRIVATE "${_surface_web_supply_dir}")
+target_link_libraries(web_window_catalog PRIVATE surface_generic_ui apptraverse_ui_web)
+target_compile_options(web_window_catalog PRIVATE -pthread)
+target_link_options(web_window_catalog PRIVATE -pthread -sPTHREAD_POOL_SIZE=1 -sINITIAL_MEMORY=268435456
+  -sALLOW_MEMORY_GROWTH=0 -sFORCE_FILESYSTEM=1 -sEXIT_RUNTIME=0 -lidbfs.js --bind
+  -sEXPORTED_FUNCTIONS=_main,_ApptraverseWebWindowRefresh,_ApptraverseWebWindowFinishLayout,_ApptraverseWebUiPushButtonClicked,_ApptraverseWebIdbfsLoadDone,_ApptraverseWebIdbfsLoadFailed,_ApptraverseWebIdbfsStoreDone,_ApptraverseWebIdbfsStoreFailed,_ApptraverseSurfaceUiSelect,_ApptraverseSurfaceUiHidden,_ApptraverseSurfaceUiShutdown
+  -sEXPORTED_RUNTIME_METHODS=FS,addRunDependency,removeRunDependency,ccall,cwrap,UTF8ToString$<$<NOT:$<CONFIG:MinSizeRel>>:,count_emval_handles>
+  --shell-file=${CMAKE_CURRENT_SOURCE_DIR}/surface_ui_shell.html)
+set_target_properties(web_window_catalog PROPERTIES SUFFIX ".html")
+set_property(TARGET web_window_catalog APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/surface_ui_shell.html")
 
 # Same common sources must compile under em++ / -fno-rtti.
 add_executable(web_surfaces_model_compile_check

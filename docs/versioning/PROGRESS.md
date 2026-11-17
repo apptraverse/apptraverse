@@ -1,3 +1,45 @@
+## Remaining non-Apple application UI migration — 2026-11-17 — source accepted; scoped native validation complete
+
+All nine remaining non-Apple GUI entrypoints (fourteen target variants) now use
+standard components, native measurement, the common layout engine and generic
+model/UI sessions. Independent main/dynamic and Surface examples retain their
+behavior; chat business/history/pending receipts stay in RAM, with separate
+native LOCAL and SDK identity. GPT-6 Astra ultra completed dispositions for all
+30 Canon rules and closed source findings R1–R5; GPT-6.1 Sol high owned coding.
+The final Android finish/relaunch check prompted a bounded ownership finding
+R6: stale Activity teardown must not stop a replacement, while a finished Session
+must not be reused as a configuration remount. Its correction is source-reviewed
+and the rebuilt Android native lifecycle regression PASSes, including immediate
+fresh-session relaunch, stale JNI teardown rejection and first Copy.
+
+Final main/dynamic/Surface Windows selection PASSes 12/12 (12.82s). Final shared
+core/RAM/native text selection PASSes 9/9 (3.75s). Existing Windows Catalog/chrome/
+MinimalApp regressions PASS 3/3 (25.37s); rebuilt GTK and Chrome Surface, current
+Catalog and MinimalApp scopes all PASS. Final Windows three-peer cloud chat,
+the quiet-session follow-up, GTK native chat and repaired Chrome native chat
+PASS at their recorded scopes. Android native 3/15-character input and final
+Unicode/cloud/rotation/font-scale/remount/fresh-session fixture PASS. An added
+unpaced 40-character adb stress probe is NOT PASS (15 characters observed; cause
+not established). An additional native IME forty-character send passes;
+forty instrumented keys are retained, but their hardware-key Enter completion
+times out, so that overall extra diagnostic is also NOT PASS.
+Final Android Catalog 2/2 (136.422s), MinimalApp 2/2
+(51.651s) and chat's separate native Dark LOCAL cold restore PASS. The latter
+uses a fresh UI profile with separately reused SDK identity, a different cold
+process and empty business history/draft; no business file is written.
+Twelve Windows application variants have matched static PE/hash
+evidence, which does not establish actual Win7 execution.
+
+The historical full S1 rollback lifecycle remains BLOCKED / NOT PASS by safe
+unknown-Event refusal; its corruption guard retains PASS. Historical Android
+Recents failures remain NOT PASS. Apple runtime, actual Win7/OS-image upgrade,
+physical mixed-DPI/screen-reader matrices and Release packaging remain NOT RUN.
+[Main/dynamic evidence](../validation/main-dynamic-generic-ui-2026-11-17.md),
+[Surface evidence](../validation/surface-generic-ui-2026-11-17.md),
+[chat common/Windows](../validation/shared-node-chat-generic-ui-2026-11-17.md),
+[chat non-Apple](../validation/shared-node-chat-nonapple-native-2026-11-17.md),
+[all 30 Canon dispositions](../validation/all-applications-ui-canon-audit-2026-11-17.md).
+
 ## Non-Apple layout / LOCAL Canon corrections — 2026-11-17
 
 The user-authorized Windows/common, Linux/GTK, Web and Android implementation now
@@ -3964,3 +4006,27 @@ API helper so that check builds under the Win7 target.
 [executed validation/limits](../validation/window-catalog-local-environment-2026-11-16.md).
 Actual Win7, physical multi-monitor/hotplug and other-platform runtime matrices
 were NOT RUN; no historical platform PASS is reasserted.
+
+## 2026-11-17 — Main/Dynamic immutable supplies and final Windows legacy refresh
+
+Separated Main/Dynamic initial graph construction into Debug-only producer
+sources; load-only and non-Debug consumers compile the model and require matching
+prior Debug supplies. Immutable layout definitions are marked in native metadata,
+exported as supply constants and excluded from USER/LOCAL. The dynamic layout
+expands constant semantic Item templates over published live identities, keeping
+style overrides separate from topology; Clear after removing initial Item 1 now
+retains all remaining live controls and adopts compatible supply defaults.
+
+Verified the final frozen-core Windows legacy selection **12/12 PASS, 12.82s**:
+independent exported-header Main/Dynamic consumers, actual generated consumer
+compile graph, Surface model/native GUI, Main/Dynamic actual GUI, four repaired
+historical fixtures and missing-load negative. The actual native scopes include
+Add/remove identity, language/v1 for Surface, shutdown, separate USER/LOCAL and
+cold placement. The dedicated v143 14.44 Debug cache used one job and
+`/DEBUG /INCREMENTAL:NO`; no non-Debug build, actual Win7, physical DPI matrix or
+Apple runtime is implied. See [Main/Dynamic validation](../validation/main-dynamic-generic-ui-2026-11-17.md)
+and [Surface validation](../validation/surface-generic-ui-2026-11-17.md).
+
+The aggregate static PE check of all seven rebuilt legacy GUI binaries passed
+subsystem 6.01 with zero known post-Win7 direct imports in the audited list;
+this does not substitute for actual Windows 7 execution.

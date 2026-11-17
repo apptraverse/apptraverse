@@ -1,4 +1,5 @@
 #include "apptraverse/platform/android/android_ui_list_presenter.h"
+#include "apptraverse/platform/android/android_ui_text_control_presenter.h"
 #include "apptraverse/platform/android/android_ui_native_views.h"
 #include "apptraverse/platform/android/android_ui_push_button_presenter.h"
 #include "apptraverse/platform/android/android_ui_window_presenter.h"
@@ -11,6 +12,16 @@ AndroidUiNativeViews& NativeViews(Presenter const& presenter) {
 }
 
 }  // namespace
+
+void AndroidTextControlPresenter::OnLoad() {
+  NativeViews(*this).LoadTextControl(*this);
+}
+void AndroidTextControlPresenter::OnModelChanged() {
+  NativeViews(*this).SyncTextControl(*this);
+}
+void AndroidTextControlPresenter::OnUnload() {
+  NativeViews(*this).UnloadTextControl(*this);
+}
 
 void AndroidDesktopWindowPresenter::OnLoad() {
   NativeViews(*this).LoadDesktopWindow(*this);

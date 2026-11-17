@@ -96,7 +96,7 @@ void ModelSession::Run(std::function<void(PublicationKind)> on_published) {
   if (state_missing) {
     DirectoryDomainStorage bootstrap_storage{state_dir};
     ae::Domain bootstrap_domain{bootstrap_storage};
-    auto bootstrap_app = BuildMainWindowGraph(bootstrap_domain);
+    auto bootstrap_app = build_graph(bootstrap_domain);
     FinalizeDistilledGraph(*bootstrap_app);
     SaveDistilledRoot(*bootstrap_app);
   }
@@ -108,6 +108,8 @@ void ModelSession::Run(std::function<void(PublicationKind)> on_published) {
     auto application = LoadApplication<Application>(
         domain,
         ae::ObjId{main_window::ToObjId(main_window::ObjId::Application)});
+
+    if (prepare_model) prepare_model(*application);
 
     // MainWindow resize history is not needed for sync or debug replay.
     application->main_window->SetJournalRetentionPolicy(

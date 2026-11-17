@@ -4707,3 +4707,11 @@ Shutdown only persisted **`mobile_current`** (foreground Surface). **`RestoreAct
 - **I0.6 doc commit**: **`e86153b9e3241ecb7f608cd31d6ba992c5084f24`** (`I0.6: close I0, freeze integration/application-versioning branch.`).
 - **Frozen HEAD (remote tip)**: **`adcbfce1ad7ebd2e56aadd07eac6a33679b934d9`** (I0.6 closure + SHA bookkeeping commits).
 - **Re-verify (2026-10-26)**: Release **17/17**; MinSizeRel **17/17** (full re-run after transient `#11` fail on first pass).
+
+## SharedNode Chat generic UI verification (2026-11-17)
+
+- Common chat and Windows now use standard typed window/layout/device, button, list and text components. Native geometry/font measurement stays in the shared backend; chat business state/history/pending receipts are RAM-only and LOCAL contains only device/window preferences.
+- Final native-generated supply consumer and common model test PASS. Final exact-layer publication fix passes seven core serialization/runtime/lifetime/clone/UI regressions. Combined RAM transport and actual Windows text/MSAA/remount checks: **9/9 PASS**. Explicit LOCAL isolation test PASS.
+- Final actual three-peer Windows cloud/native acceptance **PASS**: Copy, Unicode/all-peer delivery, offline/crash/same-identity rejoin/snapshot/send, native resize, LOCAL frame restoration with fresh RAM business state, clean shutdown. Final exe SHA256 A3B04CE16DF03BF303A5E23110B4F5E78CE8117DF43EF085D8C7384AAA155417.
+- Android publication diagnosis justified exact existing-layer comparison and one operation load graph; final diagnostic-free APK native 3+15-character burst PASS reported by platform owner. Full platform lifecycle/network/accessibility matrix remains in that owner's report.
+- WindowCatalog/Minimal post-change native refresh is pending separate root execution; previous baseline results are historical. Apple files untouched, source compatibility retained, no Apple runtime or actual Win7 claim. Details: docs/validation/shared-node-chat-generic-ui-2026-11-17.md.

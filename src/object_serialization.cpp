@@ -285,9 +285,27 @@ bool LoadGraphPublicationPayload(ByteSource& in, GraphPublicationPayload& payloa
   return true;
 }
 
+bool StoredPublicationLayerEquals(ae::IDomainStorage& storage,
+                                  ae::DomainQuery const& query,
+                                  ae::ObjectData const& expected) {
+  auto load = storage.Load(query);
+  if (load.result != ae::DomainLoadResult::kLoaded || !load.reader)
+    return false;
+  ae::ObjectData current(expected.size());
+  if (!current.empty() &&
+      !load.reader->Read(ae::seri::DataReadTag{current.data(), current.size()})
+           .IsOk())
+    return false;
+  if (current != expected) return false;
+  std::uint8_t extra{};
+  auto end = load.reader->Read(ae::seri::DataReadTag{&extra, 1});
+  return end.IsErr() && end.error().error_code == ae::seri::read_eof.error_code;
+}
+
 bool InjectGraphPublicationLayers(
     GraphPublicationPayload const& payload, ae::IDomainStorage& storage,
-    std::vector<std::uint32_t>& unique_obj_ids) {
+    std::vector<std::uint32_t>& unique_obj_ids,
+    std::set<ae::ObjId>* changed_objects = nullptr) {
   unique_obj_ids.clear();
   for (auto const& [obj_id, class_map_opt] : payload.layers) {
     if (!class_map_opt) {
@@ -295,6 +313,9 @@ bool InjectGraphPublicationLayers(
     }
     for (auto const& [class_id, versions] : *class_map_opt) {
       for (auto const& [version, data] : versions) {
+        if (changed_objects && !StoredPublicationLayerEquals(
+                                   storage, {obj_id, class_id, version}, data))
+          changed_objects->insert(obj_id);
         if (!InjectObjectBytes(storage, {obj_id, class_id, version},
                                data.data(), data.size())) {
           return false;
@@ -310,8 +331,8 @@ bool InjectGraphPublicationLayers(
   return true;
 }
 
-void ApplyGraphPublicationNodeGenerations(GraphPublicationPayload const& payload,
-                                          ae::Domain& domain) {
+void ApplyGraphPublicationNodeGenerations(
+    GraphPublicationPayload const& payload, ae::Domain& domain) {
   for (GraphPublicationNodeGeneration const& entry : payload.generations) {
     auto object = domain.Find(ae::ObjId{entry.object_id});
     if (!object) {
@@ -321,22 +342,41 @@ void ApplyGraphPublicationNodeGenerations(GraphPublicationPayload const& payload
   }
 }
 
+// One publication is one load walk. Its cycle detector must span every
+// injected object, including references materialized while loading the root.
+bool LoadExistingObjectInGraph(ae::Obj& object, ae::Domain& domain,
+                               ae::DomainGraph& graph) {
+  auto ptr = domain.Find(object.obj_id);
+  if (!ptr) return false;
+  auto* factory = ae::Registry::GetRegistry().FindFactory(object.GetClassId());
+  if (factory == nullptr || factory->load == nullptr) return false;
+  auto result = factory->load(&graph, ptr, object.obj_id);
+  return !result || result->IsOk();
+}
+
 bool ApplyGraphPublicationPayloadToUiDomain(
     GraphPublicationPayload const& payload, ae::Obj& existing_root,
     ae::Domain& domain, ae::IDomainStorage& domain_storage) {
   std::vector<std::uint32_t> object_ids;
-  if (!InjectGraphPublicationLayers(payload, domain_storage, object_ids)) {
+  std::set<ae::ObjId> changed_objects;
+  if (!InjectGraphPublicationLayers(payload, domain_storage, object_ids,
+                                    &changed_objects)) {
     return false;
   }
   // Re-read the injected layers into the live mirror instances. Refs to live
   // objects resolve to the same instances; objects new to the mirror are
   // built by those refs. Objects the mirror has not loaded stay lazy.
-  if (!LoadExistingObject(existing_root, domain)) {
+  ae::DomainGraph load_graph{&domain};
+  if (changed_objects.count(existing_root.obj_id) != 0 &&
+      !LoadExistingObjectInGraph(existing_root, domain, load_graph)) {
     return false;
   }
   for (std::uint32_t const id : object_ids) {
+    if (id == existing_root.obj_id.id() ||
+        changed_objects.count(ae::ObjId{id}) == 0)
+      continue;
     if (auto object = domain.Find(ae::ObjId{id}); object) {
-      if (!LoadExistingObject(*object, domain)) {
+      if (!LoadExistingObjectInGraph(*object, domain, load_graph)) {
         return false;
       }
     }
@@ -349,19 +389,7 @@ bool ApplyGraphPublicationPayloadToUiDomain(
 
 bool LoadExistingObject(ae::Obj& object, ae::Domain& domain) {
   ae::DomainGraph graph{&domain};
-  auto ptr = domain.Find(object.obj_id);
-  if (!ptr) {
-    return false;
-  }
-  auto* factory = ae::Registry::GetRegistry().FindFactory(object.GetClassId());
-  if (factory == nullptr || factory->load == nullptr) {
-    return false;
-  }
-  auto const load_result = factory->load(&graph, ptr, object.obj_id);
-  if (load_result && load_result->IsErr()) {
-    return false;
-  }
-  return true;
+  return LoadExistingObjectInGraph(object, domain, graph);
 }
 
 void LoadExistingObjectOrAbort(ae::Obj& object, ae::Domain& domain) {

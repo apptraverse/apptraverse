@@ -127,7 +127,7 @@ LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
     FillRect(reinterpret_cast<HDC>(wparam), &rect, presenter->environment_->background_brush());
     return 1;
   }
-  if ((msg == WM_CTLCOLORLISTBOX || msg == WM_CTLCOLORSTATIC) && presenter->environment_) {
+  if ((msg == WM_CTLCOLORLISTBOX || msg == WM_CTLCOLORSTATIC || msg == WM_CTLCOLOREDIT) && presenter->environment_) {
     HDC const dc = reinterpret_cast<HDC>(wparam);
     SetTextColor(dc, presenter->environment_->foreground());
     SetBkColor(dc, presenter->environment_->background());
@@ -510,7 +510,25 @@ UiConstraintLayoutResult WinDesktopWindowPresenter::ComputeLocalLayout() const {
     bool const button = wcscmp(class_name, L"Button") == 0;
     if (!button) {
       TEXTMETRICW metrics{}; GetTextMetricsW(dc, &metrics);
-      measurements.push_back({child.control_id, 0, (metrics.tmHeight + metrics.tmExternalLeading) / scale + 8, 0, 0});
+      auto const line=(metrics.tmHeight+metrics.tmExternalLeading)/scale;
+      bool const label=wcscmp(class_name,L"Static")==0;
+      bool const edit=wcscmp(class_name,L"Edit")==0;
+      bool const multiline=edit&&(GetWindowLongPtrW(child.hwnd,GWL_STYLE)&ES_MULTILINE);
+      bool const list=wcscmp(class_name,L"ListBox")==0;
+      double preferred_width=0;
+      double minimum_width=0;
+      if(label){
+        int const length=GetWindowTextLengthW(child.hwnd);std::wstring text(length+1,L'\0');GetWindowTextW(child.hwnd,text.data(),length+1);
+        RECT bounds{};DrawTextW(dc,text.c_str(),length,&bounds,DT_CALCRECT|DT_SINGLELINE|DT_NOPREFIX);
+        preferred_width=(bounds.right-bounds.left)/scale;
+        std::size_t begin=0;
+        while(begin<static_cast<std::size_t>(length)){
+          auto end=text.find_first_of(L" \t\r\n",begin);if(end==std::wstring::npos||end>static_cast<std::size_t>(length))end=length;
+          SIZE word{};GetTextExtentPoint32W(dc,text.data()+begin,static_cast<int>(end-begin),&word);minimum_width=std::max(minimum_width,word.cx/scale);begin=end+1;
+        }
+      }
+      measurements.push_back({child.control_id,label?minimum_width:metrics.tmAveCharWidth/scale*4,
+          line*(multiline||list?3:1)+8,preferred_width,line+8});
       continue;
     }
     int const length = GetWindowTextLengthW(child.hwnd);
@@ -546,13 +564,17 @@ UiConstraintLayoutResult WinDesktopWindowPresenter::ComputeLocalLayout() const {
       });
       if (rect == result.controls.end() || child == native_children_.end()) continue;
       wchar_t class_name[32]{}; GetClassNameW(child->hwnd, class_name, 32);
-      if (wcscmp(class_name, L"Button") != 0) continue;
+      bool const button=wcscmp(class_name,L"Button")==0;
+      bool const label=wcscmp(class_name,L"Static")==0;
+      if(!button&&!label)continue;
+      double const horizontal_padding=button?24:0;
+      double const vertical_padding=button?12:8;
       int const length = GetWindowTextLengthW(child->hwnd);
       std::wstring text(static_cast<std::size_t>(length) + 1, L'\0');
       GetWindowTextW(child->hwnd, text.data(), length + 1);
-      RECT text_rect{0, 0, std::max(1, static_cast<int>(std::floor((rect->width - 24) * scale))), 0};
+      RECT text_rect{0, 0, std::max(1, static_cast<int>(std::floor((rect->width - horizontal_padding) * scale))), 0};
       DrawTextW(dc, text.c_str(), length, &text_rect, DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
-      double const height = (text_rect.bottom - text_rect.top) / scale + 12;
+      double const height = (text_rect.bottom - text_rect.top) / scale + vertical_padding;
       if (height > measured.min_height + 0.01) {
         measured.min_height = height;
         measured.preferred_height = std::max(measured.preferred_height, height);
@@ -610,6 +632,7 @@ void WinDesktopWindowPresenter::RefreshLayout() {
     scroll_x_ = GetScrollPos(hwnd_, SB_HORZ); scroll_y_ = GetScrollPos(hwnd_, SB_VERT);
   }
   for (auto const& child : native_children_) {
+    if((GetWindowLongPtrW(child.hwnd,GWL_STYLE)&WS_VISIBLE)==0)continue;
     auto const layout = ResolveChildLayout({0, 0, 1, 1, child.control_id});
     if (!SetWindowPos(child.hwnd, nullptr, layout.x, layout.y, layout.width, layout.height,
                       SWP_NOZORDER | SWP_NOACTIVATE)) FatalWin32("SetWindowPos constraint layout", GetLastError());

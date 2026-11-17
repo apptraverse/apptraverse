@@ -54,7 +54,7 @@ void AddItem::Click() {
   assert(list.domain != nullptr);
 
   auto item = Item::ptr::Create(ae::CreateWith{*list.domain});
-  auto item_presenter =
+  auto item_presenter = list.create_item_presenter ? list.create_item_presenter(*list.domain) :
       ItemPresenter::ptr::Create(ae::CreateWith{*list.domain});
   std::uint32_t next_number = 1;
   for (auto const& existing : list.items) {

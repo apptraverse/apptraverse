@@ -29,7 +29,7 @@ void AndroidPresentationHost::LoadPushButton(
   jmethodID create = CheckedJni(env, "GetStaticMethodID", [&] { return env->GetStaticMethodID(
       ui_class, "createPushButton",
       "(Landroid/view/ViewGroup;ILjava/lang/String;ZIIIIJ)Landroid/widget/Button;"); });
-  ui::UiControlLayout const layout =
+  ui::UiControlLayout const layout = !presenter.button->visible()?ui::UiControlLayout{0,0,1,1,presenter.control_id}:
       presenter.window_presenter->ResolveChildLayout(
           {presenter.layout_x, presenter.layout_y, presenter.layout_width,
            presenter.layout_height, presenter.control_id});
@@ -54,11 +54,14 @@ void AndroidPresentationHost::SyncPushButton(
   jclass ui_class = CheckedJni(env, "FindClass", [&] { return env->FindClass("com/apptraverse/ui/android/AppTraverseAndroidUi"); });
   jmethodID update = CheckedJni(env, "GetStaticMethodID", [&] { return env->GetStaticMethodID(
       ui_class, "updatePushButton",
-      "(Landroid/widget/Button;Ljava/lang/String;Z)V"); });
+      "(Landroid/widget/Button;Ljava/lang/String;ZZI)V"); });
   jstring jlabel = Utf8ToJstring(env, label.c_str());
   CheckedJni(env, "CallStaticVoidMethod", [&] { return env->CallStaticVoidMethod(ui_class, update, presenter.view_refs_->button,
                             jlabel,
-                            presenter.button->enabled() ? JNI_TRUE : JNI_FALSE); });
+                            presenter.button->enabled() ? JNI_TRUE : JNI_FALSE,
+                            presenter.button->visible() ? JNI_TRUE : JNI_FALSE,
+                            static_cast<jint>(presenter.button->FocusControlAfterClick())); });
+  if(!presenter.button->visible()){env->DeleteLocalRef(jlabel);env->DeleteLocalRef(ui_class);return;}
   ui::UiControlLayout const layout =
       presenter.window_presenter->ResolveChildLayout(
           {presenter.layout_x, presenter.layout_y, presenter.layout_width,

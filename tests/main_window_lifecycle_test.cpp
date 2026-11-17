@@ -75,6 +75,21 @@ APPTRAVERSE_REGISTER(TestMainWindowPresenter);
     }                                                                        \
   } while (0)
 
+Application::ptr BuildFixtureGraph(ae::Domain& domain) {
+  return BuildMainWindowGraph(domain, [](ae::Domain& d, ae::ObjId id) {
+    return TestMainWindowPresenter::ptr::Create(ae::CreateWith{d}.with_id(id));
+  });
+}
+struct FixtureSession : ModelSession {
+  FixtureSession() {
+    build_graph = BuildFixtureGraph;
+    // Count the loaded model/mirror lifetime, independently of the supply producer.
+    prepare_model = [](Application&) {
+      TestMainWindowPresenter::ResetCounts();
+    };
+  }
+};
+
 std::filesystem::path TestDir(char const* name) {
   auto path = std::filesystem::temp_directory_path() / name;
   std::filesystem::remove_all(path);
@@ -135,7 +150,7 @@ bool PersistedApplicationExists(std::filesystem::path const& dir) {
 void TestDevStartup() {
   TestMainWindowPresenter::ResetCounts();
   auto dir = TestDir("apptraverse_main_window_dev");
-  ModelSession session;
+  FixtureSession session;
   session.state_dir = dir;
   TestPublishGate published;
   std::thread model{[&] {
@@ -175,7 +190,7 @@ void TestDevStartup() {
 void TestDevReloadSameIds() {
   auto dir = TestDir("apptraverse_main_window_dev_reload");
   {
-    ModelSession first;
+    FixtureSession first;
     first.state_dir = dir;
     TestPublishGate published;
     std::thread model{[&] {
@@ -187,7 +202,7 @@ void TestDevReloadSameIds() {
     model.join();
   }
   {
-    ModelSession second;
+    FixtureSession second;
     second.state_dir = dir;
     TestPublishGate published;
     std::thread model{[&] {
@@ -210,7 +225,7 @@ void TestDevReloadSameIds() {
 void TestWaitBeforePublish() {
   TestMainWindowPresenter::ResetCounts();
   auto dir = TestDir("apptraverse_main_window_wait_before");
-  ModelSession session;
+  FixtureSession session;
   session.state_dir = dir;
   std::mutex start_mu;
   std::condition_variable start_cv;
@@ -245,7 +260,7 @@ void TestWaitBeforePublish() {
 void TestPublishBeforeWait() {
   TestMainWindowPresenter::ResetCounts();
   auto dir = TestDir("apptraverse_main_window_publish_before");
-  ModelSession session;
+  FixtureSession session;
   session.state_dir = dir;
   TestPublishGate published;
   std::thread model{[&] {
@@ -261,7 +276,7 @@ void TestPublishBeforeWait() {
 void TestStopBeforeWait() {
   TestMainWindowPresenter::ResetCounts();
   auto dir = TestDir("apptraverse_main_window_stop_before_wait");
-  ModelSession session;
+  FixtureSession session;
   session.state_dir = dir;
   std::mutex gate_mu;
   std::condition_variable gate_cv;
@@ -298,7 +313,7 @@ void TestStopBeforeWait() {
 void TestStopAfterWait() {
   TestMainWindowPresenter::ResetCounts();
   auto dir = TestDir("apptraverse_main_window_stop_after_wait");
-  ModelSession session;
+  FixtureSession session;
   session.state_dir = dir;
   TestPublishGate published;
   TestPublishGate finished;
@@ -315,13 +330,13 @@ void TestStopAfterWait() {
   std::filesystem::remove_all(dir);
 }
 
-void TestMostDerivedFromNeutralPresenter() {
+void TestExplicitPresenterSupply() {
   TestMainWindowPresenter::ResetCounts();
   ae::RamDomainStorage model_storage;
   ae::Domain model_domain{model_storage};
-  auto model_app = BuildMainWindowGraph(model_domain);
+  auto model_app = BuildFixtureGraph(model_domain);
   CHECK(model_app->main_window->presenter->GetClassId() ==
-        MainWindowPresenter::kClassId);
+        TestMainWindowPresenter::kClassId);
   CHECK(TestMainWindowPresenter::on_load_calls.load() == 0);
 
   ByteSink sink;
@@ -364,7 +379,7 @@ void TestMostDerivedFromNeutralPresenter() {
 void TestPresenterInitFromPublishedGraph() {
   TestMainWindowPresenter::ResetCounts();
   auto dir = TestDir("apptraverse_main_window_presenter");
-  ModelSession session;
+  FixtureSession session;
   session.state_dir = dir;
   TestPublishGate published;
   std::thread model{[&] {
@@ -405,7 +420,7 @@ void TestPresenterInitFromPublishedGraph() {
 void TestShutdownAfterPublish() {
   TestMainWindowPresenter::ResetCounts();
   auto dir = TestDir("apptraverse_main_window_shutdown");
-  ModelSession session;
+  FixtureSession session;
   session.state_dir = dir;
   TestPublishGate published;
   std::mutex done_mu;
@@ -445,7 +460,7 @@ int main() {
   apptraverse::test::TestPublishBeforeWait();
   apptraverse::test::TestStopBeforeWait();
   apptraverse::test::TestStopAfterWait();
-  apptraverse::test::TestMostDerivedFromNeutralPresenter();
+  apptraverse::test::TestExplicitPresenterSupply();
   apptraverse::test::TestPresenterInitFromPublishedGraph();
   apptraverse::test::TestShutdownAfterPublish();
   std::cout << "main_window_lifecycle_test OK\n";
