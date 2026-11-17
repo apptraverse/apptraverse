@@ -6,36 +6,10 @@
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "apptraverse/platform/windows/win32_fatal.h"
 #include "apptraverse/platform/windows/win_ui_environment.h"
-#include <shlobj.h>
 
 namespace apptraverse::example::surfaces {
 
 // Local machine preference, deliberately separate from portable USER/model Events.
-inline std::wstring CatalogAppearancePath() {
-  wchar_t folder[MAX_PATH]{};
-  HRESULT const result = SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, folder);
-  if (FAILED(result)) apptraverse::FatalWin32("SHGetFolderPathW appearance", static_cast<DWORD>(result));
-  std::wstring directory = std::wstring(folder) + L"\\AppTraverse";
-  CreateDirectoryW(directory.c_str(), nullptr);
-  directory += L"\\WindowCatalog";
-  CreateDirectoryW(directory.c_str(), nullptr);
-  return directory + L"\\appearance.ini";
-}
-inline void LoadCatalogAppearance(std::wstring const& path = CatalogAppearancePath()) {
-  auto mode = GetPrivateProfileIntW(L"Appearance", L"Theme", 0, path.c_str());
-  if (mode > 2) mode = 0;
-  ui::windows::SetWinAppearancePreferences({static_cast<ui::windows::WinThemeMode>(mode),
-      GetPrivateProfileIntW(L"Appearance", L"SoftenDark", 0, path.c_str()) != 0});
-}
-inline void SaveCatalogAppearance(ui::windows::WinAppearancePreferences preferences,
-                                  std::wstring const& path = CatalogAppearancePath()) {
-  auto const mode = std::to_wstring(static_cast<int>(preferences.theme));
-  if (!WritePrivateProfileStringW(L"Appearance", L"Theme", mode.c_str(), path.c_str()) ||
-      !WritePrivateProfileStringW(L"Appearance", L"SoftenDark", preferences.soften_dark ? L"1" : L"0", path.c_str()))
-    apptraverse::FatalWin32("WritePrivateProfileStringW appearance", GetLastError());
-  ui::windows::SetWinAppearancePreferences(preferences);
-}
-
 class CatalogDesktopWindowPresenter
     : public WindowCatalogDesktopPresenterMixin<
           ui::windows::WinDesktopWindowPresenter> {
@@ -79,12 +53,12 @@ class CatalogDesktopWindowPresenter
     AppendMenuW(menu, MF_STRING | (current.flow == ui::UiLayoutFlow::kVertical ? MF_CHECKED : 0), 3, L"Layout: Vertical");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, 4, L"Reset layout to application default");
-    auto appearance = ui::windows::GetWinAppearancePreferences();
+    auto appearance = catalog->persisted.device_state->appearance;
     bool const russian = catalog->persisted.locale->language_index() == 1;
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(menu, MF_STRING | (appearance.theme == ui::windows::WinThemeMode::kAuto ? MF_CHECKED : 0), 10, russian ? L"Тема: Авто (как в системе)" : L"Theme: Auto (system)");
-    AppendMenuW(menu, MF_STRING | (appearance.theme == ui::windows::WinThemeMode::kDark ? MF_CHECKED : 0), 11, russian ? L"Тема: Системная тёмная" : L"Theme: System dark");
-    AppendMenuW(menu, MF_STRING | (appearance.theme == ui::windows::WinThemeMode::kLight ? MF_CHECKED : 0), 12, russian ? L"Тема: Системная светлая" : L"Theme: System light");
+    AppendMenuW(menu, MF_STRING | (appearance.theme == ui::UiThemeMode::kAuto ? MF_CHECKED : 0), 10, russian ? L"Тема: Авто (как в системе)" : L"Theme: Auto (system)");
+    AppendMenuW(menu, MF_STRING | (appearance.theme == ui::UiThemeMode::kDark ? MF_CHECKED : 0), 11, russian ? L"Тема: Системная тёмная" : L"Theme: System dark");
+    AppendMenuW(menu, MF_STRING | (appearance.theme == ui::UiThemeMode::kLight ? MF_CHECKED : 0), 12, russian ? L"Тема: Системная светлая" : L"Theme: System light");
     AppendMenuW(menu, MF_STRING | (appearance.soften_dark ? MF_CHECKED : 0), 13, russian ? L"Смягчить тёмную тему" : L"Soften dark theme");
     if (x == -1 && y == -1) {
       POINT location{12, 12}; ClientToScreen(hwnd(), &location); x = location.x; y = location.y;
@@ -92,11 +66,11 @@ class CatalogDesktopWindowPresenter
     UINT const action = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, x, y, 0, hwnd(), nullptr);
     DestroyMenu(menu);
     if (action >= 10 && action <= 13) {
-      if (action == 10) appearance.theme = ui::windows::WinThemeMode::kAuto;
-      if (action == 11) appearance.theme = ui::windows::WinThemeMode::kDark;
-      if (action == 12) appearance.theme = ui::windows::WinThemeMode::kLight;
+      if (action == 10) appearance.theme = ui::UiThemeMode::kAuto;
+      if (action == 11) appearance.theme = ui::UiThemeMode::kDark;
+      if (action == 12) appearance.theme = ui::UiThemeMode::kLight;
       if (action == 13) appearance.soften_dark = !appearance.soften_dark;
-      SaveCatalogAppearance(appearance);
+      model_proxy->Invoke(catalog->persisted.device_state.id(), &ui::UiDeviceState::SetAppearance, appearance);
       return true;
     }
     if (action == 4) model_proxy->Invoke(catalog_window.layout.id(), &ui::UiLayoutState::ClearOverride);
@@ -106,6 +80,10 @@ class CatalogDesktopWindowPresenter
       model_proxy->Invoke(catalog_window.layout.id(), &ui::UiLayoutState::SetOverride, std::move(changed));
     }
     return true;
+  }
+
+  ui::UiDeviceState* LocalDeviceState() const override {
+    return &*catalog->persisted.device_state;
   }
 
   bool PresentsChildControl(Presenter const& child) const override {

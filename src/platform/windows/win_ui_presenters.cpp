@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include "apptraverse/model_object_proxy.h"
 #include "apptraverse/platform/windows/win_ui_environment.h"
 
 #include "apptraverse/platform/windows/win_presentation_host.h"
@@ -91,15 +92,15 @@ LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
     return 0;
   }
   if (msg == WM_SETTINGCHANGE || msg == WM_THEMECHANGED || msg == WM_SYSCOLORCHANGE ||
-      msg == kWinAppearancePreferencesChanged) {
+      msg == WM_DISPLAYCHANGE || msg == WM_DEVICECHANGE || msg == WM_POWERBROADCAST) {
     presenter->RefreshPresentationSettings();
-    return 0;
+    return DefWindowProcW(hwnd, msg, wparam, lparam);
   }
   if (msg == 0x02E0) {  // WM_DPICHANGED, optional on Windows newer than Win7.
-    presenter->RefreshPresentationSettings();
     auto const* rect = reinterpret_cast<RECT const*>(lparam);
-    if (rect != nullptr) SetWindowPos(hwnd, nullptr, rect->left, rect->top,
+    if (rect != nullptr && !presenter->applying_local_placement_) SetWindowPos(hwnd, nullptr, rect->left, rect->top,
         rect->right - rect->left, rect->bottom - rect->top, SWP_NOZORDER | SWP_NOACTIVATE);
+    presenter->RefreshPresentationSettings();
     return 0;
   }
   if (msg == WM_VSCROLL || msg == WM_HSCROLL) {
@@ -153,6 +154,7 @@ LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
       presenter->HandleNativeFrameChanged(true);
     }
     presenter->interactive_move_active_ = false;
+    presenter->ReportEnvironmentFromNative(UiEnvironmentReason::kUserWindowChange);
   }
   if (msg == WM_WINDOWPOSCHANGED && !presenter->applying_native_frame_ &&
       !presenter->applying_layout_ && !presenter->applying_settings_) {
@@ -163,6 +165,8 @@ LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
     bool const geometry_changed = position == nullptr ||
         (position->flags & (SWP_NOMOVE | SWP_NOSIZE)) != (SWP_NOMOVE | SWP_NOSIZE);
     if (geometry_changed) {
+      if (!presenter->applying_local_placement_)
+        presenter->ReportEnvironmentFromNative();
       if (presenter->interactive_move_active_) {
         presenter->TrackInteractiveNativeFrame();
       } else {
@@ -216,6 +220,8 @@ void WinDesktopWindowPresenter::OnLoad() {
     FatalWin32("CreateWindowExW Ui desktop window", GetLastError());
   }
   SetUserData(hwnd_, this);
+  ApplyLocalPlacement();
+  if (!LocalDeviceState() || !LocalDeviceState()->PlacementFor(window.id())) KeepInCurrentWorkArea();
   RefreshPresentationSettings();
   ShowWindow(hwnd_, SW_SHOW);
   UpdateWindow(hwnd_);
@@ -280,6 +286,7 @@ void WinDesktopWindowPresenter::ApplyRequestedFrameFromMirror() {
     FatalWin32("SetWindowPos Ui desktop window", GetLastError());
   }
   applying_native_frame_ = false;
+  ReportEnvironmentFromNative(UiEnvironmentReason::kUserWindowChange);
 }
 
 void WinDesktopWindowPresenter::HandleNativeFrameChanged(
@@ -328,6 +335,9 @@ bool WinDesktopWindowPresenter::RouteChildCommand(std::uint32_t command_id,
 }
 
 void WinDesktopWindowPresenter::OnModelChanged() {
+  ApplyLocalPlacement();
+  auto const* local = LocalDeviceState();
+  if (local && local->appearance != applied_appearance_) RefreshPresentationSettings();
   RefreshLayout();
   if (!SetWindowTextW(hwnd_, ResolveTitleText().c_str())) {
     FatalWin32("SetWindowTextW Ui desktop window", GetLastError());
@@ -347,6 +357,9 @@ void WinDesktopWindowPresenter::OnUnload() {
   hwnd_ = nullptr;
   native_children_.clear();
   environment_.reset();
+  last_reported_environment_.reset();
+  last_reported_window_.reset();
+  applied_placement_revision_ = 0;
 }
 
 WinDesktopWindowPresenter* WinDesktopWindowPresenter::FromNativeWindow(HWND window) {
@@ -394,12 +407,97 @@ void WinDesktopWindowPresenter::RefreshPresentationSettings() {
   // user request to persist a new window frame or publish a model viewport.
   applying_settings_ = true;
   if (!environment_) environment_ = std::make_shared<WinUiEnvironment>(hwnd_);
-  else environment_->Refresh();
+  auto const* local = LocalDeviceState();
+  applied_appearance_ = local ? local->appearance : UiAppearancePreferences{};
+  environment_->Refresh(applied_appearance_);
   for (auto const& child : native_children_) ApplyChildAppearance(child.hwnd);
   applying_settings_ = false;
   RefreshLayout();
   InvalidateRect(hwnd_, nullptr, TRUE);
+  ReportEnvironmentFromNative();
 }
+
+void WinDesktopWindowPresenter::ReportEnvironmentFromNative(UiEnvironmentReason window_reason) {
+  auto const* local = LocalDeviceState();
+  if (!local || !environment_ || applying_local_placement_) return;
+  auto const& current = environment_->snapshot();
+  if (!last_reported_environment_ || *last_reported_environment_ != current) {
+    auto const reason = last_reported_environment_ ? UiEnvironmentReason::kSystemNotification
+                                                  : UiEnvironmentReason::kStartup;
+    model_proxy->Invoke(local->obj_id, &UiDeviceState::ObserveEnvironment, current, reason);
+    last_reported_environment_ = current;
+  }
+  if (IsIconic(hwnd_) || IsZoomed(hwnd_)) return;
+  auto const window_environment = environment_->WindowSnapshot(window.id());
+  if (!last_reported_window_ || *last_reported_window_ != window_environment ||
+      window_reason == UiEnvironmentReason::kUserWindowChange) {
+    auto const reason = last_reported_window_ ? window_reason : UiEnvironmentReason::kStartup;
+    model_proxy->Invoke(local->obj_id, &UiDeviceState::ObserveWindow, window_environment, reason);
+    last_reported_window_ = window_environment;
+  }
+}
+
+void WinDesktopWindowPresenter::ApplyLocalPlacement() {
+  auto const* local = LocalDeviceState();
+  if (!local || !hwnd_ || applying_local_placement_) return;
+  auto const* placement = local->PlacementFor(window.id());
+  if (!placement || placement->revision == applied_placement_revision_) return;
+  if (applied_placement_revision_ == 0 && last_reported_window_) {
+    // The first preference for this newly created window was just observed
+    // from native UI; do not replay its older queued geometry over a live drag.
+    applied_placement_revision_ = placement->revision;
+    return;
+  }
+  auto monitor = std::find_if(local->environment.monitors.begin(), local->environment.monitors.end(),
+      [&](auto const& item) { return item.key == placement->resolved_monitor; });
+  // A temporarily headless environment has no placement to apply yet.
+  if (monitor == local->environment.monitors.end()) return;
+  auto const& work = monitor->work_area;
+  applying_local_placement_ = true;
+  bool const prior_native = applying_native_frame_;
+  applying_native_frame_ = true;
+  if (GetWinWindowMonitorKey(hwnd_) != monitor->key) {
+    if (!SetWindowPos(hwnd_, nullptr, work.x, work.y, 0, 0,
+        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE))
+      FatalWin32("SetWindowPos resolved monitor", GetLastError());
+  }
+  auto const dpi = GetWinWindowDpi(hwnd_);
+  auto const& dip = placement->frame_dip;
+  int const width = std::clamp(MulDiv(dip.width, dpi, 96), 1, std::max(1, work.width));
+  int const height = std::clamp(MulDiv(dip.height, dpi, 96), 1, std::max(1, work.height));
+  int const x = work.x + std::clamp(MulDiv(dip.x, dpi, 96), 0, std::max(0, work.width - width));
+  int const y = work.y + std::clamp(MulDiv(dip.y, dpi, 96), 0, std::max(0, work.height - height));
+  RECT current{}; GetWindowRect(hwnd_, &current);
+  if (current.left != x || current.top != y || current.right - current.left != width ||
+      current.bottom - current.top != height) {
+    if (!SetWindowPos(hwnd_, nullptr, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE))
+      FatalWin32("SetWindowPos local placement", GetLastError());
+  }
+  applied_placement_revision_ = placement->revision;
+  applying_native_frame_ = prior_native;
+  applying_local_placement_ = false;
+  if (environment_) RefreshPresentationSettings();
+}
+
+void WinDesktopWindowPresenter::KeepInCurrentWorkArea() {
+  if (hwnd_ == nullptr || IsIconic(hwnd_) || IsZoomed(hwnd_)) return;
+  MONITORINFO info{sizeof(info)};
+  if (!GetMonitorInfoW(MonitorFromWindow(hwnd_, MONITOR_DEFAULTTONEAREST), &info))
+    FatalWin32("GetMonitorInfoW work area", GetLastError());
+  RECT bounds{};
+  if (!GetWindowRect(hwnd_, &bounds)) FatalWin32("GetWindowRect work area", GetLastError());
+  auto const& work = info.rcWork;
+  LONG const width = std::min(bounds.right - bounds.left, work.right - work.left);
+  LONG const height = std::min(bounds.bottom - bounds.top, work.bottom - work.top);
+  LONG const x = std::clamp(bounds.left, work.left, work.right - width);
+  LONG const y = std::clamp(bounds.top, work.top, work.bottom - height);
+  if (x != bounds.left || y != bounds.top || width != bounds.right - bounds.left ||
+      height != bounds.bottom - bounds.top) {
+    if (!SetWindowPos(hwnd_, nullptr, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE))
+      FatalWin32("SetWindowPos work area", GetLastError());
+  }
+}
+
 void WinDesktopWindowPresenter::RegisterChildControl(HWND child, std::uint32_t control_id) {
   native_children_.push_back({child, control_id});
   ApplyChildAppearance(child);

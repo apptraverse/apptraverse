@@ -7,6 +7,7 @@
 namespace apptraverse {
 
 void PrepareWindowCatalogForRun(WindowCatalog& catalog) {
+  catalog.persisted.device_state.Load();
   ui::LoadPresentedWindow(catalog.persisted.main_window);
   catalog.persisted.list.Load();
   catalog.persisted.locale.Load();

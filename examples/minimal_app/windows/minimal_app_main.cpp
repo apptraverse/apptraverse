@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <string_view>
 
+#include "apptraverse/platform/windows/win_ui_environment.h"
 #include "apptraverse/application_model_runtime.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/platform/windows/win_application_host.h"
@@ -66,7 +67,7 @@ int main(int argc, char** argv) {
     auto& application = static_cast<apptraverse::example::minimal::MinimalApplication&>(root);
     auto& presenter = *application.main_window->presenter;
     auto hwnd = static_cast<HWND>(presenter.NativeChildParentHandle());
-    auto dpi = static_cast<std::int32_t>(GetDpiForWindow(hwnd) * 160 / 96);
+    auto dpi = static_cast<std::int32_t>(apptraverse::ui::windows::GetWinWindowDpi(hwnd) * 160 / 96);
     if (!application.viewport.hosted && !application.viewport.single_page && application.viewport.density_dpi == dpi) return;
     presenter.model_proxy->Invoke(root.obj_id,
         &apptraverse::example::minimal::MinimalApplication::SubmitDesktopEnvironment, dpi);

@@ -10,11 +10,17 @@
 #include "apptraverse/ui/ui_string.h"
 #include "apptraverse/ui/ui_window.h"
 #include "apptraverse/ui/ui_layout_state.h"
+#include "apptraverse/ui/ui_device_state.h"
 
 namespace apptraverse::ui {
 namespace {
 
 APPTRAVERSE_REGISTER(UiString);
+APPTRAVERSE_REGISTER(UiDeviceState);
+APPTRAVERSE_REGISTER(UiDeviceEnvironmentChangedEvent);
+APPTRAVERSE_REGISTER(UiWindowEnvironmentChangedEvent);
+APPTRAVERSE_REGISTER(UiWindowMonitorResolvedEvent);
+APPTRAVERSE_REGISTER(SetUiAppearancePreferencesEvent);
 APPTRAVERSE_REGISTER(UiLayoutDefinition);
 APPTRAVERSE_REGISTER(UiLayoutState);
 APPTRAVERSE_REGISTER(SetUiLayoutOverrideEvent);
@@ -47,6 +53,7 @@ APPTRAVERSE_REGISTER(UiListContainerPresenter);
 }  // namespace
 
 void EnsureUiControlRegistration() {
+  EnsureClientLocalStateRegistration();
   (void)&g_apptraverse_registrar_UiString;
   (void)&g_apptraverse_registrar_UiPresentedWindow;
 }

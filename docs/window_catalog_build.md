@@ -21,14 +21,25 @@ layout overrides. Use a new `--state-dir` for this S0 development schema and pai
 USER with its matching supply; older experimental profiles are preserved.
 
 The main-window menu also selects Auto/System dark/System light and toggles
-Soften dark theme. These local application preferences are stored in
-`%LOCALAPPDATA%/AppTraverse/WindowCatalog/appearance.ini`, shared by the current
-Windows user's WindowCatalog profiles and separate from portable `user.bin`.
-Auto follows OS colors; forced modes use native light colors or the backend's
-dark semantic palette when the OS does not expose that palette. Soften changes
-dark surfaces to graphite (#202020/#2B2B2B). High Contrast always uses system
-colors regardless of either preference. DPI, OS fonts and measured rectangles
-are not persisted in the INI.
+Soften dark theme. These are ordinary `UiDeviceState` objects marked
+`ClientLocalState`, persisted with native object serialization in
+`<profile>/local/user.bin`. `<profile>/user.bin` contains portable state.
+No INI is read or written. Preferences now belong to the profile rather than all
+WindowCatalog instances of a Windows account. Auto follows OS colors; forced
+modes use native light colors or the backend's dark palette. Soften uses graphite
+(#202020/#2B2B2B); High Contrast overrides appearance preferences.
+
+The local graph also stores the previous OS environment and window/monitor
+placements. Startup compares current Windows settings before presenting windows;
+changes, missing/returned monitors and placement decisions use local Events.
+See [the contract](architecture/ClientLocalEnvironment.md). Use a **fresh profile**
+with this S0 revision; old experimental profiles are preserved and not migrated.
+For a portable transfer, pass the matching model USER to the destination profile.
+To additionally seed a new destination's LOCAL, use the load-only binary with
+`--state-dir <destination-profile> --local-seed-dir <source-profile>/local`.
+An existing destination LOCAL is retained, even when a seed is supplied.
+Normal Debug deliberately starts fresh; use `win32_window_catalog_demo_load_only`
+for restart/persistence checks.
 
 The active CMake graph builds `win32_window_catalog_demo`, its load-only binary,
 and their UI/model tests. **P1.1** (see [versioning/PLAN.md](versioning/PLAN.md))

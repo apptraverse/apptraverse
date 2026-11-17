@@ -10,6 +10,8 @@
 
 #include <windows.h>
 #include <memory>
+#include <optional>
+#include "apptraverse/ui/ui_device_state.h"
 #include <vector>
 #include "apptraverse/ui/ui_constraint_layout.h"
 
@@ -90,6 +92,7 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
   // Runtime presentation only: constraints come from the UI mirror, while
   // measurements, DPI, focus and actual rectangles stay local to this window.
   virtual UiLayoutNode const* LayoutRoot() const { return nullptr; }
+  virtual UiDeviceState* LocalDeviceState() const { return nullptr; }
   virtual bool ShowPresentationContextMenu(int, int) { return false; }
   static WinDesktopWindowPresenter* FromNativeWindow(HWND window);
   UiControlLayout ResolveChildLayout(UiControlLayout requested) const override;
@@ -142,6 +145,9 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
     HWND hwnd;
     std::uint32_t control_id;
   };
+  void ReportEnvironmentFromNative(UiEnvironmentReason reason = UiEnvironmentReason::kSystemNotification);
+  void ApplyLocalPlacement();
+  void KeepInCurrentWorkArea();
   bool NativeMeasurementsReady() const;
   UiConstraintLayoutResult ComputeLocalLayout() const;
   void ApplyChildAppearance(HWND child);
@@ -151,6 +157,11 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
   std::vector<NativeChild> native_children_;
   std::shared_ptr<WinUiEnvironment> environment_;
+  std::optional<UiDeviceEnvironment> last_reported_environment_;
+  std::optional<UiWindowEnvironment> last_reported_window_;
+  UiAppearancePreferences applied_appearance_;
+  std::uint64_t applied_placement_revision_{};
+  bool applying_local_placement_{};
   bool applying_layout_{false};
   bool applying_settings_{false};
   int scroll_x_{0};

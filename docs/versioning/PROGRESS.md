@@ -3894,7 +3894,7 @@ See the [plan](../system-settings-accessibility-plan.md) and
 [validation with exact scope/history](../validation/window-catalog-layout-settings-2026-11-16.md).
 
 
-### Local appearance preferences — 2026-11-16
+### Local appearance preferences — 2026-11-16 (historical; superseded below)
 
 WindowCatalog now offers Auto/System dark/System light plus Soften dark theme.
 The Windows backend applies the preference to all current UI-thread windows;
@@ -3905,3 +3905,31 @@ chrome adaptive 2/2 PASS (19.47 s), including cross-window preference changes,
 unchanged model generations, and INI save/reset/load. Existing geometry checks
 now accept legitimately scrollable content under the user's large system text,
 while checking the actual native scrollbar range and non-overlap.
+
+
+### Client-local environment and event-driven placement — 2026-11-16
+
+Replaced the appearance INI with ordinary native object state. Distilled
+ClientLocalState roots route their layers/history/Events through the standard
+RamDomainStorage and serializer into `<profile>/local/user.bin`; portable USER
+retains identity references without local contents. UiDeviceState owns local
+appearance, the last OS snapshot and per-window DPI/monitor/placement state.
+Startup comparison precedes the initial publication; live Windows notifications
+use the same typed Events, suppressing equal observations. Monitor resolution
+is a model Event (found/missing/unavailable); native presenters apply DIP-based
+placement and preserve the preferred screen across automatic fallback/return.
+A new destination may seed LOCAL; an existing destination keeps its own graph.
+Normal Debug remains fresh, load-only restores matching partitions/supply.
+
+Final v143 Debug build and selected tests: **10/10 PASS, 212.70 s**, including
+real-process restart comparison and CLI seed/keep acceptance, native parent/child
+appearance, local/portable history exclusion, replay, immediate compaction,
+monitor loss/return, and existing catalog/layout/model/MinimalApp regressions.
+Both final EXEs passed the direct Win7 PE import/subsystem audit. The independent
+MinimalApp's old direct GetDpiForWindow call was replaced with the shared optional
+API helper so that check builds under the Win7 target.
+
+[Contract](../architecture/ClientLocalEnvironment.md) and
+[executed validation/limits](../validation/window-catalog-local-environment-2026-11-16.md).
+Actual Win7, physical multi-monitor/hotplug and other-platform runtime matrices
+were NOT RUN; no historical platform PASS is reasserted.

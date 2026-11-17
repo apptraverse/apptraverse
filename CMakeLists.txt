@@ -115,6 +115,7 @@ add_library(apptraverse STATIC
   src/apptraverse.cpp
   src/object_registration.cpp
   src/noninteractive_crt.cpp
+  src/client_local_state.cpp
   src/single_file_user_storage.cpp
   src/directory_domain_storage.cpp
   src/overlay_domain_storage.cpp
@@ -144,6 +145,7 @@ add_library(apptraverse STATIC
   src/ui/ui_window_presenter.cpp
   src/ui/ui_constraint_layout.cpp
   src/ui/ui_layout_state.cpp
+  src/ui/ui_device_state.cpp
   src/ui/ui_registration.cpp
   src/ui/ui_list_row_presenter_registration.cpp
 )

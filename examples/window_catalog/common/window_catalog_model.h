@@ -30,6 +30,7 @@
 
 #include "apptraverse/ui/ui_push_button_presenter.h"
 #include "apptraverse/ui/ui_layout_state.h"
+#include "apptraverse/ui/ui_device_state.h"
 
 namespace apptraverse {
 
@@ -257,6 +258,8 @@ struct WindowCatalogPersisted {
   // same ancestor-owned definition instead of retaining a temporary Domain.
   ui::UiLayoutDefinition::ptr child_layout_definition;
 
+  ui::UiDeviceState::ptr device_state;
+
   // Complete open-window order: index zero is active on every platform.
   // Lazy identity links do not retain another owner of the live window graph.
   std::vector<CatalogWindow::ptr> window_order;
@@ -269,7 +272,7 @@ struct WindowCatalogPersisted {
   AE_REFLECT_MEMBERS(next_window_number, selected, list, main_window, locale,
 
                      texts, buttons, presenters, window_prefab,
-                     child_layout_definition, window_order,
+                     child_layout_definition, device_state, window_order,
 
                      main_client_viewport)
 
@@ -312,6 +315,8 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   void CollectHistoricalCaptureLiveReferenceIds(
       std::set<ae::ObjId>& ids) const override {
     ids.insert(persisted.child_layout_definition.id());
+    // A portable historical base retains the identity, never a copy of LOCAL.
+    ids.insert(persisted.device_state.id());
   }
 
   [[nodiscard]] CatalogWindow::ptr ResolveActiveWindow();

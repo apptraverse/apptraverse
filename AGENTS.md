@@ -14,6 +14,20 @@ separate acceptance boundary. Other platform adapters remain planned, not
 implemented by this Windows slice. Preserve S0/new-profile and USER contracts
 below. Current evidence: [layout/settings validation](docs/validation/window-catalog-layout-settings-2026-11-16.md).
 
+## Client-local environment — 2026-11-16
+
+The user superseded runtime-only OS observations: persist a device-local OS
+baseline and compare on startup and live notifications through native object
+Events. Mark local ownership roots with ClientLocalState; use the same native
+storage format in `<profile>/local/user.bin`, excluding it from portable USER.
+A first transfer may seed absent LOCAL; existing device LOCAL wins in full.
+Monitor found/missing/returned decisions are local model Events; presenters
+apply the published placement. Preserve preferred monitor across automatic
+fallback, use DIPs and the actual destination-window DPI. No appearance INI.
+See [the contract](docs/architecture/ClientLocalEnvironment.md).
+This supersedes the previous one-user.bin-only instruction for LOCAL; each
+partition is still RAM-backed and persisted only at the lifecycle boundary.
+
 ## SharedNode task — 2026-11-11
 
 The user explicitly authorized new SharedNode implementation in a separate

@@ -1,4 +1,6 @@
 #include <cstdlib>
+#include <algorithm>
+#include "apptraverse/client_local_state.h"
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -387,6 +389,58 @@ void RunSessionIsolation() {
   CHECK(setup_a.instrumented->SnapshotStats().store_calls == 0);
 }
 
+void RunClientLocalPartitionAndColdLoad() {
+  ae::RamDomainStorage backing, portable, local;
+  InstallEmbeddedDistilledBacking(backing, CatalogGraph());
+  auto const roots = CollectClientLocalRoots(backing);
+  CHECK(roots.size() == 1);
+  auto const local_id = *roots.begin();
+  {
+    ClientLocalDomainStorage routed{portable, local, backing, roots};
+    OverlayDomainStorage overlay{routed, backing, EmbeddedSupplyConstantIdSet(CatalogGraph())};
+    ae::Domain domain{overlay};
+    auto catalog = LoadApplication<WindowCatalog>(domain, CatalogId());
+    PrepareWindowCatalogForRun(*catalog);
+    auto device = catalog->persisted.device_state;
+    CHECK(device.id() == local_id);
+    device->SetImmediateEventCompaction(true);
+    ui::UiDeviceEnvironment environment;
+    environment.message_font.family = "LOCAL-ONLY-ENVIRONMENT-SENTINEL";
+    device->ObserveEnvironment(environment, ui::UiEnvironmentReason::kStartup);
+    device->SetAppearance({ui::UiThemeMode::kDark, true});
+    catalog->SetImmediateEventCompaction(true);
+    catalog->AddWindow();
+    SaveWindowCatalogPersistentSnapshot(*catalog);
+  }
+  CHECK(!local.state.empty());
+  CHECK(!portable.state.empty());
+  for (auto const& [id, layers] : portable.state) {
+    CHECK(!layers || !layers->contains(ClientLocalState::kClassId));
+    auto scope = portable.ReadObjectScope(id);
+    CHECK(!scope || scope->root_id != local_id);
+  }
+  std::vector<std::uint8_t> bytes;
+  bool const encoded = SerializeUserStorage(portable, bytes);
+  CHECK(encoded);
+  std::string const sentinel = "LOCAL-ONLY-ENVIRONMENT-SENTINEL";
+  CHECK(std::search(bytes.begin(), bytes.end(), sentinel.begin(), sentinel.end()) == bytes.end());
+  // A portable-only destination starts with distilled local defaults.
+  for (bool with_local : {false, true}) {
+    ae::RamDomainStorage own_local;
+    if (with_local) SeedClientLocalStorage(own_local, local);
+    ClientLocalDomainStorage routed{portable, own_local, backing, roots};
+    OverlayDomainStorage overlay{routed, backing, EmbeddedSupplyConstantIdSet(CatalogGraph())};
+    ae::Domain domain{overlay};
+    auto catalog = LoadApplication<WindowCatalog>(domain, CatalogId());
+    PrepareWindowCatalogForRun(*catalog);
+    CHECK(catalog->persisted.list->rows.size() == 1);
+    auto device = catalog->persisted.device_state;
+    CHECK(device->has_environment == with_local);
+    CHECK(device->appearance.soften_dark == with_local);
+    if (with_local) CHECK(device->environment.message_font.family == sentinel);
+  }
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -395,6 +449,7 @@ int main() {
   apptraverse::test::RunBoundaryScenario();
   apptraverse::test::RunExistingUserNoWriteUntilBoundary();
   apptraverse::test::RunSessionIsolation();
+  apptraverse::test::RunClientLocalPartitionAndColdLoad();
   std::cout << "ALL_USER_PERSISTENCE_SCENARIOS_OK\n";
   return 0;
 }

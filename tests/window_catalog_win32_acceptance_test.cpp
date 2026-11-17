@@ -426,9 +426,11 @@ void ExpectChromeRu(HWND main) {
 }
 
 PROCESS_INFORMATION StartDemo(std::filesystem::path const& exe,
-                              std::filesystem::path const& state_dir) {
+                              std::filesystem::path const& state_dir,
+                              std::filesystem::path const& local_seed_dir = {}) {
   std::wstring cmd = L"\"" + exe.wstring() + L"\" --state-dir \"" +
                      state_dir.wstring() + L"\"";
+  if (!local_seed_dir.empty()) cmd += L" --local-seed-dir \"" + local_seed_dir.wstring() + L"\"";
   std::vector<wchar_t> cmd_buf(cmd.begin(), cmd.end());
   cmd_buf.push_back(L'\0');
   STARTUPINFOW si{};
@@ -1001,6 +1003,56 @@ void ExpectSameTopLevelWithTitle(DWORD pid, HWND expected,
   CHECK(found == expected);
 }
 
+std::uint64_t PrepareStaleLocalEnvironment(std::filesystem::path const& profile) {
+  ae::RamDomainStorage portable, local, backing;
+  CHECK(LoadUserStorageFile(portable, profile));
+  CHECK(LoadUserStorageFile(local, profile / "local"));
+  InstallEmbeddedDistilledBacking(backing, WindowCatalogEmbeddedGraph());
+  ClientLocalDomainStorage routed{portable, local, backing, CollectClientLocalRoots(backing)};
+  OverlayDomainStorage overlay{routed, backing, EmbeddedSupplyConstantIdSet(WindowCatalogEmbeddedGraph())};
+  ae::Domain domain{overlay};
+  auto catalog = LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
+  catalog->persisted.device_state.Load();
+  auto device = catalog->persisted.device_state;
+  CHECK(device->has_environment);
+  CHECK(device->windows.size() >= 3);
+  CHECK(device->placements.size() >= 3);
+  auto environment = device->environment;
+  environment.system_dpi_x += 48;
+  environment.system_dpi_y += 48;
+  environment.monitors.push_back({"old-disconnected-screen", {20000, 0, 800, 600},
+                                  {20000, 0, 800, 600}, false, 0, 60});
+  device->ObserveEnvironment(environment, ui::UiEnvironmentReason::kSystemNotification);
+  device->SetAppearance({ui::UiThemeMode::kDark, true});
+  device.Save();
+  CHECK(SaveUserStorageFile(local, profile / "local"));
+  return device->observation_revision;
+}
+
+void CheckRestoredLocalEnvironment(std::filesystem::path const& profile,
+                                    std::uint64_t previous_revision) {
+  ae::RamDomainStorage portable, local, backing;
+  CHECK(LoadUserStorageFile(portable, profile));
+  CHECK(LoadUserStorageFile(local, profile / "local"));
+  InstallEmbeddedDistilledBacking(backing, WindowCatalogEmbeddedGraph());
+  auto const roots = CollectClientLocalRoots(backing);
+  ClientLocalDomainStorage routed{portable, local, backing, roots};
+  OverlayDomainStorage overlay{routed, backing, EmbeddedSupplyConstantIdSet(WindowCatalogEmbeddedGraph())};
+  ae::Domain domain{overlay};
+  auto catalog = LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
+  catalog->persisted.device_state.Load();
+  auto device = catalog->persisted.device_state;
+  CHECK(device->has_environment);
+  CHECK(device->observation_revision == previous_revision + 1);
+  CHECK(device->last_reason == ui::UiEnvironmentReason::kStartup);
+  CHECK((device->last_changes & (ui::kEnvironmentDpi | ui::kEnvironmentDisplays)) ==
+        (ui::kEnvironmentDpi | ui::kEnvironmentDisplays));
+  CHECK(device->appearance.theme == ui::UiThemeMode::kDark && device->appearance.soften_dark);
+  for (auto const& [id, scope] : portable.object_scopes) CHECK(!roots.contains(scope.root_id));
+  for (auto const& [id, layers] : portable.state)
+    CHECK(!layers || !layers->contains(ClientLocalState::kClassId));
+}
+
 std::filesystem::path RunRestartPersistenceAcceptance() {
   auto const state_dir = FreshStateDir("window_catalog_win32_acceptance");
   auto const demo = RuntimeDemoExe();
@@ -1084,6 +1136,7 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
   std::vector<ae::ObjId> saved_holder_ids;
   ProbeProfileListRows(state_dir, 2, &saved_holder_ids);
   CHECK(saved_holder_ids.size() == 2);
+  auto const stale_revision = PrepareStaleLocalEnvironment(state_dir);
 
   {
     ActiveDemoProcess load_session{StartDemo(load_only, state_dir)};
@@ -1124,6 +1177,7 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
     load_session.Release();
   }
 
+  CheckRestoredLocalEnvironment(state_dir, stale_revision);
   std::vector<ae::ObjId> const original_holder_ids = saved_holder_ids;
   std::vector<ae::ObjId> reloaded_holder_ids;
   ProbeProfileListRows(state_dir, 3, &reloaded_holder_ids);
@@ -1147,6 +1201,7 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
     CloseProcessGracefully(main, restart_session.pi);
     restart_session.Release();
   }
+  CheckRestoredLocalEnvironment(state_dir, stale_revision);
   return state_dir;
 }
 
@@ -1537,6 +1592,29 @@ void RunDeleteAndColdReloadAcceptance() {
   }
 }
 
+void RunInitialLocalSeedAcceptance(std::filesystem::path const& source) {
+  auto const destination = FreshStateDir("window_catalog_local_seed");
+  CHECK(std::filesystem::copy_file(source / "user.bin", destination / "user.bin"));
+  for (int run = 0; run < 2; ++run) {
+    // On the second run the absent source must not even be opened: own LOCAL wins.
+    auto const seed = run == 0 ? source / "local" : destination / "absent-seed";
+    ActiveDemoProcess session{StartDemo(RuntimeDemoExe(), destination, seed)};
+    HWND main = WaitCatalogMainWindow(session.pi.dwProcessId, std::chrono::seconds{30});
+    CHECK(main != nullptr);
+    WaitChromeReady(main);
+    CloseProcessGracefully(main, session.pi);
+    session.Release();
+    ae::RamDomainStorage local, backing;
+    CHECK(LoadUserStorageFile(local, destination / "local"));
+    InstallEmbeddedDistilledBacking(backing, WindowCatalogEmbeddedGraph());
+    OverlayDomainStorage overlay{local, backing};
+    ae::Domain domain{overlay};
+    auto device = LoadApplication<ui::UiDeviceState>(domain,
+        ae::ObjId{window_catalog_demo::ToObjId(window_catalog_demo::ObjId::DeviceState)});
+    CHECK(device->appearance.theme == ui::UiThemeMode::kDark && device->appearance.soften_dark);
+  }
+}
+
 void RunAcceptanceAndRequiredMainWindowNegatives() {
 #if defined(APPTRAVERSE_TEST_DEBUG_BOOTSTRAP)
   // Normal Debug deliberately ignores previous USER, unlike the load consumer.
@@ -1562,7 +1640,7 @@ void RunAcceptanceAndRequiredMainWindowNegatives() {
         ++saved_files;
       }
     }
-    CHECK(saved_files == static_cast<std::size_t>(run));
+    CHECK(saved_files == 2 * static_cast<std::size_t>(run));
     CloseProcessGracefully(main, debug.pi);
     debug.Release();
   }
@@ -1578,13 +1656,15 @@ void RunAcceptanceAndRequiredMainWindowNegatives() {
           ++saved_files;
         }
       }
-      CHECK(saved_files == 1);
+      CHECK(saved_files == 2);
+      CHECK(std::filesystem::is_regular_file(entry.path() / "user" / "local" / "user.bin"));
       ++debug_runs;
     }
   }
   CHECK(debug_runs == 2);
 #endif
   auto const good_state = RunRestartPersistenceAcceptance();
+  RunInitialLocalSeedAcceptance(good_state);
   RunDeleteAndColdReloadAcceptance();
   RunLanguageAndFocusAcceptance();
   auto const load_only = DemoExe("win32_window_catalog_demo_load_only.exe");

@@ -28,6 +28,7 @@ enum class ObjId : ae::ObjId::Type {
   ChildLayoutDefinition = 20,
   MainLayoutState = 21,
   WindowPrefabLayoutState = 22,
+  DeviceState = 23,
 };
 
 inline constexpr ae::ObjId::Type ToObjId(ObjId id) {

@@ -3,26 +3,19 @@
 
 #include <windows.h>
 #include <memory>
+#include "apptraverse/ui/ui_device_state.h"
 
 namespace apptraverse::ui::windows {
 
 // Called before creating native host windows. Existing manifest/host policy wins.
 void EnsureWinProcessDpiAwareness();
-
-enum class WinThemeMode { kAuto, kLight, kDark };
-struct WinAppearancePreferences {
-  WinThemeMode theme{WinThemeMode::kAuto};
-  bool soften_dark{false};
-};
-// UI-thread session preferences. Persistence is application-owned and local;
-// these values are never reflected into the portable model graph.
-WinAppearancePreferences GetWinAppearancePreferences();
-void SetWinAppearancePreferences(WinAppearancePreferences preferences);
-inline constexpr UINT kWinAppearancePreferencesChanged = WM_APP + 0x312;
+UINT GetWinWindowDpi(HWND window);
+std::string GetWinWindowMonitorKey(HWND window);
 
 inline constexpr UINT kWinPresentationSettingsChanged = WM_APP + 0x310;
 
-// Runtime-only, window-local OS preferences. No state is reflected or saved.
+// Native resources and subscriptions stay runtime-only. snapshot() contains
+// serializable OS facts; the owning model decides how to compare/persist them.
 // The Win7 path needs only User32/GDI; newer DPI and WinRT APIs are optional.
 class WinUiEnvironment {
  public:
@@ -30,7 +23,9 @@ class WinUiEnvironment {
   ~WinUiEnvironment();
   WinUiEnvironment(WinUiEnvironment const&) = delete;
   WinUiEnvironment& operator=(WinUiEnvironment const&) = delete;
-  void Refresh();
+  void Refresh(UiAppearancePreferences preferences = {});
+  UiDeviceEnvironment const& snapshot() const { return snapshot_; }
+  UiWindowEnvironment WindowSnapshot(ae::ObjId window_id) const;
   bool AcceptsNotification(WPARAM token) const;
   HFONT font() const { return font_; }
   HBRUSH background_brush() const { return background_brush_; }
@@ -47,6 +42,7 @@ class WinUiEnvironment {
   struct ModernSettings;
   std::unique_ptr<ModernSettings> modern_;
   HWND window_;
+  UiDeviceEnvironment snapshot_;
   HFONT font_{nullptr};
   HBRUSH background_brush_{nullptr};
   double scale_{1.0};

@@ -15,6 +15,7 @@
 
 #include "apptraverse/application_model_session.h"
 #include "apptraverse/single_file_user_storage.h"
+#include "apptraverse/client_local_state.h"
 #include "apptraverse/distill.h"
 #include "apptraverse/embedded_application_model_session.h"
 #include "apptraverse/distilled_domain_export.h"
@@ -71,12 +72,44 @@ int WindowCatalogModelSession::Run(
     auto constants = CollectWindowCatalogSupplyConstantIds(*catalog);
     constant_ids.insert(constants.begin(), constants.end());
   }
+#elif defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
+  ae::RamDomainStorage backing;
+  auto const& graph = embedded_distilled::window_catalog::kEmbeddedGraph;
+  InstallEmbeddedDistilledBacking(backing, graph);
+  auto constant_ids = EmbeddedSupplyConstantIdSet(graph);
+#else
+#error "WindowCatalog requires fresh Debug producer or current embedded supply"
+
+#endif
   ae::RamDomainStorage user_storage;
-  OverlayDomainStorage overlay{user_storage, backing, constant_ids};
-  hooks.prepare = PrepareWindowCatalogForRun;
-  hooks.persist = [&user_storage, state_dir = state_dir](WindowCatalog& catalog) -> int {
+  ae::RamDomainStorage local_storage;
+#if !defined(APPTRAVERSE_WINDOW_CATALOG_DEBUG_BOOTSTRAP)
+  if (!LoadUserStorageFile(user_storage, state_dir) ||
+      !LoadUserStorageFile(local_storage, state_dir / "local")) {
+    WriteFatalStderr("fatal: cannot load catalog object state\n");
+    return 1;
+  }
+  if (local_storage.state.empty() && !local_seed_dir.empty()) {
+    ae::RamDomainStorage seed;
+    if (!LoadUserStorageFile(seed, local_seed_dir)) {
+      WriteFatalStderr("fatal: cannot load initial LOCAL object state\n");
+      return 1;
+    }
+    SeedClientLocalStorage(local_storage, seed);
+  }
+#endif
+  ClientLocalDomainStorage routed_user{
+      user_storage, local_storage, backing, CollectClientLocalRoots(backing)};
+  OverlayDomainStorage overlay{routed_user, backing, constant_ids};
+  hooks.prepare = [this](WindowCatalog& catalog) {
+    catalog.persisted.device_state.Load();
+    if (prepare_local_state) prepare_local_state(catalog);
+    PrepareWindowCatalogForRun(catalog);
+  };
+  hooks.persist = [&](WindowCatalog& catalog) -> int {
     SaveWindowCatalogPersistentSnapshot(catalog);
-    if (!SaveUserStorageFile(user_storage, state_dir)) {
+    if (!SaveUserStorageFile(user_storage, state_dir) ||
+        !SaveUserStorageFile(local_storage, state_dir / "local")) {
       WriteFatalStderr("fatal: WindowCatalog shutdown save failed\n");
       return 1;
     }
@@ -84,30 +117,6 @@ int WindowCatalogModelSession::Run(
   };
   return RunApplicationModelSession(overlay, CatalogRootId(), runtime,
                                     std::move(on_published), hooks);
-#elif defined(APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
-  ae::RamDomainStorage user_storage;
-  if (!LoadUserStorageFile(user_storage, state_dir)) {
-    WriteFatalStderr("fatal: cannot load catalog USER file\n");
-    return 1;
-  }
-  hooks.prepare = [](WindowCatalog& catalog) {
-    PrepareWindowCatalogForRun(catalog);
-  };
-  hooks.persist = [&user_storage, state_dir = state_dir](WindowCatalog& catalog) -> int {
-    SaveWindowCatalogPersistentSnapshot(catalog);
-    if (!SaveUserStorageFile(user_storage, state_dir)) {
-      WriteFatalStderr("fatal: WindowCatalog shutdown save failed\n");
-      return 1;
-    }
-    return 0;
-  };
-  return RunEmbeddedApplicationModelSession(
-      user_storage, embedded_distilled::window_catalog::kEmbeddedGraph, runtime,
-      std::move(on_published), hooks);
-#else
-#error "WindowCatalog requires fresh Debug producer or current embedded supply"
-
-#endif
 }
 
 }  // namespace apptraverse

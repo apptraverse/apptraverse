@@ -8,7 +8,7 @@ int main() { return 0; }
 #include <deque>
 #include <iostream>
 #include <memory>
-#include <filesystem>
+#include <optional>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
@@ -212,7 +212,8 @@ struct Harness {
 
   WindowCatalogMainNativeFrameQueue main_native_frame_queue;
 
-  Harness()
+  explicit Harness(std::optional<ui::UiDeviceEnvironment> previous = {},
+                   std::optional<ui::UiWindowEnvironment> placement = {})
       : model_proxy{[this](ModelObjectProxy::ModelWork work) {
           model_work.push_back(std::move(work));
         }},
@@ -225,6 +226,12 @@ struct Harness {
           model_work.push_back(std::move(work));
         });
     model_catalog = BuildWindowCatalogGraph(model_domain);
+    ui::windows::EnsureWinProcessDpiAwareness();
+    auto local = model_catalog->persisted.device_state;
+    if (previous) local->ObserveEnvironment(*previous, ui::UiEnvironmentReason::kStartup);
+    if (placement) local->ObserveWindow(*placement, ui::UiEnvironmentReason::kStartup);
+    ui::windows::WinUiEnvironment reader{nullptr};
+    local->ObserveEnvironment(reader.snapshot(), ui::UiEnvironmentReason::kStartup);
     PrepareWindowCatalogForRun(*model_catalog);
     ByteSink initial;
     SerializeInitialPublication(*model_catalog, initial);
@@ -526,45 +533,92 @@ void TestSystemSettingsNotificationsStayLocal() {
 }
 
 void TestLocalAppearancePreferences() {
-  using namespace ui::windows;
-  auto original = GetWinAppearancePreferences();
+  using namespace ui;
   Harness first;
   Harness second;
   first.PumpModelAndApply();
   second.PumpModelAndApply();
   auto first_generation = first.model_catalog->Generation();
   auto second_generation = second.model_catalog->Generation();
-  SetWinAppearancePreferences({WinThemeMode::kDark, false});
-  DispatchPendingWin32Messages();
+  first.model_proxy.Invoke(first.model_catalog.id(), &WindowCatalog::AddWindow);
+  first.PumpModelAndApply();
+  first_generation = first.model_catalog->Generation();
+  auto* holder = static_cast<WindowHolder*>(&*first.ui_catalog->persisted.list->rows.front());
+  auto& child = static_cast<ui::windows::WinDesktopWindowPresenter&>(*holder->window->presenter);
+  auto local = first.model_catalog->persisted.device_state;
+  auto second_local = second.model_catalog->persisted.device_state;
+  auto command = [&](UiAppearancePreferences preferences) {
+    first.model_proxy.Invoke(local.id(), &UiDeviceState::SetAppearance, preferences);
+    // No speculative mutation of either UI mirror or canonical graph.
+    CHECK(first.ui_catalog->persisted.device_state->appearance == local->appearance);
+    first.PumpModelAndApply();
+    CHECK(local->appearance == preferences);
+    CHECK(first.ui_catalog->persisted.device_state->appearance == preferences);
+  };
+  command({UiThemeMode::kDark, false});
   if (!first.main_presenter->HighContrast()) {
     CHECK(first.main_presenter->DarkTheme());
-    CHECK(second.main_presenter->DarkTheme());
-    SetWinAppearancePreferences({WinThemeMode::kDark, true});
-    DispatchPendingWin32Messages();
+    command({UiThemeMode::kDark, true});
     CHECK(first.main_presenter->BackgroundColor() == RGB(32,32,32));
-    CHECK(second.main_presenter->BackgroundColor() == RGB(32,32,32));
-    SetWinAppearancePreferences({WinThemeMode::kLight, true});
-    DispatchPendingWin32Messages();
+    CHECK(child.BackgroundColor() == RGB(32,32,32));
+    command({UiThemeMode::kLight, true});
     CHECK(!first.main_presenter->DarkTheme());
-    CHECK(!second.main_presenter->DarkTheme());
-    CHECK(first.main_presenter->BackgroundColor() == GetSysColor(COLOR_WINDOW));
-  } else {
     CHECK(first.main_presenter->BackgroundColor() == GetSysColor(COLOR_WINDOW));
   }
+  CHECK(second_local->appearance == UiAppearancePreferences{});
   CHECK(first.model_catalog->Generation() == first_generation);
   CHECK(second.model_catalog->Generation() == second_generation);
-  auto const ini = std::filesystem::temp_directory_path() /
-      ("apptraverse-appearance-" + std::to_string(ae::ObjId::GenerateUnique().id()) + ".ini");
-  example::surfaces::SaveCatalogAppearance({WinThemeMode::kDark, true}, ini.wstring());
-  SetWinAppearancePreferences({WinThemeMode::kAuto, false});
-  example::surfaces::LoadCatalogAppearance(ini.wstring());
-  CHECK(GetWinAppearancePreferences().theme == WinThemeMode::kDark);
-  CHECK(GetWinAppearancePreferences().soften_dark);
-  CHECK(first.model_catalog->Generation() == first_generation);
-  CHECK(second.model_catalog->Generation() == second_generation);
-  std::filesystem::remove(ini);
-  SetWinAppearancePreferences(original);
+}
+
+void TestStartupObservationAndMonitorResolution() {
+  using namespace ui;
+  ui::windows::EnsureWinProcessDpiAwareness();
+  ui::windows::WinUiEnvironment reader{nullptr};
+  auto previous = reader.snapshot();
+  CHECK(!previous.monitors.empty());
+  previous.system_dpi_x += 48;
+  previous.system_dpi_y += 48;
+  previous.text_scale_milli += 100;
+  previous.monitors.push_back({"disconnected-monitor", {10000, 0, 1920, 1080},
+                              {10000, 0, 1920, 1040}, false, 0, 60});
+  UiWindowEnvironment saved{ae::ObjId{window_catalog_demo::ToObjId(
+      window_catalog_demo::ObjId::MainWindow)}, "disconnected-monitor", 144, 144,
+      {50, 50, 600, 400}};
+  Harness h(previous, saved);
+  auto local = h.model_catalog->persisted.device_state;
+  CHECK(local->last_reason == UiEnvironmentReason::kStartup);
+  CHECK((local->last_changes & (kEnvironmentDpi | kEnvironmentDisplays | kEnvironmentText)) ==
+        (kEnvironmentDpi | kEnvironmentDisplays | kEnvironmentText));
+  auto const* placement = local->PlacementFor(saved.window_id);
+  CHECK(placement && placement->resolution == UiMonitorResolution::kMissing);
+  CHECK(placement->preferred_monitor == "disconnected-monitor");
+  CHECK(placement->resolved_monitor != placement->preferred_monitor);
+  auto const& resolution = *static_cast<UiWindowMonitorResolvedEvent const*>(
+      &*local->journal.back().event);
+  CHECK(resolution.reason == UiEnvironmentReason::kStartup);
+  CHECK(resolution.resolution == UiMonitorResolution::kMissing);
+  CHECK(ui::windows::GetWinWindowMonitorKey(h.MainHwnd()) == placement->resolved_monitor);
+  RECT bounds{}; GetWindowRect(h.MainHwnd(), &bounds);
+  MONITORINFO info{sizeof(info)};
+  CHECK(GetMonitorInfoW(MonitorFromWindow(h.MainHwnd(), MONITOR_DEFAULTTONEAREST), &info));
+  CHECK(bounds.left >= info.rcWork.left && bounds.top >= info.rcWork.top);
+  CHECK(bounds.right <= info.rcWork.right && bounds.bottom <= info.rcWork.bottom);
+  auto const resolved_monitor = placement->resolved_monitor;
+  h.PumpModelAndApply();
+  auto const observed = local->windows.front();
+  CHECK(observed.dpi_x == ui::windows::GetWinWindowDpi(h.MainHwnd()));
+  CHECK(observed.monitor_key == resolved_monitor);
+  CHECK(local->PlacementFor(saved.window_id)->preferred_monitor == "disconnected-monitor");
+  auto generation = local->Generation();
+  auto pending = h.model_work.size();
+  for (int i = 0; i < 3; ++i) {
+    SendMessageW(h.MainHwnd(), WM_DISPLAYCHANGE, 32, MAKELPARAM(1, 1));
+    SendMessageW(h.MainHwnd(), WM_SETTINGCHANGE, SPI_SETNONCLIENTMETRICS, 0);
+  }
   DispatchPendingWin32Messages();
+  CHECK(local->Generation() == generation);
+  CHECK(h.model_work.size() == pending);
+  CHECK(local->environment.monitors.size() == reader.snapshot().monitors.size());
 }
 
 }  // namespace
@@ -579,6 +633,7 @@ int main() {
   apptraverse::test::TestRuntimeConstraintOverrideAndClear();
   apptraverse::test::TestSystemSettingsNotificationsStayLocal();
   apptraverse::test::TestLocalAppearancePreferences();
+  apptraverse::test::TestStartupObservationAndMonitorResolution();
   std::cout << "window_catalog_win32_chrome_adaptive_test OK\n";
   return 0;
 }

@@ -118,6 +118,10 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   auto catalog = WindowCatalog::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::Catalog)));
 
+  catalog->persisted.device_state = ui::UiDeviceState::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(ObjId::DeviceState)));
+  InitializeRuntimeNode(*catalog->persisted.device_state, *catalog);
+
   catalog->persisted.next_window_number = 1;
   catalog->persisted.main_client_viewport = {kMainClientWidth, kMainClientHeight, 160};
 

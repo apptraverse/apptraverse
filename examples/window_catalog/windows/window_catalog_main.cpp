@@ -189,6 +189,7 @@ int main(int argc, char** argv) {
   apptraverse::EnsureWindowCatalogGraphRegistration();
 
   std::filesystem::path state_dir = DefaultStateDir();
+  std::filesystem::path local_seed_dir;
   for (int i = 1; i < argc; ++i) {
     std::string_view arg{argv[i]};
 #if defined(APPTRAVERSE_WINDOW_CATALOG_DEBUG_BOOTSTRAP)
@@ -200,11 +201,29 @@ int main(int argc, char** argv) {
     if (arg == "--state-dir" && i + 1 < argc) {
       state_dir = argv[++i];
     }
+    if (arg == "--local-seed-dir" && i + 1 < argc) {
+#if defined(APPTRAVERSE_WINDOW_CATALOG_DEBUG_BOOTSTRAP)
+      apptraverse::WriteFatalStderr("fatal: --local-seed-dir requires the load-only build\n");
+      return 2;
+#else
+      local_seed_dir = argv[++i];
+#endif
+    }
   }
 
-  apptraverse::example::surfaces::LoadCatalogAppearance();
   apptraverse::WindowCatalogModelSession session;
   session.state_dir = state_dir;
+  session.local_seed_dir = local_seed_dir;
+  apptraverse::ui::windows::EnsureWinProcessDpiAwareness();
+  {
+    // Sample on the UI thread, then compare/resolve on the model thread before
+    // the first publication and before any application window is created.
+    apptraverse::ui::windows::WinUiEnvironment reader{nullptr};
+    session.prepare_local_state = [snapshot = reader.snapshot()](apptraverse::WindowCatalog& catalog) {
+      catalog.persisted.device_state->ObserveEnvironment(
+          snapshot, apptraverse::ui::UiEnvironmentReason::kStartup);
+    };
+  }
 
   ae::ObjId pending_focus{};
   int model_exit_status = 1;

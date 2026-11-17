@@ -2,6 +2,7 @@
 #define APPTRAVERSE_WINDOW_CATALOG_LIFECYCLE_H_
 
 #include <filesystem>
+#include <functional>
 
 #include "aether-objects/obj/obj_id.h"
 
@@ -11,9 +12,13 @@
 
 namespace apptraverse {
 
+class WindowCatalog;
+
 struct WindowCatalogModelSession {
   std::filesystem::path state_dir;
+  std::filesystem::path local_seed_dir;
   ApplicationModelRuntime runtime;
+  std::function<void(WindowCatalog&)> prepare_local_state;
   WindowCatalogMainNativeFrameQueue main_native_frame_queue;
   ae::ObjId pending_focus_for_ui{};
 
