@@ -1,6 +1,7 @@
 #include "apptraverse/platform/windows/win_application_loading_window.h"
 
 #include "apptraverse/platform/windows/win32_fatal.h"
+#include "apptraverse/platform/windows/win_ui_environment.h"
 
 namespace apptraverse {
 namespace windows {
@@ -9,6 +10,7 @@ WinApplicationLoadingWindow::WinApplicationLoadingWindow(
     wchar_t const* class_name, wchar_t const* title, wchar_t const* message,
     int x, int y, int width, int height)
     : class_name_{class_name}, paint_text_{message} {
+  ui::windows::EnsureWinProcessDpiAwareness();
   instance_ = GetModuleHandleW(nullptr);
 
   WNDCLASSW wc{};

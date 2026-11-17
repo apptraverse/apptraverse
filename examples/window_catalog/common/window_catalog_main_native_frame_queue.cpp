@@ -58,11 +58,9 @@ void WindowCatalogMainNativeFrameQueue::Drain(ae::Domain& domain) {
     auto const& live = slot.live_frame;
     window->SubmitFrameFromNative(live.x, live.y, live.client_width,
                                   live.client_height, false);
-    auto catalog_obj = domain.Find(slot.catalog_id);
-    assert(catalog_obj && "catalog viewport target must exist");
-    auto* catalog = catalog_obj.as<WindowCatalog>();
-    catalog->SubmitMainClientViewportFromUi(live.client_width,
-                                            live.client_height, 160);
+    // Windows lays out controls locally from distilled constraints and native
+    // measurements. Persist the desktop frame, never publish measured chrome
+    // rectangles or this device's viewport through the catalog model.
 
     // Keep this task scheduled while applying outside the lock. Reports that
     // arrive during Apply belong to the next snapshot of this same drain,

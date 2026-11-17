@@ -270,6 +270,44 @@ void TestAddedHolderReplayPreservesInitialLinks() {
   CHECK(ResolveWindowCatalogHolderListRowText(holder, *catalog, 0) == row_text);
 }
 
+void TestChildLayoutSupplyOwnershipAcrossReplay() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto catalog = BuildHeadlessWindowCatalogGraph(domain);
+  FinalizeDistilledGraph(*catalog);
+  PrepareWindowCatalogForRun(*catalog);
+  auto definition = catalog->persisted.child_layout_definition.Load();
+  auto const definition_id = definition->obj_id;
+  catalog->AddWindow();
+  auto first = AsHolder(catalog->persisted.list->rows[0])->window;
+  CHECK(first->layout->definition.Load().get() == definition.get());
+  bool const layout_replayed = first->layout->TryReplayFromBase();
+  CHECK(layout_replayed);
+  CHECK(first->layout->definition.Load().get() == definition.get());
+  // The list is a separate Node: rewind its history before the catalog replays
+  // AddWindow, as in the existing catalog/list composed replay contract.
+  bool const list_replayed = catalog->persisted.list->TryReplayFromBase();
+  CHECK(list_replayed);
+  bool const catalog_replayed = catalog->TryReplayFromBase();
+  CHECK(catalog_replayed);
+  CHECK(catalog->persisted.child_layout_definition.id() == definition_id);
+  CHECK(catalog->persisted.child_layout_definition.Load().get() == definition.get());
+  catalog->AddWindow();
+  auto second = AsHolder(catalog->persisted.list->rows[1])->window;
+  CHECK(second->layout.id() != first->layout.id());
+  CHECK(second->layout->definition.Load().get() == definition.get());
+  SaveWindowCatalogPersistentSnapshot(*catalog);
+  ae::Domain cold_domain{storage};
+  auto cold = LoadApplication<WindowCatalog>(cold_domain, catalog.id());
+  PrepareWindowCatalogForRun(*cold);
+  CHECK(cold->persisted.child_layout_definition.id() == definition_id);
+  auto cold_definition = cold->persisted.child_layout_definition.Load();
+  CHECK(cold_definition->domain == &cold_domain);
+  cold->AddWindow();
+  auto third = AsHolder(cold->persisted.list->rows.back())->window;
+  CHECK(third->layout->definition.Load().get() == cold_definition.get());
+}
+
 void TestWindowNavigationLoadsLazyListAndSkipsClosedWindows() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
@@ -1110,7 +1148,8 @@ void TestCompleteClosePrefabDirectClone() {
     clone_options.stable_origin = kWindowPrefabId;
     clone_options.stable_prefab_ids = {
         kWindowPrefabId, kWindowPrefabPresenterId, close_button_id,
-        close_presenter_id};
+        close_presenter_id,
+        ae::ObjId{ToObjId(ObjId::WindowPrefabLayoutState)}};
     auto cloned = CloneCanonicalRoot(prefab_domain, prefab, domain, clone_options);
     CHECK(cloned);
     auto* copied = static_cast<CatalogWindow*>(cloned.root.Load().get());
@@ -1717,6 +1756,7 @@ int main() {
   apptraverse::test::TestUnifiedWindowOrderLifecycleAndColdRestore();
   apptraverse::test::TestNativeActivationRoutesThroughModelQueue();
   apptraverse::test::TestIndependentSuppliesHaveStableIdentitiesAndBytes();
+  apptraverse::test::TestChildLayoutSupplyOwnershipAcrossReplay();
   apptraverse::test::TestAddedHolderReplayPreservesInitialLinks();
   apptraverse::test::TestWindowNavigationLoadsLazyListAndSkipsClosedWindows();
   apptraverse::test::TestQueuedCatalogActionsKeepRowIdentity();

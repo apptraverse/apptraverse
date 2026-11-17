@@ -3857,3 +3857,38 @@ builds passed. A fresh Windows headless chat host and Android 14 emulator
 exchanged ordinary SharedNode messages; Android FCM registration, service
 Notify, system notification display, and exact message display in the app passed.
 See [integration validation](../validation/push-integration-2026-11-15.md).
+
+
+## 2026-11-16 — WindowCatalog layout constraints and Windows system settings
+
+Implemented the shared local structured layout engine (horizontal/vertical/adaptive
+containers, intrinsic measurement, min/preferred/max, grow, padding/gap/alignment)
+and portable supply-owned layout definitions with Event-driven USER overrides.
+Windows WindowCatalog applies native measured geometry locally; resizing/settings
+refresh does not rewrite model viewport or presenter rectangles. Compatible supply
+A→B, override retention/Clear, replay and cold USER were executed. Arbitrary anchor
+equations/numeric priorities and other-platform adapter migration remain planned.
+
+Verified v143/MSVC 14.44 Debug build of 23 selected targets and 23 distinct tests
+PASS cumulatively. Initial CTest was 21/22 PASS; the new chrome check exposed an
+internal scrollbar refresh incorrectly queueing a model frame. After its backend
+fix, the affected Windows package passed 7/7 (21.74 s), including real native
+acceptance (15.41 s) and chrome (3.97 s). The initial FAIL remains recorded.
+Generic layout GCC tests passed on Windows/Linux; generic layout-state native
+distillation/Event/replay/cold USER/supply update tests and headless prefab
+clone-ownership checks passed. Windows GUI checked the current dark scheme/font,
+automatic→vertical layout via context menu, Tab/Return activation, child Close,
+and load-only cold restoration of the closed window plus vertical layout. A real
+Return on the restored Add button created Window 2 after publication. The manual
+check exposed missing Return activation on owner-draw buttons; a scoped push-button
+message-pump fix and regression passed. Final clean host/native acceptance rerun
+passed 2/2 (16.12 s, native 15.65 s, keyboard host 0.42 s). Implementation source
+was frozen afterwards; the final direct PE audit passed again.
+
+Win7 is the minimum target: v143 direct PE imports and subsystem 6.01 were audited;
+MSVC 14.50 is rejected because its filesystem imports newer APIs. Actual Win7 OS,
+real screenreader, High Contrast switching, nondefault text slider, physical
+multi-monitor DPI and new cross-platform USER matrix are NOT RUN. Schema remains
+S0-only; use a fresh isolated profile and matching newly distilled supply.
+See the [plan](../system-settings-accessibility-plan.md) and
+[validation with exact scope/history](../validation/window-catalog-layout-settings-2026-11-16.md).

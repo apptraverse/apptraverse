@@ -142,6 +142,8 @@ add_library(apptraverse STATIC
   src/ui/ui_list_container.cpp
   src/ui/ui_presenters.cpp
   src/ui/ui_window_presenter.cpp
+  src/ui/ui_constraint_layout.cpp
+  src/ui/ui_layout_state.cpp
   src/ui/ui_registration.cpp
   src/ui/ui_list_row_presenter_registration.cpp
 )
@@ -206,6 +208,7 @@ if(WIN32)
   add_library(apptraverse_network_windows STATIC src/platform/windows/win_network_observer.cpp)
   target_link_libraries(apptraverse_network_windows PUBLIC apptraverse_win32_support ole32 uuid)
   add_library(apptraverse_ui_windows STATIC
+    src/platform/windows/win_ui_environment.cpp
     src/platform/windows/win_ui_utf8.cpp
     src/platform/windows/win_ui_frame.cpp
     src/platform/windows/win_ui_native_push_button.cpp

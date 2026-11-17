@@ -2,6 +2,7 @@
 #define APPTRAVERSE_WINDOW_CATALOG_GRAPH_BUILDER_H_
 
 #include <functional>
+#include <optional>
 
 #include "aether-objects/obj/domain.h"
 #include "aether-objects/obj/obj_id.h"
@@ -27,7 +28,13 @@ struct WindowCatalogPresenterFactory {
 
 struct WindowCatalogGraphOptions {
   bool mobile_close_in_prefab = true;
+  // Supply authoring input, shared by native/headless distillation. A new
+  // compatible supply can replace this tree at the same definition identity.
+  std::optional<ui::UiLayoutNode> main_layout;
 };
+
+ui::UiLayoutNode DefaultWindowCatalogMainLayout();
+ui::UiLayoutNode DefaultWindowCatalogChildLayout();
 
 WindowCatalog::ptr BuildWindowCatalogGraph(
     ae::Domain& domain, WindowCatalogPresenterFactory const& factory,

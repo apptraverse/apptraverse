@@ -120,12 +120,12 @@ void TestIndependentSessionsApplyDistinctFrames() {
   CHECK(catalog_a->persisted.main_window->client_width() == 647);
   CHECK(catalog_a->persisted.main_client_viewport.height == 480);
   CHECK(catalog_b->persisted.main_window->client_width() == 327);
-  CHECK(catalog_b->persisted.main_client_viewport.height == 900);
+  CHECK(catalog_b->persisted.main_client_viewport.height == 480);
   queue_a.ClosePosting();
   queue_b.ClosePosting();
 }
 
-void TestCoalescedDrainAppliesFrameAndViewportTogether() {
+void TestCoalescedDrainAppliesFrameWithoutPersistingLocalLayout() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto catalog = BuildWindowCatalogGraph(domain);
@@ -144,8 +144,8 @@ void TestCoalescedDrainAppliesFrameAndViewportTogether() {
   CHECK(posted.size() == 1);
   posted.front()(domain);
   CHECK(catalog->persisted.main_window->client_width() == 520);
-  CHECK(catalog->persisted.main_client_viewport.width == 520);
-  CHECK(catalog->persisted.main_client_viewport.height == 880);
+  CHECK(catalog->persisted.main_client_viewport.width == 640);
+  CHECK(catalog->persisted.main_client_viewport.height == 480);
   queue.ClosePosting();
 }
 
@@ -198,8 +198,8 @@ void TestRestoreFrameSurvivesLaterLiveReports() {
     CHECK(window->restore_client_height() == scenario.expected_restore.height);
     CHECK(window->client_width() == scenario.expected_live.width);
     CHECK(window->client_height() == scenario.expected_live.height);
-    CHECK(catalog->persisted.main_client_viewport.width == scenario.expected_live.width);
-    CHECK(catalog->persisted.main_client_viewport.height == scenario.expected_live.height);
+    CHECK(catalog->persisted.main_client_viewport.width == 640);
+    CHECK(catalog->persisted.main_client_viewport.height == 480);
     queue.ClosePosting();
   }
 }
@@ -252,8 +252,8 @@ void TestReportsDuringDrainStayInAcceptedTask() {
   CHECK(window->restore_client_height() == 610);
   CHECK(window->client_width() == 1280);
   CHECK(window->client_height() == 900);
-  CHECK(catalog->persisted.main_client_viewport.width == 1280);
-  CHECK(catalog->persisted.main_client_viewport.height == 900);
+  CHECK(catalog->persisted.main_client_viewport.width == 640);
+  CHECK(catalog->persisted.main_client_viewport.height == 480);
 
   // A subsequent live-only drain must not replay the consumed restore report.
   window->SubmitFrameFromNative(-70, -80, 600, 400, true);
@@ -380,8 +380,8 @@ void TestShutdownResizePersistAndColdLoad() {
   CHECK(catalog->persisted.main_window->restore_client_height() == 610);
   CHECK(catalog->persisted.main_window->client_width() == 1280);
   CHECK(catalog->persisted.main_window->client_height() == 900);
-  CHECK(catalog->persisted.main_client_viewport.width == 1280);
-  CHECK(catalog->persisted.main_client_viewport.height == 900);
+  CHECK(catalog->persisted.main_client_viewport.width == 640);
+  CHECK(catalog->persisted.main_client_viewport.height == 480);
 }
 
 }  // namespace
@@ -391,7 +391,7 @@ int main() {
   apptraverse::EnsureWindowCatalogGraphRegistration();
   apptraverse::test::TestIndependentSessionsApplyDistinctFrames();
   apptraverse::test::TestCoalescedQueuePostsSingleModelWork();
-  apptraverse::test::TestCoalescedDrainAppliesFrameAndViewportTogether();
+  apptraverse::test::TestCoalescedDrainAppliesFrameWithoutPersistingLocalLayout();
   apptraverse::test::TestRestoreFrameSurvivesLaterLiveReports();
   apptraverse::test::TestReportsDuringDrainStayInAcceptedTask();
   apptraverse::test::TestShutdownResizePersistAndColdLoad();

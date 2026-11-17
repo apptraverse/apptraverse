@@ -1,6 +1,9 @@
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
+#include "apptraverse/platform/windows/win_ui_environment.h"
 
 #include "apptraverse/platform/windows/win_presentation_host.h"
 #include "apptraverse/platform/windows/win_ui_frame.h"
@@ -12,6 +15,7 @@
 namespace apptraverse::ui::windows {
 namespace {
 
+constexpr UINT kValidateLayoutChildren = WM_APP + 0x311;
 constexpr wchar_t kDesktopWindowClass[] = L"AppTraverseUiDesktopWindow";
 constexpr std::uint16_t kBnClicked = 0;
 constexpr std::uint16_t kLbnSelchange = 1;
@@ -69,6 +73,66 @@ LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
   if (presenter == nullptr) {
     return DefWindowProcW(hwnd, msg, wparam, lparam);
   }
+  if (msg == kValidateLayoutChildren) {
+    if (!presenter->NativeMeasurementsReady()) FatalWin32("Missing required native layout control", ERROR_INVALID_DATA);
+    presenter->RefreshLayout();
+    return 0;
+  }
+  if (msg == WM_CONTEXTMENU && presenter->ShowPresentationContextMenu(
+      static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam)))) return 0;
+  if (msg == WM_SIZE) {
+    presenter->RefreshLayout();
+  }
+  if (msg == kWinPresentationSettingsChanged) {
+    // A queued notification may outlive a closed HWND. Its environment token
+    // prevents a recycled window handle from consuming that stale callback.
+    if (presenter->environment_ && presenter->environment_->AcceptsNotification(wparam))
+      presenter->RefreshPresentationSettings();
+    return 0;
+  }
+  if (msg == WM_SETTINGCHANGE || msg == WM_THEMECHANGED || msg == WM_SYSCOLORCHANGE) {
+    presenter->RefreshPresentationSettings();
+    return 0;
+  }
+  if (msg == 0x02E0) {  // WM_DPICHANGED, optional on Windows newer than Win7.
+    presenter->RefreshPresentationSettings();
+    auto const* rect = reinterpret_cast<RECT const*>(lparam);
+    if (rect != nullptr) SetWindowPos(hwnd, nullptr, rect->left, rect->top,
+        rect->right - rect->left, rect->bottom - rect->top, SWP_NOZORDER | SWP_NOACTIVATE);
+    return 0;
+  }
+  if (msg == WM_VSCROLL || msg == WM_HSCROLL) {
+    presenter->ScrollContent(msg == WM_VSCROLL ? SB_VERT : SB_HORZ, wparam);
+    return 0;
+  }
+  if (msg == WM_MOUSEWHEEL && presenter->LayoutRoot() != nullptr) {
+    presenter->wheel_delta_ += GET_WHEEL_DELTA_WPARAM(wparam);
+    int const steps = presenter->wheel_delta_ / WHEEL_DELTA;
+    presenter->wheel_delta_ %= WHEEL_DELTA;
+    UINT lines = 3;
+    SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0);
+    UINT const amount = lines == WHEEL_PAGESCROLL ? 1 : lines;
+    UINT const command = lines == WHEEL_PAGESCROLL
+        ? (steps > 0 ? SB_PAGEUP : SB_PAGEDOWN)
+        : (steps > 0 ? SB_LINEUP : SB_LINEDOWN);
+    for (int step = 0; step < std::abs(steps); ++step)
+      for (UINT line = 0; line < amount; ++line)
+        presenter->ScrollContent(SB_VERT, MAKEWPARAM(command, 0));
+    return 0;
+  }
+  if (msg == WM_ERASEBKGND && presenter->environment_) {
+    RECT rect{}; GetClientRect(hwnd, &rect);
+    FillRect(reinterpret_cast<HDC>(wparam), &rect, presenter->environment_->background_brush());
+    return 1;
+  }
+  if ((msg == WM_CTLCOLORLISTBOX || msg == WM_CTLCOLORSTATIC) && presenter->environment_) {
+    HDC const dc = reinterpret_cast<HDC>(wparam);
+    SetTextColor(dc, presenter->environment_->foreground());
+    SetBkColor(dc, presenter->environment_->background());
+    return reinterpret_cast<LRESULT>(presenter->environment_->background_brush());
+  }
+  if (msg == WM_DRAWITEM && presenter->PaintOwnerButton(*reinterpret_cast<DRAWITEMSTRUCT*>(lparam))) return TRUE;
+  if (msg == WM_COMMAND && (HIWORD(wparam) == BN_SETFOCUS || HIWORD(wparam) == LBN_SETFOCUS)) presenter->EnsureFocusedControlVisible();
   if (msg == WM_ACTIVATE && LOWORD(wparam) != WA_INACTIVE) {
     presenter->NotifyActivatedFromUi();
   }
@@ -89,11 +153,20 @@ LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
     }
     presenter->interactive_move_active_ = false;
   }
-  if (msg == WM_WINDOWPOSCHANGED && !presenter->applying_native_frame_) {
-    if (presenter->interactive_move_active_) {
-      presenter->TrackInteractiveNativeFrame();
-    } else {
-      presenter->HandleNativeFrameChanged(false);
+  if (msg == WM_WINDOWPOSCHANGED && !presenter->applying_native_frame_ &&
+      !presenter->applying_layout_ && !presenter->applying_settings_) {
+    auto const* position = reinterpret_cast<WINDOWPOS const*>(lparam);
+    // Windows emits FRAMECHANGED with both NOMOVE and NOSIZE when themes or
+    // native scrollbars update. Recalculate its client layout via WM_SIZE, but
+    // do not turn a nonclient appearance change into a model window-frame Event.
+    bool const geometry_changed = position == nullptr ||
+        (position->flags & (SWP_NOMOVE | SWP_NOSIZE)) != (SWP_NOMOVE | SWP_NOSIZE);
+    if (geometry_changed) {
+      if (presenter->interactive_move_active_) {
+        presenter->TrackInteractiveNativeFrame();
+      } else {
+        presenter->HandleNativeFrameChanged(false);
+      }
     }
   }
   if (msg == WM_CLOSE) {
@@ -114,6 +187,7 @@ std::wstring WinDesktopWindowPresenter::ResolveTitleText() const {
 }
 
 void WinDesktopWindowPresenter::OnLoad() {
+  EnsureWinProcessDpiAwareness();
   auto const desktop = desktop_window();
   HINSTANCE const instance = GetModuleHandleW(nullptr);
   WNDCLASSW wc{};
@@ -141,6 +215,7 @@ void WinDesktopWindowPresenter::OnLoad() {
     FatalWin32("CreateWindowExW Ui desktop window", GetLastError());
   }
   SetUserData(hwnd_, this);
+  RefreshPresentationSettings();
   ShowWindow(hwnd_, SW_SHOW);
   UpdateWindow(hwnd_);
   ClientFrame const initial = ReadNativeClientFrame();
@@ -208,7 +283,7 @@ void WinDesktopWindowPresenter::ApplyRequestedFrameFromMirror() {
 
 void WinDesktopWindowPresenter::HandleNativeFrameChanged(
     bool updates_restore_geometry) {
-  if (applying_native_frame_) {
+  if (applying_native_frame_ || applying_layout_ || applying_settings_) {
     return;
   }
   auto const desktop = desktop_window();
@@ -252,6 +327,7 @@ bool WinDesktopWindowPresenter::RouteChildCommand(std::uint32_t command_id,
 }
 
 void WinDesktopWindowPresenter::OnModelChanged() {
+  RefreshLayout();
   if (!SetWindowTextW(hwnd_, ResolveTitleText().c_str())) {
     FatalWin32("SetWindowTextW Ui desktop window", GetLastError());
   }
@@ -268,6 +344,251 @@ void WinDesktopWindowPresenter::OnUnload() {
     FatalWin32("DestroyWindow Ui desktop window", GetLastError());
   }
   hwnd_ = nullptr;
+  native_children_.clear();
+  environment_.reset();
+}
+
+WinDesktopWindowPresenter* WinDesktopWindowPresenter::FromNativeWindow(HWND window) {
+  wchar_t class_name[64]{};
+  if (!GetClassNameW(window, class_name, 64) || wcscmp(class_name, kDesktopWindowClass) != 0) return nullptr;
+  return DesktopFromHwnd(window);
+}
+
+double WinDesktopWindowPresenter::LayoutScale() const {
+  return environment_ ? environment_->scale() : 1.0;
+}
+double WinDesktopWindowPresenter::TextScale() const {
+  return environment_ ? environment_->text_scale() : 1.0;
+}
+bool WinDesktopWindowPresenter::HighContrast() const {
+  return environment_ && environment_->high_contrast();
+}
+bool WinDesktopWindowPresenter::DarkTheme() const {
+  return environment_ && environment_->dark();
+}
+
+void WinDesktopWindowPresenter::ApplyChildAppearance(HWND child) {
+  if (!environment_) return;
+  SendMessageW(child, WM_SETFONT, reinterpret_cast<WPARAM>(environment_->font()), TRUE);
+  wchar_t class_name[32]{};
+  GetClassNameW(child, class_name, 32);
+  if (wcscmp(class_name, L"Button") == 0) {
+    LONG_PTR style = GetWindowLongPtrW(child, GWL_STYLE);
+    style = (style & ~BS_TYPEMASK) | (environment_->dark() ? BS_OWNERDRAW : BS_PUSHBUTTON);
+    SetWindowLongPtrW(child, GWL_STYLE, style | BS_MULTILINE | BS_NOTIFY | WS_TABSTOP);
+    SetWindowPos(child, nullptr, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+  }
+  InvalidateRect(child, nullptr, TRUE);
+}
+
+void WinDesktopWindowPresenter::RefreshPresentationSettings() {
+  if (hwnd_ == nullptr || applying_settings_) return;
+  // Font rebinding, native appearance and scrollbar updates may synchronously
+  // emit nonclient/frame messages. They are local presentation effects, not a
+  // user request to persist a new window frame or publish a model viewport.
+  applying_settings_ = true;
+  if (!environment_) environment_ = std::make_shared<WinUiEnvironment>(hwnd_);
+  else environment_->Refresh();
+  for (auto const& child : native_children_) ApplyChildAppearance(child.hwnd);
+  applying_settings_ = false;
+  RefreshLayout();
+  InvalidateRect(hwnd_, nullptr, TRUE);
+}
+void WinDesktopWindowPresenter::RegisterChildControl(HWND child, std::uint32_t control_id) {
+  native_children_.push_back({child, control_id});
+  ApplyChildAppearance(child);
+  RefreshLayout();
+}
+void WinDesktopWindowPresenter::UnregisterChildControl(HWND child) {
+  std::erase_if(native_children_, [child](auto const& item) { return item.hwnd == child; });
+}
+
+bool WinDesktopWindowPresenter::NativeMeasurementsReady() const {
+  UiLayoutNode const* root = LayoutRoot();
+  if (root == nullptr) return true;
+  auto ready = [&](auto&& self, UiLayoutNode const& node) -> bool {
+    if (node.flow == UiLayoutFlow::kLeaf) {
+      return std::any_of(native_children_.begin(), native_children_.end(), [&](auto const& child) {
+        return child.control_id == node.control_id;
+      });
+    }
+    return std::all_of(node.children.begin(), node.children.end(), [&](auto const& child) {
+      return self(self, child);
+    });
+  };
+  return ready(ready, *root);
+}
+
+UiConstraintLayoutResult WinDesktopWindowPresenter::ComputeLocalLayout() const {
+  UiLayoutNode const* const root = LayoutRoot();
+  if (root == nullptr || hwnd_ == nullptr) return {};
+  double const scale = LayoutScale();
+  RECT client{};
+  if (!GetClientRect(hwnd_, &client)) FatalWin32("GetClientRect local layout", GetLastError());
+  HDC const dc = GetDC(hwnd_);
+  if (!dc) FatalWin32("GetDC control measurements", GetLastError());
+  HGDIOBJ const previous = SelectObject(dc, environment_->font());
+  std::vector<UiLayoutMeasurement> measurements;
+  for (auto const& child : native_children_) {
+    wchar_t class_name[32]{}; GetClassNameW(child.hwnd, class_name, 32);
+    bool const button = wcscmp(class_name, L"Button") == 0;
+    if (!button) {
+      TEXTMETRICW metrics{}; GetTextMetricsW(dc, &metrics);
+      measurements.push_back({child.control_id, 0, (metrics.tmHeight + metrics.tmExternalLeading) / scale + 8, 0, 0});
+      continue;
+    }
+    int const length = GetWindowTextLengthW(child.hwnd);
+    std::wstring text(static_cast<std::size_t>(length) + 1, L'\0');
+    GetWindowTextW(child.hwnd, text.data(), length + 1); text.resize(length);
+    RECT full{};
+    DrawTextW(dc, text.c_str(), length, &full, DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX);
+    double longest_word = 0;
+    std::size_t begin = 0;
+    while (begin < text.size()) {
+      auto end = text.find_first_of(L" \t\r\n", begin);
+      if (end == std::wstring::npos) end = text.size();
+      SIZE word{};
+      GetTextExtentPoint32W(dc, text.data() + begin, static_cast<int>(end - begin), &word);
+      longest_word = std::max(longest_word, static_cast<double>(word.cx));
+      begin = end + 1;
+    }
+    measurements.push_back({child.control_id,
+        longest_word / scale + 24, (full.bottom - full.top) / scale + 12,
+        (full.right - full.left) / scale + 24, (full.bottom - full.top) / scale + 12});
+  }
+  auto result = ComputeUiConstraintLayout(*root, client.right / scale, client.bottom / scale, measurements);
+  // Width-dependent text wrapping is measured with the actual native font.
+  // Monotonic height refinement avoids oscillation between alternative layouts.
+  for (int pass = 0; pass < 3; ++pass) {
+    bool changed = false;
+    for (auto& measured : measurements) {
+      auto rect = std::find_if(result.controls.begin(), result.controls.end(), [&](auto const& item) {
+        return item.control_id == measured.control_id;
+      });
+      auto child = std::find_if(native_children_.begin(), native_children_.end(), [&](auto const& item) {
+        return item.control_id == measured.control_id;
+      });
+      if (rect == result.controls.end() || child == native_children_.end()) continue;
+      wchar_t class_name[32]{}; GetClassNameW(child->hwnd, class_name, 32);
+      if (wcscmp(class_name, L"Button") != 0) continue;
+      int const length = GetWindowTextLengthW(child->hwnd);
+      std::wstring text(static_cast<std::size_t>(length) + 1, L'\0');
+      GetWindowTextW(child->hwnd, text.data(), length + 1);
+      RECT text_rect{0, 0, std::max(1, static_cast<int>(std::floor((rect->width - 24) * scale))), 0};
+      DrawTextW(dc, text.c_str(), length, &text_rect, DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
+      double const height = (text_rect.bottom - text_rect.top) / scale + 12;
+      if (height > measured.min_height + 0.01) {
+        measured.min_height = height;
+        measured.preferred_height = std::max(measured.preferred_height, height);
+        changed = true;
+      }
+    }
+    if (!changed) break;
+    result = ComputeUiConstraintLayout(*root, client.right / scale, client.bottom / scale, measurements);
+  }
+  SelectObject(dc, previous); ReleaseDC(hwnd_, dc);
+  if (!result.valid) FatalWin32(result.error.c_str(), ERROR_INVALID_DATA);
+  return result;
+}
+
+UiControlLayout WinDesktopWindowPresenter::ResolveChildLayout(UiControlLayout requested) const {
+  if (LayoutRoot() == nullptr || environment_ == nullptr || !NativeMeasurementsReady()) return requested;
+  auto const result = ComputeLocalLayout();
+  auto const found = std::find_if(result.controls.begin(), result.controls.end(), [&](auto const& rect) {
+    return rect.control_id == requested.control_id;
+  });
+  if (found == result.controls.end()) FatalWin32("Missing required child in layout", ERROR_INVALID_DATA);
+  double const scale = LayoutScale();
+  int const left = static_cast<int>(std::lround(found->x * scale));
+  int const top = static_cast<int>(std::lround(found->y * scale));
+  int const right = static_cast<int>(std::lround((found->x + found->width) * scale));
+  int const bottom = static_cast<int>(std::lround((found->y + found->height) * scale));
+  return {left - scroll_x_, top - scroll_y_, std::max(1, right - left),
+          std::max(1, bottom - top), requested.control_id};
+}
+
+void WinDesktopWindowPresenter::RefreshLayout() {
+  if (applying_layout_ || !environment_ || LayoutRoot() == nullptr) return;
+  if (!NativeMeasurementsReady()) {
+    // InitializePresenters creates siblings synchronously. Validate at the next
+    // UI dispatch boundary, after the complete publication has been presented.
+    if (!PostMessageW(hwnd_, kValidateLayoutChildren, 0, 0)) FatalWin32("PostMessageW layout readiness", GetLastError());
+    return;
+  }
+  applying_layout_ = true;
+  for (int pass = 0; pass < 2; ++pass) {
+    auto const result = ComputeLocalLayout();
+    RECT client{}; GetClientRect(hwnd_, &client);
+    SCROLLINFO horizontal{sizeof(SCROLLINFO), SIF_RANGE | SIF_PAGE | SIF_POS};
+    horizontal.nMax = std::max(0, static_cast<int>(std::ceil(result.content_width * LayoutScale())) - 1);
+    horizontal.nPage = static_cast<UINT>(client.right); horizontal.nPos = scroll_x_;
+    SetScrollInfo(hwnd_, SB_HORZ, &horizontal, TRUE);
+    SCROLLINFO vertical{sizeof(SCROLLINFO), SIF_RANGE | SIF_PAGE | SIF_POS};
+    vertical.nMax = std::max(0, static_cast<int>(std::ceil(result.content_height * LayoutScale())) - 1);
+    vertical.nPage = static_cast<UINT>(client.bottom); vertical.nPos = scroll_y_;
+    SetScrollInfo(hwnd_, SB_VERT, &vertical, TRUE);
+    scroll_x_ = GetScrollPos(hwnd_, SB_HORZ); scroll_y_ = GetScrollPos(hwnd_, SB_VERT);
+  }
+  for (auto const& child : native_children_) {
+    auto const layout = ResolveChildLayout({0, 0, 1, 1, child.control_id});
+    if (!SetWindowPos(child.hwnd, nullptr, layout.x, layout.y, layout.width, layout.height,
+                      SWP_NOZORDER | SWP_NOACTIVATE)) FatalWin32("SetWindowPos constraint layout", GetLastError());
+  }
+  applying_layout_ = false;
+}
+void WinDesktopWindowPresenter::ScrollContent(int bar, WPARAM command) {
+  SCROLLINFO info{sizeof(info), SIF_ALL}; GetScrollInfo(hwnd_, bar, &info);
+  int position = info.nPos;
+  switch (LOWORD(command)) {
+    case SB_LINEUP: position -= static_cast<int>(24 * LayoutScale()); break;
+    case SB_LINEDOWN: position += static_cast<int>(24 * LayoutScale()); break;
+    case SB_PAGEUP: position -= static_cast<int>(info.nPage); break;
+    case SB_PAGEDOWN: position += static_cast<int>(info.nPage); break;
+    case SB_THUMBTRACK: case SB_THUMBPOSITION: position = info.nTrackPos; break;
+    case SB_TOP: position = info.nMin; break;
+    case SB_BOTTOM: position = info.nMax; break;
+    default: return;
+  }
+  SetScrollPos(hwnd_, bar, position, TRUE);
+  if (bar == SB_VERT) scroll_y_ = GetScrollPos(hwnd_, bar); else scroll_x_ = GetScrollPos(hwnd_, bar);
+  RefreshLayout();
+}
+void WinDesktopWindowPresenter::EnsureFocusedControlVisible() {
+  HWND const focused = GetFocus();
+  if (!focused || GetParent(focused) != hwnd_ || LayoutRoot() == nullptr) return;
+  int x, y, width, height; ReadChildClientFrame(focused, x, y, width, height);
+  RECT client{}; GetClientRect(hwnd_, &client);
+  if (y < 0) scroll_y_ += y;
+  else if (y + height > client.bottom) scroll_y_ += y + height - client.bottom;
+  if (x < 0) scroll_x_ += x;
+  else if (x + width > client.right) scroll_x_ += x + width - client.right;
+  RefreshLayout();
+}
+bool WinDesktopWindowPresenter::PaintOwnerButton(DRAWITEMSTRUCT const& item) {
+  if (!environment_ || !environment_->dark() || item.CtlType != ODT_BUTTON) return false;
+  bool const disabled = (item.itemState & ODS_DISABLED) != 0;
+  COLORREF background = environment_->control_background();
+  if (item.itemState & ODS_SELECTED) background = RGB(65, 65, 65);
+  HBRUSH brush = CreateSolidBrush(background);
+  FillRect(item.hDC, &item.rcItem, brush); DeleteObject(brush);
+  brush = CreateSolidBrush(environment_->border()); FrameRect(item.hDC, &item.rcItem, brush); DeleteObject(brush);
+  SetBkMode(item.hDC, TRANSPARENT);
+  SetTextColor(item.hDC, disabled ? environment_->disabled_foreground() : environment_->foreground());
+  HGDIOBJ const previous = SelectObject(item.hDC, environment_->font());
+  int const length = GetWindowTextLengthW(item.hwndItem);
+  std::wstring text(static_cast<std::size_t>(length) + 1, L'\0');
+  GetWindowTextW(item.hwndItem, text.data(), length + 1);
+  RECT content = item.rcItem; InflateRect(&content, -static_cast<int>(12 * LayoutScale()), -static_cast<int>(6 * LayoutScale()));
+  RECT measured = content;
+  DrawTextW(item.hDC, text.c_str(), length, &measured, DT_CALCRECT | DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
+  content.top += std::max(0L, (content.bottom - content.top - measured.bottom + measured.top) / 2);
+  DrawTextW(item.hDC, text.c_str(), length, &content, DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
+  SelectObject(item.hDC, previous);
+  if ((item.itemState & ODS_FOCUS) && !(item.itemState & ODS_NOFOCUSRECT)) {
+    RECT focus = item.rcItem; InflateRect(&focus, -3, -3); DrawFocusRect(item.hDC, &focus);
+  }
+  return true;
 }
 
 WinDesktopWindowPresenter* WinListContainerPresenter::Desktop() const {
@@ -278,7 +599,7 @@ void WinListContainerPresenter::OnLoad() {
   auto* desktop = Desktop();
   hwnd_ = CreateWindowExW(
       WS_EX_CLIENTEDGE, L"LISTBOX", L"",
-      WS_CHILD | WS_VISIBLE | WS_VSCROLL | LBS_NOTIFY,
+      WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_TABSTOP | LBS_NOTIFY,
       layout_x, layout_y, layout_width, layout_height, desktop->hwnd(),
       reinterpret_cast<HMENU>(static_cast<INT_PTR>(control_id)),
       GetModuleHandleW(nullptr), nullptr);
@@ -287,6 +608,7 @@ void WinListContainerPresenter::OnLoad() {
   }
   EnableWindow(hwnd_, TRUE);
   SetUserData(hwnd_, this);
+  desktop->RegisterChildControl(hwnd_, control_id);
   SyncFromMirror();
 }
 
@@ -384,8 +706,10 @@ void RestoreListTop(HWND hwnd, LRESULT previous_top, std::size_t row_count) {
 
 void WinListContainerPresenter::SyncFromMirror() {
   auto const apply_layout = [this] {
-    ApplyListLayoutFromMirror(hwnd_, layout_x, layout_y, layout_width,
-                              layout_height);
+    ui::UiControlLayout const layout = window_presenter->ResolveChildLayout(
+        {layout_x, layout_y, layout_width, layout_height, control_id});
+    ApplyListLayoutFromMirror(hwnd_, layout.x, layout.y, layout.width, layout.height);
+    Desktop()->RefreshLayout();
   };
   int const language_index = window_presenter->locale->language_index();
   std::vector<std::string> const labels =
@@ -453,6 +777,7 @@ void WinListContainerPresenter::SyncFromMirror() {
 void WinListContainerPresenter::OnModelChanged() { SyncFromMirror(); }
 
 void WinListContainerPresenter::OnUnload() {
+  Desktop()->UnregisterChildControl(hwnd_);
   SetUserData(hwnd_, nullptr);
   if (DestroyWindow(hwnd_) == 0) {
     FatalWin32("DestroyWindow Ui list", GetLastError());

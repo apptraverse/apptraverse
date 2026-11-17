@@ -1,8 +1,11 @@
 # Системные настройки, доступность и единая раскладка AppTraverse
 
 Дата согласования: 16 ноября 2026 года. Пример проверки: `examples/window_catalog`.
-Минимальная Windows: **Windows 7**. Статус: Windows-реализация в работе;
-результаты исполнения записываются отдельно после проверки.
+Минимальная Windows: **Windows 7**. Статус: первый Windows-срез реализован и
+проверен в объёме validation ниже; полная accessibility-матрица и перенос
+остальных backend остаются этапами плана.
+
+Текущие свидетельства и ограничения: [Windows layout/settings validation](validation/window-catalog-layout-settings-2026-11-16.md).
 
 Этот план закрепляет требование пользователя: один layout engine AppTraverse
 на всех платформах; constraints входят в дистиллированную поставку, изменяются
@@ -226,11 +229,11 @@ macOS/iOS → итоговая матрица. Нативные контейне
 | Область | Статус на момент составления плана |
 | --- | --- |
 | План и архитектурный контракт | Сохранены этим документом |
-| Общий layout engine и его unit-тесты | IN PROGRESS |
+| Общий structured layout engine и его unit-тесты | PASS на GCC Windows/Linux; не означает перенос native backend этих платформ |
 | Generic UiLayoutState: native distillation, Event/replay, cold user.bin, смена совместимой поставки A→B, ClearOverride, proxy/publication, atomic validation | PASS: `apptraverse_ui_layout_state_test`, пять сценариев, 16 ноября 2026 |
-| Прикладные WindowCatalog правила / runtime Event / USER | IN PROGRESS |
-| Windows WindowCatalog: нативное измерение и общий layout | IN PROGRESS |
-| Windows: системные настройки и keyboard/accessibility | IN PROGRESS |
+| Прикладные WindowCatalog правила / runtime Event / USER | PASS: model/headless/USER/supply/replay и native runtime override в выбранном объёме |
+| Windows WindowCatalog: нативное измерение и общий layout | v143 build 23 targets PASS; 23 различных теста PASS совокупно, scrollbar-пакет 7/7 и финальный keyboard/native-пакет 2/2; первоначальные FAIL и исправления описаны в validation |
+| Windows: системные настройки и keyboard/accessibility | Проверены текущая тёмная схема/шрифт, Tab и Return, создание/закрытие окон и cold restore vertical layout; полный SR/HC/text-scale сценарий NOT RUN |
 | Win7 реальный запуск | NOT RUN; требуется Win7-окружение |
 | Windows реальный скринридер | NOT RUN |
 | Новые Linux/Android/Web/macOS/iOS адаптеры | PLANNED |

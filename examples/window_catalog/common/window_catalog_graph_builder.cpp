@@ -1,5 +1,7 @@
 #include "window_catalog_graph_builder.h"
 
+#include <cstdlib>
+
 #include "window_catalog_actions.h"
 #include "window_catalog_chrome_layout.h"
 #include "window_catalog_ids.h"
@@ -8,6 +10,8 @@
 #include "window_catalog_prefab_sizes.h"
 
 #include "apptraverse/runtime_node.h"
+#include "apptraverse/distill.h"
+#include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/ui/ui_desktop_window.h"
 #include "apptraverse/ui/ui_presented_window_composition.h"
 #include "apptraverse/ui/ui_presented_window.h"
@@ -22,6 +26,16 @@ constexpr std::uint32_t kAddControlId = 5002;
 constexpr std::uint32_t kOpenControlId = 5003;
 constexpr std::uint32_t kDeleteControlId = 5004;
 constexpr std::uint32_t kLanguageControlId = 5005;
+
+void ValidateDistilledLayout(ui::UiLayoutNode const& root) {
+  std::string error;
+  if (!ui::ValidateUiConstraintLayout(root, &error)) {
+    WriteFatalStderr("fatal: invalid distilled layout: ");
+    WriteFatalStderr(error.c_str());
+    WriteFatalStderr("\n");
+    std::abort();
+  }
+}
 
 ui::UiPushButtonPresenter::ptr MakeButtonPresenter(
     ae::Domain& domain, WindowCatalog& catalog, ui::UiPushButton::ptr button,
@@ -43,6 +57,46 @@ ui::UiPushButtonPresenter::ptr MakeButtonPresenter(
 }
 
 }  // namespace
+
+ui::UiLayoutNode DefaultWindowCatalogMainLayout() {
+  ui::UiLayoutNode root;
+  root.flow = ui::UiLayoutFlow::kAdaptive;
+  root.padding = 12;
+  root.gap = 12;
+  ui::UiLayoutNode list;
+  list.control_id = kListControlId;
+  list.min_width = 120;
+  list.min_height = 80;
+  list.preferred_width = 300;
+  list.preferred_height = 240;
+  list.grow = 1;
+  ui::UiLayoutNode actions;
+  actions.flow = ui::UiLayoutFlow::kVertical;
+  actions.gap = 8;
+  actions.min_width = 120;
+  for (auto id : {kAddControlId, kOpenControlId, kDeleteControlId,
+                  kLanguageControlId}) {
+    ui::UiLayoutNode button;
+    button.control_id = id;
+    button.min_width = 100;
+    button.min_height = 32;
+    actions.children.push_back(button);
+  }
+  root.children = {list, actions};
+  return root;
+}
+
+ui::UiLayoutNode DefaultWindowCatalogChildLayout() {
+  ui::UiLayoutNode root;
+  root.flow = ui::UiLayoutFlow::kVertical;
+  root.padding = 12;
+  ui::UiLayoutNode close;
+  close.control_id = 5006;
+  close.min_width = 100;
+  close.min_height = 32;
+  root.children.push_back(close);
+  return root;
+}
 
 WindowCatalog::ptr BuildWindowCatalogGraph(
     ae::Domain& domain, WindowCatalogPresenterFactory const& factory,
@@ -78,6 +132,24 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   auto main_title = CreateMainWindowTitle(*catalog, domain);
   auto main_window = CatalogWindow::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::MainWindow)));
+  auto main_definition = ui::UiLayoutDefinition::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(ObjId::MainLayoutDefinition)));
+  main_definition->root = options.main_layout.value_or(
+      DefaultWindowCatalogMainLayout());
+  auto child_definition = ui::UiLayoutDefinition::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(ObjId::ChildLayoutDefinition)));
+  child_definition->root = DefaultWindowCatalogChildLayout();
+  catalog->persisted.child_layout_definition = child_definition;
+  ValidateDistilledLayout(main_definition->root);
+  ValidateDistilledLayout(child_definition->root);
+  // The prefab's child Domain retains this parent-owned supply reference during
+  // historical capture. Make its complete backing layer available before the
+  // child graph loads that retained identity; ownership stays in the parent.
+  SaveDistilledRoot(*child_definition);
+  main_window->layout = ui::UiLayoutState::ptr::Create(
+      ae::CreateWith{domain}.with_id(ToObjId(ObjId::MainLayoutState)));
+  main_window->layout->definition = main_definition;
+  InitializeRuntimeNode(*main_window->layout, *catalog);
   main_window->BootstrapFrame(0, 0, kMainClientWidth, kMainClientHeight);
   ui::UiDesktopWindowPresenter::ptr main_presenter = factory.create_window(
       domain, ae::ObjId{ToObjId(ObjId::MainWindowPresenter)}, catalog);
@@ -86,8 +158,9 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   InitializeRuntimeNode(*main_window, *catalog);
   catalog->persisted.main_window = main_window;
 
-  // Initial chrome geometry for the default main client size; the model
-  // re-applies it from the real viewport (SetWindowCatalogMainClientViewport).
+  // Bootstrap geometry for adapters not yet migrated to local constraints.
+  // Windows uses the distilled layout tree and native measurements instead;
+  // native Windows resizing never rewrites these model fields.
   WindowCatalogMainChromeLayout const chrome =
       ComputeWindowCatalogMainChromeLayout(kMainClientWidth, kMainClientHeight,
                                           160);
@@ -160,6 +233,10 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   prefab_domain.SetObjectScope(window_prefab_id);
   auto window_prefab = CatalogWindow::ptr::Create(
       ae::CreateWith{prefab_domain}.with_id(window_prefab_id));
+  window_prefab->layout = ui::UiLayoutState::ptr::Create(
+      ae::CreateWith{prefab_domain}.with_id(ToObjId(ObjId::WindowPrefabLayoutState)));
+  window_prefab->layout->definition = child_definition;
+  InitializeRuntimeNode(*window_prefab->layout, *catalog);
   ae::Ptr<CatalogWindow> window_prefab_body = window_prefab.Load();
   window_prefab_body->BootstrapFrame(0, 0, kPrefabClientWidth, kPrefabClientHeight);
   ui::UiDesktopWindowPresenter::ptr window_prefab_presenter =

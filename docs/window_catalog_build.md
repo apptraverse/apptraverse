@@ -1,5 +1,25 @@
 # Window-only development build
 
+## Windows 7 baseline and constraint layout
+
+Use the Visual Studio 2022 desktop v143 toolset (verified compiler 14.44).
+Initialize its developer shell before configuring the Ninja Debug preset, or
+use the VS2022 preset. VS2026/v145 STL introduces mandatory newer-Windows APIs;
+configuration rejects it instead of silently breaking the Win7 baseline.
+`WINVER`, `_WIN32_WINNT` and `_STL_WIN32_WINNT` are set to `0x0601` by the shared
+compile policy. The GUI executable declares a Windows 7 subsystem and supports
+optional per-monitor DPI awareness on newer Windows. An import-table audit does
+not replace running the executable and its compatible CRT on an actual Win7 OS.
+
+The [system-settings/accessibility plan](system-settings-accessibility-plan.md)
+defines the shared, local layout engine and the remaining platform stages.
+WindowCatalog's main-window context menu (right-click or the keyboard Menu key)
+provides automatic, horizontal and vertical layout, plus reset to the current
+supply definition. Changes use model Events and survive USER Save/Load; system
+font, colors, measured sizes and window-local layout caches are never saved as
+layout overrides. Use a new `--state-dir` for this S0 development schema and pair
+USER with its matching supply; older experimental profiles are preserved.
+
 The active CMake graph builds `win32_window_catalog_demo`, its load-only binary,
 and their UI/model tests. **P1.1** (see [versioning/PLAN.md](versioning/PLAN.md))
 will **remove** SharedNode/replication sources still linked into core, legacy chat

@@ -1572,6 +1572,11 @@ function(apptraverse_add_test name source)
   add_test(NAME ${name} COMMAND ${name})
 endfunction()
 
+apptraverse_add_test(apptraverse_ui_constraint_layout_test
+  ui_constraint_layout_test.cpp)
+apptraverse_add_test(apptraverse_ui_layout_state_test
+  ui_layout_state_test.cpp)
+
 apptraverse_add_test(apptraverse_application_contract_headless_test
   application_contract_headless_test.cpp)
 

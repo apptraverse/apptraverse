@@ -1,5 +1,19 @@
 # Agent rules (apptraverse — unified worktree)
 
+## System settings and shared layout — 2026-11-16
+
+The user authorized the [system-settings/accessibility plan](docs/system-settings-accessibility-plan.md)
+and its first implementation in Windows WindowCatalog. Layout uses one portable
+AppTraverse engine on every platform: declarative constraints are distilled,
+changed through model Events, and replaced by compatible supply revisions;
+native measurement and solving are local to presentation. Native controls stay
+native; independent OS layout solvers do not own AppTraverse geometry.
+Windows 7 is the minimum Windows target; use compatible desktop v143 rather
+than a newer STL that imports unsupported APIs. Actual Win7 execution is a
+separate acceptance boundary. Other platform adapters remain planned, not
+implemented by this Windows slice. Preserve S0/new-profile and USER contracts
+below. Current evidence: [layout/settings validation](docs/validation/window-catalog-layout-settings-2026-11-16.md).
+
 ## SharedNode task — 2026-11-11
 
 The user explicitly authorized new SharedNode implementation in a separate

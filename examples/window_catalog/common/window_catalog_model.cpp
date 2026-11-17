@@ -566,6 +566,8 @@ void WindowCatalog::AddWindow() {
   apptraverse::CloneOptions clone_options{};
   clone_options.stable_origin = kWindowPrefabId;
   clone_options.stable_prefab_ids = {kWindowPrefabId, kWindowPrefabPresenterId};
+  clone_options.stable_prefab_ids.insert(ae::ObjId{window_catalog_demo::ToObjId(
+      window_catalog_demo::ObjId::WindowPrefabLayoutState)});
   // Shared constants and ancestor-owned objects are discovered by the clone
   // mechanism from the prefab's persisted object-domain membership.
   auto const& prefab_window = static_cast<CatalogWindow const&>(*prefab_root);
@@ -577,7 +579,11 @@ void WindowCatalog::AddWindow() {
       apptraverse::CloneCanonicalRoot(prefab_domain, *prefab_root, domain,
                                       clone_options);
   if (!cloned) {
-    WriteFatalStderr("fatal: CloneCanonicalRoot catalog window failed\n");
+    char diagnostic[128];
+    std::snprintf(diagnostic, sizeof(diagnostic),
+                  "fatal: CloneCanonicalRoot catalog window failed (error=%d)\n",
+                  static_cast<int>(cloned.error));
+    WriteFatalStderr(diagnostic);
     std::abort();
   }
   ae::Ptr<CatalogWindow> window_body{ae::Ptr<ae::Obj>{cloned.root.Load()}};

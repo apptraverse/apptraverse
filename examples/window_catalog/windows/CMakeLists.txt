@@ -122,6 +122,12 @@ set(APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR
     "${_window_catalog_embed_dir}" CACHE INTERNAL "")
 
 foreach(_catalog_demo win32_window_catalog_demo win32_window_catalog_demo_load_only)
+  if(MSVC)
+    target_sources(${_catalog_demo} PRIVATE window_catalog.manifest)
+    target_compile_definitions(${_catalog_demo} PRIVATE
+      WINVER=0x0601 _WIN32_WINNT=0x0601)
+    target_link_options(${_catalog_demo} PRIVATE /SUBSYSTEM:WINDOWS,6.01)
+  endif()
   if(NOT (CMAKE_BUILD_TYPE STREQUAL "Debug" AND _catalog_demo STREQUAL "win32_window_catalog_demo"))
     target_sources(${_catalog_demo} PRIVATE "${_window_catalog_embed_header}")
     target_include_directories(${_catalog_demo} PRIVATE

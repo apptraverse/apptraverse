@@ -29,6 +29,7 @@
 #include "apptraverse/ui/ui_push_button.h"
 
 #include "apptraverse/ui/ui_push_button_presenter.h"
+#include "apptraverse/ui/ui_layout_state.h"
 
 namespace apptraverse {
 
@@ -61,13 +62,14 @@ class CatalogWindow : public NodeFor<CatalogWindow, ui::UiDesktopWindow> {
 
   explicit CatalogWindow(ae::ObjProp prop) : NodeFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(close_button), AE_MMBR(close_button_presenter))
+  AE_OBJECT_REFLECT(AE_MMBR(close_button), AE_MMBR(close_button_presenter),
+                    AE_MMBR(layout))
 
   template <typename Dnv>
 
   void Load(ae::Version<0>, Dnv& dnv) {
 
-    dnv(base_, close_button, close_button_presenter);
+    dnv(base_, close_button, close_button_presenter, layout);
 
   }
 
@@ -75,7 +77,7 @@ class CatalogWindow : public NodeFor<CatalogWindow, ui::UiDesktopWindow> {
 
   void Save(ae::Version<0>, Dnv& dnv) const {
 
-    dnv(base_, close_button, close_button_presenter);
+    dnv(base_, close_button, close_button_presenter, layout);
 
   }
 
@@ -83,6 +85,7 @@ class CatalogWindow : public NodeFor<CatalogWindow, ui::UiDesktopWindow> {
   ae::ObjPtr<example::surfaces::CatalogCloseButton> close_button;
 
   ui::UiPushButtonPresenter::ptr close_button_presenter;
+  ui::UiLayoutState::ptr layout;
 
   using UiDesktopWindow::Apply;
   void Apply(SetCatalogChildViewportEvent const& event);
@@ -249,6 +252,11 @@ struct WindowCatalogPersisted {
 
   CatalogWindow::ptr window_prefab;
 
+  // Shared child-window policy is owned by the catalog supply graph, even while
+  // every child/prefab window is lazy. Cloned child layout states refer to this
+  // same ancestor-owned definition instead of retaining a temporary Domain.
+  ui::UiLayoutDefinition::ptr child_layout_definition;
+
   // Complete open-window order: index zero is active on every platform.
   // Lazy identity links do not retain another owner of the live window graph.
   std::vector<CatalogWindow::ptr> window_order;
@@ -260,7 +268,8 @@ struct WindowCatalogPersisted {
 
   AE_REFLECT_MEMBERS(next_window_number, selected, list, main_window, locale,
 
-                     texts, buttons, presenters, window_prefab, window_order,
+                     texts, buttons, presenters, window_prefab,
+                     child_layout_definition, window_order,
 
                      main_client_viewport)
 
@@ -299,6 +308,11 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   }
 
   WindowCatalogPersisted persisted;
+
+  void CollectHistoricalCaptureLiveReferenceIds(
+      std::set<ae::ObjId>& ids) const override {
+    ids.insert(persisted.child_layout_definition.id());
+  }
 
   [[nodiscard]] CatalogWindow::ptr ResolveActiveWindow();
 

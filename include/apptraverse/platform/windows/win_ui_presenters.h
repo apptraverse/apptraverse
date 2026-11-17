@@ -9,6 +9,9 @@
 #endif
 
 #include <windows.h>
+#include <memory>
+#include <vector>
+#include "apptraverse/ui/ui_constraint_layout.h"
 
 
 #include "apptraverse/ui/ui_native_presenter_schema.h"
@@ -17,6 +20,8 @@
 #include "apptraverse/platform/windows/win_ui_push_button_presenter.h"
 
 namespace apptraverse::ui::windows {
+
+class WinUiEnvironment;
 
 class WinWindowPresenter : public UiWindowPresenter {
 
@@ -82,6 +87,22 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
   HWND hwnd() const { return hwnd_; }
 
+  // Runtime presentation only: constraints come from the UI mirror, while
+  // measurements, DPI, focus and actual rectangles stay local to this window.
+  virtual UiLayoutNode const* LayoutRoot() const { return nullptr; }
+  virtual bool ShowPresentationContextMenu(int, int) { return false; }
+  static WinDesktopWindowPresenter* FromNativeWindow(HWND window);
+  UiControlLayout ResolveChildLayout(UiControlLayout requested) const override;
+  void RegisterChildControl(HWND child, std::uint32_t control_id);
+  void UnregisterChildControl(HWND child);
+  void RefreshLayout();
+  void RefreshPresentationSettings();
+  double LayoutScale() const;
+  double TextScale() const;
+  bool HighContrast() const;
+  bool DarkTheme() const;
+
+
   bool RouteChildCommand(std::uint32_t command_id,
 
                          std::uint16_t notification_code, HWND child);
@@ -116,6 +137,24 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
   static bool FramesEqual(ClientFrame a, ClientFrame b);
 
+  struct NativeChild {
+    HWND hwnd;
+    std::uint32_t control_id;
+  };
+  bool NativeMeasurementsReady() const;
+  UiConstraintLayoutResult ComputeLocalLayout() const;
+  void ApplyChildAppearance(HWND child);
+  void ScrollContent(int bar, WPARAM command);
+  void EnsureFocusedControlVisible();
+  bool PaintOwnerButton(DRAWITEMSTRUCT const& item);
+
+  std::vector<NativeChild> native_children_;
+  std::shared_ptr<WinUiEnvironment> environment_;
+  bool applying_layout_{false};
+  bool applying_settings_{false};
+  int scroll_x_{0};
+  int scroll_y_{0};
+  int wheel_delta_{0};
   HWND hwnd_;
 
   bool applying_native_frame_;

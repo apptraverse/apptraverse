@@ -3,6 +3,8 @@ int main() { return 0; }
 #else
 
 #include <cstdlib>
+#include <array>
+#include <string>
 #include <deque>
 #include <iostream>
 #include <memory>
@@ -19,7 +21,8 @@ int main() { return 0; }
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "window_catalog_graph.h"
 #include "window_catalog_presenters.h"
-#include "window_catalog_chrome_layout.h"
+#include "apptraverse/ui/ui_layout_state.h"
+#include "apptraverse/ui/ui_push_button_presenter.h"
 #include "window_catalog_ids.h"
 #include "window_catalog_prepare.h"
 #include "window_catalog_main_native_frame_queue.h"
@@ -280,46 +283,59 @@ struct Harness {
   }
 };
 
-void ExpectWideChrome(HWND main, std::int32_t client_w, std::int32_t client_h) {
-  HWND const list = GetDlgItem(main, static_cast<int>(kListControlId));
-  HWND const add = GetDlgItem(main, static_cast<int>(kAddControlId));
-  HWND const open = GetDlgItem(main, static_cast<int>(kOpenControlId));
-  HWND const del = GetDlgItem(main, static_cast<int>(kDeleteControlId));
-  HWND const lang = GetDlgItem(main, static_cast<int>(kLanguageControlId));
-  CHECK(list != nullptr);
-  CHECK(add != nullptr);
-  CHECK(open != nullptr);
-  CHECK(del != nullptr);
-  CHECK(lang != nullptr);
-  ClientRect const list_r = ReadChildInParentClient(list);
-  ClientRect const add_r = ReadChildInParentClient(add);
-  CHECK(list_r.x < add_r.x);
-  CHECK(!RectsOverlap(list_r, add_r));
-  CHECK(list_r.x >= 0);
-  CHECK(list_r.y >= 0);
-  CHECK(add_r.x + add_r.width <= client_w);
-  ClientRect const lang_r = ReadChildInParentClient(lang);
-  CHECK(lang_r.y + lang_r.height <= client_h);
-  auto const layout = ComputeWindowCatalogMainChromeLayout(client_w, client_h, 160);
-  CHECK(layout.list.x < layout.add.x);
-  CHECK(list_r.x == layout.list.x);
-  CHECK(list_r.y == layout.list.y);
-  CHECK(add_r.x == layout.add.x);
+void ExpectReadableControl(HWND control, ClientRect const& rect) {
+  HFONT const font = reinterpret_cast<HFONT>(SendMessageW(control, WM_GETFONT, 0, 0));
+  CHECK(font != nullptr);
+  HDC const dc = GetDC(control);
+  CHECK(dc != nullptr);
+  HGDIOBJ const previous = SelectObject(dc, font);
+  TEXTMETRICW metrics{};
+  CHECK(GetTextMetricsW(dc, &metrics) != 0);
+  CHECK(rect.height >= metrics.tmHeight);
+  int const length = GetWindowTextLengthW(control);
+  std::wstring caption(static_cast<std::size_t>(length) + 1, L'\0');
+  GetWindowTextW(control, caption.data(), length + 1);
+  caption.resize(static_cast<std::size_t>(length));
+  RECT measured{0, 0, rect.width, 0};
+  DrawTextW(dc, caption.c_str(), length, &measured,
+            DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
+  CHECK(measured.bottom - measured.top <= rect.height);
+  SelectObject(dc, previous);
+  ReleaseDC(control, dc);
 }
 
-void ExpectTallChrome(HWND main, std::int32_t client_w, std::int32_t client_h) {
-  HWND const list = GetDlgItem(main, static_cast<int>(kListControlId));
-  HWND const add = GetDlgItem(main, static_cast<int>(kAddControlId));
-  CHECK(list != nullptr);
-  CHECK(add != nullptr);
-  ClientRect const list_r = ReadChildInParentClient(list);
-  ClientRect const add_r = ReadChildInParentClient(add);
-  CHECK(list_r.y < add_r.y);
-  CHECK(!RectsOverlap(list_r, add_r));
-  auto const layout = ComputeWindowCatalogMainChromeLayout(client_w, client_h, 160);
-  CHECK(layout.list.y + layout.list.height <= layout.add.y);
-  CHECK(list_r.x == layout.list.x);
-  CHECK(add_r.y == layout.add.y);
+void ExpectChromeIntegrity(HWND main) {
+  RECT client{};
+  CHECK(GetClientRect(main, &client) != 0);
+  std::array<std::uint32_t, 5> const ids{kListControlId, kAddControlId,
+      kOpenControlId, kDeleteControlId, kLanguageControlId};
+  std::array<ClientRect, 5> rects{};
+  for (std::size_t i = 0; i < ids.size(); ++i) {
+    HWND const control = GetDlgItem(main, static_cast<int>(ids[i]));
+    CHECK(control != nullptr);
+    rects[i] = ReadChildInParentClient(control);
+    auto const& rect = rects[i];
+    CHECK(rect.width > 0 && rect.height > 0);
+    CHECK(rect.x >= 0 && rect.y >= 0);
+    CHECK(rect.x + rect.width <= client.right);
+    CHECK(rect.y + rect.height <= client.bottom);
+    if (ids[i] != kListControlId) ExpectReadableControl(control, rect);
+    for (std::size_t j = 0; j < i; ++j) CHECK(!RectsOverlap(rects[j], rect));
+  }
+}
+
+void ExpectWideChrome(HWND main, std::int32_t, std::int32_t) {
+  ExpectChromeIntegrity(main);
+  auto const list = ReadChildInParentClient(GetDlgItem(main, kListControlId));
+  auto const add = ReadChildInParentClient(GetDlgItem(main, kAddControlId));
+  CHECK(list.x + list.width <= add.x);
+}
+
+void ExpectTallChrome(HWND main, std::int32_t, std::int32_t) {
+  ExpectChromeIntegrity(main);
+  auto const list = ReadChildInParentClient(GetDlgItem(main, kListControlId));
+  auto const add = ReadChildInParentClient(GetDlgItem(main, kAddControlId));
+  CHECK(list.y + list.height <= add.y);
 }
 
 void TestPrepareBindsQueueBeforeNativeOnLoad() {
@@ -393,10 +409,11 @@ void TestNativeAdaptiveChromeResizePath() {
   CHECK(SendMessageW(list0, LB_SETCURSEL, 0, 0) != LB_ERR);
   ae::ObjId const list_id = h.list_presenter_id;
 
+  auto const initial_viewport = h.model_catalog->persisted.main_client_viewport;
   h.ResizeClient(900, 500, false);
   ExpectWideChrome(main, 900, 500);
-  CHECK(h.model_catalog->persisted.main_client_viewport.width == 900);
-  CHECK(h.model_catalog->persisted.main_client_viewport.height == 500);
+  CHECK(h.model_catalog->persisted.main_client_viewport.width == initial_viewport.width);
+  CHECK(h.model_catalog->persisted.main_client_viewport.height == initial_viewport.height);
 
   SetMainClientSize(main, 500, 900, true);
   DispatchPendingWin32Messages();
@@ -420,6 +437,84 @@ void TestNativeAdaptiveChromeResizePath() {
   CHECK(h.model_catalog->persisted.main_window.id() == h.main_window_id);
 }
 
+void TestLocalResizeDoesNotDependOnModelPump() {
+  Harness h;
+  h.PumpModelAndApply();
+  auto const viewport = h.model_catalog->persisted.main_client_viewport;
+  auto const layout_generation = h.model_catalog->persisted.main_window->layout->Generation();
+  auto const& add_presenter = static_cast<ui::UiPushButtonPresenter const&>(
+      *h.model_catalog->persisted.presenters.add_button_presenter);
+  std::array<std::int32_t, 4> const original{add_presenter.layout_x,
+      add_presenter.layout_y, add_presenter.layout_width, add_presenter.layout_height};
+  SetMainClientSize(h.MainHwnd(), 500, 900, true);
+  DispatchPendingWin32Messages();
+  // WM_SIZE already placed the controls while the model queue is still pending.
+  ExpectTallChrome(h.MainHwnd(), 500, 900);
+  CHECK(h.model_catalog->persisted.main_client_viewport.width == viewport.width);
+  CHECK(h.model_catalog->persisted.main_client_viewport.height == viewport.height);
+  CHECK(h.model_catalog->persisted.main_window->layout->Generation() == layout_generation);
+  CHECK(add_presenter.layout_x == original[0]);
+  CHECK(add_presenter.layout_y == original[1]);
+  CHECK(add_presenter.layout_width == original[2]);
+  CHECK(add_presenter.layout_height == original[3]);
+  EndInteractive(h.MainHwnd());
+  h.PumpModelAndApply();
+  ExpectTallChrome(h.MainHwnd(), 500, 900);
+  CHECK(h.model_catalog->persisted.main_client_viewport.width == viewport.width);
+  CHECK(h.model_catalog->persisted.main_client_viewport.height == viewport.height);
+}
+
+void TestRuntimeConstraintOverrideAndClear() {
+  Harness h;
+  h.ResizeClient(900, 500, false);
+  ExpectWideChrome(h.MainHwnd(), 900, 500);
+  auto model_layout = h.model_catalog->persisted.main_window->layout;
+  auto ui_layout = h.ui_catalog->persisted.main_window->layout;
+  HWND const original_list = h.ControlHwnd(kListControlId);
+  HWND const original_add = h.ControlHwnd(kAddControlId);
+  auto constraints = ui_layout->EffectiveRoot();
+  constraints.flow = ui::UiLayoutFlow::kVertical;
+  h.model_proxy.Invoke(ui_layout.id(), &ui::UiLayoutState::SetOverride, constraints);
+  CHECK(!model_layout->has_override);
+  CHECK(!ui_layout->has_override);
+  ExpectWideChrome(h.MainHwnd(), 900, 500);
+  h.PumpModelAndApply();
+  CHECK(model_layout->has_override);
+  CHECK(ui_layout->has_override);
+  ExpectTallChrome(h.MainHwnd(), 900, 500);
+  CHECK(h.ControlHwnd(kListControlId) == original_list);
+  CHECK(h.ControlHwnd(kAddControlId) == original_add);
+  h.model_proxy.Invoke(ui_layout.id(), &ui::UiLayoutState::ClearOverride);
+  CHECK(model_layout->has_override);
+  h.PumpModelAndApply();
+  CHECK(!model_layout->has_override);
+  CHECK(!ui_layout->has_override);
+  ExpectWideChrome(h.MainHwnd(), 900, 500);
+  CHECK(h.ControlHwnd(kListControlId) == original_list);
+  CHECK(h.ControlHwnd(kAddControlId) == original_add);
+}
+
+void TestSystemSettingsNotificationsStayLocal() {
+  Harness h;
+  h.ResizeClient(900, 500, false);
+  h.PumpModelAndApply();
+  auto const model_generation = h.model_catalog->Generation();
+  auto const layout_generation = h.model_catalog->persisted.main_window->layout->Generation();
+  auto const pending_count = h.model_work.size();
+  HWND const original_button = h.ControlHwnd(kAddControlId);
+  SendMessageW(h.MainHwnd(), WM_SETTINGCHANGE, SPI_SETNONCLIENTMETRICS, 0);
+  SendMessageW(h.MainHwnd(), WM_THEMECHANGED, 0, 0);
+  SendMessageW(h.MainHwnd(), WM_SYSCOLORCHANGE, 0, 0);
+  DispatchPendingWin32Messages();
+  CHECK(h.model_catalog->Generation() == model_generation);
+  CHECK(h.model_catalog->persisted.main_window->layout->Generation() == layout_generation);
+  CHECK(h.model_work.size() == pending_count);
+  CHECK(h.main_presenter->LayoutScale() > 0);
+  CHECK(h.main_presenter->TextScale() > 0);
+  CHECK(h.ControlHwnd(kAddControlId) == original_button);
+  ExpectWideChrome(h.MainHwnd(), 900, 500);
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -428,6 +523,9 @@ int main() {
   apptraverse::test::TestPrepareBindsQueueBeforeNativeOnLoad();
   apptraverse::test::TestBurstResizeWithoutPerStepPump();
   apptraverse::test::TestNativeAdaptiveChromeResizePath();
+  apptraverse::test::TestLocalResizeDoesNotDependOnModelPump();
+  apptraverse::test::TestRuntimeConstraintOverrideAndClear();
+  apptraverse::test::TestSystemSettingsNotificationsStayLocal();
   std::cout << "window_catalog_win32_chrome_adaptive_test OK\n";
   return 0;
 }

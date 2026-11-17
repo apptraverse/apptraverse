@@ -1,6 +1,7 @@
 #include "apptraverse/platform/windows/win_ui_push_button_presenter.h"
 
 #include "apptraverse/platform/windows/win_ui_native_push_button.h"
+#include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "apptraverse/platform/windows/win_ui_frame.h"
 #include "apptraverse/platform/windows/win_ui_utf8.h"
 #include "apptraverse/platform/windows/win32_fatal.h"
@@ -37,6 +38,7 @@ void WinPushButtonPresenter::OnLoad() {
       .presenter_user_data = this,
       .create_fatal_operation = "CreateWindowExW Ui push button",
   });
+  if (auto* host = WinDesktopWindowPresenter::FromNativeWindow(parent_hwnd)) host->RegisterChildControl(hwnd_, control_id);
   SyncFromMirror();
 }
 
@@ -49,6 +51,7 @@ void WinPushButtonPresenter::SyncFromMirror() {
   }
   EnableWindow(hwnd_, button->enabled() ? TRUE : FALSE);
   ApplyLayout();
+  if (auto* host = WinDesktopWindowPresenter::FromNativeWindow(GetParent(hwnd_))) host->RefreshLayout();
 }
 
 void WinPushButtonPresenter::ApplyLayout() {
@@ -82,6 +85,7 @@ bool WinPushButtonPresenter::OnCommand(std::uint32_t command_id,
 }
 
 void WinPushButtonPresenter::OnUnload() {
+  if (auto* host = WinDesktopWindowPresenter::FromNativeWindow(GetParent(hwnd_))) host->UnregisterChildControl(hwnd_);
   DestroyChildPushButton(hwnd_, "DestroyWindow Ui push button");
 }
 

@@ -1,6 +1,7 @@
 #include "window_catalog_supply_constant_ids.h"
 
 #include "window_catalog_model.h"
+#include "window_catalog_ids.h"
 
 #include "apptraverse/ui/ui_localization_string.h"
 
@@ -26,6 +27,9 @@ void AppendLocalizationRef(ui::UiLocalizationString::ptr const& localized,
 std::vector<ae::ObjId> CollectWindowCatalogSupplyConstantIds(
     WindowCatalog const& catalog) {
   std::vector<ae::ObjId> ids;
+  catalog.persisted.main_window.Load();
+  ids.push_back(catalog.persisted.main_window->layout->definition.id());
+  ids.push_back(catalog.persisted.child_layout_definition.id());
   auto const& texts = catalog.persisted.texts;
   AppendLocalizationRef(texts.label_add, ids);
   AppendLocalizationRef(texts.label_open, ids);

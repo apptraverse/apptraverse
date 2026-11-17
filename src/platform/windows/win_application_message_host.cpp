@@ -109,6 +109,30 @@ void WinApplicationMessageHost::PumpUntilModelDone(Callback on_quit) {
         }
         continue;
       }
+      // Preserve standard dialog-style Tab/Shift+Tab and button activation for
+      // ordinary top-level native windows; no model round trip for focus.
+      HWND const root = msg.hwnd ? GetAncestor(msg.hwnd, GA_ROOT) : nullptr;
+      if (msg.message == WM_KEYDOWN && msg.wParam == VK_RETURN && msg.hwnd != nullptr) {
+        wchar_t class_name[32]{}; GetClassNameW(msg.hwnd, class_name, 32);
+        if (wcscmp(class_name, L"Button") == 0 && GetFocus() == msg.hwnd &&
+            IsWindowEnabled(msg.hwnd)) {
+          LONG_PTR const type = GetWindowLongPtrW(msg.hwnd, GWL_STYLE) & BS_TYPEMASK;
+          if (type == BS_PUSHBUTTON || type == BS_DEFPUSHBUTTON || type == BS_OWNERDRAW) {
+            // An ordinary top-level window has no dialog default-button manager.
+            // In particular IsDialogMessage does not activate a focused owner-
+            // drawn BUTTON on Enter. Keep its native click/command path, and
+            // leave checkbox/radio semantics and text-editor Enter untouched.
+            SendMessageW(msg.hwnd, BM_CLICK, 0, 0);
+            continue;
+          }
+        }
+        if (wcscmp(class_name, L"ListBox") == 0) {
+          SendMessageW(GetParent(msg.hwnd), WM_COMMAND,
+              MAKEWPARAM(GetDlgCtrlID(msg.hwnd), LBN_DBLCLK), reinterpret_cast<LPARAM>(msg.hwnd));
+          continue;
+        }
+      }
+      if (root != nullptr && root != notify_hwnd_ && IsDialogMessageW(root, &msg)) continue;
       TranslateMessage(&msg);
       DispatchMessageW(&msg);
     }

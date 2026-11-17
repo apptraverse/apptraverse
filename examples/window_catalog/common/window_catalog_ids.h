@@ -24,6 +24,10 @@ enum class ObjId : ae::ObjId::Type {
   WindowPrefabPresenter = 16,
   WindowPrefabCloseButton = 17,
   WindowPrefabCloseButtonPresenter = 18,
+  MainLayoutDefinition = 19,
+  ChildLayoutDefinition = 20,
+  MainLayoutState = 21,
+  WindowPrefabLayoutState = 22,
 };
 
 inline constexpr ae::ObjId::Type ToObjId(ObjId id) {

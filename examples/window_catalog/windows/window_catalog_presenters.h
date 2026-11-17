@@ -4,6 +4,7 @@
 #include "window_catalog_main_native_frame_wiring.h"
 #include "window_catalog_list_presenter_mixin.h"
 #include "apptraverse/platform/windows/win_ui_presenters.h"
+#include "apptraverse/platform/windows/win32_fatal.h"
 
 namespace apptraverse::example::surfaces {
 
@@ -29,6 +30,39 @@ class CatalogDesktopWindowPresenter
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, catalog);
+  }
+
+  ui::UiLayoutNode const* LayoutRoot() const override {
+    // Child Close is supplied by the native caption, so its content-only
+    // layout has no presented controls on this backend.
+    if (window.id() != catalog->persisted.main_window.id()) return nullptr;
+    auto const& catalog_window = static_cast<CatalogWindow const&>(*window);
+    return &catalog_window.layout->EffectiveRoot();
+  }
+
+  bool ShowPresentationContextMenu(int x, int y) override {
+    if (window.id() != catalog->persisted.main_window.id()) return false;
+    auto const& catalog_window = static_cast<CatalogWindow const&>(*window);
+    ui::UiLayoutNode const current = catalog_window.layout->EffectiveRoot();
+    HMENU const menu = CreatePopupMenu();
+    if (menu == nullptr) apptraverse::FatalWin32("CreatePopupMenu layout", GetLastError());
+    AppendMenuW(menu, MF_STRING | (current.flow == ui::UiLayoutFlow::kAdaptive ? MF_CHECKED : 0), 1, L"Layout: Automatic");
+    AppendMenuW(menu, MF_STRING | (current.flow == ui::UiLayoutFlow::kHorizontal ? MF_CHECKED : 0), 2, L"Layout: Horizontal");
+    AppendMenuW(menu, MF_STRING | (current.flow == ui::UiLayoutFlow::kVertical ? MF_CHECKED : 0), 3, L"Layout: Vertical");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_STRING, 4, L"Reset layout to application default");
+    if (x == -1 && y == -1) {
+      POINT location{12, 12}; ClientToScreen(hwnd(), &location); x = location.x; y = location.y;
+    }
+    UINT const action = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, x, y, 0, hwnd(), nullptr);
+    DestroyMenu(menu);
+    if (action == 4) model_proxy->Invoke(catalog_window.layout.id(), &ui::UiLayoutState::ClearOverride);
+    else if (action >= 1 && action <= 3) {
+      ui::UiLayoutNode changed = current;
+      changed.flow = action == 1 ? ui::UiLayoutFlow::kAdaptive : action == 2 ? ui::UiLayoutFlow::kHorizontal : ui::UiLayoutFlow::kVertical;
+      model_proxy->Invoke(catalog_window.layout.id(), &ui::UiLayoutState::SetOverride, std::move(changed));
+    }
+    return true;
   }
 
   bool PresentsChildControl(Presenter const& child) const override {

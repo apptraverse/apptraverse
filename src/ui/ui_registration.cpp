@@ -9,11 +9,16 @@
 #include "apptraverse/ui/ui_push_button.h"
 #include "apptraverse/ui/ui_string.h"
 #include "apptraverse/ui/ui_window.h"
+#include "apptraverse/ui/ui_layout_state.h"
 
 namespace apptraverse::ui {
 namespace {
 
 APPTRAVERSE_REGISTER(UiString);
+APPTRAVERSE_REGISTER(UiLayoutDefinition);
+APPTRAVERSE_REGISTER(UiLayoutState);
+APPTRAVERSE_REGISTER(SetUiLayoutOverrideEvent);
+APPTRAVERSE_REGISTER(ClearUiLayoutOverrideEvent);
 APPTRAVERSE_REGISTER(UiLocalizationString);
 APPTRAVERSE_REGISTER(SetUiLocalizationSlotUtf8Event);
 APPTRAVERSE_REGISTER(UiLocaleSettings);

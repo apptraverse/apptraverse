@@ -19,7 +19,7 @@ void SetChildUserData(HWND hwnd, void* value, char const* fatal_operation) {
 HWND CreateChildPushButton(WinNativePushButtonCreateParams const& params) {
   HWND const hwnd = CreateWindowExW(
       0, L"BUTTON", params.initial_caption,
-      WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, params.x, params.y, params.width,
+      WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON | BS_MULTILINE | BS_NOTIFY, params.x, params.y, params.width,
       params.height, params.parent_hwnd,
       reinterpret_cast<HMENU>(static_cast<INT_PTR>(params.control_id)),
       GetModuleHandleW(nullptr), nullptr);
