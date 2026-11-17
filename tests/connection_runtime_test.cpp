@@ -29,12 +29,27 @@ class Transport final : public IConnectionTransport {
   std::function<void()> on_service;
   bool bounded{false};
   int budget{1};
+  std::vector<std::string> identities, forgotten;
+  int transient_calls{0};
   explicit Transport(MemoryLinkNetwork& n, std::string id)
       : link{n, std::move(id)} {}
   void SetReceiver(Receiver r) override { link.SetReceiver(std::move(r)); }
   bool Send(std::string const& d, std::vector<std::uint8_t> const& b) override {
     if (bounded && budget-- <= 0) return false;
     return link.Send(d, b);
+  }
+  bool SendIdentified(std::string const& d, std::string const& identity,
+                      std::vector<std::uint8_t> const& b) override {
+    identities.push_back(identity);
+    return Send(d, b);
+  }
+  void ForgetIdentified(std::string const&, std::string const& identity) override {
+    forgotten.push_back(identity);
+  }
+  bool SendTransient(std::string const& d,
+                     std::vector<std::uint8_t> const& b) override {
+    ++transient_calls;
+    return Send(d, b);
   }
   LinkAvailability Availability(std::string const&) const override {
     return LinkAvailability::Unknown;
@@ -110,6 +125,28 @@ void IndependenceAndExpiry() {
                "Internet, monotonic expiry\n";
 }
 
+void HubPacketIdentities() {
+  MemoryLinkNetwork wire;
+  Transport* direct = nullptr;
+  ConnectionHub hub{[&] {
+    auto t = std::make_unique<Transport>(wire, "A"); direct = t.get();
+    return ConnectionAdapters{std::move(t), std::make_unique<Presence>()};
+  }, false};
+  auto first = hub.OpenChannel("one"), second = hub.OpenChannel("two");
+  hub.Service({100, 1000});
+  CHECK(first.transport->SendIdentified("B", "same-packet", {1}));
+  CHECK(second.transport->SendIdentified("B", "same-packet", {2}));
+  hub.Service({200, 1000});
+  CHECK(direct->identities.size() == 2);
+  CHECK(direct->identities[0] != direct->identities[1]);
+  first.transport->ForgetIdentified("B", "same-packet");
+  hub.Service({300, 1000});
+  CHECK(direct->forgotten.size() == 1);
+  CHECK(direct->forgotten.front() == direct->identities.front());
+  CHECK(first.transport->SendTransient("B", {3}));
+  hub.Service({400, 1000});
+  CHECK(direct->transient_calls == 1);
+}
 void ProcessHubChannels() {
   MemoryLinkNetwork wire;
   int factories = 0;
@@ -487,6 +524,7 @@ int main() {
   EnsureConnectionRegistration();
   EnsureSharedNodeRegistration();
   IndependenceAndExpiry();
+  HubPacketIdentities();
   ProcessHubChannels();
   FairChannels();
   ReopenDuringService();

@@ -57,6 +57,12 @@ function(apptraverse_add_shared_aether)
     src/aether_link.cpp src/aether_connection.cpp)
   target_link_libraries(apptraverse_shared_aether PUBLIC
     apptraverse_shared_node aether)
+  if(APPTRAVERSE_MAILBOX_SERVICE_UID)
+    target_link_libraries(apptraverse_shared_aether PRIVATE apptraverse_offline_mailbox)
+    target_compile_definitions(apptraverse_shared_aether PRIVATE
+      APPTRAVERSE_MAILBOX_SERVICE_UID="${APPTRAVERSE_MAILBOX_SERVICE_UID}"
+      APPTRAVERSE_MAILBOX_TTL_SECONDS=${APPTRAVERSE_MAILBOX_TTL_SECONDS})
+  endif()
   set_property(TARGET apptraverse_shared_aether PROPERTY APPTRAVERSE_SDK_SOURCE_DIR
     "${aether-client-cpp_SOURCE_DIR}")
 endfunction()

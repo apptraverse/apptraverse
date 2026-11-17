@@ -20,6 +20,20 @@ class IByteLink {
   // on the next service turn without consuming the remote ACK timeout.
   virtual bool Send(std::string const& destination,
                     std::vector<std::uint8_t> const& bytes) = 0;
+  // Optional infrastructure hint for immutable native packets. Ordinary links
+  // preserve Send semantics. A mailbox uses this identity for upstream retries.
+  virtual bool SendIdentified(std::string const& destination,
+                              std::string const& /*identity*/,
+                              std::vector<std::uint8_t> const& bytes) {
+    return Send(destination, bytes);
+  }
+  virtual void ForgetIdentified(std::string const&, std::string const&) {}
+  // Control replies are reproducible from a retried durable packet and do not
+  // need an auxiliary offline copy (avoids ACK-on-ACK storage obligations).
+  virtual bool SendTransient(std::string const& destination,
+                             std::vector<std::uint8_t> const& bytes) {
+    return Send(destination, bytes);
+  }
   virtual LinkAvailability Availability(
       std::string const& destination) const = 0;
 };

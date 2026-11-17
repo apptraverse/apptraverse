@@ -167,9 +167,22 @@ target_link_libraries(apptraverse_shared_node PUBLIC apptraverse)
 
 option(APPTRAVERSE_BUILD_AETHER_LINK
   "Build the opt-in SharedNode Aether transport and headless cloud worker" OFF)
+include(CTest)
+include(cmake/offline_mailbox.cmake)
+if(APPTRAVERSE_BUILD_MAILBOX_SERVICE AND NOT APPTRAVERSE_BUILD_AETHER_LINK)
+  message(FATAL_ERROR "Mailbox service requires APPTRAVERSE_BUILD_AETHER_LINK=ON")
+endif()
 if(APPTRAVERSE_BUILD_AETHER_LINK)
   include(cmake/shared_aether.cmake)
   apptraverse_add_shared_aether()
+  if(APPTRAVERSE_BUILD_MAILBOX_SERVICE)
+    if(NOT APPTRAVERSE_BUILD_MAILBOX_STORE)
+      message(FATAL_ERROR "Mailbox service requires APPTRAVERSE_BUILD_MAILBOX_STORE=ON")
+    endif()
+    add_executable(apptraverse_mailbox_service services/offline_mailbox/main.cpp)
+    target_link_libraries(apptraverse_mailbox_service PRIVATE
+      apptraverse_shared_aether apptraverse_offline_mailbox_rocksdb)
+  endif()
   if(EMSCRIPTEN AND APPTRAVERSE_MINIMUM_64)
     # The pinned SDK's -Werror treats variables used only by Debug asserts as
     # release failures. Keep its diagnostics visible in the Web size build.

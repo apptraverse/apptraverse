@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "aether-miscpp/serialization/binary_archive.h"
+#include "aether-miscpp/format/format.h"
 #include "aether-objects/obj/registry.h"
 #include "apptraverse/runtime_node.h"
 
@@ -16,6 +17,9 @@ namespace apptraverse {
 namespace {
 
 constexpr std::size_t kMaxDeferredAcks = 256;
+std::string TransportIdentity(ae::ObjId node, ae::ObjId packet) {
+  return ae::Format("{}:{}", node, packet);
+}
 
 // The original 1.0 schema remains a native reflected type so persisted frozen
 // packets can still be decoded without changing their identity or bytes.
@@ -891,6 +895,7 @@ bool SharedSyncRuntime::PublishProgress(ae::ObjId node_id,
     for (auto const& old : previous) {
       if (old.progress) {
         peer->CompletePacket(old.packet_id);
+        link_.ForgetIdentified(peer->link->endpoint_uid, TransportIdentity(node_id, old.packet_id));
         next_send_.erase(RetryKey{node_id, peer->link->endpoint_uid, old.packet_id});
       }
     }
@@ -975,7 +980,7 @@ void SharedSyncRuntime::Service(std::uint64_t now_us) {
     }
     auto bytes = std::move(found->second);
     deferred_acks_.erase(found);
-    if (!link_.Send(std::get<1>(key), bytes) &&
+    if (!link_.SendTransient(std::get<1>(key), bytes) &&
         deferred_acks_.size() < kMaxDeferredAcks) {
       deferred_acks_.try_emplace(key, std::move(bytes));
     }
@@ -1007,7 +1012,8 @@ void SharedSyncRuntime::Service(std::uint64_t now_us) {
         // peer's ACK timeout. Retry admission on the next Service turn. Set
         // the tentative deadline before Send so a synchronous ACK can erase
         // it without a later assignment resurrecting a completed packet.
-        if (!link_.Send(endpoint, pending.bytes)) { next_send_.erase(key); }
+        if (!link_.SendIdentified(endpoint, TransportIdentity(node_id, pending.packet_id),
+                                  pending.bytes)) { next_send_.erase(key); }
       }
     }
   }
@@ -1261,6 +1267,7 @@ bool SharedSyncRuntime::OnAck(std::string const& source,
           packet.stamp.author_uid == local_endpoint_ &&
           packet.stamp.index <= prefix.index) {
         peer->CompletePacket(packet.packet_id);
+        link_.ForgetIdentified(source, TransportIdentity(message.node_id, packet.packet_id));
         next_send_.erase(RetryKey{message.node_id, source, packet.packet_id});
       }
     }
@@ -1283,6 +1290,7 @@ bool SharedSyncRuntime::OnAck(std::string const& source,
   auto const admission = pending->admission;
   bool const initial_admission = pending->initial && HasAdmission(admission);
   peer->CompletePacket(message.packet_id);
+  link_.ForgetIdentified(source, TransportIdentity(message.node_id, message.packet_id));
   next_send_.erase(RetryKey{message.node_id, source, message.packet_id});
   // Completion and reliable dissemination form one persistent transition. A
   // crash after this save restores both the confirmed B state and notices.
@@ -1386,7 +1394,7 @@ void SharedSyncRuntime::SendAck(std::string const& destination,
   std::vector<std::uint8_t> bytes;
   if (SerializeSharedSyncMessage(ack, bytes)) {
     RetryKey const key{ack.node_id, destination, ack.packet_id};
-    if (link_.Send(destination, bytes)) {
+    if (link_.SendTransient(destination, bytes)) {
       deferred_acks_.erase(key);
     } else if (deferred_acks_.contains(key) ||
                deferred_acks_.size() < kMaxDeferredAcks) {

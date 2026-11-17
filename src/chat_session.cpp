@@ -399,6 +399,22 @@ class ChatLink final : public IByteLink {
     std::vector<std::uint8_t> encoded;
     return EncodeFrame(frame, encoded) && native_.Send(destination, encoded);
   }
+  bool SendIdentified(std::string const& destination, std::string const& identity,
+                      std::vector<std::uint8_t> const& bytes) override {
+    ChatFrame frame; frame.bytes = bytes;
+    std::vector<std::uint8_t> encoded;
+    return EncodeFrame(frame, encoded) && native_.SendIdentified(destination, identity, encoded);
+  }
+  void ForgetIdentified(std::string const& destination,
+                        std::string const& identity) override {
+    native_.ForgetIdentified(destination, identity);
+  }
+  bool SendTransient(std::string const& destination,
+                     std::vector<std::uint8_t> const& bytes) override {
+    ChatFrame frame; frame.bytes = bytes;
+    std::vector<std::uint8_t> encoded;
+    return EncodeFrame(frame, encoded) && native_.SendTransient(destination, encoded);
+  }
   LinkAvailability Availability(std::string const& peer) const override {
     return native_.Availability(peer);
   }

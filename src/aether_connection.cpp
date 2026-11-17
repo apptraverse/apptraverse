@@ -6,6 +6,9 @@
 #include "aether/aether_app.h"
 #include "apptraverse/aether_link.h"
 #include "apptraverse/directory_domain_storage.h"
+#ifdef APPTRAVERSE_MAILBOX_SERVICE_UID
+#include "apptraverse/offline_mailbox.h"
+#endif
 namespace apptraverse {
 class AetherConnection {
  public:
@@ -207,6 +210,66 @@ class Presence final : public IPresenceSource {
     return observations_;
   }
 };
+#ifdef APPTRAVERSE_MAILBOX_SERVICE_UID
+// Infrastructure composition only: ChatSession and its application stay unaware
+// of mailbox commands. The service itself explicitly selects the direct link.
+class MailboxTransport final : public IConnectionTransport {
+  std::unique_ptr<IConnectionTransport> direct_;
+  std::unique_ptr<mailbox::OfflineMailboxLink> mailbox_;
+  Receiver receiver_;
+  std::string raw_service_;
+ public:
+  explicit MailboxTransport(std::unique_ptr<IConnectionTransport> direct)
+      : direct_{std::move(direct)} {}
+  void Service(ConnectionTime t) override {
+    direct_->Service(t);
+    if (direct_->Ready() && !mailbox_) {
+      mailbox_ = std::make_unique<mailbox::OfflineMailboxLink>(
+          *direct_, direct_->EndpointId(), APPTRAVERSE_MAILBOX_SERVICE_UID,
+          APPTRAVERSE_MAILBOX_TTL_SECONDS * 1000ULL);
+      mailbox_->SetRawServiceEndpoint(raw_service_);
+      mailbox_->SetReceiver(receiver_);
+    }
+    if (mailbox_) mailbox_->Service(t.monotonic_us, t.utc_us);
+  }
+  void NetworkChanged(NetworkObservation n) override { direct_->NetworkChanged(n); }
+  bool Ready() const override { return direct_->Ready() && mailbox_ != nullptr; }
+  TransportPhase Phase() const override { return direct_->Phase(); }
+  std::string const& EndpointId() const override { return direct_->EndpointId(); }
+  std::string Name() const override { return direct_->Name(); }
+  bool WatchPeer(std::string const& id) override { return direct_->WatchPeer(id); }
+  bool ConfigureRawService(std::string const& id, Receiver receiver,
+                           std::function<void()> reset) override {
+    if (id == APPTRAVERSE_MAILBOX_SERVICE_UID ||
+        !direct_->ConfigureRawService(id, std::move(receiver), std::move(reset))) return false;
+    raw_service_ = id;
+    if (mailbox_) mailbox_->SetRawServiceEndpoint(id);
+    return true;
+  }
+  Path PeerPath(std::string const& id) const override { return direct_->PeerPath(id); }
+  void SetReceiver(Receiver r) override {
+    receiver_ = std::move(r);
+    if (mailbox_) mailbox_->SetReceiver(receiver_);
+  }
+  bool Send(std::string const& id, std::vector<std::uint8_t> const& bytes) override {
+    return mailbox_ && mailbox_->Send(id, bytes);
+  }
+  bool SendIdentified(std::string const& id, std::string const& identity,
+                      std::vector<std::uint8_t> const& bytes) override {
+    return mailbox_ && mailbox_->SendIdentified(id, identity, bytes);
+  }
+  void ForgetIdentified(std::string const& id, std::string const& identity) override {
+    if (mailbox_) mailbox_->ForgetIdentified(id, identity);
+  }
+  bool SendTransient(std::string const& id, std::vector<std::uint8_t> const& bytes) override {
+    return mailbox_ && mailbox_->SendTransient(id, bytes);
+  }
+  LinkAvailability Availability(std::string const&) const override {
+    // A presence reading must not gate store-and-forward admission.
+    return LinkAvailability::Unknown;
+  }
+};
+#endif
 }  // namespace
 std::shared_ptr<AetherConnection> OpenAetherConnection(
     std::filesystem::path profile, std::string name) {
@@ -214,6 +277,14 @@ std::shared_ptr<AetherConnection> OpenAetherConnection(
                                             std::move(name));
 }
 std::unique_ptr<IConnectionTransport> MakeAetherTransport(
+    std::shared_ptr<AetherConnection> c) {
+#ifdef APPTRAVERSE_MAILBOX_SERVICE_UID
+  return std::make_unique<MailboxTransport>(MakeDirectAetherTransport(std::move(c)));
+#else
+  return MakeDirectAetherTransport(std::move(c));
+#endif
+}
+std::unique_ptr<IConnectionTransport> MakeDirectAetherTransport(
     std::shared_ptr<AetherConnection> c) {
   return std::make_unique<Transport>(std::move(c));
 }

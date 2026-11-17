@@ -31,6 +31,8 @@ bool Decode(std::vector<std::uint8_t> const& bytes, Frame& frame) {
 struct Packet {
   std::string peer;
   std::vector<std::uint8_t> bytes;
+  std::string identity;
+  bool transient{false};
 };
 struct Channel {
   std::string id;
@@ -38,6 +40,7 @@ struct Channel {
   std::vector<std::string> peers;
   std::vector<PresenceTarget> targets;
   std::deque<Packet> incoming, outgoing;
+  std::map<std::pair<std::string, std::string>, bool> forgotten;
 };
 struct Shared {
   std::mutex mutex;
@@ -112,6 +115,29 @@ class ChannelTransport final : public IConnectionTransport {
     std::lock_guard lock{shared_->mutex};
     if (channel_->outgoing.size() >= 64) return false;
     channel_->outgoing.push_back({peer, bytes});
+    return true;
+  }
+  bool SendIdentified(std::string const& peer, std::string const& identity,
+                      std::vector<std::uint8_t> const& bytes) override {
+    if (bytes.size() > 1024 * 1024 - 4096) return false;
+    std::lock_guard lock{shared_->mutex};
+    if (channel_->outgoing.size() >= 64) return false;
+    channel_->outgoing.push_back({peer, bytes, identity});
+    return true;
+  }
+  void ForgetIdentified(std::string const& peer, std::string const& identity) override {
+    std::lock_guard lock{shared_->mutex};
+    std::erase_if(channel_->outgoing, [&](auto const& p) {
+      return p.peer == peer && p.identity == identity;
+    });
+    channel_->forgotten[{peer, identity}] = true;
+  }
+  bool SendTransient(std::string const& peer,
+                     std::vector<std::uint8_t> const& bytes) override {
+    if (bytes.size() > 1024 * 1024 - 4096) return false;
+    std::lock_guard lock{shared_->mutex};
+    if (channel_->outgoing.size() >= 64) return false;
+    channel_->outgoing.push_back({peer, bytes, {}, true});
     return true;
   }
   LinkAvailability Availability(std::string const&) const override {
@@ -219,6 +245,13 @@ struct ConnectionHub::Impl {
       if (next != channels.end())
         std::rotate(channels.begin(), next, channels.end());
       for (auto const& channel : channels) {
+        decltype(channel->forgotten) forgotten;
+        { std::lock_guard lock{shared->mutex}; forgotten.swap(channel->forgotten); }
+        auto qualify = [&](std::string const& id) {
+          return std::to_string(channel->id.size()) + ":" + channel->id + ":" + id;
+        };
+        for (auto const& [key, unused] : forgotten)
+          transport.ForgetIdentified(key.first, qualify(key.second));
         for (int count = 0; count < 8; ++count) {
           Packet packet;
           {
@@ -228,7 +261,9 @@ struct ConnectionHub::Impl {
           }
           std::vector<std::uint8_t> bytes;
           if (!Encode({channel->id, packet.bytes}, bytes) ||
-              !transport.Send(packet.peer, bytes))
+              !(packet.transient ? transport.SendTransient(packet.peer, bytes)
+                : packet.identity.empty() ? transport.Send(packet.peer, bytes)
+                : transport.SendIdentified(packet.peer, qualify(packet.identity), bytes)))
             break;
           last_sent_channel = channel->id;
           {

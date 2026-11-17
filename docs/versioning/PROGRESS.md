@@ -1,3 +1,16 @@
+## Optional offline mailbox — 2026-11-17 — headless checks PASS
+
+C++ Aether mailbox service with a RocksDB backend, stable sender IDs, synchronous
+storage receipts, fixed TTL and recipient-scoped cumulative queue ACKs is added.
+AppTraverse composes it at compile time when `APPTRAVERSE_MAILBOX_SERVICE_UID`
+is nonempty; the empty-UID adapter was rebuilt with no mailbox references.
+Windows Debug: six selected headless tests PASS; service and chat-session library
+build PASS. Live cloud and platform GUI acceptance are NOT RUN. The existing
+chat RAM-only policy is unchanged. Primary licenses are Apache-2.0; exclusive
+Apache licensing of all third-party material is not asserted.
+[Scoped evidence](../validation/offline-mailbox-2026-11-17.md),
+[configuration/protocol](../../services/offline_mailbox/README.md).
+
 ## Non-Apple layout / LOCAL Canon corrections — 2026-11-17
 
 The user-authorized Windows/common, Linux/GTK, Web and Android implementation now
