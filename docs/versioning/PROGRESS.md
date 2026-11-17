@@ -3892,3 +3892,16 @@ multi-monitor DPI and new cross-platform USER matrix are NOT RUN. Schema remains
 S0-only; use a fresh isolated profile and matching newly distilled supply.
 See the [plan](../system-settings-accessibility-plan.md) and
 [validation with exact scope/history](../validation/window-catalog-layout-settings-2026-11-16.md).
+
+
+### Local appearance preferences — 2026-11-16
+
+WindowCatalog now offers Auto/System dark/System light plus Soften dark theme.
+The Windows backend applies the preference to all current UI-thread windows;
+High Contrast overrides it. The example owns local persistence in
+%LOCALAPPDATA%/AppTraverse/WindowCatalog/appearance.ini, outside portable USER.
+No model/presenter schema changes. Tested v143 Debug: native acceptance and
+chrome adaptive 2/2 PASS (19.47 s), including cross-window preference changes,
+unchanged model generations, and INI save/reset/load. Existing geometry checks
+now accept legitimately scrollable content under the user's large system text,
+while checking the actual native scrollbar range and non-overlap.

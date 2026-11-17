@@ -90,7 +90,8 @@ LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
       presenter->RefreshPresentationSettings();
     return 0;
   }
-  if (msg == WM_SETTINGCHANGE || msg == WM_THEMECHANGED || msg == WM_SYSCOLORCHANGE) {
+  if (msg == WM_SETTINGCHANGE || msg == WM_THEMECHANGED || msg == WM_SYSCOLORCHANGE ||
+      msg == kWinAppearancePreferencesChanged) {
     presenter->RefreshPresentationSettings();
     return 0;
   }
@@ -365,6 +366,10 @@ bool WinDesktopWindowPresenter::HighContrast() const {
 }
 bool WinDesktopWindowPresenter::DarkTheme() const {
   return environment_ && environment_->dark();
+}
+
+COLORREF WinDesktopWindowPresenter::BackgroundColor() const {
+  return environment_ ? environment_->background() : GetSysColor(COLOR_WINDOW);
 }
 
 void WinDesktopWindowPresenter::ApplyChildAppearance(HWND child) {

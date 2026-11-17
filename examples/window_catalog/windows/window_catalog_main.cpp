@@ -1,3 +1,4 @@
+#include "window_catalog_presenters.h"
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -201,6 +202,7 @@ int main(int argc, char** argv) {
     }
   }
 
+  apptraverse::example::surfaces::LoadCatalogAppearance();
   apptraverse::WindowCatalogModelSession session;
   session.state_dir = state_dir;
 

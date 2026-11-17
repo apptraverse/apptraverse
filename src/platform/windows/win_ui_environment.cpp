@@ -10,6 +10,7 @@
 
 namespace apptraverse::ui::windows {
 namespace {
+WinAppearancePreferences appearance_preferences;
 HMODULE LoadSystemModule(wchar_t const* name) {
   wchar_t directory[MAX_PATH]{};
   UINT const length = GetSystemDirectoryW(directory, MAX_PATH);
@@ -31,6 +32,15 @@ UINT WindowDpi(HWND window) {
   return dpi > 0 ? static_cast<UINT>(dpi) : 96;
 }
 }  // namespace
+
+WinAppearancePreferences GetWinAppearancePreferences() { return appearance_preferences; }
+void SetWinAppearancePreferences(WinAppearancePreferences preferences) {
+  appearance_preferences = preferences;
+  EnumThreadWindows(GetCurrentThreadId(), [](HWND window, LPARAM) -> BOOL {
+    PostMessageW(window, kWinAppearancePreferencesChanged, 0, 0);
+    return TRUE;
+  }, 0);
+}
 
 void EnsureWinProcessDpiAwareness() {
   static bool const configured = [] {
@@ -170,6 +180,29 @@ void WinUiEnvironment::Refresh() {
         disabled_foreground_ = RGB(160, 160, 160);
         border_ = RGB(150, 150, 150);
       }
+    }
+  }
+  // High Contrast always wins over a local appearance preference.
+  if (!high_contrast_) {
+    auto const preferences = GetWinAppearancePreferences();
+    if (preferences.theme == WinThemeMode::kLight) {
+      dark_ = false;
+      background_ = GetSysColor(COLOR_WINDOW);
+      foreground_ = GetSysColor(COLOR_WINDOWTEXT);
+      control_background_ = GetSysColor(COLOR_BTNFACE);
+      disabled_foreground_ = GetSysColor(COLOR_GRAYTEXT);
+      border_ = GetSysColor(COLOR_WINDOWFRAME);
+    } else if (preferences.theme == WinThemeMode::kDark && !dark_) {
+      dark_ = true;
+      background_ = RGB(0, 0, 0);
+      foreground_ = RGB(255, 255, 255);
+      control_background_ = RGB(40, 40, 40);
+      disabled_foreground_ = RGB(160, 160, 160);
+      border_ = RGB(150, 150, 150);
+    }
+    if (dark_ && preferences.soften_dark) {
+      background_ = RGB(32, 32, 32);
+      control_background_ = RGB(43, 43, 43);
     }
   }
   NONCLIENTMETRICSW metrics{sizeof(metrics)};

@@ -101,6 +101,7 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
   double TextScale() const;
   bool HighContrast() const;
   bool DarkTheme() const;
+  COLORREF BackgroundColor() const;
 
 
   bool RouteChildCommand(std::uint32_t command_id,

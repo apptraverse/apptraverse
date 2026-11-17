@@ -8,6 +8,7 @@ int main() { return 0; }
 #include <deque>
 #include <iostream>
 #include <memory>
+#include <filesystem>
 
 #include "aether-objects/domain_storage/ram_domain_storage.h"
 #include "aether-objects/obj/domain.h"
@@ -18,6 +19,7 @@ int main() { return 0; }
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/platform/windows/win_ui_frame.h"
+#include "apptraverse/platform/windows/win_ui_environment.h"
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "window_catalog_graph.h"
 #include "window_catalog_presenters.h"
@@ -317,8 +319,16 @@ void ExpectChromeIntegrity(HWND main) {
     auto const& rect = rects[i];
     CHECK(rect.width > 0 && rect.height > 0);
     CHECK(rect.x >= 0 && rect.y >= 0);
-    CHECK(rect.x + rect.width <= client.right);
-    CHECK(rect.y + rect.height <= client.bottom);
+    SCROLLINFO horizontal{sizeof(SCROLLINFO), SIF_RANGE | SIF_POS};
+    SCROLLINFO vertical{sizeof(SCROLLINFO), SIF_RANGE | SIF_POS};
+    GetScrollInfo(main, SB_HORZ, &horizontal);
+    GetScrollInfo(main, SB_VERT, &vertical);
+    // Large system text can legitimately exceed the viewport. It must remain
+    // reachable through the actual native scrollbar rather than be clipped.
+    CHECK(rect.x + rect.width <= client.right ||
+          rect.x + rect.width + horizontal.nPos <= horizontal.nMax + 1);
+    CHECK(rect.y + rect.height <= client.bottom ||
+          rect.y + rect.height + vertical.nPos <= vertical.nMax + 1);
     if (ids[i] != kListControlId) ExpectReadableControl(control, rect);
     for (std::size_t j = 0; j < i; ++j) CHECK(!RectsOverlap(rects[j], rect));
   }
@@ -515,6 +525,48 @@ void TestSystemSettingsNotificationsStayLocal() {
   ExpectWideChrome(h.MainHwnd(), 900, 500);
 }
 
+void TestLocalAppearancePreferences() {
+  using namespace ui::windows;
+  auto original = GetWinAppearancePreferences();
+  Harness first;
+  Harness second;
+  first.PumpModelAndApply();
+  second.PumpModelAndApply();
+  auto first_generation = first.model_catalog->Generation();
+  auto second_generation = second.model_catalog->Generation();
+  SetWinAppearancePreferences({WinThemeMode::kDark, false});
+  DispatchPendingWin32Messages();
+  if (!first.main_presenter->HighContrast()) {
+    CHECK(first.main_presenter->DarkTheme());
+    CHECK(second.main_presenter->DarkTheme());
+    SetWinAppearancePreferences({WinThemeMode::kDark, true});
+    DispatchPendingWin32Messages();
+    CHECK(first.main_presenter->BackgroundColor() == RGB(32,32,32));
+    CHECK(second.main_presenter->BackgroundColor() == RGB(32,32,32));
+    SetWinAppearancePreferences({WinThemeMode::kLight, true});
+    DispatchPendingWin32Messages();
+    CHECK(!first.main_presenter->DarkTheme());
+    CHECK(!second.main_presenter->DarkTheme());
+    CHECK(first.main_presenter->BackgroundColor() == GetSysColor(COLOR_WINDOW));
+  } else {
+    CHECK(first.main_presenter->BackgroundColor() == GetSysColor(COLOR_WINDOW));
+  }
+  CHECK(first.model_catalog->Generation() == first_generation);
+  CHECK(second.model_catalog->Generation() == second_generation);
+  auto const ini = std::filesystem::temp_directory_path() /
+      ("apptraverse-appearance-" + std::to_string(ae::ObjId::GenerateUnique().id()) + ".ini");
+  example::surfaces::SaveCatalogAppearance({WinThemeMode::kDark, true}, ini.wstring());
+  SetWinAppearancePreferences({WinThemeMode::kAuto, false});
+  example::surfaces::LoadCatalogAppearance(ini.wstring());
+  CHECK(GetWinAppearancePreferences().theme == WinThemeMode::kDark);
+  CHECK(GetWinAppearancePreferences().soften_dark);
+  CHECK(first.model_catalog->Generation() == first_generation);
+  CHECK(second.model_catalog->Generation() == second_generation);
+  std::filesystem::remove(ini);
+  SetWinAppearancePreferences(original);
+  DispatchPendingWin32Messages();
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -526,6 +578,7 @@ int main() {
   apptraverse::test::TestLocalResizeDoesNotDependOnModelPump();
   apptraverse::test::TestRuntimeConstraintOverrideAndClear();
   apptraverse::test::TestSystemSettingsNotificationsStayLocal();
+  apptraverse::test::TestLocalAppearancePreferences();
   std::cout << "window_catalog_win32_chrome_adaptive_test OK\n";
   return 0;
 }

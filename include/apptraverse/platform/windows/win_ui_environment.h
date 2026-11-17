@@ -9,6 +9,17 @@ namespace apptraverse::ui::windows {
 // Called before creating native host windows. Existing manifest/host policy wins.
 void EnsureWinProcessDpiAwareness();
 
+enum class WinThemeMode { kAuto, kLight, kDark };
+struct WinAppearancePreferences {
+  WinThemeMode theme{WinThemeMode::kAuto};
+  bool soften_dark{false};
+};
+// UI-thread session preferences. Persistence is application-owned and local;
+// these values are never reflected into the portable model graph.
+WinAppearancePreferences GetWinAppearancePreferences();
+void SetWinAppearancePreferences(WinAppearancePreferences preferences);
+inline constexpr UINT kWinAppearancePreferencesChanged = WM_APP + 0x312;
+
 inline constexpr UINT kWinPresentationSettingsChanged = WM_APP + 0x310;
 
 // Runtime-only, window-local OS preferences. No state is reflected or saved.

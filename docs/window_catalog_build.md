@@ -20,6 +20,16 @@ font, colors, measured sizes and window-local layout caches are never saved as
 layout overrides. Use a new `--state-dir` for this S0 development schema and pair
 USER with its matching supply; older experimental profiles are preserved.
 
+The main-window menu also selects Auto/System dark/System light and toggles
+Soften dark theme. These local application preferences are stored in
+`%LOCALAPPDATA%/AppTraverse/WindowCatalog/appearance.ini`, shared by the current
+Windows user's WindowCatalog profiles and separate from portable `user.bin`.
+Auto follows OS colors; forced modes use native light colors or the backend's
+dark semantic palette when the OS does not expose that palette. Soften changes
+dark surfaces to graphite (#202020/#2B2B2B). High Contrast always uses system
+colors regardless of either preference. DPI, OS fonts and measured rectangles
+are not persisted in the INI.
+
 The active CMake graph builds `win32_window_catalog_demo`, its load-only binary,
 and their UI/model tests. **P1.1** (see [versioning/PLAN.md](versioning/PLAN.md))
 will **remove** SharedNode/replication sources still linked into core, legacy chat
