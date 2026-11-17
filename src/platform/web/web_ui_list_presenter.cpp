@@ -178,6 +178,7 @@ void WebListContainerPresenter::OnLoad() {
   ApptraverseBindListInteraction(dom_refs_->list_element, this);
   AppendDomChild(parent, dom_refs_->list_element);
   SyncFromMirror();
+  desktop->RegisterChildControl(dom_refs_->list_element, control_id);
 }
 
 void WebListContainerPresenter::SyncFromMirror() {
@@ -212,12 +213,14 @@ void WebListContainerPresenter::SyncFromMirror() {
                            layout.width, layout.height);
 }
 
-void WebListContainerPresenter::OnModelChanged() { SyncFromMirror(); }
+void WebListContainerPresenter::OnModelChanged() { SyncFromMirror(); static_cast<WebDesktopWindowPresenter*>(window_presenter.operator->())->RefreshLayout(); }
 
 void WebListContainerPresenter::OnUnload() {
   if (dom_refs_ == nullptr) {
     return;
   }
+  static_cast<WebDesktopWindowPresenter*>(window_presenter.operator->())->UnregisterChildControl(dom_refs_->list_element);
+
   if (dom_refs_->list_element != nullptr) {
     ApptraverseUnbindListInteraction(dom_refs_->list_element);
     RemoveDomNode(dom_refs_->list_element);

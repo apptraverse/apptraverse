@@ -34,6 +34,9 @@ android {
       cmake {
         arguments "-DANDROID_STL=c++_static",
                   "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
+        if (project.hasProperty("apptraverse.testSupplyPadding")) {
+          arguments "-DAPPTRAVERSE_ANDROID_WINDOW_CATALOG_TEST_LAYOUT_PADDING=${project.property('apptraverse.testSupplyPadding')}"
+        }
         if (cmakeInitialCache) {
           arguments "-DAPPTRAVERSE_CMAKE_INITIAL_CACHE=${cmakeInitialCache}"
         }

@@ -257,6 +257,7 @@ void PersistDistilledMinimalGraphForEmbed(
 struct OwnedEmbeddedMinimalGraph {
   std::vector<std::vector<std::uint8_t>> owned_bytes;
   std::vector<EmbeddedDistilledLayerRecord> layer_records;
+  std::vector<EmbeddedObjectScopeRecord> scopes;
   EmbeddedDistilledGraph graph{};
 };
 
@@ -296,6 +297,12 @@ OwnedEmbeddedMinimalGraph BuildEmbeddedMinimalGraphFromDistillStorage(
                                      .bytes = copy.data(),
                                      .size = copy.size()});
   }
+  for (auto const& [id, _] : storage.state) {
+    if (auto scope = storage.ReadObjectScope(id))
+      out.scopes.push_back({id.id(), scope->root_id.id(), scope->parent_root_id.id(), scope->is_constant});
+  }
+  out.graph.object_scopes = out.scopes.data();
+  out.graph.object_scope_count = out.scopes.size();
   out.graph.root_object_id = example::minimal::MinimalApplicationRootId().id();
   out.graph.supply_constant_ids = {nullptr, 0};
   out.graph.layers = out.layer_records.data();
@@ -1747,11 +1754,99 @@ void TestMinimalAppPrepareUnloadedRequiredApplyLabelRef() {
   CHECK(!model_root->auxiliary.window.is_loaded());
 }
 
+void TestStandardCompositionLocalSession() {
+  auto owned = DistillHeadlessMinimalAppEmbeddedGraph();
+  ae::RamDomainStorage user, local;
+  ae::ObjId device_id, definition_id;
+  auto const profile = std::filesystem::temp_directory_path() /
+      ("minimal-standard-local-" + std::to_string(ae::ObjId::GenerateUnique().id()));
+  ui::UiDeviceEnvironment environment;
+  environment.monitors = {{"minimal-monitor", {0, 0, 1280, 960}, {0, 0, 1280, 920}, true, 0, 60}};
+  for (int session = 0; session != 3; ++session) {
+    ApplicationModelRuntime runtime;
+    bool prepared = false, published = false;
+    ApplicationModelSessionHooks<MinimalApplication> hooks;
+    hooks.prepare = [&](MinimalApplication& app) {
+      PrepareMinimalApplicationForRun(app);
+      auto& window = *app.main_window;
+      auto& presenter = *window.presenter;
+      CHECK(presenter.LayoutRoot() == &window.layout_state->EffectiveRoot());
+      CHECK(presenter.LocalDeviceState() == &*window.device_state);
+      device_id = window.device_state.id();
+      definition_id = window.layout_state->definition.id();
+      auto& device = *window.device_state;
+      if (session != 0) {
+        CHECK(device.has_environment);
+        CHECK(device.appearance.theme == ui::UiThemeMode::kDark);
+        CHECK(device.PlacementFor(window.obj_id)->frame_dip.width == 600);
+      }
+      auto generation = device.Generation();
+      device.ObserveEnvironment(environment, ui::UiEnvironmentReason::kStartup);
+      if (session != 0) CHECK(device.Generation() == generation);
+      if (session == 0) {
+        device.SetAppearance({ui::UiThemeMode::kDark, true});
+        device.ObserveWindow({window.obj_id, "minimal-monitor", 144, 144, {20, 40, 600, 400}}, ui::UiEnvironmentReason::kStartup);
+        window.SetImmediateEventCompaction(true);
+        window.RequestFrame(150, 100, 700, 500);
+        CHECK(window.device_state.id() == device_id);
+        CHECK(window.layout_state->definition.id() == definition_id);
+        CHECK(window.TryReplayFromBase());
+        CHECK(window.device_state.id() == device_id);
+        CHECK(window.layout_state->definition.id() == definition_id);
+      }
+      prepared = true;
+    };
+    hooks.persist = [&](MinimalApplication& app) {
+      CHECK(published);
+      return example::minimal::SaveMinimalApplicationEmbeddedUserState(app);
+    };
+    int const status = RunEmbeddedApplicationModelSession(user, local, owned.graph, runtime,
+        [&](ApplicationPublicationKind kind) {
+          CHECK(prepared);
+          CHECK(kind == ApplicationPublicationKind::Initial);
+          published = true;
+          auto bytes = runtime.TakePublishedCopy();
+          CHECK(!bytes.empty());
+          runtime.NotifyPublicationConsumed();
+          runtime.RequestStop();
+        }, hooks);
+    CHECK(status == 0 && published);
+    CHECK(!local.state.empty());
+    CHECK(SaveUserStorageFile(user, profile));
+    CHECK(SaveUserStorageFile(local, profile / "local"));
+    ae::RamDomainStorage cold_user, cold_local;
+    CHECK(LoadUserStorageFile(cold_user, profile));
+    CHECK(LoadUserStorageFile(cold_local, profile / "local"));
+    user = std::move(cold_user);
+    local = std::move(cold_local);
+    CHECK(!user.state.contains(device_id));
+    for (auto const& [id, _] : user.state) {
+      auto const scope = user.ReadObjectScope(id);
+      CHECK(!scope || scope->root_id != device_id);
+    }
+    if (session == 0) {
+      ae::RamDomainStorage transferred;
+      SeedClientLocalStorage(transferred, local);
+      CHECK(transferred.state == local.state);
+      auto const existing = transferred.state;
+      ae::RamDomainStorage other;
+      SeedClientLocalStorage(transferred, other);
+      CHECK(transferred.state == existing);
+      local = std::move(transferred);
+    }
+  }
+  std::filesystem::remove(profile / "local" / "user.bin");
+  std::filesystem::remove(profile / "local");
+  std::filesystem::remove(profile / "user.bin");
+  std::filesystem::remove(profile);
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
 int main() {
   apptraverse::example::minimal::EnsureHeadlessMinimalApplicationGraphRegistration();
+  apptraverse::test::TestStandardCompositionLocalSession();
   apptraverse::test::TestMinimalAppProductionOpenerColdLoadInitialPublication();
   apptraverse::test::TestMinimalAppProductionOpenerInitialPublication();
   apptraverse::test::TestMinimalAppProductionOpenerColdLoadBeforePrepare();

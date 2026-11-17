@@ -31,7 +31,7 @@ ae::ObjId CatalogRootId() {
 }  // namespace
 
 int main(int argc, char** argv) {
-  if (argc != 2) {
+  if (argc != 2 && argc != 4) {
     std::cerr << "usage: apptraverse_export_window_catalog_distilled_graph_web "
                  "<output.h>\n";
     return 2;
@@ -49,6 +49,8 @@ int main(int argc, char** argv) {
     apptraverse::DirectoryDomainStorage storage{export_dir};
     ae::Domain domain{storage};
     auto catalog = apptraverse::BuildWebWindowCatalogGraph(domain);
+    if (argc == 4 && std::string{argv[2]} == "--layout-padding")
+      catalog->persisted.main_window->layout_state->definition->root.padding = std::stod(argv[3]);
     apptraverse::FinalizeDistilledGraph(*catalog);
     apptraverse::SaveDistilledRoot(*catalog);
     supply_constant_ids =

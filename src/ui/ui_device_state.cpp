@@ -67,6 +67,7 @@ void UiDeviceState::ObserveWindow(UiWindowEnvironment current, UiEnvironmentReas
   event->reason = reason;
   event->update_preference = update_preference;
   CommitLocal(event);
+  ResolveWindowMonitors(reason, false);
 }
 UiWindowPlacement const* UiDeviceState::PlacementFor(ae::ObjId window_id) const {
   auto found = std::find_if(placements.begin(), placements.end(),

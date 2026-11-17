@@ -54,26 +54,18 @@ int main(int argc, char** argv) {
     }
   }
 
+  apptraverse::ui::windows::EnsureWinProcessDpiAwareness();
+  apptraverse::ui::windows::WinUiEnvironment environment_reader{nullptr};
+  auto const startup_environment = environment_reader.snapshot();
   apptraverse::ApplicationModelRuntime runtime;
   int model_exit_status = 1;
 
   apptraverse::windows::WinApplicationHostCallbacks callbacks;
   callbacks.run_model = [&](apptraverse::ApplicationPublishedCallback on_published) {
     model_exit_status = apptraverse::example::minimal::RunMinimalApplicationModel(
-        state_dir, runtime, on_published);
+        state_dir, runtime, on_published, startup_environment);
   };
   callbacks.request_stop = [&] { runtime.RequestStop(); };
-  auto report_environment = [](ae::Obj& root) {
-    auto& application = static_cast<apptraverse::example::minimal::MinimalApplication&>(root);
-    auto& presenter = *application.main_window->presenter;
-    auto hwnd = static_cast<HWND>(presenter.NativeChildParentHandle());
-    auto dpi = static_cast<std::int32_t>(apptraverse::ui::windows::GetWinWindowDpi(hwnd) * 160 / 96);
-    if (!application.viewport.hosted && !application.viewport.single_page && application.viewport.density_dpi == dpi) return;
-    presenter.model_proxy->Invoke(root.obj_id,
-        &apptraverse::example::minimal::MinimalApplication::SubmitDesktopEnvironment, dpi);
-  };
-  callbacks.after_initial = report_environment;
-  callbacks.after_incremental = report_environment;
   callbacks.on_desktop_window_close =
       [&](ae::Obj& root, ae::Obj& closed_window,
           apptraverse::ModelObjectProxy& proxy) {

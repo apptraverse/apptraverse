@@ -31,7 +31,7 @@ constexpr char kIdbfsMountPath[] = "/persistent";
 constexpr char kProfilePath[] = "/persistent/minimal_app_web_embedded_user";
 
 std::unique_ptr<web::WebApplicationHost> g_host;
-ae::RamDomainStorage g_user_storage;
+ae::RamDomainStorage g_user_storage, g_local_storage;
 std::filesystem::path g_profile_path{kProfilePath};
 ApplicationModelRuntime g_runtime;
 ui::web::WebPresentationHost g_presentation_host;
@@ -41,16 +41,27 @@ int g_viewport_height = 0;
 APPTRAVERSE_EM_JS_HANDLE(ApptraverseGetAppMountElement, (), (), {
   return Emval.toHandle(document.getElementById('app-mount'));
 });
-EM_JS(void, ApptraverseShowMinimalPage, (emscripten::EM_VAL client, int visible), {
-  Emval.toValue(Number(client)).parentElement.style.display = visible ? "" : "none";
+EM_JS(void, ApptraverseShowMinimalPage, (emscripten::EM_VAL client, int visible, int width, int height, int inset), {
+  var mount = Emval.toValue(Number(client)), win = mount.parentElement;
+  win.style.display = visible ? "" : "none";
+  if (width > 0 && height > 0) {
+    win.style.left = inset + 'px'; win.style.top = inset + 'px';
+    win.style.width = Math.max(1, width - 2 * inset) + 'px';
+    win.style.height = Math.max(1, height - 2 * inset) + 'px';
+    mount.style.width = win.style.width; mount.style.height = win.style.height;
+  }
 });
 
 void ApplyPagePresentation(ae::Obj& root) {
   auto& application = static_cast<MinimalApplication&>(root);
   auto show = [&](ui::UiDesktopWindow& window) {
     auto& presenter = static_cast<ui::web::WebDesktopWindowPresenter&>(*window.presenter);
+    bool const single_page = g_viewport_width > 0 && g_viewport_width < 600;
+    presenter.OnModelChanged();
     ApptraverseShowMinimalPage(presenter.ClientMountHandle(),
-        !application.viewport.single_page || window.obj_id == application.ActivePageId());
+        !single_page || window.obj_id == application.ActivePageId(),
+        single_page ? g_viewport_width : 0, single_page ? g_viewport_height : 0, 0);
+    presenter.RefreshLocalPresentation();
   };
   show(*application.main_window);
   if (application.auxiliary_presented_open) show(*application.auxiliary.window);
@@ -115,6 +126,7 @@ void FinishHostTeardownOnNextMainTurn(bool shutdown_succeeded) {
   g_host.reset();
   if (shutdown_succeeded) {
     SetShutdownStatus("Stopped");
+    EM_ASM({ console.log('MINIMAL_APP_SHUTDOWN_STOPPED'); });
     SetSaveStatus("");
   } else {
     SetShutdownStatus("Stop failed");
@@ -135,7 +147,8 @@ int PersistMinimalApplicationFromDomain(ae::Domain& domain) {
   auto& application = static_cast<MinimalApplication&>(*held);
   int const saved = SaveMinimalApplicationEmbeddedUserState(application);
   if (saved != 0) return saved;
-  return SaveUserStorageFile(g_user_storage, g_profile_path) ? 0 : 1;
+  return SaveUserStorageFile(g_user_storage, g_profile_path) &&
+      SaveUserStorageFile(g_local_storage, g_profile_path / "local") ? 0 : 1;
 }
 
 }  // namespace
@@ -146,8 +159,7 @@ EMSCRIPTEN_KEEPALIVE void ApptraverseMinimalAppViewportChanged(int width, int he
   g_viewport_width = width; g_viewport_height = height;
   if (!g_host || !g_host->ui_session() ||
       g_host->lifecycle() != web::WebApplicationHostLifecycle::kRunning) return;
-  g_host->model_proxy().Invoke(MinimalApplicationRootId(),
-      &MinimalApplication::SubmitViewport, width, height, 160, false);
+  ApplyPagePresentation(g_host->ui_session()->root());
 }
 
 EMSCRIPTEN_KEEPALIVE void ApptraverseMinimalAppRequestSave() {
@@ -177,37 +189,48 @@ void StartWebMinimalApplication() {
   ui::web::EnsureWebUiPresenterRegistration();
   EnsureBrowserEnvironment();
 
+  auto const environment = ui::web::ReadWebDeviceEnvironment();
   web::WebApplicationHostCallbacks callbacks;
   callbacks.refresh_presentation_host = [](ui::web::WebPresentationHost& host) {
     host.mount = ApptraverseGetAppMountElement();
   };
-  callbacks.run_model = [](ApplicationPublishedCallback on_published) -> int {
+  callbacks.run_model = [environment](ApplicationPublishedCallback on_published) -> int {
 #if defined(APPTRAVERSE_DEBUG_FRESH_START)
     g_profile_path /= "debug-run-" + std::to_string(ae::ObjId::GenerateUnique().id());
+    EM_ASM({ console.log('MINIMAL_APP_DEV_BOOTSTRAP'); });
 #else
-    if (!LoadUserStorageFile(g_user_storage, g_profile_path)) return 1;
+    if (!LoadUserStorageFile(g_user_storage, g_profile_path) ||
+        !LoadUserStorageFile(g_local_storage, g_profile_path / "local")) return 1;
+    if (g_user_storage.state.empty()) EM_ASM({ console.log('MINIMAL_APP_LOADED_FROM_EMBEDDED_BACKING'); });
+    else EM_ASM({ console.log('MINIMAL_APP_LOADED_FROM_PROFILE'); });
 #endif
 
     ApplicationModelSessionHooks<MinimalApplication> hooks;
-    hooks.prepare = PrepareMinimalApplicationForRun;
+    hooks.prepare = [environment](MinimalApplication& application) {
+      PrepareMinimalApplicationForRun(application);
+      application.main_window->device_state->ObserveEnvironment(environment, ui::UiEnvironmentReason::kStartup);
+    };
     hooks.persist = [](MinimalApplication& application) -> int {
       return PersistMinimalApplicationFromDomain(*application.domain);
     };
     int const session_result = RunEmbeddedApplicationModelSession(
-        g_user_storage, embedded_distilled::minimal::kEmbeddedGraph,
+        g_user_storage, g_local_storage, embedded_distilled::minimal::kEmbeddedGraph,
         g_runtime, std::move(on_published), hooks);
     return session_result;
   };
   callbacks.request_stop = [] { g_runtime.RequestStop(); };
-  callbacks.capture_model_state = [](ae::Domain& domain, std::vector<std::uint8_t>& bytes) {
+  callbacks.capture_model_files = [](ae::Domain& domain, std::vector<web::WebPersistentFileSnapshot>& files) {
     auto application = domain.Find(MinimalApplicationRootId()).as<MinimalApplication>();
+    files = {{(g_profile_path / "user.bin").generic_string(), {}},
+             {(g_profile_path / "local" / "user.bin").generic_string(), {}}};
     return SaveMinimalApplicationEmbeddedUserState(*application) == 0 &&
-           SerializeUserStorage(g_user_storage, bytes);
+           SerializeUserStorage(g_user_storage, files[0].bytes) && SerializeUserStorage(g_local_storage, files[1].bytes);
   };
   callbacks.after_initial = [](ae::Obj& root) {
     ApplyPagePresentation(root);
     ApptraverseMinimalAppViewportChanged(g_viewport_width, g_viewport_height);
     HideLoading();
+    EM_ASM({ console.log('MINIMAL_APP_INITIAL_RENDER_OK'); });
   };
   callbacks.after_incremental = ApplyPagePresentation;
   callbacks.persist_model = [](ae::Domain& domain) -> int {
@@ -216,6 +239,7 @@ void StartWebMinimalApplication() {
   callbacks.on_save_started = [] { SetSaveStatus("Saving…"); };
   callbacks.on_save_succeeded = [] {
     SetSaveStatus("Saved");
+    EM_ASM({ console.log('MINIMAL_APP_IDBFS_SAVED'); });
   };
   callbacks.on_save_failed = [] {
     SetSaveStatus("Save failed");

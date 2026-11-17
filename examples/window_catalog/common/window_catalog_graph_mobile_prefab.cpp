@@ -48,6 +48,8 @@ void AppendMobileCloseButtonToWindowPrefab(
   ae::Ptr<CatalogWindow> const window_body = prefab_ref.Load();
   window_body->close_button = close_button;
   window_body->close_button_presenter = close_presenter;
+  window_body->caption_close_control = close_presenter;
+  window_body->caption_close_control_id = kCloseControlId;
 }
 
 }  // namespace apptraverse

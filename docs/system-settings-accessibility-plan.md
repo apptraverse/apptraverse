@@ -258,3 +258,43 @@ macOS/iOS → итоговая матрица. Нативные контейне
 а не наличие интерфейсов или успешная компиляция адаптера. Старые реальные
 проверки сохраняются с исходным объёмом; неподтверждённые возможности получают
 NOT RUN/BLOCKED с конкретной причиной.
+
+
+## 11. Final authorized non-Apple scope — 2026-11-17
+
+The user authorized Windows/common corrections and Linux/GTK, Web and Android
+implementation, including independent MinimalApp adoption. These non-Apple
+adapters are implemented within the executed scopes below; the earlier §9 table
+is the original Windows checkpoint. Apple-specific implementation remains excluded.
+GPT-6 Astra ultra performed the read-only review and recorded dispositions for all
+30 mandatory Canon rules; GPT-6.1 Sol high owned all coding. Closing that scoped
+source audit is not certification of every possible runtime or OS environment.
+
+| Current scope | Recorded outcome |
+| --- | --- |
+| Windows/common model, native lifecycle, independent HWND drag/resize/publication/cold restore, same-target request regression | 29 distinct final test outcomes PASS; four PE import inspections PASS within static scope |
+| Linux/GTK and Web | Real GUI/browser and lifecycle scopes PASS; native Windows USER transfers with absent/existing LOCAL PASS; actual compatible supply/default/override/Clear update PASS |
+| Android transfers and deployment | Portable-only, absent LOCAL seed and existing LOCAL transfers PASS; actual APK/supply update/default-versus-override PASS |
+| Android environment and generic composition | Live/stopped OS settings and unchanged-startup comparison PASS; completed missing-binding negative PASS; MinimalApp and ordinary Debug fresh-policy checks PASS |
+| Android functional UI | Seven distinct baseline cases plus the new native disabled-state case PASS; two Home/Back then native Recents-dismiss cases NOT PASS; no blanket 9/9 claim |
+| Android final palette-only appearance/disabled-state regression | PASS, 2/2 narrow cases in 52.929s; native disabled text state and LOCAL cold restore |
+
+The Recents failure was reproduced independently on stock Android Settings on the
+same emulator with validated thumbnail geometry and genuine native touch input.
+This supports a launcher/input acceptance blocker rather than an established
+Catalog-specific regression, and does not count as successful native dismissal.
+The separately verified onStop persistence/cold-load boundary remains distinct.
+
+Evidence:
+[Windows/common corrections](validation/nonapple-layout-local-canon-fixes-2026-11-16.md),
+[Linux/Web](validation/window-catalog-linux-web-local-layout-2026-11-17.md),
+[Android](validation/window-catalog-android-settings-2026-11-17.md), and the
+[30-rule Canon audit](validation/windows-canon-ultra-audit-2026-11-16.md).
+
+No actual OS-image replacement/OTA was executed; density/font/night-mode changes
+and application/supply updates do not establish OS-image-upgrade compatibility.
+Actual Win7, physical mixed-DPI/multiple-monitor acceptance, real screen-reader and
+full High Contrast/accessibility matrices, Apple implementation/runtime, other
+unexecuted environments and Release packaging remain NOT RUN. Platform reports
+retain additional limits such as Xvfb versus Wayland and headless browser tab-hide.
+The historical 52-process portability matrix was not rerun under this new schema.

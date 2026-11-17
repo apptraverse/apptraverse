@@ -24,6 +24,7 @@ UiDeviceEnvironment Environment() {
 void Supply(ae::RamDomainStorage& supply) {
   ae::Domain domain{supply};
   auto root = UiDeviceState::ptr::Create(ae::CreateWith{domain}.with_id(kLocal));
+  root->Bootstrap({UiThemeMode::kAuto, false}, UiDeviceEnvironment{});
   FinalizeDistilledGraph(*root);
   SaveDistilledRoot(*root);
 }
@@ -187,10 +188,42 @@ void TestMonitorLossAndReturnWithImmediateCompaction() {
   Save(*state);
   CHECK(portable.state.empty());
 }
+void TestQueuedObservationAfterMonitorLoss() {
+  ae::RamDomainStorage supply, portable, local;
+  Supply(supply);
+  ClientLocalDomainStorage routed{portable, local, supply, CollectClientLocalRoots(supply)};
+  OverlayDomainStorage overlay{routed, supply};
+  ae::Domain domain{overlay};
+  auto state = LoadApplication<UiDeviceState>(domain, kLocal);
+  for (bool compact : {false, true}) {
+    state->SetImmediateEventCompaction(compact);
+    state->ObserveEnvironment(Environment(), UiEnvironmentReason::kSystemNotification);
+    // A queued first observation arrives after its monitor disappeared.
+    ae::ObjId const window{compact ? 41u : 40u};
+    state->ObserveWindow({window, "removed", 192, 192, {20, 30, 600, 400}}, UiEnvironmentReason::kStartup);
+    CHECK(state->PlacementFor(window)->resolution == UiMonitorResolution::kMissing);
+    CHECK(state->PlacementFor(window)->resolved_monitor == "display-a");
+    CHECK(state->PlacementFor(window)->preferred_monitor == "removed");
+    CHECK(state->PlacementFor(window)->revision == 2);
+    auto empty = Environment(); empty.monitors.clear();
+    state->ObserveEnvironment(empty, UiEnvironmentReason::kSystemNotification);
+    state->ObserveWindow({window, "removed", 144, 144, {40, 50, 500, 300}}, UiEnvironmentReason::kUserWindowChange);
+    CHECK(state->PlacementFor(window)->resolution == UiMonitorResolution::kUnavailable);
+    CHECK(state->PlacementFor(window)->resolved_monitor.empty());
+    CHECK(state->PlacementFor(window)->preferred_monitor == "removed");
+    CHECK(state->TryReplayFromBase());
+    CHECK(state->PlacementFor(window)->resolution == UiMonitorResolution::kUnavailable);
+    CHECK(state->PlacementFor(window)->frame_dip == (UiDisplayRect{40, 50, 500, 300}));
+  }
+  Save(*state);
+  CHECK(portable.state.empty());
+}
+
 }
 int main() {
   EnsureCoreObjectRegistration();
   EnsureUiControlRegistration();
+  TestQueuedObservationAfterMonitorLoss();
   TestObservationEventsAndReplay();
   TestColdStartupAndTransfer();
   TestMonitorLossAndReturnWithImmediateCompaction();

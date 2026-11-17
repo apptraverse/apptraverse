@@ -42,8 +42,8 @@ def require_markers(text: str, markers: list[str]) -> None:
 
 
 def require_single_user_file(profile: Path) -> None:
-    entries = sorted(path.name for path in profile.iterdir())
-    if entries != ["user.bin"] or (profile / "user.bin").stat().st_size == 0:
+    entries = sorted(path.relative_to(profile).as_posix() for path in profile.rglob("*") if path.is_file())
+    if entries != ["local/user.bin", "user.bin"] or any((profile / file).stat().st_size == 0 for file in entries):
         print(f"FAIL: expected one non-empty USER file, found {entries}", file=sys.stderr)
         sys.exit(1)
 

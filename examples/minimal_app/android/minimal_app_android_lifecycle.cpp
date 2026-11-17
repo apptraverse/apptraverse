@@ -15,26 +15,35 @@
 
 namespace apptraverse::example::minimal {
 int PersistAndroidMinimalUser(ae::Domain& domain, ae::RamDomainStorage& user_storage,
+                               ae::RamDomainStorage& local_storage,
                               std::filesystem::path const& state_dir) {
   auto application = domain.Find(MinimalApplicationRootId()).as<MinimalApplication>();
   int const saved = SaveMinimalApplicationEmbeddedUserState(*application);
   if (saved != 0) return saved;
-  return SaveUserStorageFile(user_storage, state_dir) ? 0 : 1;
+  return SaveUserStorageFile(user_storage, state_dir) &&
+      SaveUserStorageFile(local_storage, state_dir / "local") ? 0 : 1;
 }
 
 int RunMinimalApplicationModel(ae::RamDomainStorage& user_storage,
+                               ae::RamDomainStorage& local_storage,
                                std::filesystem::path const& state_dir,
                                ApplicationModelRuntime& runtime,
-                               ApplicationPublishedCallback on_published) {
-  if (!LoadUserStorageFile(user_storage, state_dir)) return 1;
+                               ApplicationPublishedCallback on_published,
+                               ui::UiDeviceEnvironment const* startup_environment) {
+  if (!LoadUserStorageFile(user_storage, state_dir) ||
+      !LoadUserStorageFile(local_storage, state_dir / "local")) return 1;
   ApplicationModelSessionHooks<MinimalApplication> hooks;
-  hooks.prepare = PrepareMinimalApplicationForRun;
-  hooks.persist = [&user_storage, &state_dir](MinimalApplication& application) -> int {
-    return PersistAndroidMinimalUser(*application.domain, user_storage, state_dir);
+  hooks.prepare = [startup_environment](MinimalApplication& application) {
+    PrepareMinimalApplicationForRun(application);
+    if (startup_environment) application.main_window->device_state->ObserveEnvironment(
+        *startup_environment, ui::UiEnvironmentReason::kStartup);
+  };
+  hooks.persist = [&user_storage, &local_storage, &state_dir](MinimalApplication& application) -> int {
+    return PersistAndroidMinimalUser(*application.domain, user_storage, local_storage, state_dir);
   };
 
   return RunEmbeddedApplicationModelSession(
-      user_storage, embedded_distilled::minimal::kEmbeddedGraph, runtime,
+      user_storage, local_storage, embedded_distilled::minimal::kEmbeddedGraph, runtime,
       std::move(on_published), hooks);
 }
 

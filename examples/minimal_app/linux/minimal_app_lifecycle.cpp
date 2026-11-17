@@ -8,6 +8,8 @@
 #include "apptraverse/object_macros.h"
 #include "apptraverse/platform/linux/linux_ui_registration.h"
 #include "apptraverse/single_file_user_storage.h"
+#include "apptraverse/client_local_state.h"
+#include "apptraverse/embedded_application_model_session.h"
 #include "apptraverse/ui/ui_presenters.h"
 #ifdef APPTRAVERSE_DEBUG_FRESH_START
 #include "apptraverse/distill.h"
@@ -26,13 +28,14 @@ namespace apptraverse::example::minimal {
 int RunMinimalApplicationModel(
     std::filesystem::path const& state_dir,
     ApplicationModelRuntime& runtime,
-    ApplicationPublishedCallback on_published) {
+    ApplicationPublishedCallback on_published,
+    ui::UiDeviceEnvironment environment) {
   EnsureObjectRegistration();
   ui::EnsureUiPresenterRegistration();
   ui::linux::EnsureLinuxUiPresenterRegistration();
   EnsureMinimalApplicationRegistration();
 
-  ae::RamDomainStorage user;
+  ae::RamDomainStorage user, local;
 #ifdef APPTRAVERSE_DEBUG_FRESH_START
   ae::RamDomainStorage backing;
   {
@@ -41,9 +44,9 @@ int RunMinimalApplicationModel(
     FinalizeDistilledGraph(*application);
     SaveDistilledRoot(*application);
   }
-  OverlayDomainStorage overlay{user, backing, {}};
+
 #else
-  if (!LoadUserStorageFile(user, state_dir)) return 1;
+  if (!LoadUserStorageFile(user, state_dir) || !LoadUserStorageFile(local, state_dir / "local")) return 1;
   std::error_code error;
   bool const has_user = std::filesystem::exists(state_dir / "user.bin", error);
   if (error) {
@@ -59,18 +62,21 @@ int RunMinimalApplicationModel(
 #endif
 
   ApplicationModelSessionHooks<MinimalApplication> hooks;
-  hooks.prepare = PrepareMinimalApplicationForRun;
-  hooks.persist = [&user, &state_dir](MinimalApplication& application) {
+  hooks.prepare = [environment](MinimalApplication& application) {
+    PrepareMinimalApplicationForRun(application);
+    application.main_window->device_state->ObserveEnvironment(environment, ui::UiEnvironmentReason::kStartup);
+  };
+  hooks.persist = [&user, &local, &state_dir](MinimalApplication& application) {
     int const saved = SaveMinimalApplicationEmbeddedUserState(application);
     if (saved != 0) return saved;
-    return SaveUserStorageFile(user, state_dir) ? 0 : 1;
+    return SaveUserStorageFile(user, state_dir) && SaveUserStorageFile(local, state_dir / "local") ? 0 : 1;
   };
 #ifdef APPTRAVERSE_DEBUG_FRESH_START
-  return RunApplicationModelSession(overlay, MinimalApplicationRootId(), runtime,
+  return RunClientLocalApplicationModelSession(user, local, backing, {}, MinimalApplicationRootId(), runtime,
                                     std::move(on_published), hooks);
 #else
   return RunEmbeddedApplicationModelSession(
-      user, embedded_distilled::minimal::kEmbeddedGraph, runtime,
+      user, local, embedded_distilled::minimal::kEmbeddedGraph, runtime,
       std::move(on_published), hooks);
 #endif
 }

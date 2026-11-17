@@ -282,6 +282,10 @@ void ActivateTestWindow(HWND parent) {
     // Windows may deny programmatic foreground activation to a background test
     // process. Establish the same precondition as a user clicking the title bar;
     // keep the focus assertion, and do not alter the application focus policy.
+    // A just-created child can cover the main title bar. Expose the requested
+    // test window before issuing the user-equivalent click.
+    CHECK(SetWindowPos(parent, HWND_TOP, 0, 0, 0, 0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE));
     RECT frame{};
     CHECK(GetWindowRect(parent, &frame));
     auto const x = frame.left + (frame.right - frame.left) / 2;

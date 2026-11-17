@@ -91,6 +91,14 @@ WindowCatalogLinuxApplication::MakeHostCallbacks() {
 
 int WindowCatalogLinuxApplication::Run(
     linux::LinuxApplicationHostCallbacks callbacks) {
+  // Capture GTK on its owner thread, then compare loaded LOCAL before initial publication.
+  gtk_init(nullptr, nullptr);
+  auto environment = ui::linux::ReadLinuxDeviceEnvironment();
+  auto prepare = session_.prepare_local_state;
+  session_.prepare_local_state = [environment, prepare](WindowCatalog& catalog) {
+    catalog.persisted.device_state->ObserveEnvironment(environment, ui::UiEnvironmentReason::kStartup);
+    if (prepare) prepare(catalog);
+  };
   linux::LinuxApplicationHost host{session_.runtime, std::move(callbacks)};
   host.Run();
   session_.main_native_frame_queue.ClosePosting();

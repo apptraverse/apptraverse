@@ -13,7 +13,6 @@ import android.os.SystemClock;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 import androidx.test.uiautomator.By;
-import androidx.test.uiautomator.Direction;
 import androidx.test.uiautomator.UiDevice;
 import androidx.test.uiautomator.UiObject2;
 import androidx.test.uiautomator.Until;
@@ -40,7 +39,7 @@ public final class WindowCatalogInstrumentedTest {
   @Before public void setUp() throws Exception {
     device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
     device.setOrientationNatural();
-    device.pressHome();
+    home();
     killDemoProcessOnly();
     stateSubdir = "acceptance-" + System.nanoTime();
     stateDir = new File(targetContext().getFilesDir(), stateSubdir);
@@ -49,7 +48,7 @@ public final class WindowCatalogInstrumentedTest {
   @After public void tearDown() throws Exception {
     device.setOrientationNatural();
     device.unfreezeRotation();
-    device.pressHome();
+    home();
     killDemoProcessOnly();
   }
 
@@ -72,7 +71,7 @@ public final class WindowCatalogInstrumentedTest {
     return found;
   }
 
-  private void tap(String text) { waitText(text).click(); }
+  private void tap(String text) { waitText(text).click(); device.waitForIdle(); }
   private void waitCatalog() { waitText("Window Catalog"); waitText("Add"); }
   private void waitChild() { waitText("Window 1"); waitText("Close"); }
 
@@ -97,11 +96,17 @@ public final class WindowCatalogInstrumentedTest {
     tap("Close");
     waitCatalog();
     tap("Window 1 (Closed)");
+    waitChild();
+    tap("Close");
+    waitCatalog();
     tap("Open");
     waitChild();
     swipe(1);
     waitCatalog();
     tap("Window 1");
+    waitChild();
+    swipe(1);
+    waitCatalog();
     tap("Delete");
     assertTrue(device.wait(Until.gone(By.text("Window 1")), 30_000));
     assertTrue("Working, swiping and child close must stay in RAM", userFiles().isEmpty());
@@ -113,13 +118,15 @@ public final class WindowCatalogInstrumentedTest {
     tap("Add");
     waitChild();
     assertTrue(userFiles().isEmpty());
-    device.pressHome();
+    home();
     long deadline = SystemClock.uptimeMillis() + 30_000;
     while (userFiles().isEmpty() && SystemClock.uptimeMillis() < deadline) {
       SystemClock.sleep(25);
     }
     assertEquals("One USER file at background lifecycle boundary", 1, userFiles().size());
     File firstFile = userFiles().get(0);
+    assertTrue("LOCAL uses native object storage at the same lifecycle boundary",
+        new File(firstFile.getParentFile(), "local/user.bin").length() > 0);
     assertTrue(firstFile.length() > 0);
     byte[] firstBytes = readBytes(firstFile);
     long firstModified = firstFile.lastModified();
@@ -189,7 +196,123 @@ public final class WindowCatalogInstrumentedTest {
     waitText("Window 1");
   }
 
-  private void waitForCatalogInputFocus() throws Exception {
+  private void keyEvent(int code) {
+    try { device.executeShellCommand("input keyevent " + code); }
+    catch (Exception error) { throw new AssertionError(error); }
+  }
+  private void home() {
+    keyEvent(3);
+    assertTrue("HOME must leave the app before its demo process is killed",
+        device.wait(Until.gone(By.pkg(PACKAGE)), 30_000));
+    device.waitForIdle();
+  }
+  private void back() { keyEvent(4); }
+  private boolean menuChecked(String text) {
+    UiObject2 ancestor = waitText(text);
+    for (int depth = 0; depth < 5 && ancestor != null; ++depth) {
+      List<UiObject2> checks = ancestor.findObjects(By.checkable(true));
+      if (checks.size() == 1) return checks.get(0).isChecked();
+      if (checks.size() > 1) break; // Do not mistake another menu row for this one.
+      ancestor = ancestor.getParent();
+    }
+    throw new AssertionError("Native menu row must expose its radio/checkbox: " + text);
+  }
+  private void appearanceMenu() {
+    try { waitForCatalogInputFocus(); } catch (Exception error) { throw new AssertionError(error); }
+    device.waitForIdle();
+    keyEvent(82);
+    waitText("Auto theme");
+  }
+
+  @Test public void appearanceCommandsPersistLocallyAndFollowFreshProfilePolicy() throws Exception {
+    launch();
+    waitCatalog();
+    appearanceMenu();
+    tap("Dark theme");
+    appearanceMenu();
+    assertTrue(menuChecked("Dark theme"));
+    tap("Soften dark theme");
+    appearanceMenu();
+    assertTrue(menuChecked("Soften dark theme"));
+    back();
+    assertTrue("Appearance changes remain RAM-backed until lifecycle", userFiles().isEmpty());
+    home();
+    assertEquals(1, userFiles().size());
+    assertTrue(new File(userFiles().get(0).getParentFile(), "local/user.bin").length() > 0);
+    killDemoProcessOnly();
+    launch();
+    waitCatalog();
+    appearanceMenu();
+    boolean fresh = Boolean.parseBoolean(
+        InstrumentationRegistry.getArguments().getString("debugFresh", "true"));
+    assertTrue(menuChecked(fresh ? "Auto theme" : "Dark theme"));
+    assertEquals(!fresh, menuChecked("Soften dark theme"));
+    tap("Light theme");
+    appearanceMenu();
+    assertTrue(menuChecked("Light theme"));
+    tap("Auto theme");
+    appearanceMenu();
+    assertTrue(menuChecked("Auto theme"));
+    back();
+  }
+
+  @Test public void darkSofteningPreservesNativeDisabledTextState() {
+    InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> {
+      Context context = targetContext();
+      android.widget.FrameLayout parent = new android.widget.FrameLayout(context);
+      android.widget.FrameLayout client =
+          com.apptraverse.ui.android.AppTraverseAndroidUi.createClientMount(parent, 0);
+      android.widget.Button enabled = com.apptraverse.ui.android.AppTraverseAndroidUi
+          .createPushButton(client, 1, "Enabled", true, 0, 0, 100, 48, 0);
+      android.widget.Button disabled = com.apptraverse.ui.android.AppTraverseAndroidUi
+          .createPushButton(client, 2, "Disabled", false, 0, 48, 100, 48, 0);
+      try {
+        Context nativeDark = new android.view.ContextThemeWrapper(context,
+            android.R.style.Theme_Material);
+        android.content.res.TypedArray colors = nativeDark.obtainStyledAttributes(
+            new int[] {android.R.attr.textColorPrimary});
+        android.content.res.ColorStateList foreground = colors.getColorStateList(0);
+        int nativeDisabled = foreground.getColorForState(
+            new int[] {-android.R.attr.state_enabled}, foreground.getDefaultColor());
+        colors.recycle();
+        com.apptraverse.ui.android.AppTraverseAndroidUi.applyAppearance(client, 2, true);
+        assertEquals("Disabled text retains the native dark theme state", nativeDisabled,
+            disabled.getCurrentTextColor());
+        assertTrue("Enabled and disabled native controls remain visually distinct",
+            enabled.getCurrentTextColor() != disabled.getCurrentTextColor());
+        assertFalse(disabled.isEnabled());
+      } finally {
+        com.apptraverse.ui.android.AppTraverseAndroidUi.releaseClientMount(client);
+      }
+    });
+  }
+
+  @Test public void liveSystemTextScalingRemeasuresNativeButtons() throws Exception {
+    String original = device.executeShellCommand("settings get system font_scale").trim();
+    try {
+      device.executeShellCommand("settings put system font_scale 1.0");
+      launch();
+      waitCatalog();
+      int initial = waitText("Add").getVisibleBounds().height();
+      device.executeShellCommand("settings put system font_scale 2.0");
+      long deadline = SystemClock.uptimeMillis() + 15_000;
+      int scaled = initial;
+      while (scaled <= initial && SystemClock.uptimeMillis() < deadline) {
+        SystemClock.sleep(100);
+        scaled = waitText("Add").getVisibleBounds().height();
+      }
+      assertTrue("Native SP text measurement must enlarge the shared layout: "
+          + initial + " -> " + scaled, scaled > initial);
+      assertTrue("OS observations must not save before onStop", userFiles().isEmpty());
+    } finally {
+      if (original.equals("null")) device.executeShellCommand("settings delete system font_scale");
+      else device.executeShellCommand("settings put system font_scale " + original);
+    }
+  }
+
+  private void waitForCatalogInputFocus() throws Exception { waitForInputFocus(PACKAGE); }
+
+  private void waitForInputFocus(String packageName) throws Exception {
     // Accessibility can expose the new Activity before InputDispatcher focuses
     // its window. Injecting then queues DOWN until it is already a long press.
     long deadline = SystemClock.uptimeMillis() + 30_000;
@@ -199,10 +322,10 @@ public final class WindowCatalogInstrumentedTest {
       int start = input.indexOf("  FocusedWindows:");
       int end = input.indexOf("  FocusRequests:", start);
       focusedWindows = start >= 0 && end > start ? input.substring(start, end) : "<unavailable>";
-      if (focusedWindows.contains(PACKAGE + "/" + PACKAGE + ".MainActivity")) return;
+      if (focusedWindows.contains(packageName + "/")) return;
       SystemClock.sleep(25);
     } while (SystemClock.uptimeMillis() < deadline);
-    assertTrue("Catalog window did not acquire input focus: " + focusedWindows, false);
+    assertTrue("Window did not acquire input focus for " + packageName + ": " + focusedWindows, false);
   }
 
   @Test public void backThenRecentTaskDismissColdRestartHonorsBuildPolicy() throws Exception {
@@ -229,8 +352,17 @@ public final class WindowCatalogInstrumentedTest {
     assertFalse(oldPid.isEmpty());
     assertTrue(userFiles().isEmpty());
 
-    if (useBack) assertTrue(device.pressBack());
-    else assertTrue(device.pressHome());
+    String taskId = currentCatalogTaskId();
+    // Repeated acceptance runs may retain older cards with the same app label.
+    // Remove only those stale own-app tasks; the current task is dismissed below
+    // by the real native Recents gesture and is never removed through this API.
+    android.app.ActivityManager manager = (android.app.ActivityManager)
+        targetContext().getSystemService(Context.ACTIVITY_SERVICE);
+    for (android.app.ActivityManager.AppTask task : manager.getAppTasks()) {
+      if (task.getTaskInfo().taskId != Integer.parseInt(taskId)) task.finishAndRemoveTask();
+    }
+    if (useBack) back();
+    else home();
     long deadline = SystemClock.uptimeMillis() + 30_000;
     while (userFiles().isEmpty() && SystemClock.uptimeMillis() < deadline) {
       SystemClock.sleep(25);
@@ -252,19 +384,23 @@ public final class WindowCatalogInstrumentedTest {
     assertTrue("Expected home from " + launcher + ", current=" + device.getCurrentPackageName(),
         device.wait(Until.hasObject(By.pkg(launcher)), 10_000));
     device.waitForIdle();
-    String taskId = recentCatalogTaskId();
-    // Real Pixel/API34 Recents gesture, not force-stop or an explicit process kill.
-    assertTrue(device.pressRecentApps());
+    assertTrue("Current task must remain in Recents before dismissal", hasRecentTask(taskId));
+    // Native Pixel/API34 Recents dismissal, not removal of the current task by API.
+    keyEvent(187);
     device.waitForIdle();
     String appLabel = targetContext().getApplicationInfo()
         .loadLabel(targetContext().getPackageManager()).toString();
     Rect bounds = settledRecentCardBounds(launcher, appLabel);
+    waitForInputFocus(launcher);
     device.dumpWindowHierarchy(new File(targetContext().getCacheDir(), "recents-before-swipe.xml"));
     device.takeScreenshot(new File(targetContext().getCacheDir(), "recents-before-swipe.png"));
     UiObject2 taskSnapshot = device.findObject(By.desc(appLabel))
         .findObject(By.res(launcher, "snapshot"));
     assertNotNull(taskSnapshot);
-    taskSnapshot.swipe(Direction.UP, 1.0f);
+    if (!dismissCurrentCardThroughAccessibility(appLabel)) {
+      device.executeShellCommand("input swipe " + bounds.centerX() + " " + bounds.centerY()
+          + " " + bounds.centerX() + " 0 220");
+    }
     deadline = SystemClock.uptimeMillis() + 10_000;
     while (hasRecentTask(taskId) && SystemClock.uptimeMillis() < deadline) {
       SystemClock.sleep(25);
@@ -301,6 +437,30 @@ public final class WindowCatalogInstrumentedTest {
     assertFalse("The restored graph must be loaded in a new process", oldPid.equals(newPid));
   }
 
+  private boolean dismissCurrentCardThroughAccessibility(String appLabel) {
+    android.view.accessibility.AccessibilityNodeInfo root =
+        InstrumentationRegistry.getInstrumentation().getUiAutomation().getRootInActiveWindow();
+    return dismissCardNode(root, appLabel);
+  }
+  private boolean dismissCardNode(android.view.accessibility.AccessibilityNodeInfo node,
+                                  String appLabel) {
+    if (node == null) return false;
+    if (appLabel.contentEquals(String.valueOf(node.getContentDescription()))) {
+      for (android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction action : node.getActionList()) {
+        String label = String.valueOf(action.getLabel());
+        if (action.getId() == android.view.accessibility.AccessibilityNodeInfo.ACTION_DISMISS
+            || label.equalsIgnoreCase("Close app")) {
+          System.out.println("NATIVE_RECENTS_DISMISS_ACTION=" + action.getId() + " label=" + label);
+          return node.performAction(action.getId());
+        }
+      }
+    }
+    for (int i = 0; i < node.getChildCount(); ++i) {
+      if (dismissCardNode(node.getChild(i), appLabel)) return true;
+    }
+    return false;
+  }
+
   private Rect settledRecentCardBounds(String launcher, String label) {
     long deadline = SystemClock.uptimeMillis() + 10_000;
     Rect previous = null;
@@ -320,11 +480,11 @@ public final class WindowCatalogInstrumentedTest {
     throw new AssertionError("Catalog Recents card did not settle: " + label + " " + previous);
   }
 
-  private String recentCatalogTaskId() throws Exception {
-    String recent = device.executeShellCommand("dumpsys activity recents");
-    Matcher match = Pattern.compile("(?m)^\\s*\\* Recent #\\d+: Task\\{[^\\n]* #(\\d+) "
-        + "[^\\n]*A=\\d+:" + Pattern.quote(PACKAGE) + "\\}").matcher(recent);
-    assertTrue("Catalog task not found before dismissal: " + recent, match.find());
+  private String currentCatalogTaskId() throws Exception {
+    String activities = device.executeShellCommand("dumpsys activity activities");
+    Matcher match = Pattern.compile("topResumedActivity=ActivityRecord\\{[^\\n]* "
+        + Pattern.quote(PACKAGE) + "/[^ ]+ t(\\d+)").matcher(activities);
+    assertTrue("Foreground catalog task not found: " + activities, match.find());
     return match.group(1);
   }
 
@@ -335,7 +495,7 @@ public final class WindowCatalogInstrumentedTest {
   }
 
   private void assertChildCloseUsesViewport() {
-    // Native views apply pixels published by the model after the viewport event.
+    // The common UI-runtime solver arranges native views after viewport measurement.
     Rect bounds = waitText("Close").getVisibleBounds();
     long deadline = SystemClock.uptimeMillis() + 10_000;
     while ((bounds.width() < device.getDisplayWidth() * 4 / 5
@@ -370,7 +530,9 @@ public final class WindowCatalogInstrumentedTest {
     File[] entries = dir.listFiles();
     if (entries == null) return;
     for (File entry : entries) {
-      if (entry.isDirectory()) collectUserFiles(entry, result);
+      if (entry.isDirectory()) {
+        if (!entry.getName().equals("local")) collectUserFiles(entry, result);
+      }
       else {
         assertEquals("Unexpected per-object or checkpoint file", "user.bin", entry.getName());
         result.add(entry);
@@ -396,7 +558,13 @@ public final class WindowCatalogInstrumentedTest {
     int y = device.getDisplayHeight() / 2;
     int start = direction < 0 ? width * 3 / 4 : width / 4;
     int end = direction < 0 ? width / 4 : width * 3 / 4;
-    assertTrue(device.swipe(start, y, end, y, 12));
+    try { waitForCatalogInputFocus(); } catch (Exception error) { throw new AssertionError(error); }
+    device.waitForIdle();
+    try {
+      // Shell injection retains event timing under this AVD's instrumentation
+      // load; UiDevice.swipe can deliver a queued DOWN as a long press.
+      device.executeShellCommand("input swipe " + start + " " + y + " " + end + " " + y + " 180");
+    } catch (Exception error) { throw new AssertionError(error); }
     device.waitForIdle();
   }
 }

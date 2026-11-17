@@ -50,6 +50,11 @@ class UiLayoutState : public NodeFor<UiLayoutState> {
   bool has_override;
   UiLayoutNode override_root;
 
+  void Bootstrap(UiLayoutDefinition::ptr value, bool overridden, UiLayoutNode root) {
+    definition = std::move(value);
+    has_override = overridden;
+    override_root = std::move(root);
+  }
   UiLayoutNode const& EffectiveRoot() const;
   bool TrySetOverride(UiLayoutNode root);
   void SetOverride(UiLayoutNode root);

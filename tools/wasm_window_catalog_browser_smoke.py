@@ -141,16 +141,25 @@ def acceptance(page: Page, fresh_url: str, load_url: str, screenshot: Path) -> N
     child_page(page, 'Window 2')
     expect(page.locator('.catalog-page')).to_have_count(2)
     assert snapshot(page) == before, 'UI actions/child Close wrote USER'
+    page.locator('#appearance-theme').select_option('2')
+    page.locator('#appearance-soft').check()
+    page.wait_for_function("() => [...document.querySelectorAll('.catalog-page')].every(el => el.dataset.apptraverseTheme === 'soft-dark')")
+    page.emulate_media(forced_colors='active')
+    page.wait_for_function("() => [...document.querySelectorAll('.catalog-page')].every(el => el.dataset.apptraverseTheme === 'system')")
+    page.emulate_media(forced_colors='none')
+    page.wait_for_function("() => [...document.querySelectorAll('.catalog-page')].every(el => el.dataset.apptraverseTheme === 'soft-dark')")
     screenshot.parent.mkdir(parents=True, exist_ok=True)
     page.screenshot(path=str(screenshot), full_page=True)
     saved = shutdown(page)
-    assert len(saved) == 1
+    assert len(saved) == 2
     url = urlsplit(load_url)
     load_url = urlunsplit((url.scheme, url.netloc, url.path,
-                          urlencode({'state-dir': saved[0]['path'].rsplit('/', 1)[0]}), url.fragment))
+                          urlencode({'state-dir': next(f['path'].rsplit('/', 1)[0] for f in saved if '/local/' not in f['path'])}), url.fragment))
 
     load(page, load_url)
     child_page(page, 'Window 2')
+    expect(page.locator('#appearance-theme')).to_have_value('2')
+    expect(page.locator('#appearance-soft')).to_be_checked()
     assert snapshot(page) == saved, 'startup rewrote USER'
     page.locator(ACTIVE + ' button').click()
     expect(page.locator(ROWS)).to_have_text(['Window 2 (Closed)'])
@@ -164,7 +173,7 @@ def acceptance(page: Page, fresh_url: str, load_url: str, screenshot: Path) -> N
     child_page(page, 'Окно 2')
     assert snapshot(page) == saved, 'locale/publications wrote USER'
     saved_ru = shutdown(page)
-    assert saved_ru[0]['sha'] != saved[0]['sha'], 'shutdown did not save changed language'
+    assert next(f['sha'] for f in saved_ru if '/local/' not in f['path']) != next(f['sha'] for f in saved if '/local/' not in f['path']), 'shutdown did not save changed language'
 
     load(page, load_url)
     child_page(page, 'Окно 2')
@@ -177,7 +186,7 @@ def acceptance(page: Page, fresh_url: str, load_url: str, screenshot: Path) -> N
     expect(page.locator('#page-title')).to_have_text('Window Catalog')
     assert snapshot(page) == prior_debug, 'fresh Debug loaded or rewrote prior USER'
     new_debug = shutdown(page)
-    assert len(new_debug) == 2 and prior_debug[0] in new_debug
+    assert len(new_debug) == 4 and all(f in new_debug for f in prior_debug)
 
 
 def main() -> int:
@@ -207,7 +216,7 @@ def main() -> int:
             known_warning = 'error: Blocking on the main thread is very dangerous, see https://emscripten.org/docs/porting/pthreads.html#blocking-on-the-main-browser-thread'
             unexpected = [m for m in messages if m.startswith('error:') and m != known_warning]
             assert not unexpected, unexpected
-            print('PASS: Web WindowCatalog input, model pager/viewport, child Close, one USER file, two cold restarts, fresh Debug')
+            print('PASS: Web WindowCatalog input, local layout/appearance, child Close, USER+LOCAL files, two cold restarts, fresh Debug')
             return 0
         except Exception as error:
             print('FAIL:', error)

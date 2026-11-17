@@ -8,6 +8,13 @@
 
 namespace apptraverse::web {
 
+struct WebPersistentFileSnapshot {
+  std::string path;
+  std::vector<std::uint8_t> bytes;
+};
+bool CommitIdbfsFilesForPageLifecycle(std::string const& mount_path,
+    std::vector<WebPersistentFileSnapshot> const& files);
+
 using IdbfsCompletionCallback = std::function<void()>;
 
 // Mount IDBFS at mount_path (browser main), syncfs(true), then invoke on_success.

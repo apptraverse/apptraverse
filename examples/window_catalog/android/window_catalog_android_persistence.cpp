@@ -20,8 +20,9 @@ int PersistWindowCatalogEmbeddedUserOverlayFromDomain(
   }
   auto& catalog = static_cast<apptraverse::WindowCatalog&>(*held);
   SaveWindowCatalogPersistentSnapshot(catalog);
-  if (!SaveUserStorageFile(profile.user, profile.state_dir)) {
-    WriteFatalStderr("fatal: WindowCatalog Android checkpoint save failed\n");
+  if (!SaveUserStorageFile(profile.user, profile.state_dir) ||
+      !SaveUserStorageFile(profile.local, profile.state_dir / "local")) {
+    WriteFatalStderr("fatal: WindowCatalog Android object-state save failed\n");
     return 1;
   }
   return 0;

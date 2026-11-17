@@ -141,7 +141,7 @@ foreach(_catalog_web_app web_window_catalog_demo web_window_catalog_demo_load_on
     -pthread -sPTHREAD_POOL_SIZE=1 -sINITIAL_MEMORY=268435456
     -sALLOW_MEMORY_GROWTH=0 -sFORCE_FILESYSTEM=1 -sEXIT_RUNTIME=0
     -lidbfs.js --bind
-    -sEXPORTED_FUNCTIONS=_main,_ApptraverseWebUiPushButtonClicked,_ApptraverseWebUiListSelectionChanged,_ApptraverseWebUiListRowActivated,_ApptraverseWebIdbfsLoadDone,_ApptraverseWebIdbfsLoadFailed,_ApptraverseWebIdbfsStoreDone,_ApptraverseWebIdbfsStoreFailed,_ApptraverseWindowCatalogRequestShutdown,_ApptraverseWindowCatalogPageHidden,_ApptraverseWindowCatalogMobileSwipe,_ApptraverseWindowCatalogMobilePageShown,_ApptraverseWindowCatalogViewportChanged,_ApptraverseWindowCatalogChildViewportChanged
+    -sEXPORTED_FUNCTIONS=_main,_ApptraverseWebWindowRefresh,_ApptraverseWebWindowFinishLayout,_ApptraverseWindowCatalogAppearance,_ApptraverseWebUiPushButtonClicked,_ApptraverseWebUiListSelectionChanged,_ApptraverseWebUiListRowActivated,_ApptraverseWebIdbfsLoadDone,_ApptraverseWebIdbfsLoadFailed,_ApptraverseWebIdbfsStoreDone,_ApptraverseWebIdbfsStoreFailed,_ApptraverseWindowCatalogRequestShutdown,_ApptraverseWindowCatalogPageHidden,_ApptraverseWindowCatalogMobileSwipe,_ApptraverseWindowCatalogMobilePageShown,_ApptraverseWindowCatalogViewportChanged,_ApptraverseWindowCatalogChildViewportChanged
     -sALLOW_TABLE_GROWTH=1
     -sEXPORTED_RUNTIME_METHODS=FS,addRunDependency,removeRunDependency,ccall,cwrap,UTF8ToString$<$<NOT:$<CONFIG:MinSizeRel>>:,count_emval_handles>
     --shell-file=${CMAKE_CURRENT_SOURCE_DIR}/window_catalog_shell.html)
@@ -177,3 +177,22 @@ target_link_options(apptraverse_window_catalog_web_embedded_session_test PRIVATE
   -sENVIRONMENT=node -sNODERAWFS=1 -sEXIT_RUNTIME=1 -sINITIAL_MEMORY=134217728 --bind)
 set_target_properties(apptraverse_window_catalog_web_embedded_session_test PROPERTIES
   SUFFIX ".js" CROSSCOMPILING_EMULATOR "${CMAKE_CROSSCOMPILING_EMULATOR}")
+
+# A separately distilled, compatible Debug revision for real browser update QA.
+# Its identity/schema stay the same; the immutable default constraint changes.
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  set(_catalog_web_update_dir "${CMAKE_CURRENT_BINARY_DIR}/generated_distilled/web_window_catalog_update")
+  set(_catalog_web_update_supply "${_catalog_web_update_dir}/embedded_distilled_window_catalog_web_supply.h")
+  file(MAKE_DIRECTORY "${_catalog_web_update_dir}")
+  add_custom_command(OUTPUT "${_catalog_web_update_supply}"
+    COMMAND apptraverse_export_window_catalog_distilled_graph_web "${_catalog_web_update_supply}" --layout-padding 24
+    DEPENDS apptraverse_export_window_catalog_distilled_graph_web VERBATIM)
+  add_executable(web_window_catalog_demo_update window_catalog_main.cpp window_catalog_web_app.cpp
+    window_catalog_web_persistence.cpp "${_catalog_web_update_supply}")
+  target_include_directories(web_window_catalog_demo_update PRIVATE "${_catalog_web_update_dir}")
+  target_link_libraries(web_window_catalog_demo_update PRIVATE window_catalog_window_catalog_web)
+  get_target_property(_catalog_web_update_options web_window_catalog_demo_load_only LINK_OPTIONS)
+  target_link_options(web_window_catalog_demo_update PRIVATE ${_catalog_web_update_options})
+  target_compile_options(web_window_catalog_demo_update PRIVATE -pthread)
+  set_target_properties(web_window_catalog_demo_update PROPERTIES SUFFIX ".html")
+endif()

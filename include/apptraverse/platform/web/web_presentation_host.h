@@ -9,6 +9,8 @@ namespace apptraverse::ui::web {
 // mount is set on the browser main thread before initial publication.
 struct WebPresentationHost {
   emscripten::EM_VAL mount{nullptr};
+  // Main-thread notifications stop at save/shutdown lifecycle barriers.
+  bool accepts_runtime_observations{true};
 };
 
 }  // namespace apptraverse::ui::web

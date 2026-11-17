@@ -165,6 +165,7 @@ void WebApplicationHost::Start() {
     WriteFatalStderr("fatal: WebApplicationHost::Start off main thread\n");
     std::abort();
   }
+  presentation_host_.accepts_runtime_observations = true;
   worker_main_teardown_done_.store(0, std::memory_order_release);
   if (model_thread_live_) {
     WriteFatalStderr("fatal: WebApplicationHost::Start with live model thread\n");
@@ -197,6 +198,7 @@ void WebApplicationHost::StartWithPersistentStorage(
 }
 
 void WebApplicationHost::FinishSaveFailure() {
+  presentation_host_.accepts_runtime_observations = lifecycle() == WebApplicationHostLifecycle::kRunning;
   save_state_.store(SaveState::kIdle, std::memory_order_release);
   if (lifecycle_.load(std::memory_order_acquire) ==
       WebApplicationHostLifecycle::kStopping) {
@@ -215,6 +217,7 @@ void WebApplicationHost::FinishSaveFailure() {
 }
 
 void WebApplicationHost::FinishSaveSuccess() {
+  presentation_host_.accepts_runtime_observations = lifecycle() == WebApplicationHostLifecycle::kRunning;
   save_state_.store(SaveState::kIdle, std::memory_order_release);
   if (lifecycle_.load(std::memory_order_acquire) ==
       WebApplicationHostLifecycle::kStopping) {
@@ -250,6 +253,7 @@ void WebApplicationHost::RequestSave() {
                                          std::memory_order_acq_rel)) {
     return;
   }
+  presentation_host_.accepts_runtime_observations = false;
   if (callbacks_.set_ui_input_blocked) {
     callbacks_.set_ui_input_blocked(true);
   }
@@ -286,6 +290,7 @@ void WebApplicationHost::RequestShutdown() {
           std::memory_order_acq_rel)) {
     return;
   }
+  presentation_host_.accepts_runtime_observations = false;
   if (callbacks_.set_ui_input_blocked) {
     callbacks_.set_ui_input_blocked(true);
   }
@@ -302,18 +307,21 @@ void WebApplicationHost::RequestShutdown() {
 bool WebApplicationHost::PersistForPageLifecycle(std::string const& file_path) {
   if (!emscripten_is_main_browser_thread() || !model_thread_live_ ||
       lifecycle() != WebApplicationHostLifecycle::kRunning ||
-      !callbacks_.capture_model_state) {
+      (!callbacks_.capture_model_state && !callbacks_.capture_model_files)) {
     return false;
   }
-  std::vector<std::uint8_t> bytes;
+  std::vector<WebPersistentFileSnapshot> files;
   bool captured = false;
   // Accepted commands are drained even when their UI publication is pending.
   // Do not request shutdown or wait for IDBFS callbacks while the page leaves.
   runtime_.SyncPost([&](ae::Domain& domain) {
-    captured = callbacks_.capture_model_state(domain, bytes);
+    if (callbacks_.capture_model_files) captured = callbacks_.capture_model_files(domain, files);
+    else {
+      files.push_back({file_path, {}});
+      captured = callbacks_.capture_model_state(domain, files.back().bytes);
+    }
   });
-  return captured && CommitIdbfsFileForPageLifecycle(
-      idbfs_mount_path_, file_path, bytes);
+  return captured && CommitIdbfsFilesForPageLifecycle(idbfs_mount_path_, files);
 }
 
 void WebApplicationHost::BeginModelStopAfterSaveBarrier() {

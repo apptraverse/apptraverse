@@ -39,7 +39,7 @@ struct MinimalWindowPanelGraph {
 MinimalWindowPanelGraph ComposeMinimalWindowPanel(
     ae::Domain& domain, Node& parent,
     ui::UiLocalizationString::ptr title,
-    ui::UiLocaleSettings::ptr locale,
+    ui::UiLocaleSettings::ptr locale, ui::UiDeviceState::ptr device,
     MinimalPresenterFactories const& factories,
     MinimalWindowPanelIds const& ids, char const* row_a_utf8,
     char const* row_b_utf8, std::int32_t layout_apply_y) {
@@ -50,7 +50,28 @@ MinimalWindowPanelGraph ComposeMinimalWindowPanel(
   panel.window = window;
   panel.window->BootstrapFrame(100, 100, 800, 600);
   panel.window_presenter = factories.create_window(domain, ids.window_presenter_id);
-  ui::ComposePresentedWindow(panel.window, panel.window_presenter, title, locale);
+  auto definition = ui::UiLayoutDefinition::ptr::Create(ae::CreateWith{domain});
+  definition->root.flow = ui::UiLayoutFlow::kVertical;
+  definition->root.padding = 8;
+  definition->root.gap = 8;
+  for (auto control : {ids.apply_control_id, ids.list_control_id}) {
+    ui::UiLayoutNode leaf;
+    leaf.control_id = control;
+    leaf.min_width = 100;
+    leaf.min_height = control == ids.list_control_id ? 100 : 32;
+    leaf.grow = control == ids.list_control_id ? 1 : 0;
+    definition->root.children.push_back(leaf);
+  }
+  ui::UiLayoutNode extra;
+  extra.control_id = ids.window_id == MinimalMainWindowId()
+      ? kMinimalAuxiliaryOpenerControlId : kMinimalAuxiliaryCloserControlId;
+  extra.min_width = 100;
+  extra.min_height = 32;
+  definition->root.children.push_back(extra);
+  auto layout = ui::UiLayoutState::ptr::Create(ae::CreateWith{domain});
+  layout->Bootstrap(definition, false, ui::UiLayoutNode{});
+  InitializeRuntimeNode(*layout, parent);
+  ui::ComposePresentedWindow(panel.window, panel.window_presenter, title, locale, layout, device);
   InitializeRuntimeNode(*panel.window, parent);
 
   panel.apply_button = MinimalApplyButton::ptr::Create(
@@ -126,6 +147,9 @@ MinimalApplication::ptr BuildMinimalApplicationGraph(
   auto application = MinimalApplication::ptr::Create(
       ae::CreateWith{domain}.with_id(MinimalApplicationRootId()));
   application->viewport = {640, 480, 160, false, false};
+  auto device = ui::UiDeviceState::ptr::Create(ae::CreateWith{domain});
+  device->Bootstrap({ui::UiThemeMode::kAuto, false}, ui::UiDeviceEnvironment{});
+  InitializeRuntimeNode(*device, *application);
 
   auto locale = ui::UiLocaleSettings::ptr::Create(
       ae::CreateWith{domain}.with_id(MinimalLocaleId()));
@@ -150,7 +174,7 @@ MinimalApplication::ptr BuildMinimalApplicationGraph(
       kMinimalRowListControlId,
   };
   MinimalWindowPanelGraph main_panel = ComposeMinimalWindowPanel(
-      domain, *application, title, locale, factories, main_ids, "Row A",
+      domain, *application, title, locale, device, factories, main_ids, "Row A",
       "Row B", 8);
   application->main_window = main_panel.window;
   application->apply_button = main_panel.apply_button;
@@ -198,7 +222,7 @@ MinimalApplication::ptr BuildMinimalApplicationGraph(
       kMinimalAuxiliaryRowListControlId,
   };
   MinimalWindowPanelGraph aux_panel = ComposeMinimalWindowPanel(
-      domain, *application, aux_title, locale, factories, aux_ids, "Detail A",
+      domain, *application, aux_title, locale, device, factories, aux_ids, "Detail A",
       "Detail B", 40);
   application->auxiliary.window = aux_panel.window;
   application->auxiliary.apply_button = aux_panel.apply_button;

@@ -66,6 +66,28 @@ void TestExplicitRequestUpdatesRestoreAndLive(UiDesktopWindow& desktop) {
   CHECK(desktop.TakeFrameRequestPendingPublication());
 }
 
+void TestSameSemanticFrameStillRequestsPresentation(ae::Domain& domain) {
+  auto window = UiDesktopWindow::ptr::Create(ae::CreateWith{domain});
+  window->BootstrapFrame(100, 120, 640, 480, UiDesktopWindow::InitialPlacement::Explicit);
+  InitializeRuntimeNode(*window);
+  auto const journal_size = window->journal.size();
+  auto const generation = window->Generation();
+  window->RequestFrame(100, 120, 640, 480);
+  CHECK(window->Generation() > generation);
+  CHECK(window->journal.size() == journal_size);
+  auto const pending_generation = window->Generation();
+  window->RequestFrame(100, 120, 640, 480);
+  CHECK(window->Generation() == pending_generation);
+  CHECK(window->TakeFrameRequestPendingPublication());
+  CHECK(!window->TakeFrameRequestPendingPublication());
+  CHECK(window->TryReplayFromBase());
+  CHECK(window->x() == 100 && window->y() == 120);
+  CHECK(!window->TakeFrameRequestPendingPublication());
+  window->RequestFrame(100, 120, 640, 480);
+  CHECK(window->TakeFrameRequestPendingPublication());
+  CHECK(window->journal.size() == journal_size);
+}
+
 void TestColdLoadPreservesRestoreGeometry(UiDesktopWindow& desktop) {
   desktop.SubmitFrameFromNative(100, 120, 800, 600, true);
   desktop.SubmitFrameFromNative(0, 0, 1600, 900, false);
@@ -124,6 +146,7 @@ int main() {
   desktop->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
   InitializeRuntimeNode(*desktop, *doc);
 
+  TestSameSemanticFrameStillRequestsPresentation(domain);
   TestInitialPlacement(domain);
   TestRestoreVsLiveClientReports(*desktop);
   TestUserResizeUpdatesRestore(*desktop);

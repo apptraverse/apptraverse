@@ -1,3 +1,4 @@
+#include "window_title_fixture.h"
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -113,6 +114,7 @@ void BootstrapUserProfile(std::filesystem::path const& user_dir) {
   root->presented_window = ui::UiDesktopWindow::ptr::Create(
       ae::CreateWith{domain}.with_id(kWindowId));
   root->presented_window->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
+  BuildWindowPresentationServices(*root->presented_window);
   ui::ComposePresentedWindow(root->presented_window, presenter, title, locale);
   InitializeRuntimeNode(*root->presented_window, *root);
 
@@ -252,6 +254,7 @@ void TestAncestorPresenterKeepsStorageOwner() {
     auto window = ui::UiDesktopWindow::ptr::Create(
         ae::CreateWith{child}.with_id(kWindowId));
     window->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
+    BuildWindowPresentationServices(*window);
     ui::ComposePresentedWindow(window, presenter, title, locale);
     ui::UnloadPresentedWindow(window);
     CHECK(!window.is_loaded());

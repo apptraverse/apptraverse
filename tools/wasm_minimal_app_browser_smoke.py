@@ -62,6 +62,10 @@ def main() -> int:
         if "MINIMAL_APP_LOADED_FROM_PROFILE" in text:
             load_markers.append("profile")
         if msg.type == "error":
+            # The explicit page-lifecycle model barrier uses SyncPost; this is
+            # Emscripten's known advisory, also accepted by WindowCatalog QA.
+            if text == "Blocking on the main thread is very dangerous, see https://emscripten.org/docs/porting/pthreads.html#blocking-on-the-main-browser-thread":
+                return
             if "Failed to load resource:" in text or "favicon.ico" in text:
                 return
             if "MINIMAL_APP_SAVE_FAILED" in text:
@@ -194,7 +198,7 @@ def main() -> int:
         )
         rows = list_box.locator(".apptraverse-list-row")
         wait_title(page, "Minimal App")
-        rows.nth(1).click()
+        rows.nth(1).click(position={"x": 8, "y": 8})
         expect(rows.nth(1)).to_have_attribute("aria-selected", "true")
         button.click()
         wait_title(page, "Applied")
@@ -202,9 +206,9 @@ def main() -> int:
         expect(list_box.locator(".apptraverse-list-row-selected")).to_have_count(
             0
         )
-        rows.nth(0).click()
+        rows.nth(0).click(position={"x": 8, "y": 8})
         expect(rows.nth(0)).to_have_attribute("aria-selected", "true")
-        rows.nth(0).dblclick()
+        rows.nth(0).dblclick(position={"x": 8, "y": 8})
         wait_title(page, "Activated Row A")
 
     def run_dual_window_lifecycle(page) -> None:
@@ -233,7 +237,7 @@ def main() -> int:
         )
         aux_rows = aux_list.locator(".apptraverse-list-row")
         wait_aux_title(page, "Detail Panel")
-        aux_rows.nth(1).click()
+        aux_rows.nth(1).click(position={"x": 8, "y": 8})
         expect(aux_rows.nth(1)).to_have_attribute("aria-selected", "true")
         aux_apply.click()
         wait_aux_title(page, "Applied")
@@ -244,9 +248,9 @@ def main() -> int:
         wait_title(page, "Activated Row A")
 
         main_rows = main_list.locator(".apptraverse-list-row")
-        main_rows.nth(1).click()
+        main_rows.nth(1).click(position={"x": 8, "y": 8})
         expect(main_rows.nth(1)).to_have_attribute("aria-selected", "true")
-        main_rows.nth(1).dblclick()
+        main_rows.nth(1).dblclick(position={"x": 8, "y": 8})
         wait_title(page, "Activated Row B")
         wait_aux_title(page, "Applied")
 
@@ -262,7 +266,7 @@ def main() -> int:
         )
         if count_desktop_windows(page) != 1:
             raise AssertionError("expected one desktop window after close")
-        main_rows.nth(1).click()
+        main_rows.nth(1).click(position={"x": 8, "y": 8})
         expect(main_rows.nth(1)).to_have_attribute("aria-selected", "true")
 
         opener.click()
@@ -418,9 +422,9 @@ def main() -> int:
                 aux_list.locator(".apptraverse-list-row-selected")
             ).to_have_count(0)
 
-            rows.nth(0).click()
+            rows.nth(0).click(position={"x": 8, "y": 8})
             expect(rows.nth(0)).to_have_attribute("aria-selected", "true")
-            rows.nth(0).dblclick()
+            rows.nth(0).dblclick(position={"x": 8, "y": 8})
             wait_title(page, "Activated Row A")
 
             saw_idbfs_saved = False
@@ -465,9 +469,9 @@ def main() -> int:
             assert_geometry(page)
 
             ensure_two_desktop_windows(page)
-            rows.nth(1).click()
+            rows.nth(1).click(position={"x": 8, "y": 8})
             expect(rows.nth(1)).to_have_attribute("aria-selected", "true")
-            rows.nth(1).dblclick()
+            rows.nth(1).dblclick(position={"x": 8, "y": 8})
             wait_title(page, "Activated Row B")
 
             page.evaluate(
@@ -596,9 +600,9 @@ def main() -> int:
             rows = list_box.locator(".apptraverse-list-row")
             expect(rows.nth(1)).to_have_attribute("aria-selected", "true")
 
-            rows.nth(0).click()
+            rows.nth(0).click(position={"x": 8, "y": 8})
             expect(rows.nth(0)).to_have_attribute("aria-selected", "true")
-            rows.nth(0).dblclick()
+            rows.nth(0).dblclick(position={"x": 8, "y": 8})
             wait_title(page, "Activated Row A")
 
             shot = Path(args.screenshot)

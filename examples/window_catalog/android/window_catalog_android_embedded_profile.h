@@ -9,10 +9,12 @@ namespace apptraverse::example::surfaces {
 
 struct WindowCatalogAndroidEmbeddedProfile {
   explicit WindowCatalogAndroidEmbeddedProfile(
-      std::filesystem::path const& user_dir);
+      std::filesystem::path const& user_dir,
+      std::filesystem::path const& local_seed_dir = {});
 
   std::filesystem::path state_dir;
   ae::RamDomainStorage user;
+  ae::RamDomainStorage local;
 };
 
 }  // namespace apptraverse::example::surfaces

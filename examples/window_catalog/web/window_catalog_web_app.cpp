@@ -23,6 +23,8 @@
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/platform/web/web_ui_dom_em.h"
+#include "apptraverse/platform/web/web_ui_window_presenter.h"
+#include "apptraverse/client_local_state.h"
 #include "apptraverse/runtime_node.h"
 
 namespace apptraverse {
@@ -80,6 +82,10 @@ void FinishHostTeardownTrampoline(void* arg) {
 
 extern "C" {
 
+EMSCRIPTEN_KEEPALIVE void ApptraverseWindowCatalogAppearance(int theme, int soften) {
+  WebWindowCatalogApp::Instance().SetAppearance(theme, soften != 0);
+}
+
 EMSCRIPTEN_KEEPALIVE void ApptraverseWindowCatalogRequestShutdown() {
   WebWindowCatalogApp::Instance().RequestShutdown();
 }
@@ -121,17 +127,27 @@ void WebWindowCatalogApp::Start(std::filesystem::path state_dir) {
 
   state_dir_ = std::move(state_dir);
 
+  auto const environment = ui::web::ReadWebDeviceEnvironment();
   web::WebApplicationHostCallbacks callbacks;
   callbacks.refresh_presentation_host = [](ui::web::WebPresentationHost& host) {
     host.mount = ApptraverseCatalogGetMountElement();
   };
-  callbacks.run_model = [this](ApplicationPublishedCallback on_published) -> int {
+  callbacks.run_model = [this, environment](ApplicationPublishedCallback on_published) -> int {
 #if defined(APPTRAVERSE_WEB_CATALOG_FRESH_USER)
     state_dir_ /= "debug-run-" + std::to_string(ae::ObjId::GenerateUnique().id());
     state_dir_ /= "user";
 #endif
 #if !defined(APPTRAVERSE_WEB_CATALOG_FRESH_USER)
-    if (!LoadUserStorageFile(user_storage_, state_dir_)) return 1;
+    if (!LoadUserStorageFile(user_storage_, state_dir_) ||
+        !LoadUserStorageFile(local_storage_, state_dir_ / "local")) return 1;
+    if (local_storage_.state.empty()) {
+      // Optional initial LOCAL seed is a whole native object partition.
+      // Existing LOCAL bypasses seed reads and wins in full.
+      auto seed_dir = std::filesystem::path{"/persistent/local-seed"};
+      ae::RamDomainStorage seed;
+      if (!LoadUserStorageFile(seed, seed_dir)) return 1;
+      SeedClientLocalStorage(local_storage_, seed);
+    }
     if (!user_storage_.state.empty()) {
       EM_ASM({ console.log('WINDOW_CATALOG_LOADED_FROM_PROFILE'); });
     } else {
@@ -142,25 +158,34 @@ void WebWindowCatalogApp::Start(std::filesystem::path state_dir) {
 #endif
 
     ApplicationModelSessionHooks<WindowCatalog> hooks;
-    hooks.prepare = PrepareWindowCatalogForRun;
+    hooks.prepare = [environment](WindowCatalog& catalog) {
+      catalog.persisted.device_state.Load();
+      catalog.persisted.device_state->ObserveEnvironment(environment, ui::UiEnvironmentReason::kStartup);
+      PrepareWindowCatalogForRun(catalog);
+    };
     hooks.before_incremental = [](WindowCatalog& catalog) {
       catalog.pending_focus_window = {};
     };
     hooks.persist = [this](WindowCatalog& catalog) -> int {
-      return PersistWindowCatalogEmbeddedUserOverlay(catalog, user_storage_, state_dir_);
+      SaveWindowCatalogPersistentSnapshot(catalog);
+      return SaveUserStorageFile(user_storage_, state_dir_) &&
+             SaveUserStorageFile(local_storage_, state_dir_ / "local") ? 0 : 1;
     };
 
     int const session_result = RunEmbeddedApplicationModelSession(
-        user_storage_, embedded_distilled::window_catalog_web::kEmbeddedGraph,
+        user_storage_, local_storage_, embedded_distilled::window_catalog_web::kEmbeddedGraph,
         runtime_, std::move(on_published), hooks);
     return session_result;
   };
   callbacks.request_stop = [this] { runtime_.RequestStop(); };
-  callbacks.capture_model_state = [this](ae::Domain& domain,
-                                         std::vector<std::uint8_t>& bytes) {
+  callbacks.capture_model_files = [this](ae::Domain& domain,
+      std::vector<web::WebPersistentFileSnapshot>& files) {
     auto catalog = domain.Find(CatalogRootId()).as<WindowCatalog>();
     SaveWindowCatalogPersistentSnapshot(*catalog);
-    return SerializeUserStorage(user_storage_, bytes);
+    files = {{(state_dir_ / "user.bin").generic_string(), {}},
+             {(state_dir_ / "local" / "user.bin").generic_string(), {}}};
+    return SerializeUserStorage(user_storage_, files[0].bytes) &&
+           SerializeUserStorage(local_storage_, files[1].bytes);
   };
   callbacks.after_initial = [this](ae::Obj& root) {
     EM_ASM({
@@ -187,6 +212,14 @@ void WebWindowCatalogApp::Start(std::filesystem::path state_dir) {
   host_ = std::make_unique<web::WebApplicationHost>(
       runtime_, presentation_host_, std::move(callbacks));
   host_->StartWithPersistentStorage("/persistent");
+}
+
+void WebWindowCatalogApp::SetAppearance(int theme, bool soften) {
+  if (!host_ || !host_->ui_session() || theme < 0 || theme > 2 ||
+      host_->lifecycle() != web::WebApplicationHostLifecycle::kRunning) return;
+  auto& catalog = static_cast<WindowCatalog&>(host_->ui_session()->root());
+  host_->model_proxy().Invoke(catalog.persisted.device_state.id(), &ui::UiDeviceState::SetAppearance,
+      ui::UiAppearancePreferences{static_cast<ui::UiThemeMode>(theme), soften});
 }
 
 void WebWindowCatalogApp::FinishTeardown(bool shutdown_succeeded) {
@@ -248,29 +281,28 @@ void WebWindowCatalogApp::ViewportChanged(int width, int height) {
       host_->lifecycle() != web::WebApplicationHostLifecycle::kRunning) {
     return;
   }
-  WindowCatalog& mirror =
-      static_cast<WindowCatalog&>(host_->ui_session()->root());
-  if (mirror.persisted.main_client_viewport.width == width &&
-      mirror.persisted.main_client_viewport.height == height) {
-    return;
-  }
-  host_->model_proxy().Invoke(
-      CatalogRootId(), &WindowCatalog::SubmitMainClientViewportFromUi,
-      static_cast<std::int32_t>(width), static_cast<std::int32_t>(height),
-      static_cast<std::int32_t>(160));
+  auto& mirror = static_cast<WindowCatalog&>(host_->ui_session()->root());
+  static_cast<ui::web::WebDesktopWindowPresenter*>(mirror.persisted.main_window->presenter.operator->())->RefreshLocalPresentation(true);
 }
 
 void WebWindowCatalogApp::ChildViewportChanged(unsigned window_id, int width, int height) {
   if (width <= 0 || height <= 0 || !host_ || !host_->ui_session() ||
       host_->lifecycle() != web::WebApplicationHostLifecycle::kRunning) return;
-  host_->model_proxy().Invoke(CatalogRootId(),
-      &WindowCatalog::SubmitHolderChildWindowClientSizeFromUi,
-      window_id, static_cast<std::int32_t>(width),
-      static_cast<std::int32_t>(height), static_cast<std::int32_t>(160));
+  auto& mirror = static_cast<WindowCatalog&>(host_->ui_session()->root());
+  for (auto const& row : mirror.persisted.list->rows) {
+    auto const& holder = static_cast<WindowHolder const&>(*row);
+    if (holder.window.is_loaded() && holder.window.id().id() == window_id)
+      static_cast<ui::web::WebDesktopWindowPresenter*>(holder.window->presenter.operator->())->RefreshLocalPresentation();
+  }
 }
 
 void WebWindowCatalogApp::PublishMobilePages(ae::Obj& application_root) {
   auto& catalog = static_cast<WindowCatalog&>(application_root);
+  auto const preferences = catalog.persisted.device_state->appearance;
+  EM_ASM({
+    document.getElementById('appearance-theme').value = String($0);
+    document.getElementById('appearance-soft').checked = !!$1;
+  }, static_cast<int>(preferences.theme), preferences.soften_dark);
   std::vector<CatalogWindow::ptr> const ring = catalog.BuildWindowNavigationRing();
   std::string ids;
   for (std::size_t i = 0; i < ring.size(); ++i) {

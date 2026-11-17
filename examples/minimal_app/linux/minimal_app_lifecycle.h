@@ -4,13 +4,15 @@
 #include <filesystem>
 
 #include "apptraverse/application_model_runtime.h"
+#include "apptraverse/ui/ui_device_state.h"
 
 namespace apptraverse::example::minimal {
 
 int RunMinimalApplicationModel(
     std::filesystem::path const& state_dir,
     ApplicationModelRuntime& runtime,
-    ApplicationPublishedCallback on_published);
+    ApplicationPublishedCallback on_published,
+    ui::UiDeviceEnvironment environment);
 
 }  // namespace apptraverse::example::minimal
 

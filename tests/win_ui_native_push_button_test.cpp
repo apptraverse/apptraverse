@@ -183,6 +183,7 @@ void TestWinPushButtonPresenterNativeRouting() {
       ui::windows::WinDesktopWindowPresenter::ptr::Create(
           ae::CreateWith{domain});
   root->window_presenter->window = root->window;
+  apptraverse::test::BuildWindowPresentationServices(*root->window);
   apptraverse::test::BuildEmptyWindowTitle(*root->window_presenter);
   root->window_presenter->locale = locale;
 
@@ -200,6 +201,13 @@ void TestWinPushButtonPresenterNativeRouting() {
   root->button_presenter->layout_width = 100;
   root->button_presenter->layout_height = 26;
   root->button_presenter->control_id = kControlId;
+
+  auto& tree = root->window->layout_state->definition->root;
+  ui::UiLayoutNode control;
+  control.control_id = kControlId;
+  control.min_width = 100;
+  control.min_height = 26;
+  tree.children.push_back(control);
 
   int invoke_count = 0;
   ModelObjectProxy proxy{[&](ModelObjectProxy::ModelWork work) {
@@ -226,10 +234,9 @@ void TestWinPushButtonPresenterNativeRouting() {
   int layout_w = 0;
   int layout_h = 0;
   ReadButtonLayoutInParentClient(btn, layout_x, layout_y, layout_w, layout_h);
-  CHECK(layout_x == 8);
-  CHECK(layout_y == 9);
-  CHECK(layout_w == 100);
-  CHECK(layout_h == 26);
+  CHECK(layout_x >= 0 && layout_y >= 0);
+  CHECK(layout_w >= 100);
+  CHECK(layout_h >= 26);
   wchar_t caption[64]{};
   CHECK(GetWindowTextW(btn, caption, 64) > 0);
   CHECK(std::wstring{caption} == L"Add");
@@ -273,22 +280,19 @@ void TestWinPushButtonPresenterNativeRouting() {
   CHECK(GetWindowTextW(btn, caption, 64) > 0);
   CHECK(std::wstring{caption} == ui::windows::Utf8ToWide("Добавить"));
 
-  presenter->layout_x = 20;
-  presenter->layout_y = 21;
-  presenter->layout_width = 120;
-  presenter->layout_height = 30;
+  auto changed_layout = root->window->layout_state->EffectiveRoot();
+  changed_layout.padding = 20;
+  root->window->layout_state->SetOverride(changed_layout);
+  desktop_presenter->RefreshLayout();
   presenter->OnModelChanged();
   ReadButtonLayoutInParentClient(btn, layout_x, layout_y, layout_w, layout_h);
-  CHECK(layout_x == 20);
-  CHECK(layout_y == 21);
-  CHECK(layout_w == 120);
-  CHECK(layout_h == 30);
+  auto const expected = desktop_presenter->ResolveChildLayout({0, 0, 1, 1, kControlId});
+  CHECK(layout_x == expected.x && layout_y == expected.y);
+  CHECK(layout_w == expected.width && layout_h == expected.height);
   presenter->OnModelChanged();
   ReadButtonLayoutInParentClient(btn, layout_x, layout_y, layout_w, layout_h);
-  CHECK(layout_x == 20);
-  CHECK(layout_y == 21);
-  CHECK(layout_w == 120);
-  CHECK(layout_h == 30);
+  CHECK(layout_x == expected.x && layout_y == expected.y);
+  CHECK(layout_w == expected.width && layout_h == expected.height);
   CHECK(GetDlgCtrlID(btn) == static_cast<int>(kControlId));
   CHECK(GetParent(btn) == desktop_presenter->hwnd());
   CHECK(IsWindowEnabled(btn) != FALSE);

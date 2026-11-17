@@ -1,3 +1,34 @@
+## Non-Apple layout / LOCAL Canon corrections — 2026-11-17
+
+The user-authorized Windows/common, Linux/GTK, Web and Android implementation now
+uses required standard window layout/device links, generic dual-RAM sessions,
+explicit caption policy and bootstrap values. Native measurements remain local;
+queued monitor observations and equal-data explicit frame intent are corrected.
+GPT-6 Astra ultra recorded dispositions for all 30 mandatory Canon rules in the
+reviewed scope; GPT-6.1 Sol high owned all coding. This closes the scoped source
+audit, not every possible runtime or OS environment.
+
+Windows/common: 29 distinct final tests PASS, including actual native lifecycle
+and independent HWND drag/resize/publication/cold restore; four PE import audits
+PASS within static scope. Linux/Web real GUI/browser, lifecycle, native transfer
+with absent/existing LOCAL and compatible supply-update scopes PASS. Android
+explicit transfers, actual APK/supply update, live/startup OS baseline, B1 missing
+binding negative, MinimalApp and fresh Debug checks PASS. Seven distinct baseline
+Android functional cases plus the new native disabled-state case PASS; two native
+Recents dismissal cases remain NOT PASS and
+were independently reproduced with stock Settings. Do not report a blanket 9/9.
+The additional final palette-only native appearance/disabled-state regression
+passed 2/2 narrow cases in 52.929s, including native disabled text state and LOCAL
+cold restore; this is not a rerun or blanket PASS of the full functional suite.
+
+Actual OS-image upgrade, Win7, physical mixed-DPI and full accessibility hardware
+matrices, Apple work/runtime and Release packaging remain NOT RUN. No new
+52-process full portability matrix is claimed. Historical records retain their
+original scope.
+[Windows/common evidence](../validation/nonapple-layout-local-canon-fixes-2026-11-16.md),
+[Linux/Web evidence](../validation/window-catalog-linux-web-local-layout-2026-11-17.md),
+[Android evidence](../validation/window-catalog-android-settings-2026-11-17.md).
+
 ## Apple native APNs integration — 2026-11-15 — CODE/TRANSPORT PASS, APNs NOT VERIFIED
 
 Based on main `7fed1d64`: shared macOS/iOS native notification lifecycle and

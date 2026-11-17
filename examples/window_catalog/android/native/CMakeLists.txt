@@ -55,7 +55,13 @@ if(CMAKE_HOST_WIN32)
 endif()
 # Standalone NDK CMake and AGP may select different host generators. Their
 # caches cannot share a directory even when ABI and application policy match.
-set(_wc_host_export_dir "${APPTRAVERSE_ROOT}/b/wc-ahe/${ANDROID_ABI}-${APPTRAVERSE_WINDOW_CATALOG_DEBUG_FRESH}-${_wc_host_generator_key}")
+set(_wc_host_variant "")
+if(NOT "${APPTRAVERSE_ANDROID_WINDOW_CATALOG_TEST_LAYOUT_PADDING}" STREQUAL "")
+  # Separate exporter CMake caches: a compatible test supply must never leave its
+  # defaults selected for a subsequent ordinary build (or race another variant).
+  set(_wc_host_variant "-padding${APPTRAVERSE_ANDROID_WINDOW_CATALOG_TEST_LAYOUT_PADDING}")
+endif()
+set(_wc_host_export_dir "${APPTRAVERSE_ROOT}/b/wc-ahe/${ANDROID_ABI}-${APPTRAVERSE_WINDOW_CATALOG_DEBUG_FRESH}-${_wc_host_generator_key}${_wc_host_variant}")
 set(_wc_host_supply_header
   "${_wc_host_export_dir}/generated/embedded_distilled_window_catalog_android_supply.h")
 file(MAKE_DIRECTORY "${_wc_host_export_dir}/generated")
@@ -64,7 +70,8 @@ set(_wc_host_export_args
   -DBUILD_TESTING=OFF
   -DAPPTRAVERSE_BUILD_LINUX_GUI=OFF
   -DAPPTRAVERSE_BUILD_EXAMPLES=ON
-  "-DAPPTRAVERSE_ANDROID_WINDOW_CATALOG_SUPPLY_HEADER=${_wc_host_supply_header}")
+  "-DAPPTRAVERSE_ANDROID_WINDOW_CATALOG_SUPPLY_HEADER=${_wc_host_supply_header}"
+  "-DAPPTRAVERSE_ANDROID_WINDOW_CATALOG_TEST_LAYOUT_PADDING=${APPTRAVERSE_ANDROID_WINDOW_CATALOG_TEST_LAYOUT_PADDING}")
 # Visual Studio generators do not always expose standalone custom targets to
 # MSBuild the way Ninja does; match minimal_app's intent with a Ninja host build.
 if(CMAKE_HOST_WIN32)
@@ -189,4 +196,15 @@ target_include_directories(apptraverse_window_catalog_android_portable_user_fixt
 target_compile_definitions(apptraverse_window_catalog_android_portable_user_fixture PRIVATE
   APPTRAVERSE_PORTABLE_ANDROID APPTRAVERSE_PORTABLE_PLATFORM="android")
 target_link_libraries(apptraverse_window_catalog_android_portable_user_fixture PRIVATE
+  window_catalog_android log)
+
+# Reads real target-ABI lifecycle saves for OS-baseline and partition acceptance.
+add_executable(apptraverse_window_catalog_android_environment_fixture
+  ${APPTRAVERSE_ROOT}/tests/window_catalog_android_environment_fixture.cpp)
+add_dependencies(apptraverse_window_catalog_android_environment_fixture window_catalog_android_supply)
+target_include_directories(apptraverse_window_catalog_android_environment_fixture PRIVATE
+  ${CMAKE_CURRENT_BINARY_DIR}/generated
+  ${APPTRAVERSE_ROOT}/examples/window_catalog/android
+  ${APPTRAVERSE_ROOT}/examples/window_catalog/common)
+target_link_libraries(apptraverse_window_catalog_android_environment_fixture PRIVATE
   window_catalog_android log)

@@ -21,7 +21,7 @@ namespace apptraverse::example::surfaces {
 class WindowCatalogNativeRuntime {
  public:
   WindowCatalogNativeRuntime(
-      std::filesystem::path state_dir,
+      std::filesystem::path state_dir, std::filesystem::path local_seed_dir,
       android::WindowCatalogUiBridge ui_bridge,
       android::AndroidUiBridge android_ui_bridge);
   ~WindowCatalogNativeRuntime();
@@ -40,6 +40,7 @@ class WindowCatalogNativeRuntime {
   android::WindowCatalogUiBridge ui_bridge_;
   android::AndroidUiBridge android_ui_bridge_;
   WindowCatalogAndroidEmbeddedProfile profile_;
+  ui::UiDeviceEnvironment startup_environment_;
   ApplicationModelRuntime runtime_;
   ui::android::AndroidPresentationHost presentation_host_;
   std::unique_ptr<android::AndroidApplicationHost> host_;

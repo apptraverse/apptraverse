@@ -48,8 +48,12 @@ bool BuildRemappedHistoricalBaseScratch(
   owner_live_refs.insert(owner_id);
   if (owner.origin_id().is_valid()) { owner_live_refs.insert(owner.origin_id()); }
   for (auto const& [id, _] : captured_scratch.state) {
-    if (auto live = owner.domain->Find(id); live && live->origin_id().is_valid()) {
-      owner_live_refs.insert(live->origin_id());
+    if (auto live = owner.domain->Find(id); live) {
+      if (live->origin_id().is_valid()) owner_live_refs.insert(live->origin_id());
+      // The capture destination is a just-created, not-yet-hydrated object.
+      // Only the live participants supply external reference policy.
+      if (id != base_id && registry.GenerationDistance(Node::kClassId, live->GetClassId()) >= 0)
+        static_cast<Node const&>(*live).CollectHistoricalCaptureLiveReferenceIds(owner_live_refs);
     }
   }
   if (live_reference_ids_out != nullptr) { *live_reference_ids_out = owner_live_refs; }

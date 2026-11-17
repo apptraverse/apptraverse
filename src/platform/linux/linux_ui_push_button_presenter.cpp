@@ -1,6 +1,7 @@
 #include "apptraverse/platform/linux/linux_ui_push_button_presenter.h"
 
 #include "apptraverse/platform/linux/linux_fatal.h"
+#include "apptraverse/platform/linux/linux_ui_window_presenter.h"
 #include "apptraverse/ui/ui_localization_string.h"
 
 namespace apptraverse::ui::linux {
@@ -28,12 +29,16 @@ void LinuxPushButtonPresenter::OnLoad() {
                                     G_CALLBACK(OnClicked), this);
   gtk_widget_show(button_);
   SyncFromMirror();
+  static_cast<LinuxDesktopWindowPresenter*>(window_presenter.operator->())->RegisterChildControl(button_, control_id);
 }
 
 void LinuxPushButtonPresenter::SyncFromMirror() {
   int const language_index = window_presenter->locale->language_index();
   std::string const label = button->label->Resolve(language_index);
   gtk_button_set_label(GTK_BUTTON(button_), label.c_str());
+  auto* text = gtk_bin_get_child(GTK_BIN(button_));
+  gtk_label_set_line_wrap(GTK_LABEL(text), TRUE);
+  gtk_label_set_line_wrap_mode(GTK_LABEL(text), PANGO_WRAP_WORD);
   gtk_widget_set_sensitive(button_, button->enabled() ? TRUE : FALSE);
 
   // Layout may change after load (adaptive catalog chrome).
@@ -46,11 +51,12 @@ void LinuxPushButtonPresenter::SyncFromMirror() {
   gtk_fixed_move(GTK_FIXED(parent), button_, layout.x, layout.y);
 }
 
-void LinuxPushButtonPresenter::OnModelChanged() { SyncFromMirror(); }
+void LinuxPushButtonPresenter::OnModelChanged() { SyncFromMirror(); static_cast<LinuxDesktopWindowPresenter*>(window_presenter.operator->())->RefreshLayout(); }
 
 void LinuxPushButtonPresenter::OnUnload() {
   g_signal_handler_disconnect(button_, clicked_handler_);
   clicked_handler_ = 0;
+  static_cast<LinuxDesktopWindowPresenter*>(window_presenter.operator->())->UnregisterChildControl(button_);
   gtk_widget_destroy(button_);
   button_ = nullptr;
 }

@@ -11,7 +11,7 @@
 int main(int argc, char** argv) {
   apptraverse::EnableNoninteractiveCrt();
   apptraverse::EnsureWindowCatalogGraphRegistration();
-  std::filesystem::path state_dir{"window_catalog_linux_state"};
+  std::filesystem::path state_dir{"window_catalog_linux_state"}, local_seed_dir;
   for (int i = 1; i < argc; ++i) {
     std::string_view arg{argv[i]};
 #if defined(APPTRAVERSE_WINDOW_CATALOG_DEBUG_BOOTSTRAP)
@@ -21,10 +21,12 @@ int main(int argc, char** argv) {
       return 0;
     }
 #endif
+    if (arg == "--local-seed-dir" && i + 1 < argc) local_seed_dir = argv[++i];
     if (arg == "--state-dir" && i + 1 < argc) {
       state_dir = argv[++i];
     }
   }
   apptraverse::WindowCatalogLinuxApplication application{state_dir};
+  application.session().local_seed_dir = local_seed_dir;
   return application.Run(application.MakeHostCallbacks());
 }

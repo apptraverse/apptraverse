@@ -30,7 +30,7 @@ WindowCatalogNativeRuntime* FromHandle(jlong handle) {
 }
 
 jlong NativeCreate(JNIEnv* env, jclass, jstring files_dir, jstring state_subdir,
-                 jobject ui_bridge) {
+                 jstring local_seed_subdir, jobject ui_bridge) {
   EnsureWindowCatalogAndroidGraphRegistration();
 
   auto wc_bridge = android::MakeWindowCatalogUiBridge(env, ui_bridge);
@@ -42,8 +42,12 @@ jlong NativeCreate(JNIEnv* env, jclass, jstring files_dir, jstring state_subdir,
   auto state_dir = std::filesystem::path{ui::android::JstringToUtf8(env, files_dir)} /
                    ui::android::JstringToUtf8(env, state_subdir);
 
+  std::filesystem::path local_seed_dir;
+  if (local_seed_subdir != nullptr)
+    local_seed_dir = std::filesystem::path{ui::android::JstringToUtf8(env, files_dir)} /
+                     ui::android::JstringToUtf8(env, local_seed_subdir);
   auto* runtime = new WindowCatalogNativeRuntime(
-      std::move(state_dir), std::move(wc_bridge), std::move(android_bridge));
+      std::move(state_dir), std::move(local_seed_dir), std::move(wc_bridge), std::move(android_bridge));
   android::LogInfo("WINDOW_CATALOG_NATIVE_RUNTIME_CREATED");
   return reinterpret_cast<jlong>(runtime);
 }
@@ -73,7 +77,7 @@ void NativeDestroy(JNIEnv*, jclass, jlong handle) { delete FromHandle(handle); }
 
 JNINativeMethod const kNativeMethods[] = {
     {"nativeCreate",
-     "(Ljava/lang/String;Ljava/lang/String;Lcom/apptraverse/windowcatalog/NativeUiBridge;)J",
+     "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lcom/apptraverse/windowcatalog/NativeUiBridge;)J",
      reinterpret_cast<void*>(&NativeCreate)},
     {"nativeSetPresentationRoot", "(JLandroid/app/Activity;Landroid/view/ViewGroup;)V",
      reinterpret_cast<void*>(&NativeSetPresentationRoot)},

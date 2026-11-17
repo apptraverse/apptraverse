@@ -5,6 +5,7 @@
 
 #include "apptraverse/ui/ui_locale_settings.h"
 #include "apptraverse/ui/ui_window.h"
+#include "apptraverse/ui/ui_constraint_layout.h"
 
 namespace apptraverse::ui {
 
@@ -44,7 +45,10 @@ class UiWindowPresenter : public Presenter {
 
   // Presentation policy only: a native window can provide an action itself.
   // The prefab links remain intact even when its content control is omitted.
-  virtual bool PresentsChildControl(Presenter const&) const { return true; }
+  virtual bool NativeCaptionProvidesClose() const { return false; }
+  virtual bool PresentsChildControl(Presenter const& child) const;
+  virtual UiLayoutNode const* LayoutRoot() const;
+  virtual class UiDeviceState* LocalDeviceState() const;
 
   virtual void* NativeChildParentHandle() const { return nullptr; }
 
@@ -53,6 +57,8 @@ class UiWindowPresenter : public Presenter {
   }
 
   virtual std::string ResolvePresentedWindowTitle(int language_index) const;
+ private:
+  mutable UiLayoutNode presented_layout_;
 };
 
 }  // namespace apptraverse::ui

@@ -1,5 +1,47 @@
 # Agent rules (apptraverse — unified worktree)
 
+## Completed non-Apple layout / LOCAL contract — 2026-11-17
+
+The user authorized and implemented the common layout and LOCAL model on Windows,
+Linux/GTK, Web and Android, including independent MinimalApp adoption. This
+supersedes earlier statements that those non-Apple adapters are merely planned.
+Keep one AppTraverse constraint solver, native control measurement and UI-local
+rectangles; native viewport/DPI/frame observations must not rewrite portable
+semantic frames or presenter pixel layout. Standard UiPresentedWindow composition
+supplies required typed layout/device links. Generic sessions route supply-marked
+LOCAL roots before Load and prepare the OS baseline before initial publication.
+USER and LOCAL retain one native format in separate ordinary RAM stores and
+persist at each platform's accepted lifecycle boundary. Existing LOCAL wins over
+an optional seed in full. Desktop placement stores outer-frame 96-DIPs; Android
+and Web use their documented logical client-surface coordinates. Equal-data
+explicit RequestFrame still publishes runtime intent; replay does not issue it.
+
+User model allocation is mandatory for this work: GPT-6 Astra ultra performs the
+read-only audit of all 30 mandatory Canon rules; GPT-6.1 Sol high owns all coding.
+The audit records dispositions for all 30 rules in the examined scope, not a
+certification of every possible environment or runtime scenario.
+
+Current evidence:
+[Windows/common corrections](docs/validation/nonapple-layout-local-canon-fixes-2026-11-16.md),
+[Linux/Web runtime, transfer and supply update](docs/validation/window-catalog-linux-web-local-layout-2026-11-17.md),
+[Android runtime, transfer and APK update](docs/validation/window-catalog-android-settings-2026-11-17.md).
+The [30-rule audit](docs/validation/windows-canon-ultra-audit-2026-11-16.md)
+retains source and executed-evidence boundaries. Windows has 29 distinct final
+PASS outcomes. Linux/Web real GUI/browser, native USER/LOCAL transfer and compatible
+supply-update scopes passed. Android explicit transfers, actual compatible APK
+supply update, live/startup OS baseline, missing-binding negative, MinimalApp and
+fresh Debug scopes passed; seven distinct baseline functional cases and the new
+native disabled-state case passed, while two native Recents dismissal cases remain
+NOT PASS. The same gesture failed on stock Settings;
+do not infer a Catalog-specific regression or report 9/9 PASS. The additional
+final palette-only native appearance/disabled-state regression passed 2/2 cases
+(52.929s), including native disabled text-state comparison and LOCAL cold restore.
+
+Actual OS-image upgrade, actual Win7, physical mixed-DPI/accessibility matrices,
+Apple implementation/runtime and other unexecuted environments remain NOT RUN.
+Preserve historical records at their original scope; current S0/new-profile,
+no-migration, model/publication, ownership and incremental Debug rules still apply.
+
 ## System settings and shared layout — 2026-11-16
 
 The user authorized the [system-settings/accessibility plan](docs/system-settings-accessibility-plan.md)
@@ -10,9 +52,9 @@ native measurement and solving are local to presentation. Native controls stay
 native; independent OS layout solvers do not own AppTraverse geometry.
 Windows 7 is the minimum Windows target; use compatible desktop v143 rather
 than a newer STL that imports unsupported APIs. Actual Win7 execution is a
-separate acceptance boundary. Other platform adapters remain planned, not
-implemented by this Windows slice. Preserve S0/new-profile and USER contracts
-below. Current evidence: [layout/settings validation](docs/validation/window-catalog-layout-settings-2026-11-16.md).
+separate acceptance boundary. This historical first Windows slice initially
+left other adapters planned; the completed 2026-11-17 non-Apple contract above
+supersedes that status. Preserve S0/new-profile and USER contracts below. Current evidence: [layout/settings validation](docs/validation/window-catalog-layout-settings-2026-11-16.md).
 
 ## Client-local environment — 2026-11-16
 

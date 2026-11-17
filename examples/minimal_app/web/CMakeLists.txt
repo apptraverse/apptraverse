@@ -89,7 +89,7 @@ target_link_options(web_minimal_app PRIVATE
   -sEXIT_RUNTIME=0
   -lidbfs.js
   --bind
-  -sEXPORTED_FUNCTIONS=_main,_ApptraverseWebUiPushButtonClicked,_ApptraverseWebUiListSelectionChanged,_ApptraverseWebUiListRowActivated,_ApptraverseMinimalAppRequestSave,_ApptraverseWebIdbfsLoadDone,_ApptraverseWebIdbfsLoadFailed,_ApptraverseWebIdbfsStoreDone,_ApptraverseWebIdbfsStoreFailed
+  -sEXPORTED_FUNCTIONS=_main,_ApptraverseWebWindowRefresh,_ApptraverseWebWindowFinishLayout,_ApptraverseWebUiPushButtonClicked,_ApptraverseWebUiListSelectionChanged,_ApptraverseWebUiListRowActivated,_ApptraverseMinimalAppRequestSave,_ApptraverseWebIdbfsLoadDone,_ApptraverseWebIdbfsLoadFailed,_ApptraverseWebIdbfsStoreDone,_ApptraverseWebIdbfsStoreFailed
   -sALLOW_TABLE_GROWTH=1
   -sEXPORTED_RUNTIME_METHODS=FS,addRunDependency,removeRunDependency,UTF8ToString$<$<NOT:$<CONFIG:MinSizeRel>>:,count_emval_handles>
   --shell-file=${CMAKE_CURRENT_SOURCE_DIR}/minimal_app_shell.html
@@ -144,7 +144,7 @@ target_link_options(apptraverse_web_presenter_lifecycle_test PRIVATE
   -sALLOW_MEMORY_GROWTH=0
   -sEXIT_RUNTIME=0
   --bind
-  -sEXPORTED_FUNCTIONS=_main,_ApptraverseWebUiPushButtonClicked,_ApptraverseWebUiListSelectionChanged,_ApptraverseWebUiListRowActivated
+  -sEXPORTED_FUNCTIONS=_main,_ApptraverseWebWindowRefresh,_ApptraverseWebWindowFinishLayout,_ApptraverseWebUiPushButtonClicked,_ApptraverseWebUiListSelectionChanged,_ApptraverseWebUiListRowActivated
   -sEXPORTED_RUNTIME_METHODS=count_emval_handles
   --shell-file=${CMAKE_CURRENT_SOURCE_DIR}/web_presenter_lifecycle_shell.html
 )

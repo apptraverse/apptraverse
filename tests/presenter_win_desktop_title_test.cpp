@@ -92,6 +92,7 @@ WinTitleRoot::ptr BuildRoot(ae::Domain& domain, ae::ObjId root_id,
   root->window_presenter = ui::windows::WinDesktopWindowPresenter::ptr::Create(
       ae::CreateWith{domain}.with_id(presenter_id));
   root->window_presenter->window = root->window;
+  apptraverse::test::BuildWindowPresentationServices(*root->window);
   apptraverse::test::BuildEmptyWindowTitle(*root->window_presenter);
   return root;
 }

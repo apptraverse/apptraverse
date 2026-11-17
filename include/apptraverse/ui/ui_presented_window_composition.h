@@ -17,10 +17,22 @@ void ComposePresentedWindow(ae::ObjPtr<WindowT> const& window,
                               ae::ObjPtr<UiLocaleSettings> const& locale) {
   static_assert(std::is_base_of_v<UiPresentedWindow, WindowT>);
   static_assert(std::is_base_of_v<UiWindowPresenter, PresenterT>);
+  window->caption_close_control = {};
+  window->caption_close_control_id = 0;
   window->presenter = presenter;
   presenter->window = window;
   presenter->title = title;
   presenter->locale = locale;
+}
+
+template <typename WindowT, typename PresenterT>
+void ComposePresentedWindow(ae::ObjPtr<WindowT> const& window,
+    ae::ObjPtr<PresenterT> const& presenter,
+    UiLocalizationString::ptr const& title, UiLocaleSettings::ptr const& locale,
+    UiLayoutState::ptr const& layout, UiDeviceState::ptr const& device) {
+  window->layout_state = layout;
+  window->device_state = device;
+  ComposePresentedWindow(window, presenter, title, locale);
 }
 
 }  // namespace apptraverse::ui

@@ -120,7 +120,8 @@ int main(int argc, char** argv) {
        std::filesystem::recursive_directory_iterator(app.session().state_dir)) {
     if (entry.is_regular_file()) ++file_count;
   }
-  Check(file_count == 1, "USER contains exactly one file");
+  Check(file_count == 2, "USER and LOCAL each contain one native storage file");
+  Check(SnapshotUserFile(app.session().state_dir / "local").exists, "LOCAL saved native storage");
   std::cerr << "WINDOW_CATALOG_LINUX_USER_FILE_OK\n";
   return result;
 }

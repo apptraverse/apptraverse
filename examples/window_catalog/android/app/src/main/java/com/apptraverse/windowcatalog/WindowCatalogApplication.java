@@ -25,11 +25,11 @@ public final class WindowCatalogApplication extends Application
   }
 
   /** One native runtime per process; {@code stateSubdir} is under {@code files/}. */
-  public void initRuntime(String filesDir, String stateSubdir) {
+  public void initRuntime(String filesDir, String stateSubdir, String localSeedSubdir) {
     if (runtimeHandle != 0L) {
       return;
     }
-    runtimeHandle = NativeRuntime.nativeCreate(filesDir, stateSubdir, uiBridge);
+    runtimeHandle = NativeRuntime.nativeCreate(filesDir, stateSubdir, localSeedSubdir, uiBridge);
     if (runtimeHandle == 0L) {
       throw new IllegalStateException("Native runtime create failed");
     }

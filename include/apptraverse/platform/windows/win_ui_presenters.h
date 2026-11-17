@@ -91,8 +91,7 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
   // Runtime presentation only: constraints come from the UI mirror, while
   // measurements, DPI, focus and actual rectangles stay local to this window.
-  virtual UiLayoutNode const* LayoutRoot() const { return nullptr; }
-  virtual UiDeviceState* LocalDeviceState() const { return nullptr; }
+  bool NativeCaptionProvidesClose() const override { return true; }
   virtual bool ShowPresentationContextMenu(int, int) { return false; }
   static WinDesktopWindowPresenter* FromNativeWindow(HWND window);
   UiControlLayout ResolveChildLayout(UiControlLayout requested) const override;

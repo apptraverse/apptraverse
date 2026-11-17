@@ -1,3 +1,4 @@
+#include "window_title_fixture.h"
 #include <cstdlib>
 #include <deque>
 #include <iostream>
@@ -259,6 +260,7 @@ struct ModelFixture {
     model_root->presented_window->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
     auto presenter = SessionHeadlessPresenter::ptr::Create(
         ae::CreateWith{model_domain}.with_id(kPresenterId));
+    BuildWindowPresentationServices(*model_root->presented_window);
     ui::ComposePresentedWindow(model_root->presented_window, presenter,
                                localized, locale);
     InitializeRuntimeNode(*model_root->presented_window, *model_root);

@@ -1,4 +1,5 @@
 #include <filesystem>
+#include <cstdlib>
 #include <iostream>
 #include <set>
 
@@ -32,9 +33,9 @@ ae::ObjId CatalogRootId() {
 }  // namespace
 
 int main(int argc, char** argv) {
-  if (argc != 2) {
+  if (argc != 2 && argc != 3) {
     std::cerr << "usage: apptraverse_export_window_catalog_distilled_graph_android "
-                 "<output.h>\n";
+                 "<output.h> [test-layout-padding]\n";
     return 2;
   }
 
@@ -50,6 +51,12 @@ int main(int argc, char** argv) {
     apptraverse::DirectoryDomainStorage storage{export_dir};
     ae::Domain domain{storage};
     auto catalog = apptraverse::BuildWindowCatalogGraph(domain);
+    if (argc == 3) {
+      // Acceptance-only compatible supply revision: stable identity and S0 schema.
+      double padding = std::strtod(argv[2], nullptr);
+      catalog->persisted.main_window->layout->definition->root.padding = padding;
+      catalog->persisted.child_layout_definition->root.padding = padding;
+    }
     apptraverse::FinalizeDistilledGraph(*catalog);
     apptraverse::SaveDistilledRoot(*catalog);
     supply_constant_ids =

@@ -1,3 +1,4 @@
+#include "window_title_fixture.h"
 #include <cstdlib>
 #include <deque>
 #include <iostream>
@@ -352,6 +353,7 @@ struct ContractHarness {
     model_root->presented_window->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
     auto headless_presenter = HeadlessDesktopWindowPresenter::ptr::Create(
         ae::CreateWith{model_domain}.with_id(kPresenterId));
+    BuildWindowPresentationServices(*model_root->presented_window);
     ui::ComposePresentedWindow(model_root->presented_window, headless_presenter,
                                model_root->localized_title,
                                model_root->locale);
@@ -465,6 +467,7 @@ void TestPresentedWindowDistilledBaseReplay() {
   window->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
   auto presenter = HeadlessDesktopWindowPresenter::ptr::Create(
       ae::CreateWith{domain}.with_id(kPresenterId));
+  BuildWindowPresentationServices(*window);
   ui::ComposePresentedWindow(window, presenter, root->localized_title,
                              root->locale);
   InitializeRuntimeNode(*window, *root);
@@ -651,7 +654,7 @@ void TestModelRequestedFrame() {
             *h.model_root->presented_window,
             ui::RequestUiDesktopWindowFrameEvent::kClassId) == 1);
   h.PublishStructuralFromWindow();
-  CHECK(h.headless().apply_requested_frame_count == apply_count);
+  CHECK(h.headless().apply_requested_frame_count == apply_count + 1);
 }
 
 void TestLazyLocalization() {

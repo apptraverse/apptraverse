@@ -94,7 +94,12 @@ ui::UiLayoutNode DefaultWindowCatalogChildLayout() {
   close.control_id = 5006;
   close.min_width = 100;
   close.min_height = 32;
-  root.children.push_back(close);
+  // Flexible empty content keeps the child action at the bottom on every
+  // content-presenting backend. Native caption policy removes only Close.
+  ui::UiLayoutNode content;
+  content.flow = ui::UiLayoutFlow::kVertical;
+  content.grow = 1;
+  root.children = {content, close};
   return root;
 }
 
@@ -120,6 +125,7 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
 
   catalog->persisted.device_state = ui::UiDeviceState::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::DeviceState)));
+  catalog->persisted.device_state->Bootstrap({ui::UiThemeMode::kAuto, false}, ui::UiDeviceEnvironment{});
   InitializeRuntimeNode(*catalog->persisted.device_state, *catalog);
 
   catalog->persisted.next_window_number = 1;
@@ -152,13 +158,13 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   SaveDistilledRoot(*child_definition);
   main_window->layout = ui::UiLayoutState::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::MainLayoutState)));
-  main_window->layout->definition = main_definition;
+  main_window->layout->Bootstrap(main_definition, false, ui::UiLayoutNode{});
   InitializeRuntimeNode(*main_window->layout, *catalog);
   main_window->BootstrapFrame(0, 0, kMainClientWidth, kMainClientHeight);
   ui::UiDesktopWindowPresenter::ptr main_presenter = factory.create_window(
       domain, ae::ObjId{ToObjId(ObjId::MainWindowPresenter)}, catalog);
   ui::ComposePresentedWindow(main_window, main_presenter, main_title,
-                             catalog->persisted.locale);
+                             catalog->persisted.locale, main_window->layout, catalog->persisted.device_state);
   InitializeRuntimeNode(*main_window, *catalog);
   catalog->persisted.main_window = main_window;
 
@@ -239,7 +245,7 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
       ae::CreateWith{prefab_domain}.with_id(window_prefab_id));
   window_prefab->layout = ui::UiLayoutState::ptr::Create(
       ae::CreateWith{prefab_domain}.with_id(ToObjId(ObjId::WindowPrefabLayoutState)));
-  window_prefab->layout->definition = child_definition;
+  window_prefab->layout->Bootstrap(child_definition, false, ui::UiLayoutNode{});
   InitializeRuntimeNode(*window_prefab->layout, *catalog);
   ae::Ptr<CatalogWindow> window_prefab_body = window_prefab.Load();
   window_prefab_body->BootstrapFrame(0, 0, kPrefabClientWidth, kPrefabClientHeight);
@@ -248,7 +254,7 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
                             catalog);
   ui::ComposePresentedWindow(window_prefab, window_prefab_presenter,
                              catalog->persisted.texts.window_title_prefix,
-                             catalog->persisted.locale);
+                             catalog->persisted.locale, window_prefab->layout, catalog->persisted.device_state);
   InitializeRuntimeNode(*window_prefab_body, *catalog);
 
   if (options.mobile_close_in_prefab) {

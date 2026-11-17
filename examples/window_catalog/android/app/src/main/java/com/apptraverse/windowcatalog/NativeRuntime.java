@@ -9,7 +9,7 @@ public final class NativeRuntime {
   private NativeRuntime() {}
 
   public static native long nativeCreate(
-      String filesDir, String stateSubdir, NativeUiBridge uiBridge);
+      String filesDir, String stateSubdir, String localSeedSubdir, NativeUiBridge uiBridge);
 
   public static native void nativeSetPresentationRoot(
       long handle, android.app.Activity activity, android.view.ViewGroup contentRoot);

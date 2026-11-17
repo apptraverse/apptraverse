@@ -98,6 +98,13 @@ void UiDesktopWindow::RequestFrame(std::int32_t x, std::int32_t y,
       restore_client_height_ == client_height &&
       this->client_width() == client_width &&
       this->client_height() == client_height) {
+    // Native placement is device-local and may have moved since this semantic
+    // target was stored. An explicit request still needs presentation even when
+    // its persistent values are unchanged. Coalesce requests until publication.
+    if (!frame_request_pending_publication_) {
+      frame_request_pending_publication_ = true;
+      NoteMaterializedChange();
+    }
     return;
   }
   auto event = RequestUiDesktopWindowFrameEvent::ptr::Create(

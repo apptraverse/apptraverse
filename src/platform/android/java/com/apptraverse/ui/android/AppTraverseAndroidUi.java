@@ -4,7 +4,14 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
-import android.graphics.drawable.GradientDrawable;
+import android.view.ContextThemeWrapper;
+import android.content.res.Configuration;
+import android.hardware.display.DisplayManager;
+import android.view.Display;
+import android.graphics.Point;
+import android.provider.Settings;
+import android.view.accessibility.AccessibilityManager;
+import java.util.ArrayList;
 import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
@@ -13,6 +20,12 @@ import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.ScrollView;
+import android.widget.HorizontalScrollView;
+import android.view.Menu;
+import android.database.ContentObserver;
+import android.os.Handler;
+import android.os.Looper;
 
 /** JNI helpers for apptraverse_ui_android presenters (UI thread only). */
 public final class AppTraverseAndroidUi {
@@ -25,41 +38,137 @@ public final class AppTraverseAndroidUi {
 
   private static final class ClientMount extends FrameLayout {
     private long nativePresenter;
+    private boolean refreshPosted;
+    private HorizontalScrollView viewport;
+    private int mode;
+    private boolean soften;
+    private final java.util.WeakHashMap<TextView, Float> textSizesSp = new java.util.WeakHashMap<>();
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final ContentObserver settings = new ContentObserver(handler) {
+      @Override public void onChange(boolean selfChange) { refresh(); }
+    };
+    private final DisplayManager.DisplayListener displays = new DisplayManager.DisplayListener() {
+      public void onDisplayAdded(int id) { refresh(); }
+      public void onDisplayRemoved(int id) { refresh(); }
+      public void onDisplayChanged(int id) { refresh(); }
+    };
+    private final AccessibilityManager.AccessibilityStateChangeListener access = enabled -> refresh();
+    private final AccessibilityManager.TouchExplorationStateChangeListener exploration = enabled -> refresh();
+
+    void refresh() {
+      if (refreshPosted) return;
+      refreshPosted = true;
+      post(() -> {
+        refreshPosted = false;
+        if (nativePresenter != 0 && viewport.getWidth() > 0 && viewport.getHeight() > 0)
+          nativeOnWindowClientSize(nativePresenter, viewport.getWidth(), viewport.getHeight(),
+              getResources().getDisplayMetrics().densityDpi);
+      });
+    }
 
     ClientMount(Context context, long presenter) {
       super(context);
       nativePresenter = presenter;
+      context.getContentResolver().registerContentObserver(Settings.System.getUriFor(Settings.System.FONT_SCALE), false, settings);
+      context.getContentResolver().registerContentObserver(Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE), false, settings);
+      ((DisplayManager) context.getSystemService(Context.DISPLAY_SERVICE)).registerDisplayListener(displays, handler);
+      AccessibilityManager manager = (AccessibilityManager) context.getSystemService(Context.ACCESSIBILITY_SERVICE);
+      manager.addAccessibilityStateChangeListener(access);
+      manager.addTouchExplorationStateChangeListener(exploration);
     }
-
-    @Override protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
-      super.onSizeChanged(width, height, oldWidth, oldHeight);
-      if (nativePresenter != 0 && width > 0 && height > 0) {
-        nativeOnWindowClientSize(nativePresenter, width, height,
-            getResources().getDisplayMetrics().densityDpi);
-      }
+    @Override protected void onConfigurationChanged(Configuration configuration) {
+      super.onConfigurationChanged(configuration);
+      for (java.util.Map.Entry<TextView, Float> item : textSizesSp.entrySet())
+        item.getKey().setTextSize(TypedValue.COMPLEX_UNIT_SP, item.getValue());
+      refresh();
+    }
+    void release() {
+      nativePresenter = 0;
+      getContext().getContentResolver().unregisterContentObserver(settings);
+      ((DisplayManager) getContext().getSystemService(Context.DISPLAY_SERVICE)).unregisterDisplayListener(displays);
+      AccessibilityManager manager = (AccessibilityManager) getContext().getSystemService(Context.ACCESSIBILITY_SERVICE);
+      manager.removeAccessibilityStateChangeListener(access);
+      manager.removeTouchExplorationStateChangeListener(exploration);
+      detachFromParent(viewport);
     }
   }
 
   public static FrameLayout createClientMount(ViewGroup contentRoot, long nativePresenter) {
     Context context = contentRoot.getContext();
-    FrameLayout client = new ClientMount(context, nativePresenter);
-    client.setLayoutParams(new ViewGroup.LayoutParams(
-        ViewGroup.LayoutParams.MATCH_PARENT,
-        ViewGroup.LayoutParams.MATCH_PARENT));
-    contentRoot.addView(client);
+    ClientMount client = new ClientMount(context, nativePresenter);
+    HorizontalScrollView horizontal = new HorizontalScrollView(context) {
+      @Override protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        super.onSizeChanged(w, h, oldw, oldh);
+        client.refresh();
+      }
+    };
+    client.viewport = horizontal;
+    horizontal.setFillViewport(true);
+    ScrollView vertical = new ScrollView(context);
+    vertical.setFillViewport(true);
+    vertical.addView(client, new ViewGroup.LayoutParams(1, 1));
+    horizontal.addView(vertical, new ViewGroup.LayoutParams(1, ViewGroup.LayoutParams.MATCH_PARENT));
+    contentRoot.addView(horizontal, new ViewGroup.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
     return client;
   }
 
-  /** Detaches the presenter-owned client mount; the host content root stays. */
+  public static void setClientMountVisible(FrameLayout client, boolean visible) {
+    ((ClientMount) client).viewport.setVisibility(visible ? View.VISIBLE : View.GONE);
+    if (visible) ((ClientMount) client).refresh();
+  }
+
   public static void releaseClientMount(FrameLayout client) {
-    ((ClientMount) client).nativePresenter = 0;
-    detachFromParent(client);
+    ((ClientMount) client).release();
+  }
+
+  /** Native menu commands use the same presenter/proxy/Event path as controls. */
+  public static void populateAppearanceMenu(ViewGroup root, Menu menu) {
+    ClientMount client = visibleClient(root);
+    if (client == null) return; // The loading screen has no native presenter yet.
+    String[] names = {"Auto theme", "Light theme", "Dark theme"};
+    for (int i = 0; i < names.length; ++i) {
+      final int mode = i;
+      menu.add(1, 100 + i, i, names[i]).setCheckable(true).setChecked(client.mode == i)
+          .setOnMenuItemClickListener(item -> {
+            nativeOnAppearanceChanged(client.nativePresenter, mode, client.soften);
+            return true;
+          });
+    }
+    menu.setGroupCheckable(1, true, true);
+    menu.add(0, 103, 3, "Soften dark theme").setCheckable(true).setChecked(client.soften)
+        .setOnMenuItemClickListener(item -> {
+          nativeOnAppearanceChanged(client.nativePresenter, client.mode, !client.soften);
+          return true;
+        });
+  }
+
+  private static ClientMount visibleClient(ViewGroup group) {
+    for (int i = 0; i < group.getChildCount(); ++i) {
+      View child = group.getChildAt(i);
+      if (child.getVisibility() != View.VISIBLE) continue;
+      if (child instanceof ClientMount) return (ClientMount) child;
+      if (child instanceof ViewGroup) {
+        ClientMount found = visibleClient((ViewGroup) child);
+        if (found != null) return found;
+      }
+    }
+    return null;
   }
 
   public static Button createPushButton(ViewGroup parent, int controlId, String label,
       boolean enabled, int x, int y, int width, int height, long nativePresenter) {
     Context context = parent.getContext();
     Button button = new Button(context);
+    android.content.res.TypedArray style = context.obtainStyledAttributes(null,
+        new int[] {android.R.attr.textSize}, android.R.attr.buttonStyle, 0);
+    TypedValue size = style.peekValue(0);
+    float sp = size != null && size.type == TypedValue.TYPE_DIMENSION &&
+        (size.data & TypedValue.COMPLEX_UNIT_MASK) == TypedValue.COMPLEX_UNIT_SP
+        ? TypedValue.complexToFloat(size.data)
+        : button.getTextSize() / context.getResources().getDisplayMetrics().scaledDensity;
+    style.recycle();
+    ((ClientMount) parent).textSizesSp.put(button, sp);
     button.setText(label);
     button.setEnabled(enabled);
     button.setTag(controlId);
@@ -69,6 +178,7 @@ public final class AppTraverseAndroidUi {
     params.leftMargin = x;
     params.topMargin = y;
     parent.addView(button, params);
+    refreshParent(button);
     button.setOnClickListener(new View.OnClickListener() {
       @Override
       public void onClick(View v) {
@@ -82,6 +192,7 @@ public final class AppTraverseAndroidUi {
     button.setText(label);
     button.setEnabled(enabled);
     button.setContentDescription(label);
+    refreshParent(button);
   }
 
   public static void updatePushButtonLayout(Button button, int x, int y, int width,
@@ -131,7 +242,9 @@ public final class AppTraverseAndroidUi {
 
   public static void releasePushButton(Button button) {
     button.setOnClickListener(null);
+    ViewParent parent = button.getParent();
     detachFromParent(button);
+    if (parent instanceof ClientMount) ((ClientMount) parent).refresh();
   }
 
   public static LinearLayout createListContainer(ViewGroup parent, int controlId, int x,
@@ -145,6 +258,7 @@ public final class AppTraverseAndroidUi {
     params.leftMargin = x;
     params.topMargin = y;
     parent.addView(list, params);
+    refreshParent(list);
     return list;
   }
 
@@ -159,6 +273,7 @@ public final class AppTraverseAndroidUi {
     } else {
       row = new TextView(ctx);
       row.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+      ((ClientMount) list.getParent()).textSizesSp.put(row, 16f);
       row.setClickable(true);
       row.setFocusable(true);
       list.addView(row, new LinearLayout.LayoutParams(
@@ -178,31 +293,15 @@ public final class AppTraverseAndroidUi {
     row.setContentDescription(label);
     row.setSelected(selected);
 
-    // Visible selection from mirror `selected` (no separate Java selection state).
-    int fgSelected = Color.parseColor("#FFFFFF");
-    int fgNormal = Color.parseColor("#E8EAF0");
-    row.setTextColor(new ColorStateList(
-        new int[][] {
-            new int[] {android.R.attr.state_selected},
-            new int[] {}
-        },
-        new int[] {fgSelected, fgNormal}));
-
-    GradientDrawable bg = new GradientDrawable();
-    bg.setShape(GradientDrawable.RECTANGLE);
-    bg.setCornerRadius(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 6f,
-        ctx.getResources().getDisplayMetrics()));
-    if (selected) {
-      bg.setColor(Color.parseColor("#1E3A5F"));
-      bg.setStroke((int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 1f,
-          ctx.getResources().getDisplayMetrics()),
-          Color.parseColor("#4A90D9"));
-    } else {
-      bg.setColor(Color.parseColor("#2B2F38"));
-      bg.setStroke(0, Color.TRANSPARENT);
-    }
-    row.setBackground(bg);
+    // Native theme attributes retain focused/pressed/selected feedback.
+    row.setTextColor(themeColor(ctx, android.R.attr.textColorPrimary));
+    TypedValue selectable = new TypedValue();
+    ctx.getTheme().resolveAttribute(android.R.attr.selectableItemBackground, selectable, true);
+    row.setBackgroundResource(selectable.resourceId);
+    row.setActivated(selected);
+    row.setTypeface(null, selected ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
     row.setPadding((int) padPx, (int) padPx, (int) padPx, (int) padPx);
+    refreshParent(list);
   }
 
   public static void clearListRows(LinearLayout list, int keepCount) {
@@ -218,12 +317,130 @@ public final class AppTraverseAndroidUi {
     detachFromParent(list);
   }
 
+  private static int themeColor(Context context, int attr) {
+    android.content.res.TypedArray a = context.obtainStyledAttributes(new int[] {attr});
+    int value = a.getColor(0, 0); a.recycle(); return value;
+  }
+
+  private static void refreshParent(View view) {
+    ViewParent parent = view.getParent();
+    if (parent instanceof ClientMount) ((ClientMount) parent).refresh();
+  }
+
+  /** Measure native text widgets with platform SP/font scaling (including nonlinear scaling). */
+  public static int[] measureControls(FrameLayout client) {
+    int[] result = new int[client.getChildCount() * 5];
+    for (int i = 0; i < client.getChildCount(); ++i) {
+      View child = client.getChildAt(i);
+      child.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+          View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+      int offset = i * 5;
+      result[offset] = (Integer) child.getTag();
+      result[offset + 1] = child instanceof Button ? child.getMinimumWidth() : 0;
+      result[offset + 2] = child instanceof Button ? Math.max(child.getMinimumHeight(), child.getMeasuredHeight()) : 0;
+      result[offset + 3] = child instanceof Button ? child.getMeasuredWidth() : 0;
+      result[offset + 4] = result[offset + 2];
+    }
+    return result;
+  }
+
+  public static int measureControlHeight(FrameLayout client, int id, int width) {
+    View child = client.findViewWithTag(id);
+    child.measure(View.MeasureSpec.makeMeasureSpec(Math.max(1, width), View.MeasureSpec.EXACTLY),
+        View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+    return child instanceof Button ? Math.max(child.getMinimumHeight(), child.getMeasuredHeight()) : 0;
+  }
+
+  public static void applyControlRects(FrameLayout client, int[] rects, int contentWidth, int contentHeight) {
+    ViewGroup.LayoutParams content = client.getLayoutParams();
+    if (content.width != contentWidth || content.height != contentHeight) {
+      content.width = contentWidth; content.height = contentHeight; client.setLayoutParams(content);
+      View vertical = (View) client.getParent();
+      ViewGroup.LayoutParams outer = vertical.getLayoutParams();
+      outer.width = contentWidth; vertical.setLayoutParams(outer);
+    }
+    for (int i = 0; i < rects.length; i += 5) {
+      View child = client.findViewWithTag(rects[i]);
+      FrameLayout.LayoutParams frame = (FrameLayout.LayoutParams) child.getLayoutParams();
+      if (frame.leftMargin == rects[i+1] && frame.topMargin == rects[i+2] &&
+          frame.width == rects[i+3] && frame.height == rects[i+4]) continue;
+      frame.leftMargin = rects[i+1]; frame.topMargin = rects[i+2];
+      frame.width = rects[i+3]; frame.height = rects[i+4]; child.setLayoutParams(frame);
+    }
+  }
+
+  public static String[] deviceEnvironment(Activity activity) {
+    ArrayList<String> values = new ArrayList<>();
+    Configuration config = activity.getResources().getConfiguration();
+    android.util.DisplayMetrics metrics = activity.getResources().getDisplayMetrics();
+    AccessibilityManager access = (AccessibilityManager) activity.getSystemService(Context.ACCESSIBILITY_SERVICE);
+    values.add(Integer.toString(metrics.densityDpi));
+    values.add(Integer.toString(Math.round(config.fontScale * 1000)));
+    values.add((config.uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES ? "1" : "0");
+    values.add(Settings.Global.getFloat(activity.getContentResolver(), Settings.Global.ANIMATOR_DURATION_SCALE, 1) == 0 ? "1" : "0");
+    values.add(access.isTouchExplorationEnabled() ? "1" : "0");
+    Context systemTheme = new ContextThemeWrapper(activity,
+        (config.uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+            ? android.R.style.Theme_Material : android.R.style.Theme_Material_Light);
+    values.add(Integer.toString(themeColor(systemTheme, android.R.attr.colorBackground)));
+    values.add(Integer.toString(themeColor(systemTheme, android.R.attr.textColorPrimary)));
+    Display[] displays = ((DisplayManager) activity.getSystemService(Context.DISPLAY_SERVICE)).getDisplays();
+    values.add(Integer.toString(displays.length));
+    for (Display display : displays) {
+      Point size = new Point(); display.getRealSize(size);
+      android.graphics.Rect work = new android.graphics.Rect(); display.getRectSize(work);
+      values.add("android-display:" + display.getDisplayId() + ":" + display.getName());
+      values.add(Integer.toString(size.x)); values.add(Integer.toString(size.y));
+      values.add(Integer.toString(work.width())); values.add(Integer.toString(work.height()));
+      values.add(display.getDisplayId() == Display.DEFAULT_DISPLAY ? "1" : "0");
+      values.add(Integer.toString(display.getRotation()));
+      values.add(Integer.toString(Math.round(display.getRefreshRate())));
+    }
+    return values.toArray(new String[0]);
+  }
+
+  public static void applyAppearance(FrameLayout client, int mode, boolean soften) {
+    ((ClientMount) client).mode = mode;
+    ((ClientMount) client).soften = soften;
+    boolean dark = mode == 2 || (mode == 0 &&
+        (client.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES);
+    Context theme = new ContextThemeWrapper(client.getContext(), dark ? android.R.style.Theme_Material : android.R.style.Theme_Material_Light);
+    client.setBackgroundColor(dark && soften ? Color.rgb(32, 32, 32) : themeColor(theme, android.R.attr.colorBackground));
+    applyTextAppearance(client, theme, dark && soften);
+  }
+
+  private static void applyTextAppearance(ViewGroup group, Context theme, boolean soften) {
+    for (int i = 0; i < group.getChildCount(); ++i) {
+      View child = group.getChildAt(i);
+      if (child instanceof TextView) {
+        android.content.res.TypedArray colors = theme.obtainStyledAttributes(new int[] {
+            android.R.attr.textColorPrimary, android.R.attr.colorButtonNormal});
+        ColorStateList foreground = colors.getColorStateList(0);
+        if (soften) {
+          // Only the enabled foreground is softened. Disabled controls retain
+          // the native theme's state color (including its disabled alpha).
+          int disabled = foreground.getColorForState(
+              new int[] {-android.R.attr.state_enabled}, foreground.getDefaultColor());
+          foreground = new ColorStateList(
+              new int[][] {new int[] {-android.R.attr.state_enabled}, new int[] {}},
+              new int[] {disabled, Color.rgb(222, 222, 222)});
+        }
+        ((TextView) child).setTextColor(foreground);
+        if (child instanceof Button) child.setBackgroundTintList(colors.getColorStateList(1));
+        colors.recycle();
+      }
+      if (child instanceof ViewGroup) applyTextAppearance((ViewGroup) child, theme, soften);
+    }
+  }
+
   private static void detachFromParent(View view) {
     ViewParent parent = view.getParent();
     if (parent instanceof ViewGroup) {
       ((ViewGroup) parent).removeView(view);
     }
   }
+
+  private static native void nativeOnAppearanceChanged(long nativePresenter, int mode, boolean soften);
 
   private static native void nativeOnPushButtonClick(long nativePresenter);
 

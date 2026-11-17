@@ -28,12 +28,11 @@ ui::android::AndroidDesktopWindowPresenter* AndroidPresenterForWindow(
 void SetMountVisible(ui::android::AndroidPresentationHost& host,
                      jobject mount, bool visible) {
   JNIEnv* env = ui::android::RequireUiThreadEnv(host);
-  jclass view_class = CheckedJni(env, "FindClass", [&] { return env->FindClass("android/view/View"); });
-  jmethodID set_visibility =
-      CheckedJni(env, "GetMethodID", [&] { return env->GetMethodID(view_class, "setVisibility", "(I)V"); });
-  jint const visibility = visible ? 0 : 8;
-  CheckedJni(env, "CallVoidMethod", [&] { return env->CallVoidMethod(mount, set_visibility, visibility); });
-  CheckedJni(env, "DeleteLocalRef", [&] { return env->DeleteLocalRef(view_class); });
+  jclass cls = CheckedJni(env, "visibility class", [&] { return env->FindClass("com/apptraverse/ui/android/AppTraverseAndroidUi"); });
+  jmethodID method = CheckedJni(env, "visibility method", [&] { return env->GetStaticMethodID(cls,
+      "setClientMountVisible", "(Landroid/widget/FrameLayout;Z)V"); });
+  CheckedJni(env, "page visibility", [&] { env->CallStaticVoidMethod(cls, method, mount, visible ? JNI_TRUE : JNI_FALSE); });
+  env->DeleteLocalRef(cls);
 }
 
 void SetActivityTitle(ui::android::AndroidPresentationHost& host,
@@ -62,29 +61,13 @@ apptraverse::WindowCatalog& CatalogRoot(ae::Obj& root) {
 }  // namespace
 
 WindowCatalogNativeRuntime::WindowCatalogNativeRuntime(
-    std::filesystem::path state_dir, android::WindowCatalogUiBridge ui_bridge,
+    std::filesystem::path state_dir, std::filesystem::path local_seed_dir,
+    android::WindowCatalogUiBridge ui_bridge,
     android::AndroidUiBridge android_ui_bridge)
     : state_dir_{std::move(state_dir)},
       ui_bridge_{std::move(ui_bridge)},
       android_ui_bridge_{std::move(android_ui_bridge)},
-      profile_{state_dir_} {
-  presentation_host_.on_window_client_size =
-      [this](ui::android::AndroidDesktopWindowPresenter& presenter,
-             std::int32_t width, std::int32_t height, std::int32_t dpi) {
-        ae::ObjId const catalog_id{
-            window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
-        ae::ObjId const main_id{
-            window_catalog_demo::ToObjId(window_catalog_demo::ObjId::MainWindow)};
-        if (presenter.window.id() == main_id) {
-          host_->model_proxy().Invoke(catalog_id,
-              &WindowCatalog::SubmitMainClientViewportFromUi, width, height, dpi);
-        } else {
-          host_->model_proxy().Invoke(catalog_id,
-              &WindowCatalog::SubmitHolderChildWindowClientSizeFromUi,
-              presenter.window.id().id(), width, height, dpi);
-        }
-      };
-}
+      profile_{state_dir_, local_seed_dir} {}
 
 WindowCatalogNativeRuntime::~WindowCatalogNativeRuntime() {
   if (host_) {
@@ -96,10 +79,11 @@ void WindowCatalogNativeRuntime::SetPresentationRoot(JNIEnv* env,
                                                       jobject activity,
                                                       jobject content_root) {
   if (!host_) {
+    startup_environment_ = ui::android::CaptureAndroidDeviceEnvironment(env, activity);
     android::AndroidApplicationHostCallbacks callbacks;
     callbacks.run_model = [this](ApplicationPublishedCallback on_published) {
       return RunWindowCatalogAndroidModel(profile_, runtime_,
-                                          std::move(on_published));
+                                          std::move(on_published), startup_environment_);
     };
     callbacks.after_initial = [this](ae::Obj& root) {
       SyncMobilePagerChrome(CatalogRoot(root));

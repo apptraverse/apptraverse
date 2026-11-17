@@ -34,14 +34,6 @@ class CatalogDesktopWindowPresenter
     dnv(base_, catalog);
   }
 
-  ui::UiLayoutNode const* LayoutRoot() const override {
-    // Child Close is supplied by the native caption, so its content-only
-    // layout has no presented controls on this backend.
-    if (window.id() != catalog->persisted.main_window.id()) return nullptr;
-    auto const& catalog_window = static_cast<CatalogWindow const&>(*window);
-    return &catalog_window.layout->EffectiveRoot();
-  }
-
   bool ShowPresentationContextMenu(int x, int y) override {
     if (window.id() != catalog->persisted.main_window.id()) return false;
     auto const& catalog_window = static_cast<CatalogWindow const&>(*window);
@@ -82,42 +74,7 @@ class CatalogDesktopWindowPresenter
     return true;
   }
 
-  ui::UiDeviceState* LocalDeviceState() const override {
-    return &*catalog->persisted.device_state;
-  }
 
-  bool PresentsChildControl(Presenter const& child) const override {
-    // Native caption Close supplies this action; identify its content control
-    // through the distilled prefab link, independently of model host mode.
-    auto const& catalog_window = static_cast<CatalogWindow const&>(*window);
-    return child.obj_id != catalog_window.close_button_presenter.id();
-  }
-
-  void OnLoad() override {
-    assert(SessionMainNativeFrameQueue() != nullptr);
-    assert(session_catalog_main_window_id_.is_valid());
-    ui::windows::WinDesktopWindowPresenter::OnLoad();
-  }
-
-  void ReportNativeFrameToModel(std::int32_t x, std::int32_t y,
-                                std::int32_t client_width,
-                                std::int32_t client_height,
-                                bool updates_restore_geometry) override {
-    ::apptraverse::WindowCatalogMainNativeFrameQueue* const queue =
-        SessionMainNativeFrameQueue();
-    if (this->window.id() == session_catalog_main_window_id_) {
-      assert(queue != nullptr);
-      assert(session_catalog_obj_id_.is_valid());
-      ::apptraverse::PostWindowCatalogMainNativeFrame(
-          *queue, this->model_proxy, session_catalog_obj_id_, this->window.id(),
-          x, y, client_width, client_height, updates_restore_geometry);
-      return;
-    }
-    this->model_proxy->Invoke(
-        catalog.id(), &WindowCatalog::SubmitHolderChildWindowFrameFromUi,
-        this->window.id().id(), x, y, client_width, client_height,
-        updates_restore_geometry);
-  }
 };
 
 class CatalogListContainerPresenter

@@ -95,6 +95,7 @@ void WebPushButtonPresenter::OnLoad() {
   ApptraverseBindPushButtonClick(dom_refs_->button_element, this);
   AppendDomChild(parent, dom_refs_->button_element);
   SyncFromMirror();
+  desktop->RegisterChildControl(dom_refs_->button_element, control_id);
 }
 
 void WebPushButtonPresenter::SyncFromMirror() {
@@ -109,12 +110,14 @@ void WebPushButtonPresenter::SyncFromMirror() {
                                  layout.width, layout.height);
 }
 
-void WebPushButtonPresenter::OnModelChanged() { SyncFromMirror(); }
+void WebPushButtonPresenter::OnModelChanged() { SyncFromMirror(); static_cast<WebDesktopWindowPresenter*>(window_presenter.operator->())->RefreshLayout(); }
 
 void WebPushButtonPresenter::OnUnload() {
   if (dom_refs_ == nullptr) {
     return;
   }
+  static_cast<WebDesktopWindowPresenter*>(window_presenter.operator->())->UnregisterChildControl(dom_refs_->button_element);
+
   if (dom_refs_->button_element != nullptr) {
     ApptraverseUnbindPushButtonClick(dom_refs_->button_element);
     RemoveDomNode(dom_refs_->button_element);

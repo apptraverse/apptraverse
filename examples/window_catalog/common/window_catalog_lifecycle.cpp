@@ -98,9 +98,6 @@ int WindowCatalogModelSession::Run(
     SeedClientLocalStorage(local_storage, seed);
   }
 #endif
-  ClientLocalDomainStorage routed_user{
-      user_storage, local_storage, backing, CollectClientLocalRoots(backing)};
-  OverlayDomainStorage overlay{routed_user, backing, constant_ids};
   hooks.prepare = [this](WindowCatalog& catalog) {
     catalog.persisted.device_state.Load();
     if (prepare_local_state) prepare_local_state(catalog);
@@ -115,8 +112,8 @@ int WindowCatalogModelSession::Run(
     }
     return 0;
   };
-  return RunApplicationModelSession(overlay, CatalogRootId(), runtime,
-                                    std::move(on_published), hooks);
+  return RunClientLocalApplicationModelSession(user_storage, local_storage, backing,
+      constant_ids, CatalogRootId(), runtime, std::move(on_published), hooks);
 }
 
 }  // namespace apptraverse

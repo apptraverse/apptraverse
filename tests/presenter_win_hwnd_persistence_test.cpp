@@ -83,6 +83,7 @@ void RunWinHwndPersistenceTest() {
         ui::windows::WinDesktopWindowPresenter::ptr::Create(
             ae::CreateWith{domain}.with_id(kPresenterId));
     root->window_presenter->window = root->window;
+  apptraverse::test::BuildWindowPresentationServices(*root->window);
   apptraverse::test::BuildEmptyWindowTitle(*root->window_presenter);
 
     ae::DomainGraph save_graph{&domain};

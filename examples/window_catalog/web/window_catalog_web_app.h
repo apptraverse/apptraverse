@@ -28,6 +28,7 @@ class WebWindowCatalogApp {
   void ViewportChanged(int width, int height);
   void ChildViewportChanged(unsigned window_id, int width, int height);
   void FinishTeardown(bool shutdown_succeeded);
+  void SetAppearance(int theme, bool soften);
 
  private:
   WebWindowCatalogApp() = default;
@@ -36,6 +37,7 @@ class WebWindowCatalogApp {
 
   std::filesystem::path state_dir_;
   ae::RamDomainStorage user_storage_;
+  ae::RamDomainStorage local_storage_;
   ApplicationModelRuntime runtime_;
   ui::web::WebPresentationHost presentation_host_;
   std::unique_ptr<web::WebApplicationHost> host_;

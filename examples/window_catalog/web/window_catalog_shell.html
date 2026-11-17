@@ -9,8 +9,9 @@
       height: 100%;
       margin: 0;
       font-family: system-ui, sans-serif;
-      color: #111;
-      background: #f2f2f2;
+      color: CanvasText;
+      color-scheme: light dark;
+      background: Canvas;
       overscroll-behavior: none;
     }
     #app {
@@ -19,7 +20,7 @@
       height: 100%;
       max-width: 960px;
       margin: 0 auto;
-      background: #fff;
+      background: var(--at-background, Canvas);
     }
     /* Pager header: title + page indicator + prev/next + application Close. */
     #pager-bar {
@@ -28,7 +29,7 @@
       gap: 8px;
       padding: 8px 12px;
       border-bottom: 1px solid #ccc;
-      background: #f7f7f7;
+      background: Canvas;
     }
     #page-title {
       flex: 1 1 auto;
@@ -39,12 +40,13 @@
       font-size: 18px;
       font-weight: 600;
     }
-    #page-indicator { color: #555; font-size: 14px; white-space: nowrap; }
+    #page-indicator { color: GrayText; font-size: 14px; white-space: nowrap; }
     #pager-bar button {
       min-width: 44px;
       min-height: 44px;
       border: 1px solid #888;
-      background: #e8e8e8;
+      background: ButtonFace;
+      color: ButtonText;
       font-size: 16px;
     }
     #pager-bar button:disabled { opacity: 0.5; }
@@ -67,7 +69,9 @@
       height: 100% !important;
       display: none;
       box-sizing: border-box;
-      background: #fafafa;
+      background: var(--at-background, Canvas);
+      color: var(--at-text, CanvasText);
+      overflow: auto;
     }
     #catalog-mount .apptraverse-desktop-window.page-active { display: block; }
     #catalog-mount .apptraverse-desktop-client {
@@ -78,16 +82,19 @@
     }
     .apptraverse-push-button {
       box-sizing: border-box;
-      font-size: 16px;
-      border: 1px solid #888;
-      background: #e8e8e8;
+      font: inherit;
+      padding: 6px 12px;
+      white-space: normal;
+      border: 1px solid ButtonBorder;
+      background: ButtonFace;
+      color: ButtonText;
       touch-action: manipulation;
     }
     .apptraverse-push-button:disabled { opacity: 0.55; }
     .apptraverse-list {
       box-sizing: border-box;
       border: 1px solid #ccc;
-      background: #fff;
+      background: var(--at-background, Canvas);
       -webkit-overflow-scrolling: touch;
     }
     .apptraverse-list-row {
@@ -95,9 +102,9 @@
       min-height: 20px;
       cursor: default;
       user-select: none;
-      border-bottom: 1px solid #eee;
+      border-bottom: 1px solid GrayText;
     }
-    .apptraverse-list-row-selected { background: #dbeafe; }
+    .apptraverse-list-row-selected { background: Highlight; color: HighlightText; }
 
     #page-dots { display: flex; justify-content: center; gap: 6px; padding: 6px; }
     #page-dots button {
@@ -109,7 +116,7 @@
       background: #ddd;
     }
     #page-dots button.dot-active { background: #2563eb; border-color: #2563eb; }
-    #status { padding: 4px 12px 8px; color: #444; min-height: 1.2em; font-size: 13px; }
+    #status { padding: 4px 12px 8px; color: GrayText; min-height: 1.2em; font-size: 13px; }
   </style>
 </head>
 <body>
@@ -123,6 +130,10 @@
     </div>
     <div id="catalog-mount"></div>
     <div id="page-dots"></div>
+    <div id="appearance-settings" style="padding: 4px 12px">
+      <label>Appearance <select id="appearance-theme" aria-label="Appearance"><option value="0">Auto</option><option value="1">Light</option><option value="2">Dark</option></select></label>
+      <label><input id="appearance-soft" type="checkbox"> Soften dark theme</label>
+    </div>
     <div id="status"></div>
   </div>
 
@@ -131,6 +142,12 @@
     // model; this object only reflects the pager (ring ids + active id pushed
     // from native after each publication) and forwards user input to the
     // exported bridge functions (swipe, page click, viewport, shutdown).
+    function changeAppearance() {
+      var apply = Module['_ApptraverseWindowCatalogAppearance'];
+      if (apply) apply(Number(document.getElementById('appearance-theme').value), document.getElementById('appearance-soft').checked ? 1 : 0);
+    }
+    document.getElementById('appearance-theme').addEventListener('change', changeAppearance);
+    document.getElementById('appearance-soft').addEventListener('change', changeAppearance);
     var AtCatalog = (function() {
       var pageIds = [];
       var activeId = 0;

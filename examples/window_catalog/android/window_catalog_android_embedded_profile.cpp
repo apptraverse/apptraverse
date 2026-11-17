@@ -5,10 +5,12 @@
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/single_file_user_storage.h"
 #include "android_log.h"
+#include "apptraverse/client_local_state.h"
 
 namespace apptraverse::example::surfaces {
 WindowCatalogAndroidEmbeddedProfile::WindowCatalogAndroidEmbeddedProfile(
-    std::filesystem::path const& user_dir) : state_dir{user_dir} {
+    std::filesystem::path const& user_dir,
+    std::filesystem::path const& local_seed_dir) : state_dir{user_dir} {
 #if defined(APPTRAVERSE_WINDOW_CATALOG_DEBUG_FRESH)
   std::error_code error;
   std::filesystem::create_directories(user_dir, error);
@@ -30,9 +32,18 @@ WindowCatalogAndroidEmbeddedProfile::WindowCatalogAndroidEmbeddedProfile(
   }
   android::LogMarker("WINDOW_CATALOG_DEBUG_FRESH_PROFILE=" + state_dir.string());
 #else
-  if (!LoadUserStorageFile(user, state_dir)) {
+  if (!LoadUserStorageFile(user, state_dir) ||
+      !LoadUserStorageFile(local, state_dir / "local")) {
     WriteFatalStderr("fatal: cannot load Android USER file\n");
     std::abort();
+  }
+  if (local.state.empty() && !local_seed_dir.empty()) {
+    ae::RamDomainStorage seed;
+    if (!LoadUserStorageFile(seed, local_seed_dir)) {
+      WriteFatalStderr("fatal: cannot load initial Android LOCAL seed\n");
+      std::abort();
+    }
+    SeedClientLocalStorage(local, seed);
   }
 #endif
 }

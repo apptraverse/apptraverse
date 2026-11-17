@@ -205,14 +205,15 @@ std::string RunImmediateJoinLongRunModelProbe() {
   std::filesystem::create_directories(state_dir, ec);
 
   ae::RamDomainStorage user_storage;
+  ae::RamDomainStorage local_storage;
   apptraverse::ApplicationModelRuntime runtime;
   apptraverse::ui::android::AndroidPresentationHost presentation_host{};
   presentation_host.content_root = reinterpret_cast<jobject>(1);
 
   apptraverse::android::AndroidApplicationHostCallbacks callbacks;
   callbacks.run_model =
-      [&runtime, &user_storage, &state_dir](apptraverse::ApplicationPublishedCallback on_published) {
-        return RunMinimalApplicationModel(user_storage, state_dir, runtime,
+      [&runtime, &user_storage, &local_storage, &state_dir](apptraverse::ApplicationPublishedCallback on_published) {
+        return RunMinimalApplicationModel(user_storage, local_storage, state_dir, runtime,
                                           std::move(on_published));
       };
 

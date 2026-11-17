@@ -21,6 +21,7 @@
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/platform/windows/win_ui_frame.h"
+#include "apptraverse/platform/windows/win_ui_environment.h"
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "apptraverse/single_file_user_storage.h"
 #include "apptraverse/ui/ui_desktop_window.h"
@@ -238,16 +239,24 @@ struct ProfileDomain {
   ae::RamDomainStorage backing;
   std::filesystem::path user_storage_profile;
   ae::RamDomainStorage user_storage;
+  ae::RamDomainStorage local_storage;
+  ClientLocalDomainStorage routed;
   OverlayDomainStorage overlay;
   ae::Domain domain;
 
   explicit ProfileDomain(std::filesystem::path const& state_dir)
-      : user_storage_profile{state_dir},
-        overlay{user_storage, backing,
+      : backing{[] {
+          ae::RamDomainStorage value;
+          InstallEmbeddedDistilledBacking(value, embedded_distilled::minimal::kEmbeddedGraph);
+          return value;
+        }()}, user_storage_profile{state_dir},
+        routed{user_storage, local_storage, backing, CollectClientLocalRoots(backing)},
+        overlay{routed, backing,
                 EmbeddedSupplyConstantIdSet(
                     embedded_distilled::minimal::kEmbeddedGraph)},
         domain{overlay} {
     CHECK(apptraverse::LoadUserStorageFile(user_storage, user_storage_profile));
+    CHECK(apptraverse::LoadUserStorageFile(local_storage, user_storage_profile / "local"));
     InstallEmbeddedDistilledBacking(
         backing, embedded_distilled::minimal::kEmbeddedGraph);
   }
@@ -609,12 +618,26 @@ void ProbePersistedGraph(std::filesystem::path const& state_dir,
   CHECK(base_window.presenter.is_valid());
   CHECK(base_window.presenter.id() == example::minimal::MinimalPresenterId());
 
-  Frame model_frame;
-  model_frame.x = window.x();
-  model_frame.y = window.y();
-  model_frame.client_width = window.client_width();
-  model_frame.client_height = window.client_height();
-  CHECK(FramesNear(model_frame, expected_frame));
+  // Native geometry belongs to LOCAL. The portable semantic frame remains
+  // the application's supplied request across native resizing and cold load.
+  CHECK(window.x() == 120 && window.y() == 80);
+  CHECK(window.restore_client_width() == 640 && window.restore_client_height() == 480);
+  window.device_state.Load();
+  auto const& device = *window.device_state;
+  auto const* placement = device.PlacementFor(window.obj_id);
+  CHECK(placement != nullptr);
+  auto monitor = std::find_if(device.environment.monitors.begin(), device.environment.monitors.end(),
+      [&](auto const& value) { return value.key == placement->resolved_monitor; });
+  CHECK(monitor != device.environment.monitors.end());
+  auto observed = std::find_if(device.windows.begin(), device.windows.end(),
+      [&](auto const& value) { return value.window_id == window.obj_id; });
+  CHECK(observed != device.windows.end());
+  int outer_width{}, outer_height{};
+  ui::windows::ClientSizeToOuter(expected_frame.client_width, expected_frame.client_height, outer_width, outer_height);
+  CHECK(std::abs(monitor->work_area.x + MulDiv(placement->frame_dip.x, observed->dpi_x, 96) - expected_frame.x) <= 3);
+  CHECK(std::abs(monitor->work_area.y + MulDiv(placement->frame_dip.y, observed->dpi_y, 96) - expected_frame.y) <= 3);
+  CHECK(std::abs(MulDiv(placement->frame_dip.width, observed->dpi_x, 96) - outer_width) <= 3);
+  CHECK(std::abs(MulDiv(placement->frame_dip.height, observed->dpi_y, 96) - outer_height) <= 3);
 }
 
 #if defined(APPTRAVERSE_MINIMAL_APP_USE_EMBEDDED_DISTILL)
@@ -871,11 +894,11 @@ void TestDebugAlwaysCreatesFreshGraph(
         std::size_t files = 0;
         for (auto const& saved : std::filesystem::recursive_directory_iterator(entry.path())) {
           if (saved.is_directory()) continue;
-          CHECK(saved.is_regular_file());
-          CHECK(saved.path() == entry.path() / "user" / "user.bin");
+          if (!saved.is_regular_file()) continue;
+          CHECK(saved.path().filename() == "user.bin");
           ++files;
         }
-        CHECK(files == 1);  // BACKING and producer scratch remain entirely in RAM.
+        CHECK(files == 2);  // USER and LOCAL; BACKING remains entirely in RAM.
       }
     }
     CHECK(after == before + 1);
@@ -898,6 +921,7 @@ void RunAcceptanceAndRequiredGraphNegatives() {
 }  // namespace apptraverse::test
 
 int main() {
+  apptraverse::ui::windows::EnsureWinProcessDpiAwareness();
   apptraverse::example::minimal::RegisterMinimalApplicationTypes();
   apptraverse::test::RunAcceptanceAndRequiredGraphNegatives();
   std::cout << "minimal_app_win32_acceptance_test OK\n";

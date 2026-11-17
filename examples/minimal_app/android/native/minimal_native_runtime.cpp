@@ -28,10 +28,11 @@ MinimalNativeRuntime::~MinimalNativeRuntime() {
 void MinimalNativeRuntime::SetPresentationRoot(JNIEnv* env, jobject activity,
                                                  jobject content_root) {
   if (!host_) {
+    startup_environment_ = ui::android::CaptureAndroidDeviceEnvironment(env, activity);
     android::AndroidApplicationHostCallbacks callbacks;
     callbacks.run_model = [this](ApplicationPublishedCallback on_published) {
-      return RunMinimalApplicationModel(user_storage_, state_dir_, runtime_,
-                                        std::move(on_published));
+      return RunMinimalApplicationModel(user_storage_, local_storage_, state_dir_, runtime_,
+                                        std::move(on_published), &startup_environment_);
     };
     callbacks.after_initial = [this](ae::Obj& root) {
       ApplyPagePresentation(root);
@@ -41,14 +42,11 @@ void MinimalNativeRuntime::SetPresentationRoot(JNIEnv* env, jobject activity,
 #if defined(APPTRAVERSE_MINIMAL_TEST_HOOKS)
       WaitAndroidCheckpointPersistTestGateIfEnabled();
 #endif
-      return PersistAndroidMinimalUser(domain, user_storage_, state_dir_);
+      return PersistAndroidMinimalUser(domain, user_storage_, local_storage_, state_dir_);
     };
     host_ = std::make_unique<android::AndroidApplicationHost>(
         runtime_, presentation_host_, std::move(ui_bridge_), std::move(callbacks));
-    presentation_host_.on_window_client_size = [this](auto&, int width, int height, int dpi) {
-      host_->model_proxy().Invoke(MinimalApplicationRootId(),
-          &MinimalApplication::SubmitViewport, width, height, dpi, true);
-    };
+
   }
   host_->SetPresentationRoot(env, activity, content_root);
   if (auto* session = host_->ui_session()) {
@@ -59,13 +57,13 @@ void MinimalNativeRuntime::SetPresentationRoot(JNIEnv* env, jobject activity,
 void MinimalNativeRuntime::ApplyPagePresentation(ae::Obj& root) {
   auto& application = static_cast<MinimalApplication&>(root);
   auto* env = ui::android::RequireUiThreadEnv(presentation_host_);
-  auto cls = ui::android::CheckedJni(env, "View class", [&] { return env->FindClass("android/view/View"); });
-  auto visibility = ui::android::CheckedJni(env, "View.setVisibility", [&] { return env->GetMethodID(cls,"setVisibility","(I)V"); });
+  auto cls = ui::android::CheckedJni(env, "View class", [&] { return env->FindClass("com/apptraverse/ui/android/AppTraverseAndroidUi"); });
+  auto visibility = ui::android::CheckedJni(env, "View.setVisibility", [&] { return env->GetStaticMethodID(cls,"setClientMountVisible","(Landroid/widget/FrameLayout;Z)V"); });
   auto show = [&](ui::UiDesktopWindow& window) {
     auto& presenter = static_cast<ui::android::AndroidDesktopWindowPresenter&>(*window.presenter);
     auto mount = ui::android::AndroidPresentationHost::ClientMount(presenter);
-    bool const visible = !application.viewport.single_page || window.obj_id == application.ActivePageId();
-    ui::android::CheckedJni(env, "page visibility", [&] { env->CallVoidMethod(mount,visibility,visible ? 0 : 8); });
+    bool const visible = window.obj_id == application.ActivePageId();
+    ui::android::CheckedJni(env, "page visibility", [&] { env->CallStaticVoidMethod(cls,visibility,mount,visible ? JNI_TRUE : JNI_FALSE); });
   };
   show(*application.main_window);
   if (application.auxiliary_presented_open) show(*application.auxiliary.window);

@@ -58,41 +58,44 @@ EM_JS(void, ApptraverseIdbfsSyncStore, (), {
   });
 });
 
-EM_JS(int, ApptraverseIdbfsCommitLifecycleFile,
-      (const char* mount_utf8, const char* file_utf8,
-       const std::uint8_t* bytes, std::size_t size), {
+EM_JS(int, ApptraverseIdbfsCommitLifecycleFiles,
+      (const char* mount_utf8, const char* paths_utf8, const std::uint8_t* bytes,
+       const std::uint32_t* lengths, std::size_t count), {
   var mount = PATH.normalize(UTF8ToString(Number(mount_utf8)));
-  var file = PATH.normalize(UTF8ToString(Number(file_utf8)));
-  if (!file.startsWith(mount + '/')) return 0;
+  var paths = UTF8ToString(Number(paths_utf8)).split('\n');
   var db = IDBFS.dbs[mount];
-  if (!db) return 0;
+  if (!db || paths.length !== Number(count)) return 0;
   var transaction;
   try {
-    FS.mkdirTree(PATH.dirname(file));
-    // IndexedDB cannot store a view backed by Wasm's SharedArrayBuffer.
-    FS.writeFile(file, new Uint8Array(HEAPU8.subarray(Number(bytes), Number(bytes) + Number(size))));
-    // IDBFS persists files in FILE_DATA. Its JS implementation no longer
-    // exposes DB_STORE_NAME as an IDBFS object property.
+    var offset = Number(bytes), files = [];
+    for (var i = 0; i < paths.length; ++i) {
+      var file = PATH.normalize(paths[i]);
+      if (!file.startsWith(mount + '/')) return 0;
+      var size = HEAPU32[(Number(lengths) >>> 2) + i];
+      FS.mkdirTree(PATH.dirname(file));
+      FS.writeFile(file, new Uint8Array(HEAPU8.subarray(offset, offset + size)));
+      files.push(file); offset += size;
+    }
+    // USER and LOCAL enter the same transaction before the lifecycle event ends.
     transaction = db.transaction(['FILE_DATA'], 'readwrite');
     var store = transaction.objectStore('FILE_DATA');
-    var path = file;
-    while (path !== mount) {
-      var stat = FS.stat(path);
-      var entry = { timestamp: stat.mtime, mode: stat.mode };
-      if (path === file) entry.contents = FS.readFile(file);
-      store.put(entry, path);
-      path = PATH.dirname(path);
-    }
+    files.forEach(function(file) {
+      var path = file;
+      while (path !== mount) {
+        var stat = FS.stat(path);
+        var entry = { timestamp: stat.mtime, mode: stat.mode };
+        if (path === file) entry.contents = FS.readFile(file);
+        store.put(entry, path); path = PATH.dirname(path);
+      }
+    });
     transaction.onabort = function() {
-      console.error('IDBFS lifecycle USER commit failed', transaction.error);
+      console.error('IDBFS lifecycle object-state commit failed', transaction.error);
     };
-    // Queue all data before ending the lifecycle event, without an asynchronous
-    // database-open/enumeration/request callback between here and commit().
     transaction.commit();
     return 1;
   } catch (error) {
     if (transaction) transaction.abort();
-    console.error('Lifecycle USER commit failed', error);
+    console.error('Lifecycle object-state commit failed', error);
     return 0;
   }
 });
@@ -186,15 +189,26 @@ void SyncIdbfsStore(IdbfsCompletionCallback on_success,
   ApptraverseIdbfsSyncStore();
 }
 
-bool CommitIdbfsFileForPageLifecycle(std::string const& mount_path,
-                                    std::string const& file_path,
-                                    std::vector<std::uint8_t> const& bytes) {
-  if (!emscripten_is_main_browser_thread() ||
-      file_path.compare(0, mount_path.size() + 1, mount_path + "/") != 0) {
-    return false;
+bool CommitIdbfsFilesForPageLifecycle(std::string const& mount_path,
+    std::vector<WebPersistentFileSnapshot> const& files) {
+  if (!emscripten_is_main_browser_thread() || files.empty()) return false;
+  std::string paths;
+  std::vector<std::uint8_t> bytes;
+  std::vector<std::uint32_t> lengths;
+  for (auto const& file : files) {
+    if (file.path.compare(0, mount_path.size() + 1, mount_path + "/") != 0 ||
+        file.path.find('\n') != std::string::npos) return false;
+    if (!paths.empty()) paths += '\n';
+    paths += file.path;
+    lengths.push_back(static_cast<std::uint32_t>(file.bytes.size()));
+    bytes.insert(bytes.end(), file.bytes.begin(), file.bytes.end());
   }
-  return ApptraverseIdbfsCommitLifecycleFile(
-      mount_path.c_str(), file_path.c_str(), bytes.data(), bytes.size()) != 0;
+  return ApptraverseIdbfsCommitLifecycleFiles(mount_path.c_str(), paths.c_str(),
+      bytes.data(), lengths.data(), lengths.size()) != 0;
+}
+bool CommitIdbfsFileForPageLifecycle(std::string const& mount_path,
+    std::string const& file_path, std::vector<std::uint8_t> const& bytes) {
+  return CommitIdbfsFilesForPageLifecycle(mount_path, {{file_path, bytes}});
 }
 
 }  // namespace apptraverse::web

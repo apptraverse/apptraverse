@@ -221,22 +221,11 @@ void WinDesktopWindowPresenter::OnLoad() {
   }
   SetUserData(hwnd_, this);
   ApplyLocalPlacement();
-  if (!LocalDeviceState() || !LocalDeviceState()->PlacementFor(window.id())) KeepInCurrentWorkArea();
+  if (!LocalDeviceState()->PlacementFor(window.id())) KeepInCurrentWorkArea();
   RefreshPresentationSettings();
   ShowWindow(hwnd_, SW_SHOW);
   UpdateWindow(hwnd_);
-  ClientFrame const initial = ReadNativeClientFrame();
-  last_native_client_width_ = initial.client_width;
-  last_native_client_height_ = initial.client_height;
-  ReportNativeFrameToModel(initial.x, initial.y, initial.client_width,
-                           initial.client_height, true);
-  MONITORINFO monitor{sizeof(MONITORINFO)};
-  if (!GetMonitorInfoW(MonitorFromWindow(hwnd_, MONITOR_DEFAULTTONEAREST), &monitor)) {
-    FatalWin32("GetMonitorInfoW Ui desktop window", GetLastError());
-  }
-  auto const& work = monitor.rcWork;
-  SubmitScreenFromNative(work.left, work.top, work.right - work.left,
-                         work.bottom - work.top);
+  ReportEnvironmentFromNative();
 }
 
 WinDesktopWindowPresenter::ClientFrame
@@ -294,30 +283,9 @@ void WinDesktopWindowPresenter::HandleNativeFrameChanged(
   if (applying_native_frame_ || applying_layout_ || applying_settings_) {
     return;
   }
-  auto const desktop = desktop_window();
-  if (hwnd_ == nullptr) {
-    return;
-  }
-  ClientFrame const native = ReadNativeClientFrame();
-  bool const client_dims_changed =
-      native.client_width != last_native_client_width_ ||
-      native.client_height != last_native_client_height_;
-  if (interactive_move_active_ && !updates_restore_geometry) {
-    if (!client_dims_changed) {
-      return;
-    }
-    ReportNativeFrameToModel(native.x, native.y, native.client_width,
-                             native.client_height, false);
-    last_native_client_width_ = native.client_width;
-    last_native_client_height_ = native.client_height;
-    return;
-  }
-  ReportNativeFrameToModel(native.x, native.y, native.client_width,
-                           native.client_height, updates_restore_geometry);
-  if (client_dims_changed || updates_restore_geometry) {
-    last_native_client_width_ = native.client_width;
-    last_native_client_height_ = native.client_height;
-  }
+  if (hwnd_ == nullptr) return;
+  ReportEnvironmentFromNative(updates_restore_geometry
+      ? UiEnvironmentReason::kUserWindowChange : UiEnvironmentReason::kSystemNotification);
 }
 
 bool WinDesktopWindowPresenter::RouteChildCommand(std::uint32_t command_id,
@@ -408,7 +376,7 @@ void WinDesktopWindowPresenter::RefreshPresentationSettings() {
   applying_settings_ = true;
   if (!environment_) environment_ = std::make_shared<WinUiEnvironment>(hwnd_);
   auto const* local = LocalDeviceState();
-  applied_appearance_ = local ? local->appearance : UiAppearancePreferences{};
+  applied_appearance_ = local->appearance;
   environment_->Refresh(applied_appearance_);
   for (auto const& child : native_children_) ApplyChildAppearance(child.hwnd);
   applying_settings_ = false;
@@ -419,7 +387,7 @@ void WinDesktopWindowPresenter::RefreshPresentationSettings() {
 
 void WinDesktopWindowPresenter::ReportEnvironmentFromNative(UiEnvironmentReason window_reason) {
   auto const* local = LocalDeviceState();
-  if (!local || !environment_ || applying_local_placement_) return;
+  if (!environment_ || applying_local_placement_) return;
   auto const& current = environment_->snapshot();
   if (!last_reported_environment_ || *last_reported_environment_ != current) {
     auto const reason = last_reported_environment_ ? UiEnvironmentReason::kSystemNotification
@@ -439,10 +407,12 @@ void WinDesktopWindowPresenter::ReportEnvironmentFromNative(UiEnvironmentReason 
 
 void WinDesktopWindowPresenter::ApplyLocalPlacement() {
   auto const* local = LocalDeviceState();
-  if (!local || !hwnd_ || applying_local_placement_) return;
+  if (!hwnd_ || applying_local_placement_) return;
   auto const* placement = local->PlacementFor(window.id());
   if (!placement || placement->revision == applied_placement_revision_) return;
-  if (applied_placement_revision_ == 0 && last_reported_window_) {
+  if (applied_placement_revision_ == 0 && placement->revision == 1 && last_reported_window_ &&
+      placement->resolved_monitor == last_reported_window_->monitor_key &&
+      placement->frame_dip == last_reported_window_->frame_dip) {
     // The first preference for this newly created window was just observed
     // from native UI; do not replay its older queued geometry over a live drag.
     applied_placement_revision_ = placement->revision;
@@ -457,8 +427,11 @@ void WinDesktopWindowPresenter::ApplyLocalPlacement() {
   bool const prior_native = applying_native_frame_;
   applying_native_frame_ = true;
   if (GetWinWindowMonitorKey(hwnd_) != monitor->key) {
-    if (!SetWindowPos(hwnd_, nullptr, work.x, work.y, 0, 0,
-        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE))
+    // Fit the staging frame entirely inside the selected monitor before asking
+    // the HWND for its DPI. A large source frame must not retain another monitor.
+    if (!SetWindowPos(hwnd_, nullptr, work.x, work.y,
+        std::max(1, std::min(64, work.width)), std::max(1, std::min(64, work.height)),
+        SWP_NOZORDER | SWP_NOACTIVATE))
       FatalWin32("SetWindowPos resolved monitor", GetLastError());
   }
   auto const dpi = GetWinWindowDpi(hwnd_);
@@ -509,7 +482,6 @@ void WinDesktopWindowPresenter::UnregisterChildControl(HWND child) {
 
 bool WinDesktopWindowPresenter::NativeMeasurementsReady() const {
   UiLayoutNode const* root = LayoutRoot();
-  if (root == nullptr) return true;
   auto ready = [&](auto&& self, UiLayoutNode const& node) -> bool {
     if (node.flow == UiLayoutFlow::kLeaf) {
       return std::any_of(native_children_.begin(), native_children_.end(), [&](auto const& child) {
@@ -525,7 +497,7 @@ bool WinDesktopWindowPresenter::NativeMeasurementsReady() const {
 
 UiConstraintLayoutResult WinDesktopWindowPresenter::ComputeLocalLayout() const {
   UiLayoutNode const* const root = LayoutRoot();
-  if (root == nullptr || hwnd_ == nullptr) return {};
+  if (hwnd_ == nullptr) return {};
   double const scale = LayoutScale();
   RECT client{};
   if (!GetClientRect(hwnd_, &client)) FatalWin32("GetClientRect local layout", GetLastError());
@@ -596,7 +568,11 @@ UiConstraintLayoutResult WinDesktopWindowPresenter::ComputeLocalLayout() const {
 }
 
 UiControlLayout WinDesktopWindowPresenter::ResolveChildLayout(UiControlLayout requested) const {
-  if (LayoutRoot() == nullptr || environment_ == nullptr || !NativeMeasurementsReady()) return requested;
+  if (environment_ == nullptr || !NativeMeasurementsReady()) {
+    // Siblings are created synchronously before their first complete layout.
+    // Use a provisional native box, never serialized measured rectangles.
+    return {0, 0, 1, 1, requested.control_id};
+  }
   auto const result = ComputeLocalLayout();
   auto const found = std::find_if(result.controls.begin(), result.controls.end(), [&](auto const& rect) {
     return rect.control_id == requested.control_id;
@@ -612,7 +588,7 @@ UiControlLayout WinDesktopWindowPresenter::ResolveChildLayout(UiControlLayout re
 }
 
 void WinDesktopWindowPresenter::RefreshLayout() {
-  if (applying_layout_ || !environment_ || LayoutRoot() == nullptr) return;
+  if (applying_layout_ || !environment_) return;
   if (!NativeMeasurementsReady()) {
     // InitializePresenters creates siblings synchronously. Validate at the next
     // UI dispatch boundary, after the complete publication has been presented.

@@ -1,6 +1,7 @@
 #include "window_catalog_linux_session_automation.h"
 
 #include <iostream>
+#include <algorithm>
 #include <vector>
 
 #include "window_catalog_linux_desktop_zorder.h"
@@ -234,7 +235,7 @@ bool ReadNativeFrame(ui::linux::LinuxDesktopWindowPresenter& presenter,
     return false;
   }
   gtk_window_get_position(GTK_WINDOW(widget), &out.x, &out.y);
-  GtkWidget* const mount = presenter.ClientMount();
+  GtkWidget* const mount = presenter.ClientViewport();
   if (mount != nullptr && gtk_widget_get_realized(mount)) {
     GtkAllocation allocation{};
     gtk_widget_get_allocation(mount, &allocation);
@@ -257,10 +258,22 @@ bool FrameNearExpect(FrameExpect actual, FrameExpect expected) {
          near(actual.w, expected.w) && near(actual.h, expected.h);
 }
 
+FrameExpect LocalObservedFrame(CatalogWindow& window) {
+  auto* device = static_cast<ui::linux::LinuxDesktopWindowPresenter&>(*window.presenter).LocalDeviceState();
+  auto observation = std::find_if(device->windows.begin(), device->windows.end(), [&](auto const& w) { return w.window_id == window.obj_id; });
+  if (observation == device->windows.end()) return {};
+  auto monitor = std::find_if(device->environment.monitors.begin(), device->environment.monitors.end(), [&](auto const& m) { return m.key == observation->monitor_key; });
+  auto const area = monitor == device->environment.monitors.end() ? ui::UiDisplayRect{} : monitor->work_area;
+  auto const f = observation->frame_dip;
+  auto& presenter = static_cast<ui::linux::LinuxDesktopWindowPresenter&>(*window.presenter);
+  auto* native = gtk_widget_get_window(presenter.TopLevelWindow());
+  GdkRectangle outer{}; gdk_window_get_frame_extents(native, &outer);
+  int const decoration_width = std::max(0, outer.width - gdk_window_get_width(native));
+  int const decoration_height = std::max(0, outer.height - gdk_window_get_height(native));
+  return {area.x + f.x, area.y + f.y, f.width - decoration_width, f.height - decoration_height};
+}
 bool CatalogWindowMirrorFrame(CatalogWindow& window, FrameExpect expected) {
-  return window.x() == expected.x && window.y() == expected.y &&
-         window.client_width() == expected.w &&
-         window.client_height() == expected.h;
+  return FrameMatchesExpect(LocalObservedFrame(window), expected);
 }
 
 bool CatalogWindowNativeMatchesMirror(CatalogWindow& window) {
@@ -275,25 +288,19 @@ bool CatalogWindowNativeMatchesMirror(CatalogWindow& window) {
   if (!ReadNativeFrame(presenter, native)) {
     return false;
   }
-  FrameExpect mirror{window.x(), window.y(), window.client_width(),
-                     window.client_height()};
+  FrameExpect mirror = LocalObservedFrame(window);
   return FrameMatchesExpect(native, mirror);
 }
 
 void SnapshotMirrorFrame(CatalogWindow& window, FrameExpect& out) {
-  out.x = window.x();
-  out.y = window.y();
-  out.w = window.client_width();
-  out.h = window.client_height();
+  out = LocalObservedFrame(window);
 }
 
 bool CatalogMirrorNearCycle1Targets(WindowCatalog& catalog) {
   catalog.persisted.list.Load();
   catalog.persisted.main_window.Load();
   if (!FrameNearExpect(
-          {catalog.persisted.main_window->x(), catalog.persisted.main_window->y(),
-           catalog.persisted.main_window->client_width(),
-           catalog.persisted.main_window->client_height()},
+          LocalObservedFrame(*catalog.persisted.main_window),
           kGeomZMain1)) {
     return false;
   }
@@ -303,9 +310,7 @@ bool CatalogMirrorNearCycle1Targets(WindowCatalog& catalog) {
     auto& holder = static_cast<WindowHolder&>(
         *catalog.persisted.list->rows[static_cast<std::size_t>(i)]);
     holder.window.Load();
-    if (!FrameNearExpect({holder.window->x(), holder.window->y(),
-                          holder.window->client_width(),
-                          holder.window->client_height()},
+    if (!FrameNearExpect(LocalObservedFrame(*holder.window),
                          child_frames[i])) {
       return false;
     }
@@ -585,8 +590,7 @@ void FailCc(char const* message) {
 }
 
 bool MirrorNear(CatalogWindow& window, FrameExpect expected) {
-  return FrameNearExpect({window.x(), window.y(), window.client_width(),
-                          window.client_height()},
+  return FrameNearExpect(LocalObservedFrame(window),
                          expected);
 }
 
@@ -600,7 +604,7 @@ bool ReadRawClientFrame(ui::linux::LinuxDesktopWindowPresenter& presenter,
   }
   gdk_window_get_origin(gtk_widget_get_window(widget), &out.x, &out.y);
   GtkAllocation allocation{};
-  gtk_widget_get_allocation(presenter.ClientMount(), &allocation);
+  gtk_widget_get_allocation(presenter.ClientViewport(), &allocation);
   out.w = allocation.width;
   out.h = allocation.height;
   return true;
@@ -972,8 +976,7 @@ gboolean PollNativeGeometry(gpointer data) {
   GtkWidget* const widget = presenter.TopLevelWindow();
   auto& window = *catalog.persisted.main_window;
   if (!gtk_widget_get_mapped(widget)) return G_SOURCE_CONTINUE;
-  if (!window.HasExplicitPosition() ||
-      !CatalogWindowNativeMatchesMirror(window)) {
+  if (!CatalogWindowNativeMatchesMirror(window)) {
     poll->stable = 0;
     return G_SOURCE_CONTINUE;
   }

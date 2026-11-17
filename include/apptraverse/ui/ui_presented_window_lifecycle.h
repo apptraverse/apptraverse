@@ -49,6 +49,9 @@ template <typename WindowT>
 void LoadPresentedWindow(ae::ObjPtr<WindowT>& window) {
   static_assert(std::is_base_of_v<UiPresentedWindow, WindowT>);
   window.Load();
+  window->layout_state.Load();
+  window->layout_state->definition.Load();
+  window->device_state.Load();
   window->presenter.Load();
 }
 

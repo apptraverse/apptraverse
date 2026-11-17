@@ -13,6 +13,7 @@
 #endif
 #include "minimal_application.h"
 #include "apptraverse/ui/ui_window_presenter.h"
+#include "apptraverse/platform/linux/linux_ui_window_presenter.h"
 
 namespace {
 
@@ -44,6 +45,8 @@ int main(int argc, char** argv) {
 #endif
   }
 
+  gtk_init(nullptr, nullptr);
+  auto const environment = apptraverse::ui::linux::ReadLinuxDeviceEnvironment();
   apptraverse::ApplicationModelRuntime runtime;
   int model_exit_status = 1;
 
@@ -55,7 +58,7 @@ int main(int argc, char** argv) {
 #endif
   callbacks.run_model = [&](apptraverse::ApplicationPublishedCallback on_published) {
     model_exit_status = apptraverse::example::minimal::RunMinimalApplicationModel(
-        state_dir, runtime, on_published);
+        state_dir, runtime, on_published, environment);
     if (model_exit_status == 0) {
 #ifdef APPTRAVERSE_MINIMAL_LINUX_TEST_HOOKS
       std::cerr << "MINIMAL_APP_SHUTDOWN_PERSIST_OK\n";
@@ -75,10 +78,6 @@ int main(int argc, char** argv) {
             root, closed_window, proxy, [&] { runtime.RequestStop(); });
       };
   callbacks.after_initial = [&](ae::Obj& root) {
-    auto& application = static_cast<apptraverse::example::minimal::MinimalApplication&>(root);
-    application.main_window->presenter->model_proxy->Invoke(root.obj_id,
-        &apptraverse::example::minimal::MinimalApplication::SubmitDesktopEnvironment,
-        static_cast<std::int32_t>(160));
 #ifdef APPTRAVERSE_MINIMAL_LINUX_TEST_HOOKS
     automation_hooks.OnAfterInitial(root);
 #endif

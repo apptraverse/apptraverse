@@ -10,9 +10,15 @@
 namespace apptraverse::example::surfaces {
 int RunWindowCatalogAndroidModel(WindowCatalogAndroidEmbeddedProfile& profile,
                                  ApplicationModelRuntime& runtime,
-                                 ApplicationPublishedCallback on_published) {
+                                 ApplicationPublishedCallback on_published,
+                                 ui::UiDeviceEnvironment const& startup_environment) {
   ApplicationModelSessionHooks<apptraverse::WindowCatalog> hooks;
-  hooks.prepare = PrepareWindowCatalogForRun;
+  hooks.prepare = [&startup_environment](apptraverse::WindowCatalog& catalog) {
+    catalog.persisted.device_state.Load();
+    catalog.persisted.device_state->ObserveEnvironment(
+        startup_environment, ui::UiEnvironmentReason::kStartup);
+    PrepareWindowCatalogForRun(catalog);
+  };
   hooks.before_incremental = [](apptraverse::WindowCatalog& catalog) {
     // Page visibility is derived from the published order, not a focus sidecar.
     catalog.pending_focus_window = {};
@@ -22,7 +28,7 @@ int RunWindowCatalogAndroidModel(WindowCatalogAndroidEmbeddedProfile& profile,
                                                              profile);
   };
   return RunEmbeddedApplicationModelSession(
-      profile.user, embedded_distilled::window_catalog::kEmbeddedGraph, runtime,
+      profile.user, profile.local, embedded_distilled::window_catalog::kEmbeddedGraph, runtime,
       std::move(on_published), hooks);
 }
 }  // namespace apptraverse::example::surfaces

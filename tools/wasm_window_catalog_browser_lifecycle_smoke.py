@@ -82,7 +82,7 @@ def active_id(page: Page) -> str:
 
 
 def expect_one_file(files) -> None:
-    assert len(files) == 1 and files[0]['path'].endswith('/user.bin') and files[0]['size'] > 0, files
+    assert len(files) == 2 and all(f['path'].endswith('/user.bin') and f['size'] > 0 for f in files), files
 
 
 def close_tab(page: Page) -> None:
@@ -304,7 +304,7 @@ def main() -> int:
             expect(page.locator(ROWS)).to_have_text(['Window 1', 'Window 2'])
             after_quit = durable_snapshot(page)
             expect_one_file(after_quit)
-            assert after_quit[0]['sha'] != before_quit[0]['sha'], 'browser Quit did not save last language change'
+            assert next(f['sha'] for f in after_quit if '/local/' not in f['path']) != next(f['sha'] for f in before_quit if '/local/' not in f['path']), 'browser Quit did not save last language change'
             main_page(page)
             # A real app-close click and navigation in the same event-loop turn
             # must not skip persistence merely because host stop has begun.

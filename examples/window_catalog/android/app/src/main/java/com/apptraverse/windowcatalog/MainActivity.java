@@ -3,20 +3,21 @@ package com.apptraverse.windowcatalog;
 import android.app.Activity;
 import android.os.Bundle;
 import android.util.Log;
-import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
-/** Native Activity shell; page selection and layout belong to the model. */
+/** Native Activity shell; page selection belongs to the model. */
 public final class MainActivity extends Activity {
   private static final String TAG = "AppTraverseWindowCatalog";
   private static final int SWIPE_MIN_DISTANCE_PX = 80;
   public static final String EXTRA_STATE_SUBDIR = "stateSubdir";
   public static final String DEFAULT_STATE_SUBDIR = "window_catalog_state";
   private TextView loading;
-  private GestureDetector swipeDetector;
+  private float gestureDownX, gestureDownY;
+  private long gestureDownTime;
+  private boolean trackingGesture;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -28,36 +29,43 @@ public final class MainActivity extends Activity {
     app.setActivity(this);
     String stateSubdir = getIntent().getStringExtra(EXTRA_STATE_SUBDIR);
     if (stateSubdir == null || stateSubdir.isEmpty()) stateSubdir = DEFAULT_STATE_SUBDIR;
-    app.initRuntime(getFilesDir().getAbsolutePath(), stateSubdir);
+    app.initRuntime(getFilesDir().getAbsolutePath(), stateSubdir,
+        getIntent().getStringExtra("localSeedSubdir"));
     NativeRuntime.nativeSetPresentationRoot(app.runtimeHandle(), this, pageContainer);
     app.startModelOnce();
+  }
 
-    swipeDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
-      @Override public boolean onDown(MotionEvent event) { return true; }
-      @Override public boolean onFling(MotionEvent down, MotionEvent up,
-                                       float velocityX, float velocityY) {
-        float dx = up.getX() - down.getX();
-        if (Math.abs(dx) < SWIPE_MIN_DISTANCE_PX
-            || Math.abs(dx) < Math.abs(up.getY() - down.getY())) return false;
-        application().mobileSwipe(dx < 0 ? 1 : -1);
-        return true;
-      }
-    });
+  @Override public boolean onCreateOptionsMenu(android.view.Menu menu) { return true; }
 
+  @Override public boolean onPrepareOptionsMenu(android.view.Menu menu) {
+    menu.clear();
+    com.apptraverse.ui.android.AppTraverseAndroidUi.populateAppearanceMenu(
+        (android.view.ViewGroup) findViewById(R.id.page_container), menu);
+    return true;
   }
 
   @Override public boolean dispatchTouchEvent(MotionEvent event) {
-    // Observe gestures even when a native child fills the client mount. A
-    // recognized swipe cancels the child's pending click; it only sends intent.
-    if (swipeDetector != null && swipeDetector.onTouchEvent(event)
-        && event.getActionMasked() == MotionEvent.ACTION_UP) {
-      MotionEvent cancel = MotionEvent.obtain(event);
-      cancel.setAction(MotionEvent.ACTION_CANCEL);
-      super.dispatchTouchEvent(cancel);
-      cancel.recycle();
-      return true;
+    if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+      gestureDownX = event.getX(); gestureDownY = event.getY();
+      gestureDownTime = event.getEventTime(); trackingGesture = true;
+    } else if (event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+      trackingGesture = false;
+    } else if (event.getActionMasked() == MotionEvent.ACTION_UP && trackingGesture) {
+      trackingGesture = false;
+      float dx = event.getX() - gestureDownX;
+      float dy = event.getY() - gestureDownY;
+      // A quick horizontal swipe selects a model page. Slow pans remain native
+      // overflow scrolling, and taps retain native click/accessibility behavior.
+      if (event.getEventTime() - gestureDownTime < 700
+          && Math.abs(dx) >= SWIPE_MIN_DISTANCE_PX && Math.abs(dx) > Math.abs(dy)) {
+        application().mobileSwipe(dx < 0 ? 1 : -1);
+        MotionEvent cancel = MotionEvent.obtain(event);
+        cancel.setAction(MotionEvent.ACTION_CANCEL);
+        super.dispatchTouchEvent(cancel); cancel.recycle();
+        return true;
+      }
     }
-    return super.dispatchTouchEvent(event);
+    return super.dispatchTouchEvent(event) || trackingGesture;
   }
 
   @Override protected void onStop() {
@@ -74,6 +82,7 @@ public final class MainActivity extends Activity {
 
   public void onMobilePages(long[] windowIds, long activeWindowId) {
     loading.setVisibility(View.GONE);
+    invalidateOptionsMenu();
     Log.i(TAG, "PAGE_SHOWN id=" + activeWindowId + " count=" + windowIds.length);
   }
 

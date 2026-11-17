@@ -44,6 +44,7 @@ void RunDesktopCreateFatal() {
   auto presenter = apptraverse::ui::windows::WinDesktopWindowPresenter::ptr::Create(
       ae::CreateWith{domain});
   presenter->window = window;
+  apptraverse::test::BuildWindowPresentationServices(*window);
   apptraverse::test::BuildEmptyWindowTitle(*presenter);
   HHOOK const hook = SetWindowsHookExW(WH_CBT, RejectWindowCreate, nullptr,
                                       GetCurrentThreadId());

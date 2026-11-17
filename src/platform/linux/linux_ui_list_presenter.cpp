@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "apptraverse/platform/linux/linux_fatal.h"
+#include "apptraverse/platform/linux/linux_ui_window_presenter.h"
 #include "apptraverse/ui/ui_list_container.h"
 #include "apptraverse/ui/ui_localization_string.h"
 
@@ -62,6 +63,7 @@ void LinuxListContainerPresenter::OnLoad() {
   gtk_fixed_put(GTK_FIXED(parent), list_box_, layout.x, layout.y);
   gtk_widget_show(list_box_);
   SyncFromMirror();
+  static_cast<LinuxDesktopWindowPresenter*>(window_presenter.operator->())->RegisterChildControl(list_box_, control_id);
 }
 
 LinuxListContainerPresenter::NativeRow
@@ -158,13 +160,14 @@ void LinuxListContainerPresenter::SyncFromMirror() {
   applying_mirror_sync_ = false;
 }
 
-void LinuxListContainerPresenter::OnModelChanged() { SyncFromMirror(); }
+void LinuxListContainerPresenter::OnModelChanged() { SyncFromMirror(); static_cast<LinuxDesktopWindowPresenter*>(window_presenter.operator->())->RefreshLayout(); }
 
 void LinuxListContainerPresenter::OnUnload() {
   g_signal_handler_disconnect(list_box_, row_selected_handler_);
   g_signal_handler_disconnect(list_box_, row_activated_handler_);
   row_selected_handler_ = 0;
   row_activated_handler_ = 0;
+  static_cast<LinuxDesktopWindowPresenter*>(window_presenter.operator->())->UnregisterChildControl(list_box_);
   gtk_widget_destroy(list_box_);
   list_box_ = nullptr;
   native_rows_.clear();

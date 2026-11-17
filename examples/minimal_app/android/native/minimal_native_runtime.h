@@ -5,6 +5,7 @@
 #include <memory>
 
 #include <jni.h>
+#include "apptraverse/ui/ui_device_state.h"
 
 #include "apptraverse/application_model_runtime.h"
 #include "aether-objects/domain_storage/ram_domain_storage.h"
@@ -31,7 +32,8 @@ class MinimalNativeRuntime {
  private:
   void ApplyPagePresentation(ae::Obj& root);
   std::filesystem::path state_dir_;
-  ae::RamDomainStorage user_storage_;
+  ae::RamDomainStorage user_storage_, local_storage_;
+  ui::UiDeviceEnvironment startup_environment_;
   ApplicationModelRuntime runtime_;
   ui::android::AndroidPresentationHost presentation_host_{};
   android::AndroidUiBridge ui_bridge_;

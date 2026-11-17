@@ -59,7 +59,9 @@ struct UiWindowEnvironment {
   ae::ObjId window_id;
   std::string monitor_key;
   std::uint32_t dpi_x{96}, dpi_y{96};
-  // Outer frame in DIPs, relative to the monitor's work area.
+  // Desktop: outer frame in 96-DIPs relative to the monitor work area.
+  // Android/Web: logical client surface at 0,0 (Android dp/CSS px).
+  // See ClientLocalEnvironment.md; this is not a physical desktop frame there.
   UiDisplayRect frame_dip;
   AE_REFLECT_MEMBERS(window_id, monitor_key, dpi_x, dpi_y, frame_dip)
   bool operator==(UiWindowEnvironment const&) const = default;
@@ -125,6 +127,16 @@ class UiDeviceState : public NodeFor<UiDeviceState, ClientLocalState> {
   UiEnvironmentReason last_reason;
   std::vector<UiWindowPlacement> placements;
 
+  void Bootstrap(UiAppearancePreferences preferences, UiDeviceEnvironment baseline) {
+    appearance = preferences;
+    has_environment = false;
+    environment = std::move(baseline);
+    windows.clear();
+    placements.clear();
+    observation_revision = 0;
+    last_changes = 0;
+    last_reason = UiEnvironmentReason::kStartup;
+  }
   void ObserveEnvironment(UiDeviceEnvironment current, UiEnvironmentReason reason);
   void ObserveWindow(UiWindowEnvironment current, UiEnvironmentReason reason);
   void SetAppearance(UiAppearancePreferences preferences);

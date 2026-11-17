@@ -16,6 +16,7 @@
 #include "apptraverse/application_ui_session.h"
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/platform/web/web_presentation_host.h"
+#include "apptraverse/platform/web/web_idbfs.h"
 
 namespace apptraverse::web {
 
@@ -38,6 +39,9 @@ struct WebApplicationHostCallbacks {
   // Must only capture model/RAM state. No filesystem or browser/UI work: this
   // callback runs on the model worker while main waits at the lifecycle barrier.
   std::function<bool(ae::Domain&, std::vector<std::uint8_t>&)> capture_model_state;
+  // Capture every native object-storage partition at one model barrier. The
+  // browser commits these files in one IDBFS transaction for hidden/pagehide.
+  std::function<bool(ae::Domain&, std::vector<WebPersistentFileSnapshot>&)> capture_model_files;
   std::function<void()> on_save_started;
   std::function<void()> on_save_succeeded;
   std::function<void()> on_save_failed;

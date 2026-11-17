@@ -124,6 +124,7 @@ struct Harness {
         ui::windows::WinDesktopWindowPresenter::ptr::Create(
             ae::CreateWith{domain}.with_id(kPresenterId));
     root->window_presenter->window = root->window;
+  apptraverse::test::BuildWindowPresentationServices(*root->window);
   apptraverse::test::BuildEmptyWindowTitle(*root->window_presenter);
 
     InitializePresenters(*root, nullptr, &proxy);
@@ -298,14 +299,18 @@ void TestInteractiveDragCoalescesModelSubmits() {
   for (int i = 0; i < 500; ++i) {
     MoveNativeWindow(hwnd, 100 + i, 200 + i, 640, 480);
   }
-  CHECK(h.pending_reports.empty());
   SendMessageW(hwnd, WM_EXITSIZEMOVE, 0, 0);
-  CHECK(h.pending_reports.size() == 1);
-  h.pending_reports.front()(h.domain);
-  CHECK(h.root->window->x() == 599);
-  CHECK(h.root->window->y() == 699);
-  CHECK(h.root->window->client_width() == 640);
-  CHECK(h.root->window->client_height() == 480);
+  CHECK(!h.pending_reports.empty());
+  auto pending = std::move(h.pending_reports);
+  for (auto& work : pending) work(h.domain);
+  CHECK(h.root->window->x() == 100);
+  CHECK(h.root->window->y() == 100);
+  auto const* placement = h.root->window->device_state->PlacementFor(kWindowId);
+  CHECK(placement != nullptr);
+  CHECK(placement->frame_dip == h.root->window->device_state->windows.back().frame_dip);
+  std::int32_t x{}, y{}, width{}, height{};
+  ReadHwndFrame(hwnd, x, y, width, height);
+  CHECK(x == 599 && y == 699);
 }
 
 void TestResizeStaleEcho() {

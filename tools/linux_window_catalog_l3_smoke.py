@@ -78,7 +78,7 @@ def run_profile_phases(
             if not user_file.is_file() or user_file.stat().st_size == 0:
                 print(f"FAIL: shutdown did not write {user_file}", file=sys.stderr)
                 return None
-            if list(profile.rglob("*")) != [user_file]:
+            if {p.relative_to(profile).as_posix() for p in profile.rglob("*") if p.is_file()} != {"user.bin", "local/user.bin"}:
                 print(f"FAIL: USER contains files beyond user.bin: {profile}", file=sys.stderr)
                 return None
             outputs.append(out)
@@ -139,7 +139,7 @@ def verify_fresh_debug(
             if not user_file.is_file() or profile in profiles:
                 print("FAIL: Debug reused a profile or did not save USER", file=sys.stderr)
                 return False
-            if not user_file.stat().st_size or list(profile.rglob("*")) != [user_file]:
+            if not user_file.stat().st_size or {p.relative_to(profile).as_posix() for p in profile.rglob("*") if p.is_file()} != {"user.bin", "local/user.bin"}:
                 print("FAIL: fresh USER must contain exactly one nonempty user.bin", file=sys.stderr)
                 return False
             for previous, snapshot in zip(profiles, snapshots):
@@ -276,7 +276,7 @@ def main() -> int:
         return 1
     print(
         "PASS: linux_window_catalog_l3_smoke "
-        "(child close, l3, geom/z, one user.bin, GDK_BACKEND=x11)"
+        "(child close, l3, geom/z, USER+LOCAL native files, GDK_BACKEND=x11)"
     )
     return 0
 

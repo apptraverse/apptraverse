@@ -459,6 +459,9 @@ void TestLocalResizeDoesNotDependOnModelPump() {
   h.PumpModelAndApply();
   auto const viewport = h.model_catalog->persisted.main_client_viewport;
   auto const layout_generation = h.model_catalog->persisted.main_window->layout->Generation();
+  auto const window_generation = h.model_catalog->persisted.main_window->Generation();
+  auto const restore_width = h.model_catalog->persisted.main_window->restore_client_width();
+  auto const restore_height = h.model_catalog->persisted.main_window->restore_client_height();
   auto const& add_presenter = static_cast<ui::UiPushButtonPresenter const&>(
       *h.model_catalog->persisted.presenters.add_button_presenter);
   std::array<std::int32_t, 4> const original{add_presenter.layout_x,
@@ -479,6 +482,12 @@ void TestLocalResizeDoesNotDependOnModelPump() {
   ExpectTallChrome(h.MainHwnd(), 500, 900);
   CHECK(h.model_catalog->persisted.main_client_viewport.width == viewport.width);
   CHECK(h.model_catalog->persisted.main_client_viewport.height == viewport.height);
+  CHECK(h.model_catalog->persisted.main_window->Generation() == window_generation);
+  CHECK(h.model_catalog->persisted.main_window->restore_client_width() == restore_width);
+  CHECK(h.model_catalog->persisted.main_window->restore_client_height() == restore_height);
+  auto const* placement = h.model_catalog->persisted.device_state->PlacementFor(h.main_window_id);
+  CHECK(placement != nullptr);
+  CHECK(placement->frame_dip.width != restore_width || placement->frame_dip.height != restore_height);
 }
 
 void TestRuntimeConstraintOverrideAndClear() {
@@ -517,6 +526,9 @@ void TestSystemSettingsNotificationsStayLocal() {
   h.PumpModelAndApply();
   auto const model_generation = h.model_catalog->Generation();
   auto const layout_generation = h.model_catalog->persisted.main_window->layout->Generation();
+  auto const window_generation = h.model_catalog->persisted.main_window->Generation();
+  auto const restore_width = h.model_catalog->persisted.main_window->restore_client_width();
+  auto const restore_height = h.model_catalog->persisted.main_window->restore_client_height();
   auto const pending_count = h.model_work.size();
   HWND const original_button = h.ControlHwnd(kAddControlId);
   SendMessageW(h.MainHwnd(), WM_SETTINGCHANGE, SPI_SETNONCLIENTMETRICS, 0);
@@ -621,11 +633,37 @@ void TestStartupObservationAndMonitorResolution() {
   CHECK(local->environment.monitors.size() == reader.snapshot().monitors.size());
 }
 
+void TestFirstPublicationCarriesResolutionAfterNativeObservation() {
+  Harness h;
+  // Initial UI creation has queued its first native observation, but no model
+  // publication has acknowledged it. Coalesce a work-area resolution after it.
+  h.model_work.push_back([id = h.main_window_id](ae::Domain& domain) {
+    auto catalog = WindowCatalog::ptr::MakeFromThis(static_cast<WindowCatalog*>(&*domain.Find(
+        ae::ObjId{window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)})));
+    auto local = catalog->persisted.device_state;
+    auto environment = local->environment;
+    auto& work = environment.monitors.front().work_area;
+    work.x += 80;
+    work.width = std::max(200, work.width - 80);
+    local->ObserveEnvironment(environment, ui::UiEnvironmentReason::kSystemNotification);
+    CHECK(local->PlacementFor(id)->revision > 1);
+  });
+  h.PumpModelAndApply();
+  auto const& local = *h.model_catalog->persisted.device_state;
+  auto const* placement = local.PlacementFor(h.main_window_id);
+  auto const monitor = std::find_if(local.environment.monitors.begin(), local.environment.monitors.end(),
+      [&](auto const& value) { return value.key == placement->resolved_monitor; });
+  CHECK(monitor != local.environment.monitors.end());
+  RECT frame{}; CHECK(GetWindowRect(h.MainHwnd(), &frame));
+  CHECK(frame.left >= monitor->work_area.x);
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
 int main() {
   apptraverse::EnsureWindowCatalogGraphRegistration();
+  apptraverse::test::TestFirstPublicationCarriesResolutionAfterNativeObservation();
   apptraverse::test::TestPrepareBindsQueueBeforeNativeOnLoad();
   apptraverse::test::TestBurstResizeWithoutPerStepPump();
   apptraverse::test::TestNativeAdaptiveChromeResizePath();
