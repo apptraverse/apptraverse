@@ -24,6 +24,7 @@
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "apptraverse/platform/windows/win_ui_text_control_presenter.h"
 #include "apptraverse/platform/windows/win_ui_utf8.h"
+#include "chat_windows_presenter.h"
 #include "chat_controls.h"
 #include "chat_ui_session.h"
 
@@ -63,13 +64,13 @@ bool CopyClipboard(HWND hwnd, std::string const& utf8) {
 }
 void InstallPresenters() {
   ui::windows::EnsureWinControlPresenterRegistration();
+  EnsureChatWindowsPresenterRegistration();
   ui::windows::EnsureWinProcessDpiAwareness();
   ui::windows::WinUiEnvironment environment{nullptr};
   auto baseline = environment.snapshot();
   gui::UiFactories factories;
   factories.create_window = [](ae::Domain& d) {
-    return ui::windows::WinDesktopWindowPresenter::ptr::Create(
-        ae::CreateWith{d});
+    return ChatDesktopWindowPresenter::ptr::Create(ae::CreateWith{d});
   };
   factories.create_button = [](ae::Domain& d) {
     return ui::windows::WinPushButtonPresenter::ptr::Create(ae::CreateWith{d});

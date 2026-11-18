@@ -128,6 +128,13 @@ std::string ChatUi::Text(Label label) const {
 std::string ChatUi::Title() const {
   return Text(Label::Title) + " - " + editing.name;
 }
+void ChatUi::SelectTheme(unsigned choice) {
+  if (choice >= 4) return;
+  device_state->SetAppearance({
+      choice == 0 ? ui::UiThemeMode::kAuto :
+      choice == 1 ? ui::UiThemeMode::kLight : ui::UiThemeMode::kDark,
+      choice == 3});
+}
 ControlState const& ChatUi::Get(Control c) const {
   return controls.at(static_cast<unsigned>(c));
 }
@@ -416,7 +423,12 @@ ChatUi::ptr BuildUi(ae::Domain& domain) {
                          "Edit",
                          "Cut",
                          "Paste",
-                         "Select All"};
+                         "Select All",
+                         "&Theme",
+                         "From system",
+                         "Light",
+                         "Dark",
+                         "Soft dark"};
   for (auto text : texts) {
     auto label = ui::UiLocalizationString::ptr::Create(ae::CreateWith{domain});
     auto str = ui::UiString::ptr::Create(ae::CreateWith{domain});

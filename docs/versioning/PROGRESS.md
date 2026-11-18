@@ -1,3 +1,14 @@
+## Shared Chat Windows Catalog presentation — 2026-11-18
+
+Windows Shared Chat now uses the common WindowCatalog system appearance baseline
+and LOCAL preferences through a native Theme menu. Its four choices submit model
+Events; direct `P2pStream` over TCP remains the transport. Debug UI model and
+RAM tests passed, and the live three-process Win32 chat acceptance passed.
+Release built and its native menu and LOCAL Soft dark restore passed a live
+process restart check.
+The [validation record](../validation/shared-chat-windows-catalog-theme-2026-11-18.md)
+retains the actual GUI, profile, Windows 7 and Narrator boundaries.
+
 ## WindowCatalog shared native menu ports — 2026-11-18
 
 GTK and Android now consume the same distilled Theme and Language menu as

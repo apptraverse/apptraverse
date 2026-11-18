@@ -3,6 +3,9 @@
 Minimal Windows/macOS demonstration: one host creates a room, participants join by
 the host Aether ID, and each participant sends its own Events directly to every peer.
 Fixed English labels; no localization or extra chat features.
+On Windows the native Theme menu uses the same system appearance baseline and
+LOCAL preferences as WindowCatalog: From system, Light, Dark and Soft dark.
+The menu submits model Events; native controls repaint after publication.
 
 The native `shared_node_chat_headless` target uses the same `ChatSession`,
 SharedNode journal and embedded transport supply without a UI graph or window.

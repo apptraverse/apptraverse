@@ -179,6 +179,11 @@ option(APPTRAVERSE_BUILD_AETHER_LINK
 if(APPTRAVERSE_BUILD_AETHER_LINK)
   include(cmake/shared_aether.cmake)
   apptraverse_add_shared_aether()
+  if(MSVC)
+    # The pinned SDK's numeric header triggers C4702 in template
+    # instantiations; its /WX turns that compiler diagnostic into a build stop.
+    target_compile_options(aether PRIVATE /wd4702)
+  endif()
   if(EMSCRIPTEN AND APPTRAVERSE_MINIMUM_64)
     # The pinned SDK's -Werror treats variables used only by Debug asserts as
     # release failures. Keep its diagnostics visible in the Web size build.

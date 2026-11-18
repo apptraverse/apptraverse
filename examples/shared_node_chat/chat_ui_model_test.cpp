@@ -13,6 +13,7 @@
 #include "generated/chat_ui_supply.h"
 #ifdef _WIN32
 #  include "apptraverse/platform/windows/win_ui_presenters.h"
+#  include "chat_windows_presenter.h"
 #endif
 using namespace apptraverse;
 using namespace apptraverse::chat::gui;
@@ -35,6 +36,12 @@ int main() {
   auto app = BuildUi(domain);
   FinalizeDistilledGraph(*app);
   app->SetImmediateEventCompaction(true);
+  app->SelectTheme(3);
+  CHECK(app->device_state->appearance.theme == ui::UiThemeMode::kDark &&
+        app->device_state->appearance.soften_dark);
+  app->SelectTheme(0);
+  CHECK(app->device_state->appearance.theme == ui::UiThemeMode::kAuto &&
+        !app->device_state->appearance.soften_dark);
   app->Configure(true, "Host", "");
   app->Configure(false, "Replacement", "unexpected-host");
   CHECK(app->editing.host && app->editing.name == "Host" &&
@@ -193,6 +200,7 @@ int main() {
   CHECK(restored->text_controls.front()->owner.id() == RootId());
 #ifdef _WIN32
   ui::windows::EnsureWinControlPresenterRegistration();
+  apptraverse::chat::EnsureChatWindowsPresenterRegistration();
 #endif
   {
     // Consume the actual executable-emitted supply; no builder initializes this

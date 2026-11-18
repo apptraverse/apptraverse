@@ -19,10 +19,13 @@ if(BUILD_TESTING AND (WIN32 OR (APPLE AND NOT IOS)) AND
     APPTRAVERSE_CHAT_UI_PRODUCER APPTRAVERSE_ENABLE_DISTILLATION)
   target_link_libraries(apptraverse_shared_chat_ui_model_test PRIVATE apptraverse)
   if(WIN32)
+    target_sources(apptraverse_shared_chat_ui_model_test PRIVATE chat_windows_presenter.cpp)
     target_link_libraries(apptraverse_shared_chat_ui_model_test PRIVATE apptraverse_ui_windows)
   endif()
+  # Visual Studio cannot generate a configuration-dependent EXCLUDE_FROM_ALL.
+  # Build this model test explicitly in Debug; omit it from default builds.
   set_target_properties(apptraverse_shared_chat_ui_model_test PROPERTIES
-    EXCLUDE_FROM_ALL "$<NOT:$<CONFIG:Debug>>"
+    EXCLUDE_FROM_ALL TRUE
     EXCLUDE_FROM_DEFAULT_BUILD_RELEASE TRUE
     EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO TRUE
     EXCLUDE_FROM_DEFAULT_BUILD_MINSIZEREL TRUE)
@@ -54,7 +57,7 @@ if(UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN)
   add_subdirectory(linux)
   return()
 endif()
-add_executable(shared_node_chat WIN32 main_windows.cpp)
+add_executable(shared_node_chat WIN32 main_windows.cpp chat_windows_presenter.cpp)
 target_link_libraries(shared_node_chat PRIVATE
   apptraverse_shared_chat_ui apptraverse_ui_windows user32 gdi32 shell32)
 add_custom_target(apptraverse_generate_chat_ui_supply

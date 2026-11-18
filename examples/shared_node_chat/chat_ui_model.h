@@ -51,6 +51,11 @@ enum class Label : unsigned {
   Cut,
   Paste,
   SelectAll,
+  Theme,
+  ThemeSystem,
+  ThemeLight,
+  ThemeDark,
+  ThemeSoftDark,
   Count
 };
 struct Rect {
@@ -243,6 +248,7 @@ class ChatUi : public NodeFor<ChatUi, ui::UiDesktopWindow> {
   void Send();
   void Join();
   void Copy();
+  void SelectTheme(unsigned choice);
   void Resize(int width, int height);
   void ClipboardResult(bool success);
   void Configure(bool host, std::string name, std::string initial_host);
