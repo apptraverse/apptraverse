@@ -1,9 +1,12 @@
 import AppTraverseMacUI
 import Foundation
+import SwiftUI
 
 @main
-private enum WindowCatalogMain {
-    static func main() {
+private struct WindowCatalogMain: App {
+    @StateObject private var host: MacApplicationHost
+
+    init() {
         ATRegisterWindowCatalogApplication()
         let arguments = CommandLine.arguments
         if let index = arguments.firstIndex(of: "--distill-only"),
@@ -19,9 +22,10 @@ private enum WindowCatalogMain {
                 for: .applicationSupportDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("AppTraverse/WindowCatalog", isDirectory: true)
         }
-        let host = MacApplicationHost(followsSystemAppearance: true) { delegate in
-            ATCreateWindowCatalogApplicationBridge(directory.path, delegate)
-        }
-        exit(host.run())
+        _host = StateObject(wrappedValue: MacApplicationHost(followsSystemAppearance: true) {
+            ATCreateWindowCatalogApplicationBridge(directory.path, $0)
+        })
     }
+
+    var body: some Scene { MacApplicationScenes(host: host) }
 }

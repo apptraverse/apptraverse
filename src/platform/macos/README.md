@@ -1,21 +1,28 @@
-# macOS native presentation
+# macOS SwiftUI presentation
 
-The backend uses thin C++ Window/Button/List presenters, an Objective-C++ bridge,
-and a SwiftUI host inside native AppKit windows. Model commands are addressed
-through `ModelObjectProxy`; only publications supply displayed state.
+WindowCatalog and MinimalApp use the shared `MacApplicationScenes` scene from
+their SwiftUI `App` entry points. The scene owns windows, lists, buttons, and
+commands. Thin C++ presenters and the Foundation bridge publish display state
+and send actions through `ModelObjectProxy`. Each application composition
+identifies its primary model window and supplies its own close and quit policy.
 
-The application supplies its model runtime, preparation hook and publication
-sidecar callbacks through `MacApplicationBridgeCallbacks`. The host does not
-know WindowCatalog classes or root IDs. Focus and desktop Z-order are backend
-operations addressed by logical window identity.
+On macOS 14 or newer, child presenters map to distinct SwiftUI windows. The host
+uses `openWindow` and `dismissWindow` with scene identities. On macOS 13,
+secondary presentations appear as independently selectable tabs in the primary
+window so model-driven close works without AppKit. A model close unmounts the
+tab or dismisses the corresponding scene. A user close goes through the
+application's policy. Quit drains model work and reports its exit status after
+presenters have been torn down.
 
-Desktop geometry uses top-left screen coordinates and client sizes. Initial
-placement may be selected by AppKit, then actual frame/work area are reported
-through model Events. A model publication changes native geometry only through
-`ApplyRequestedFrameFromMirror`; reflected native reports never snap a live
-window back to old geometry. Native handles, adapters and callback tokens are
-runtime-only.
+The model retains its semantic desktop geometry. The SwiftUI host renders the
+size portion of explicit frame requests and observes client viewport dimensions
+in points. SwiftUI owns screen placement. Scene activation supplies the model's
+application-level ordering; the host does not read screen coordinates, monitor
+work areas, or the system window stack. OS window restoration cannot rebind
+child presenters from another process, since child scene IDs are valid for one
+mount only.
 
-`MacApplicationHost.run()` returns the joined model runtime's status after
-tearing down presenters. Close and Quit enqueue native frame reports before
-the application's close/quit policy and runtime stop barrier.
+`ctest -R '^apptraverse_macos_'` exercises the adapter boundaries, the
+WindowCatalog fresh and embedded/cold flows, and independent MinimalApp
+presentation and teardown. The integration cases use real SwiftUI scenes and
+invoke control actions through their adapters.

@@ -67,6 +67,9 @@ ATMacApplicationBridge* ATCreateWindowCatalogApplicationBridge(
       };
   apptraverse::ui::macos::MacApplicationBridgeCallbacks callbacks;
   callbacks.runtime = &application->session.runtime;
+  callbacks.main_window_id = [](ae::Obj& root) {
+    return static_cast<apptraverse::WindowCatalog&>(root).persisted.main_window.id();
+  };
   callbacks.run_model =
       [application](apptraverse::ApplicationModelRuntime&,
                     apptraverse::ApplicationPublishedCallback on_published) {

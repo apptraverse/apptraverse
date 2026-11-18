@@ -1,4 +1,4 @@
-import AppKit
+import Foundation
 import AppTraverseMacBridge
 import SwiftUI
 
@@ -15,16 +15,12 @@ protocol MacUiCommandSink: AnyObject {
     func clickButton(_ token: UInt64)
     func selectListRow(_ row: Int, token: UInt64)
     func activateListRow(_ row: Int, token: UInt64)
-    func submitWindowFrame(_ frame: CGRect, token: UInt64,
-                           updatesRestore: Bool)
+    func submitWindowSize(_ size: CGSize, token: UInt64)
 }
 
 extension ATMacApplicationBridge: MacUiCommandSink {
-    func submitWindowFrame(_ frame: CGRect, token: UInt64,
-                           updatesRestore: Bool) {
-        submitWindowX(frame.origin.x, y: frame.origin.y,
-                      width: frame.width, height: frame.height, token: token,
-                      updatesRestore: updatesRestore)
+    func submitWindowSize(_ size: CGSize, token: UInt64) {
+        submitWindowWidth(size.width, height: size.height, token: token)
     }
 }
 
@@ -62,7 +58,6 @@ struct MacListRowSnapshot: Identifiable, Equatable {
 
 final class MacListAdapter: ObservableObject, Identifiable {
     let id: UInt64
-    var followsSystemAppearance = false
     weak var commandSink: MacUiCommandSink?
     @Published var rows: [MacListRowSnapshot] = []
     @Published var selectedRow: Int?
@@ -87,297 +82,80 @@ final class MacListAdapter: ObservableObject, Identifiable {
         self.frame = frame
     }
 
-    var selection: Binding<Int?> {
-        Binding(get: { self.selectedRow }, set: { value in
-            if let row = value {
+    var selection: Binding<UInt64?> {
+        Binding(get: {
+            guard let row = self.selectedRow, self.rows.indices.contains(row) else { return nil }
+            return self.rows[row].id
+        }, set: { identity in
+            if let row = self.rows.firstIndex(where: { $0.id == identity }) {
                 self.commandSink?.selectListRow(row, token: self.id)
             }
         })
     }
 
-    func activate(_ row: Int) { commandSink?.activateListRow(row, token: id) }
+    func activate(_ identity: UInt64) {
+        if let row = rows.firstIndex(where: { $0.id == identity }) {
+            commandSink?.activateListRow(row, token: id)
+        }
+    }
     func disconnect() { commandSink = nil }
-}
-
-// Coordinates in the model use the primary screen's upper-left origin. AppKit
-// uses a bottom-left origin, while window sizes in the model are client sizes.
-enum MacDesktopCoordinates {
-    static var primaryTop: CGFloat { NSScreen.screens[0].frame.maxY }
-
-    static func modelFrame(of window: NSWindow) -> CGRect {
-        let content = window.contentRect(forFrameRect: window.frame)
-        return CGRect(x: window.frame.minX, y: primaryTop - window.frame.maxY,
-                      width: content.width, height: content.height)
-    }
-
-    static func nativeFrame(_ model: CGRect, window: NSWindow) -> CGRect {
-        let outer = window.frameRect(forContentRect:
-            CGRect(origin: .zero, size: model.size))
-        return CGRect(x: model.minX, y: primaryTop - model.minY - outer.height,
-                      width: outer.width, height: outer.height)
-    }
-
-    static func modelWorkArea(_ screen: NSScreen) -> CGRect {
-        let area = screen.visibleFrame
-        return CGRect(x: area.minX, y: primaryTop - area.maxY,
-                      width: area.width, height: area.height)
-    }
 }
 
 final class MacWindowAdapter: ObservableObject, Identifiable {
     let id: UInt64
-    let followsSystemAppearance: Bool
+    let sceneID: UUID
     weak var commandSink: MacUiCommandSink?
-    let window: NSWindow
     @Published var title = ""
     @Published var buttons: [MacButtonAdapter] = []
     @Published var lists: [MacListAdapter] = []
-    var applyingMirrorFrame = false
+    @Published private(set) var requestedSize: CGSize?
+    @Published private(set) var clientSize: CGSize?
 
-    init(token: UInt64, commandSink: MacUiCommandSink,
-         delegate: NSWindowDelegate, followsSystemAppearance: Bool = false) {
+    init(token: UInt64, sceneID: UUID, commandSink: MacUiCommandSink) {
         id = token
-        self.followsSystemAppearance = followsSystemAppearance
+        self.sceneID = sceneID
         self.commandSink = commandSink
-        window = NSWindow(contentRect: .zero,
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered, defer: false)
-        window.delegate = delegate
-        window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: MacWindowContent(adapter: self))
     }
 
     func sync(_ state: ATMacWindowState) {
-        title = state.title
-        window.title = state.title
+        if title != state.title { title = state.title }
     }
 
-    func applyFrame(_ state: ATMacWindowState) {
-        guard !window.inLiveResize else { return }
-        let model = CGRect(x: state.x, y: state.y,
-                           width: state.width, height: state.height)
-        let requested = MacDesktopCoordinates.nativeFrame(model, window: window)
-        if window.frame != requested {
-            applyingMirrorFrame = true
-            window.setFrame(requested, display: true)
-            applyingMirrorFrame = false
-            // AppKit may constrain a requested frame. Report the actual native
-            // result as an Event; reflected reports do not request another move.
-            reportFrame()
+    func requestSize(_ size: CGSize) {
+        if size != clientSize { requestedSize = size }
+    }
+
+    func observeSize(_ size: CGSize) {
+        guard size.width >= 1, size.height >= 1 else { return }
+        let measured = CGSize(width: size.width.rounded(), height: size.height.rounded())
+        if let requestedSize {
+            // Ignore the old viewport while SwiftUI applies the scene's content
+            // constraints. Release them as soon as layout reaches the new size.
+            guard measured == requestedSize else { return }
+            self.requestedSize = nil
         }
+        guard clientSize != measured else { return }
+        clientSize = measured
+        commandSink?.submitWindowSize(measured, token: id)
     }
 
-    func initialFrame(_ state: ATMacWindowState) {
-        applyingMirrorFrame = true
-        window.setContentSize(NSSize(width: state.width, height: state.height))
-        if state.hasExplicitPosition {
-            let model = CGRect(x: state.x, y: state.y,
-                               width: state.width, height: state.height)
-            window.setFrame(MacDesktopCoordinates.nativeFrame(model, window: window),
-                            display: false)
-        } else {
-            // AppKit chooses the cascade; the resulting frame is reported to
-            // the model, which owns subsequent placement decisions.
-            window.cascadeTopLeft(from: .zero)
-        }
-        applyingMirrorFrame = false
-    }
-
-    func reportFrame(updatesRestore: Bool = true) {
-        guard !applyingMirrorFrame else { return }
-        commandSink?.submitWindowFrame(MacDesktopCoordinates.modelFrame(of: window),
-            token: id, updatesRestore: updatesRestore && !window.isZoomed &&
-                !window.styleMask.contains(.fullScreen) && !window.isMiniaturized)
-    }
-
-    func disconnect() {
-        commandSink = nil
-        window.delegate = nil
-        window.contentView = nil
-        window.orderOut(nil)
-        window.close()
-    }
-}
-
-private struct MacCatalogButtonStyle: ButtonStyle {
-    var followsSystemAppearance = false
-    @Environment(\.isEnabled) private var isEnabled
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundColor(isEnabled ? .primary : .gray)
-            .background(configuration.isPressed
-                ? Color(nsColor: .selectedControlColor)
-                : followsSystemAppearance ? Color(nsColor: .controlBackgroundColor)
-                                          : Color(white: 0.94))
-            .overlay(Rectangle().strokeBorder(Color(white: 0.55), lineWidth: 1))
-    }
+    func disconnect() { commandSink = nil }
 }
 
 private struct MacButtonControl: View {
     @ObservedObject var adapter: MacButtonAdapter
-    var followsSystemAppearance = false
 
     var body: some View {
-        Button(action: { adapter.click() }) {
+        Button(action: adapter.click) {
             Text(adapter.title)
-                .font(.system(size: 12))
-                .frame(width: adapter.frame.width, height: adapter.frame.height)
-                .contentShape(Rectangle())
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .buttonStyle(MacCatalogButtonStyle(followsSystemAppearance: followsSystemAppearance))
+        .buttonStyle(.bordered)
         .disabled(!adapter.enabled)
+        .frame(width: adapter.frame.width, height: adapter.frame.height)
         .accessibilityIdentifier("button-\(adapter.id)")
         .position(x: adapter.frame.x + adapter.frame.width / 2,
                   y: adapter.frame.y + adapter.frame.height / 2)
-    }
-}
-
-// The native list owns mouse tracking and double-click recognition. Attaching
-// a SwiftUI row gesture to List competes with AppKit's selection recognizer.
-private struct MacNativeList: NSViewRepresentable {
-    @ObservedObject var adapter: MacListAdapter
-
-    func makeCoordinator() -> Coordinator { Coordinator(adapter: adapter) }
-
-    func makeNSView(context: Context) -> NSScrollView {
-        let table = NSTableView(frame: NSRect(x: 0, y: 0,
-            width: adapter.frame.width, height: adapter.frame.height))
-        table.autoresizingMask = [.width]
-        table.headerView = nil
-        table.style = .plain
-        table.rowHeight = 20
-        table.intercellSpacing = .zero
-        table.allowsMultipleSelection = false
-        table.allowsEmptySelection = true
-        table.backgroundColor = adapter.followsSystemAppearance ? .textBackgroundColor : .white
-        table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
-        table.setAccessibilityIdentifier("list-\(adapter.id)")
-        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("primary"))
-        column.resizingMask = .autoresizingMask
-        column.width = adapter.frame.width
-        table.addTableColumn(column)
-        table.delegate = context.coordinator
-        table.dataSource = context.coordinator
-        table.target = context.coordinator
-        table.doubleAction = #selector(Coordinator.activate(_:))
-        let scroll = NSScrollView()
-        scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
-        scroll.drawsBackground = true
-        scroll.backgroundColor = adapter.followsSystemAppearance ? .textBackgroundColor : .white
-        scroll.documentView = table
-        context.coordinator.sync(table)
-        return scroll
-    }
-
-    func updateNSView(_ scroll: NSScrollView, context: Context) {
-        context.coordinator.adapter = adapter
-        context.coordinator.sync(scroll.documentView as! NSTableView)
-    }
-
-    static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
-        let table = scroll.documentView as! NSTableView
-        table.target = nil
-        table.delegate = nil
-        table.dataSource = nil
-        coordinator.adapter = nil
-    }
-
-    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
-        weak var adapter: MacListAdapter?
-        private var displayedRows: [MacListRowSnapshot] = []
-        private var appliedSelection: Int?
-        private var applyingPublication = false
-
-        init(adapter: MacListAdapter) { self.adapter = adapter }
-
-        func sync(_ table: NSTableView) {
-            guard let adapter else { return }
-            let rowsChanged = displayedRows != adapter.rows
-            let selectionChanged = appliedSelection != adapter.selectedRow
-            // Reapplying an unchanged mirror selection during a layout update
-            // would undo a native click while its model command is in flight.
-            guard rowsChanged || selectionChanged else { return }
-            applyingPublication = true
-            if rowsChanged {
-                displayedRows = adapter.rows
-                table.reloadData()
-            }
-            appliedSelection = adapter.selectedRow
-            if let selected = adapter.selectedRow {
-                table.selectRowIndexes(IndexSet(integer: selected),
-                                       byExtendingSelection: false)
-            } else {
-                table.deselectAll(nil)
-            }
-            applyingPublication = false
-        }
-
-        func numberOfRows(in tableView: NSTableView) -> Int { displayedRows.count }
-
-        func tableView(_ tableView: NSTableView,
-                       objectValueFor tableColumn: NSTableColumn?, row: Int) -> Any? {
-            displayedRows[row].text
-        }
-
-        func tableView(_ tableView: NSTableView,
-                       viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-            let identifier = NSUserInterfaceItemIdentifier("primary-cell")
-            let cell: NSTableCellView
-            if let existing = tableView.makeView(withIdentifier: identifier,
-                                                owner: self) as? NSTableCellView {
-                cell = existing
-            } else {
-                cell = NSTableCellView()
-                cell.identifier = identifier
-                let text = NSTextField(labelWithString: "")
-                text.font = .systemFont(ofSize: 12)
-                text.lineBreakMode = .byTruncatingTail
-                text.translatesAutoresizingMaskIntoConstraints = false
-                cell.textField = text
-                cell.addSubview(text)
-                NSLayoutConstraint.activate([
-                    text.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
-                    text.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-                    text.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
-                ])
-            }
-            cell.textField!.stringValue = displayedRows[row].text
-            return cell
-        }
-
-        func tableView(_ tableView: NSTableView,
-                       selectionIndexesForProposedSelection proposed: IndexSet) -> IndexSet {
-            // Like a desktop listbox, clicking whitespace does not clear its
-            // selection. Publications may still explicitly render no selection.
-            if !applyingPublication && proposed.isEmpty {
-                return tableView.selectedRowIndexes
-            }
-            return proposed
-        }
-
-        func tableViewSelectionDidChange(_ notification: Notification) {
-            guard !applyingPublication,
-                  let table = notification.object as? NSTableView,
-                  let adapter,
-                  displayedRows.indices.contains(table.selectedRow) else { return }
-            let identity = displayedRows[table.selectedRow].id
-            // Displayed rows may lag a structural publication. Resolve the
-            // clicked identity in the current mirror before submitting input.
-            if let row = adapter.rows.firstIndex(where: { $0.id == identity }) {
-                adapter.commandSink?.selectListRow(row, token: adapter.id)
-            }
-        }
-
-        @objc func activate(_ table: NSTableView) {
-            guard let adapter,
-                  displayedRows.indices.contains(table.clickedRow) else { return }
-            let identity = displayedRows[table.clickedRow].id
-            if let row = adapter.rows.firstIndex(where: { $0.id == identity }) {
-                adapter.activate(row)
-            }
-        }
     }
 }
 
@@ -385,43 +163,239 @@ private struct MacListControl: View {
     @ObservedObject var adapter: MacListAdapter
 
     var body: some View {
-        MacNativeList(adapter: adapter)
-            .overlay(Rectangle().strokeBorder(Color(white: 0.55), lineWidth: 1))
-            .frame(width: adapter.frame.width, height: adapter.frame.height)
-            .position(x: adapter.frame.x + adapter.frame.width / 2,
-                      y: adapter.frame.y + adapter.frame.height / 2)
+        List(selection: adapter.selection) {
+            ForEach(adapter.rows) { row in
+                Text(row.text)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .tag(row.id)
+                    .simultaneousGesture(TapGesture(count: 2).onEnded {
+                        adapter.activate(row.id)
+                    })
+                    .accessibilityAction(named: Text("Open")) { adapter.activate(row.id) }
+            }
+        }
+        .listStyle(.plain)
+        .overlay(Rectangle().strokeBorder(.secondary, lineWidth: 1).allowsHitTesting(false))
+        .frame(width: adapter.frame.width, height: adapter.frame.height)
+        .accessibilityIdentifier("list-\(adapter.id)")
+        .position(x: adapter.frame.x + adapter.frame.width / 2,
+                  y: adapter.frame.y + adapter.frame.height / 2)
     }
 }
 
 private struct MacWindowContent: View {
     @ObservedObject var adapter: MacWindowAdapter
+    let followsSystemAppearance: Bool
+    var fixedPanelSize = false
+
+    private var sizeConstraint: CGSize? {
+        adapter.requestedSize ?? (fixedPanelSize ? adapter.clientSize : nil)
+    }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            adapter.followsSystemAppearance ? Color(nsColor: .windowBackgroundColor) : Color.white
-            ForEach(adapter.buttons) {
-                MacButtonControl(adapter: $0,
-                    followsSystemAppearance: adapter.followsSystemAppearance)
+        GeometryReader { geometry in
+            ZStack(alignment: .topLeading) {
+                ForEach(adapter.buttons) { MacButtonControl(adapter: $0) }
+                ForEach(adapter.lists) { MacListControl(adapter: $0) }
             }
-            ForEach(adapter.lists) { MacListControl(adapter: $0) }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .onAppear { observe(geometry.size) }
+            .onChange(of: geometry.size, perform: observe)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .preferredColorScheme(adapter.followsSystemAppearance ? nil : .light)
+        .frame(minWidth: sizeConstraint?.width ?? 1,
+               maxWidth: sizeConstraint?.width ?? .infinity,
+               minHeight: sizeConstraint?.height ?? 1,
+               maxHeight: sizeConstraint?.height ?? .infinity)
+        .navigationTitle(adapter.title)
+        .preferredColorScheme(followsSystemAppearance ? nil : .light)
+    }
+
+    private func observe(_ size: CGSize) {
+        DispatchQueue.main.async { adapter.observeSize(size) }
     }
 }
 
-public final class MacApplicationHost: NSObject,
-    NSApplicationDelegate, NSWindowDelegate, ATMacApplicationBridgeDelegate {
+@available(macOS 14.0, *)
+private struct MacWindowScene: View {
+    @ObservedObject var host: MacApplicationHost
+    let sceneID: UUID
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
+    @Environment(\.controlActiveState) private var controlActiveState
+
+    var body: some View {
+        Group {
+            if let adapter = host.window(for: sceneID) {
+                MacWindowContent(adapter: adapter,
+                                 followsSystemAppearance: host.followsSystemAppearance)
+            } else {
+                ProgressView()
+            }
+        }
+        .onAppear {
+            DispatchQueue.main.async {
+                host.sceneAppeared(sceneID, open: { openWindow(id: MacApplicationScenes.windowGroupID,
+                                                               value: $0) },
+                                   dismiss: {
+                    dismissWindow(id: MacApplicationScenes.windowGroupID, value: sceneID)
+                })
+                if controlActiveState == .key { host.sceneFocused(sceneID) }
+            }
+        }
+        .onDisappear { DispatchQueue.main.async { host.sceneDisappeared(sceneID) } }
+        .onChange(of: controlActiveState) { state in
+            if state == .key { DispatchQueue.main.async { host.sceneFocused(sceneID) } }
+        }
+    }
+}
+
+// Ventura has openWindow, but no matching SwiftUI window-dismissal action.
+// Keep every child independently addressable in the primary window.
+private struct MacTabbedWorkspace: View {
+    @ObservedObject var host: MacApplicationHost
+    @State private var selection: UUID
+
+    init(host: MacApplicationHost) {
+        self.host = host
+        _selection = State(initialValue: host.primarySceneID)
+    }
+
+    var body: some View {
+        Group {
+            if let primary = host.window(for: host.primarySceneID) {
+                if host.windows.count == 1 {
+                    MacWindowContent(adapter: primary,
+                                     followsSystemAppearance: host.followsSystemAppearance)
+                } else {
+                    TabView(selection: $selection) {
+                        ForEach(host.orderedPanels) { adapter in
+                            MacWorkspacePanel(host: host, adapter: adapter)
+                                .tabItem { MacPanelTitle(adapter: adapter) }
+                                .tag(adapter.sceneID)
+                        }
+                    }
+                    .navigationTitle(primary.title)
+                }
+            } else {
+                ProgressView()
+            }
+        }
+        .onAppear {
+            DispatchQueue.main.async {
+                host.sceneAppeared(host.primarySceneID, open: { selection = $0 }, dismiss: {})
+            }
+        }
+        .onDisappear {
+            DispatchQueue.main.async { host.sceneDisappeared(host.primarySceneID) }
+        }
+        .onChange(of: selection) { id in
+            DispatchQueue.main.async { host.sceneFocused(id) }
+        }
+        .onChange(of: host.windows.keys.sorted()) { _ in
+            if host.window(for: selection) == nil { selection = host.primarySceneID }
+        }
+    }
+}
+
+private struct MacPanelTitle: View {
+    @ObservedObject var adapter: MacWindowAdapter
+    var body: some View { Text(adapter.title) }
+}
+
+private struct MacWorkspacePanel: View {
+    @ObservedObject var host: MacApplicationHost
+    @ObservedObject var adapter: MacWindowAdapter
+
+    var body: some View {
+        if adapter.sceneID == host.primarySceneID {
+            MacWindowContent(adapter: adapter, followsSystemAppearance: host.followsSystemAppearance)
+        } else {
+            VStack(alignment: .trailing) {
+                Button {
+                    host.requestClose(adapter.sceneID)
+                } label: {
+                    Label("Close Panel", systemImage: "xmark")
+                }
+                .padding(.horizontal)
+                ScrollView([.horizontal, .vertical]) {
+                    MacWindowContent(adapter: adapter,
+                                     followsSystemAppearance: host.followsSystemAppearance,
+                                     fixedPanelSize: true)
+                }
+            }
+        }
+    }
+}
+
+private struct MacApplicationCommands: Commands {
+    @ObservedObject var host: MacApplicationHost
+
+    var body: some Commands {
+        CommandGroup(replacing: .newItem) {}
+        CommandGroup(replacing: .appTermination) {
+            Button("Quit AppTraverse", action: host.requestStop)
+                .keyboardShortcut("q", modifiers: .command)
+        }
+        CommandGroup(after: .appSettings) {
+            ForEach(host.menuGroups.indices, id: \.self) { groupIndex in
+                let group = host.menuGroups[groupIndex]
+                Menu(group.title.replacingOccurrences(of: "&", with: "")) {
+                    ForEach(group.items.indices, id: \.self) { itemIndex in
+                        let item = group.items[itemIndex]
+                        Toggle(item.title, isOn: Binding(get: { item.isSelected }, set: { _ in
+                            host.executeMenu(group: groupIndex, item: itemIndex)
+                        }))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The SwiftUI scene and commands shared by AppTraverse desktop applications.
+public struct MacApplicationScenes: Scene {
+    fileprivate static let windowGroupID = "apptraverse-window"
+    @ObservedObject private var host: MacApplicationHost
+
+    public init(host: MacApplicationHost) { self.host = host }
+
+    public var body: some Scene {
+        WindowGroup("AppTraverse", id: Self.windowGroupID, for: UUID.self) { $sceneID in
+            if #available(macOS 14.0, *) {
+                MacWindowScene(host: host, sceneID: sceneID)
+            } else {
+                MacTabbedWorkspace(host: host)
+            }
+        } defaultValue: {
+            host.primarySceneID
+        }
+        .defaultSize(width: 680, height: 500)
+        .windowResizability(.contentSize)
+        .commands { MacApplicationCommands(host: host) }
+    }
+}
+
+public final class MacApplicationHost: NSObject, ObservableObject, ATMacApplicationBridgeDelegate {
     private let bridgeFactory: (ATMacApplicationBridgeDelegate) -> ATMacApplicationBridge
-    private let followsSystemAppearance: Bool
-    private var modelMenuItems: [NSMenuItem] = []
-    var bridge: ATMacApplicationBridge!
-    var windows: [UInt64: MacWindowAdapter] = [:]
-    var buttons: [UInt64: MacButtonAdapter] = [:]
-    var lists: [UInt64: MacListAdapter] = [:]
+    let followsSystemAppearance: Bool
+    // Stable primary scene. Child mount IDs are per-session capabilities so
+    // SwiftUI restoration cannot reopen a stale presenter from another run.
+    let primarySceneID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+    private(set) var bridge: ATMacApplicationBridge?
+    @Published private(set) var windows: [UInt64: MacWindowAdapter] = [:]
+    @Published private(set) var menuGroups: [ATMacMenuGroupState] = []
+    private(set) var buttons: [UInt64: MacButtonAdapter] = [:]
+    private(set) var lists: [UInt64: MacListAdapter] = [:]
+    private(set) var sceneDismissals: [UUID: () -> Void] = [:]
+    private var openScene: ((UUID) -> Void)?
+    private var pendingPresentations: [UUID] = []
+    private var didSchedulePresentations = false
+    private var focusOrder: [UUID] = []
+    private var panelOrder: [UInt64] = []
     private var terminating = false
-    private var modelFinished = false
-    private var exitStatus: Int32 = 1
+    var onFinished: (Int32) -> Void = { exit($0) }
 
     public init(followsSystemAppearance: Bool = false, bridgeFactory: @escaping
         (ATMacApplicationBridgeDelegate) -> ATMacApplicationBridge) {
@@ -431,126 +405,128 @@ public final class MacApplicationHost: NSObject,
 
     deinit { bridge?.requestStop() }
 
-    @discardableResult public func run() -> Int32 {
-        let application = NSApplication.shared
-        application.delegate = self
-        application.setActivationPolicy(.regular)
-        installMenu()
-        application.run()
-        withExtendedLifetime(self) {}
-        return exitStatus
+    var orderedPanels: [MacWindowAdapter] { panelOrder.compactMap { windows[$0] } }
+
+    func window(for id: UUID) -> MacWindowAdapter? {
+        windows.values.first { $0.sceneID == id }
     }
 
-    private func installMenu() {
-        let menu = NSMenu()
-        let item = NSMenuItem()
-        let applicationMenu = NSMenu()
-        applicationMenu.addItem(withTitle: "Close Window",
-            action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
-        applicationMenu.addItem(.separator())
-        applicationMenu.addItem(withTitle: "Quit AppTraverse",
-            action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        item.submenu = applicationMenu
-        menu.addItem(item)
-        NSApp.mainMenu = menu
+    func sceneAppeared(_ id: UUID, open: @escaping (UUID) -> Void,
+                       dismiss: @escaping () -> Void) {
+        guard !terminating else { return }
+        openScene = open
+        if id == primarySceneID {
+            sceneDismissals[id] = dismiss
+            if bridge == nil {
+                bridge = bridgeFactory(self)
+                bridge!.start()
+            }
+        } else if window(for: id) != nil {
+            sceneDismissals[id] = dismiss
+        } else {
+            // Drop a child restored by SwiftUI without a matching presenter.
+            if sceneDismissals[primarySceneID] == nil { open(primarySceneID) }
+            dismiss()
+        }
     }
 
-    public func applicationDidFinishLaunching(_ notification: Notification) {
-        bridge = bridgeFactory(self)
-        bridge.start()
+    func sceneDisappeared(_ id: UUID) {
+        sceneDismissals.removeValue(forKey: id)
+        focusOrder.removeAll { $0 == id }
+        guard !terminating else { return }
+        requestClose(id)
     }
 
-    public func applicationShouldTerminate(_ sender: NSApplication)
-        -> NSApplication.TerminateReply {
-        requestStop()
-        return .terminateCancel
+    func requestClose(_ id: UUID) {
+        guard !terminating else { return }
+        if let window = window(for: id), let bridge {
+            if bridge.requestCloseWindow(window.id) { terminating = true }
+        } else if id == primarySceneID {
+            requestStop()
+        }
+    }
+
+    func sceneFocused(_ id: UUID) {
+        guard !terminating, let window = window(for: id) else { return }
+        if focusOrder.first != id {
+            focusOrder.removeAll { $0 == id }
+            focusOrder.insert(id, at: 0)
+            bridge?.activateWindow(window.id)
+        }
     }
 
     public func requestStop() {
-        guard !modelFinished && !terminating else { return }
-        // Queue final native reports before the runtime stop barrier.
-        for adapter in windows.values { adapter.reportFrame() }
+        guard !terminating, let bridge else { return }
         terminating = true
         bridge.requestStop()
     }
 
-    public func windowShouldClose(_ sender: NSWindow) -> Bool {
-        guard !terminating else { return false }
-        let adapter = windows.values.first { $0.window === sender }!
-        // Closing the root may end the whole session: enqueue every final
-        // native frame before the application callback requests its stop.
-        for window in windows.values { window.reportFrame() }
-        if bridge.requestCloseWindow(adapter.id) { terminating = true }
-        return false
+    func executeMenu(group: Int, item: Int) {
+        guard !terminating, menuGroups.indices.contains(group),
+              menuGroups[group].items.indices.contains(item) else { return }
+        bridge?.executeMenuGroup(UInt(group), item: UInt(item))
     }
 
-    public func windowDidBecomeKey(_ notification: Notification) {
-        guard !terminating else { return }
-        guard let adapter = adapter(for: notification) else { return }
-        bridge.activateWindow(adapter.id)
-    }
-
-    public func windowDidMove(_ notification: Notification) {
-        guard !terminating else { return }
-        adapter(for: notification)?.reportFrame()
-    }
-    public func windowDidResize(_ notification: Notification) {
-        guard !terminating else { return }
-        guard let adapter = adapter(for: notification) else { return }
-        adapter.reportFrame(updatesRestore: !adapter.window.inLiveResize)
-    }
-    public func windowDidEndLiveResize(_ notification: Notification) {
-        guard !terminating else { return }
-        adapter(for: notification)?.reportFrame()
-    }
-    public func windowDidChangeScreen(_ notification: Notification) {
-        guard !terminating else { return }
-        guard let adapter = adapter(for: notification),
-              let screen = adapter.window.screen else { return }
-        reportScreen(screen, token: adapter.id)
-    }
-
-    private func reportScreen(_ screen: NSScreen, token: UInt64) {
-        let area = MacDesktopCoordinates.modelWorkArea(screen)
-        bridge.submitScreenX(area.minX, y: area.minY, width: area.width,
-                              height: area.height, token: token)
+    private func present(_ id: UUID) {
+        pendingPresentations.append(id)
+        guard !didSchedulePresentations else { return }
+        didSchedulePresentations = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.didSchedulePresentations = false
+            let requests = self.pendingPresentations
+            self.pendingPresentations.removeAll()
+            guard !self.terminating else { return }
+            // Replay the model's requested order after the full publication is
+            // mounted. The system owns the actual desktop stacking order.
+            for id in requests where self.window(for: id) != nil {
+                self.openScene?(id)
+            }
+        }
     }
 
     public func bridge(_ bridge: ATMacApplicationBridge, loadWindow token: UInt64) {
-        let adapter = MacWindowAdapter(token: token, commandSink: bridge, delegate: self,
-            followsSystemAppearance: followsSystemAppearance)
-        windows[token] = adapter
         let state = bridge.windowState(token)
+        let id = state.isPrimary ? primarySceneID : UUID()
+        let adapter = MacWindowAdapter(token: token, sceneID: id, commandSink: bridge)
         adapter.sync(state)
-        adapter.initialFrame(state)
-        adapter.window.makeKeyAndOrderFront(nil)
-        adapter.reportFrame()
-        reportScreen(adapter.window.screen!, token: token)
-        NSApp.activate(ignoringOtherApps: true)
+        adapter.requestSize(CGSize(width: state.width, height: state.height))
+        windows[token] = adapter
+        if id == primarySceneID { panelOrder.insert(token, at: 0) }
+        else { panelOrder.append(token) }
+        focusOrder.append(id)
+        if id != primarySceneID { present(id) }
     }
+
     public func bridge(_ bridge: ATMacApplicationBridge, syncWindow token: UInt64) {
         windows[token]!.sync(bridge.windowState(token))
     }
+
     public func bridge(_ bridge: ATMacApplicationBridge, applyWindowFrame token: UInt64) {
-        windows[token]!.applyFrame(bridge.windowState(token))
+        let state = bridge.windowState(token)
+        windows[token]!.requestSize(CGSize(width: state.width, height: state.height))
     }
+
     public func bridge(_ bridge: ATMacApplicationBridge,
                        orderWindowFront token: UInt64, activate: Bool) {
-        let window = windows[token]!.window
-        if window.isMiniaturized { window.deminiaturize(nil) }
-        if activate {
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
-        } else { window.orderFront(nil) }
+        present(windows[token]!.sceneID)
     }
+
     public func orderedWindowTokens() -> [NSNumber] {
-        NSApp.orderedWindows.compactMap { window in
-            windows.values.first { $0.window === window }.map { NSNumber(value: $0.id) }
+        focusOrder.compactMap { id in window(for: id).map { NSNumber(value: $0.id) } }
+    }
+
+    public func bridge(_ bridge: ATMacApplicationBridge, unloadWindow token: UInt64) {
+        let adapter = windows.removeValue(forKey: token)!
+        panelOrder.removeAll { $0 == token }
+        adapter.disconnect()
+        focusOrder.removeAll { $0 == adapter.sceneID }
+        let dismiss = sceneDismissals.removeValue(forKey: adapter.sceneID)
+        if adapter.sceneID != primarySceneID, let dismiss {
+            DispatchQueue.main.async { dismiss() }
         }
     }
-    public func bridge(_ bridge: ATMacApplicationBridge, unloadWindow token: UInt64) {
-        windows.removeValue(forKey: token)!.disconnect()
-    }
+
     public func bridge(_ bridge: ATMacApplicationBridge, loadButton token: UInt64) {
         let state = bridge.buttonState(token)
         let adapter = MacButtonAdapter(token: token, commandSink: bridge)
@@ -558,72 +534,45 @@ public final class MacApplicationHost: NSObject,
         buttons[token] = adapter
         windows[state.parentToken]!.buttons.append(adapter)
     }
+
     public func bridge(_ bridge: ATMacApplicationBridge, syncButton token: UInt64) {
         buttons[token]!.sync(bridge.buttonState(token))
     }
+
     public func bridge(_ bridge: ATMacApplicationBridge, unloadButton token: UInt64) {
         let adapter = buttons.removeValue(forKey: token)!
         adapter.disconnect()
         for window in windows.values { window.buttons.removeAll { $0 === adapter } }
     }
+
     public func bridge(_ bridge: ATMacApplicationBridge, loadList token: UInt64) {
         let state = bridge.listState(token)
         let adapter = MacListAdapter(token: token, commandSink: bridge)
-        adapter.followsSystemAppearance = followsSystemAppearance
         adapter.sync(state)
         lists[token] = adapter
         windows[state.parentToken]!.lists.append(adapter)
     }
+
     public func bridge(_ bridge: ATMacApplicationBridge, syncList token: UInt64) {
         lists[token]!.sync(bridge.listState(token))
     }
+
     public func bridge(_ bridge: ATMacApplicationBridge, unloadList token: UInt64) {
         let adapter = lists.removeValue(forKey: token)!
         adapter.disconnect()
         for window in windows.values { window.lists.removeAll { $0 === adapter } }
     }
-    public func bridge(_ bridge: ATMacApplicationBridge,
-                       syncMenu groups: [ATMacMenuGroupState]) {
-        let menu = NSApp.mainMenu!
-        for item in modelMenuItems { menu.removeItem(item) }
-        modelMenuItems = []
-        for (groupIndex, group) in groups.enumerated() {
-            let title = group.title.replacingOccurrences(of: "&", with: "")
-            let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-            let submenu = NSMenu(title: title)
-            submenu.autoenablesItems = false
-            for (itemIndex, state) in group.items.enumerated() {
-                let item = NSMenuItem(title: state.title,
-                    action: #selector(executeModelMenu(_:)), keyEquivalent: "")
-                item.target = self
-                item.representedObject = [groupIndex, itemIndex]
-                item.state = state.isSelected ? .on : .off
-                submenu.addItem(item)
-            }
-            parent.submenu = submenu
-            menu.addItem(parent)
-            modelMenuItems.append(parent)
-        }
-    }
 
-    @objc private func executeModelMenu(_ sender: NSMenuItem) {
-        guard !terminating, let indices = sender.representedObject as? [Int] else { return }
-        bridge.executeMenuGroup(UInt(indices[0]), item: UInt(indices[1]))
+    public func bridge(_ bridge: ATMacApplicationBridge, syncMenu groups: [ATMacMenuGroupState]) {
+        menuGroups = groups
     }
 
     public func bridgeModelDidFinish(_ bridge: ATMacApplicationBridge) {
-        exitStatus = Int32(bridge.finishTeardown())
-        modelFinished = true
-        NSApp.stop(nil)
-        // Wake the AppKit event pump so Run returns the model's exit status.
-        let event = NSEvent.otherEvent(with: .applicationDefined,
-            location: .zero, modifierFlags: [], timestamp: 0,
-            windowNumber: 0, context: nil, subtype: 0, data1: 0, data2: 0)!
-        NSApp.postEvent(event, atStart: true)
-    }
-
-    private func adapter(for notification: Notification) -> MacWindowAdapter? {
-        guard let window = notification.object as? NSWindow else { return nil }
-        return windows.values.first { $0.window === window }
+        terminating = true
+        let status = Int32(bridge.finishTeardown())
+        self.bridge = nil
+        openScene = nil
+        sceneDismissals.removeAll()
+        onFinished(status)
     }
 }

@@ -23,6 +23,7 @@ struct MacApplicationBridgeCallbacks {
   std::function<void(ae::Obj&)> after_incremental;
   std::function<void(ae::Obj&)> after_initial;
   UiPresentersPrepareHook prepare_ui_presenters;
+  std::function<ae::ObjId(ae::Obj&)> main_window_id;
   std::function<int(ApplicationModelRuntime&, ApplicationPublishedCallback)>
       run_model;
   std::function<bool(ae::Obj&, ae::Obj&, ModelObjectProxy&,

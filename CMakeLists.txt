@@ -307,7 +307,6 @@ if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
   target_link_libraries(apptraverse_ui_macos INTERFACE
     apptraverse_ui_macos_bridge
     apptraverse_ui_macos_swift
-    "-framework AppKit"
     "-framework Foundation"
     "-framework SwiftUI")
   target_link_options(apptraverse_ui_macos INTERFACE

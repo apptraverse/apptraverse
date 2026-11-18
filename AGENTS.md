@@ -1,5 +1,10 @@
 # Agent rules (apptraverse — unified worktree)
 
+## Apple UI
+
+Use SwiftUI for Apple UI. Keep direct AppKit imports, controls, and window
+management out of the shared WindowCatalog and MinimalApp presentation host.
+
 ## Completed non-Apple layout / LOCAL contract — 2026-11-17
 
 The user authorized and implemented the common layout and LOCAL model on Windows,

@@ -126,27 +126,21 @@ class MacNativeViews final
 
 @interface ATMacWindowState ()
 - (instancetype)initWithTitle:(NSString*)title
-                            x:(double)x
-                            y:(double)y
                         width:(double)width
                        height:(double)height
-                  hasPosition:(BOOL)hasPosition;
+                      primary:(BOOL)primary;
 @end
 
 @implementation ATMacWindowState
 - (instancetype)initWithTitle:(NSString*)title
-                            x:(double)x
-                            y:(double)y
                         width:(double)width
                        height:(double)height
-                  hasPosition:(BOOL)hasPosition {
+                      primary:(BOOL)primary {
   if ((self = [super init])) {
     _title = title;
-    _hasExplicitPosition = hasPosition;
-    _x = x;
-    _y = y;
     _width = width;
     _height = height;
+    _primary = primary;
   }
   return self;
 }
@@ -238,6 +232,7 @@ class MacNativeViews final
   std::thread _modelThread;
   int _modelExitStatus;
   bool _stopping;
+  ae::ObjId _mainWindowId;
 }
 @property(nonatomic, weak, readwrite)
     id<ATMacApplicationBridgeDelegate> delegate;
@@ -308,8 +303,12 @@ class MacNativeViews final
               : _callbacks.take_incremental_sidecar);
   if (kind == ATMacPublicationKindInitial) {
     _uiSession = std::make_unique<apptraverse::ApplicationUiSession>(
-        publication, _nativeViews.get(), *_proxy,
-        _callbacks.prepare_ui_presenters);
+        publication, _nativeViews.get(), *_proxy, [self](ae::Obj& root) {
+          _mainWindowId = _callbacks.main_window_id(root);
+          if (_callbacks.prepare_ui_presenters) {
+            _callbacks.prepare_ui_presenters(root);
+          }
+        });
     if (_callbacks.after_initial) _callbacks.after_initial(_uiSession->root());
   } else {
     _uiSession->ApplyStructural(publication);
@@ -328,11 +327,9 @@ class MacNativeViews final
       presenter.locale->language_index()));
   return [[ATMacWindowState alloc]
       initWithTitle:title
-                  x:desktop->x()
-                  y:desktop->y()
               width:desktop->restore_client_width()
              height:desktop->restore_client_height()
-        hasPosition:desktop->HasExplicitPosition()];
+            primary:desktop->obj_id == _mainWindowId];
 }
 
 - (ATMacButtonState*)buttonState:(uint64_t)token {
@@ -401,25 +398,14 @@ class MacNativeViews final
       .SubmitListRowActivatedFromUi(static_cast<std::size_t>(row));
 }
 
-- (void)submitWindowX:(double)x
-                    y:(double)y
-                width:(double)width
-               height:(double)height
-                token:(uint64_t)token
-       updatesRestore:(BOOL)updatesRestore {
+- (void)submitWindowWidth:(double)width height:(double)height
+                    token:(uint64_t)token {
   if (_stopping) return;
-  FromToken<MacDesktopWindowPresenter>(token).ReportNativeFrameToModel(
-      ModelCoordinate(x), ModelCoordinate(y),
-      ModelCoordinate(width), ModelCoordinate(height),
-      updatesRestore);
-}
-
-- (void)submitScreenX:(double)x y:(double)y width:(double)width
-               height:(double)height token:(uint64_t)token {
-  if (_stopping) return;
-  FromToken<MacDesktopWindowPresenter>(token).ReportNativeScreenToModel(
-      ModelCoordinate(x), ModelCoordinate(y),
-      ModelCoordinate(width), ModelCoordinate(height));
+  auto& presenter = FromToken<MacDesktopWindowPresenter>(token);
+  auto const window = presenter.desktop_window();
+  // SwiftUI exposes the client size. Keep the existing semantic origin.
+  presenter.ReportNativeFrameToModel(window->x(), window->y(),
+      ModelCoordinate(width), ModelCoordinate(height), true);
 }
 
 - (void)activateWindow:(uint64_t)token {

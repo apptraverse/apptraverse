@@ -56,9 +56,7 @@ typedef NS_ENUM(NSInteger, ATMacPublicationKind) {
 
 @interface ATMacWindowState : NSObject
 @property(nonatomic, readonly) NSString* title;
-@property(nonatomic, readonly) BOOL hasExplicitPosition;
-@property(nonatomic, readonly) double x;
-@property(nonatomic, readonly) double y;
+@property(nonatomic, readonly, getter=isPrimary) BOOL primary;
 @property(nonatomic, readonly) double width;
 @property(nonatomic, readonly) double height;
 @end
@@ -101,14 +99,8 @@ typedef NS_ENUM(NSInteger, ATMacPublicationKind) {
 - (void)executeMenuGroup:(NSUInteger)group item:(NSUInteger)item;
 - (void)selectListRow:(NSInteger)row token:(uint64_t)token;
 - (void)activateListRow:(NSInteger)row token:(uint64_t)token;
-- (void)submitWindowX:(double)x
-                    y:(double)y
-                width:(double)width
-               height:(double)height
-                token:(uint64_t)token
-      updatesRestore:(BOOL)updatesRestore;
-- (void)submitScreenX:(double)x y:(double)y width:(double)width
-               height:(double)height token:(uint64_t)token;
+- (void)submitWindowWidth:(double)width height:(double)height
+                    token:(uint64_t)token;
 - (void)activateWindow:(uint64_t)token;
 - (BOOL)requestCloseWindow:(uint64_t)token;
 - (void)requestStop;

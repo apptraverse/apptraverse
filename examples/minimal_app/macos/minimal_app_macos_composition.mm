@@ -27,6 +27,9 @@ ATMacApplicationBridge* ATCreateMinimalApplicationBridge(
 #endif
 
   apptraverse::ui::macos::MacApplicationBridgeCallbacks callbacks;
+  callbacks.main_window_id = [](ae::Obj&) {
+    return apptraverse::example::minimal::MinimalMainWindowId();
+  };
   callbacks.run_model =
       [state_dir](apptraverse::ApplicationModelRuntime& runtime,
                   apptraverse::ApplicationPublishedCallback on_published) {
