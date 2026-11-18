@@ -284,6 +284,8 @@ if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     ${CMAKE_CURRENT_SOURCE_DIR}/include)
   target_link_libraries(apptraverse_ui_macos_bridge PUBLIC
     apptraverse_ui_macos_presenters
+    "-framework AppKit"
+    "-framework CoreGraphics"
     "-framework Foundation")
   set_source_files_properties(
     src/platform/macos/macos_application_bridge.mm
@@ -293,7 +295,8 @@ if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-objc-exceptions>)
 
   add_library(apptraverse_ui_macos_swift STATIC
-    src/platform/macos/MacApplicationHost.swift)
+    src/platform/macos/MacApplicationHost.swift
+    src/platform/macos/MacNativeWindow.swift)
   set_target_properties(apptraverse_ui_macos_swift PROPERTIES
     Swift_MODULE_NAME AppTraverseMacUI)
   target_compile_options(apptraverse_ui_macos_swift PRIVATE

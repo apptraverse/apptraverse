@@ -2,8 +2,9 @@
 
 ## Apple UI
 
-Use SwiftUI for Apple UI. Keep direct AppKit imports, controls, and window
-management out of the shared WindowCatalog and MinimalApp presentation host.
+Use SwiftUI for Apple UI, including content, lists, layout, and commands.
+WindowCatalog and MinimalApp may use AppKit at the native-window boundary for
+desktop operations SwiftUI cannot provide, including close on macOS 13.
 
 ## Completed non-Apple layout / LOCAL contract — 2026-11-17
 

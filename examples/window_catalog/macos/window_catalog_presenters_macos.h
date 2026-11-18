@@ -32,6 +32,8 @@ class CatalogDesktopWindowPresenter
     dnv(base_, catalog);
   }
 
+  bool NativeCaptionProvidesClose() const override { return true; }
+
   bool PresentsChildControl(Presenter const& child) const override {
     // Native caption Close supplies this action; identify its content control
     // through the distilled prefab link, independently of model host mode.

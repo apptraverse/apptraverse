@@ -62,7 +62,9 @@ ATMacApplicationBridge* ATCreateWindowCatalogApplicationBridge(
   auto application = std::make_shared<CatalogApplication>();
   application->session.state_dir = NativeDirectory(userDirectory);
   application->session.prepare_local_state =
-      [](apptraverse::WindowCatalog& catalog) {
+      [environment = apptraverse::ui::macos::ReadMacDeviceEnvironment()](apptraverse::WindowCatalog& catalog) {
+        catalog.persisted.device_state->ObserveEnvironment(
+            environment, apptraverse::ui::UiEnvironmentReason::kStartup);
         apptraverse::PrepareCatalogMenuForRun(catalog);
       };
   apptraverse::ui::macos::MacApplicationBridgeCallbacks callbacks;

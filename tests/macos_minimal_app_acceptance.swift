@@ -15,8 +15,8 @@ private struct MacMinimalAppAcceptance: App {
         host.onFinished = { [weak host] status in
             precondition(status == 0 && host?.windows.isEmpty == true)
             let files = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil)
-            let saved = (files?.allObjects as? [URL] ?? []).first { $0.lastPathComponent == "user.bin" }
-            precondition(saved != nil && !(try! Data(contentsOf: saved!)).isEmpty)
+            let saved = (files?.allObjects as? [URL] ?? []).filter { $0.lastPathComponent == "user.bin" }
+            precondition(saved.count == 2 && saved.allSatisfy { !(try! Data(contentsOf: $0)).isEmpty })
             try! FileManager.default.removeItem(at: directory)
             print("PASS: MinimalApp SwiftUI primary close saves USER and tears down")
             exit(status)
@@ -41,15 +41,15 @@ private struct MacMinimalAppAcceptance: App {
             }
             await wait("MinimalApp mounts the Detail Panel scene") {
                 guard let detail else { return false }
-                return detail.clientSize != nil
+                return detail.clientSize != nil && host.nativeWindows[detail.sceneID] != nil
             }
             let detailID = detail!.sceneID
             detail!.buttons.first { $0.title == "Close Detail" }!.click()
             await wait("MinimalApp removes a model-closed detail scene") {
-                detail == nil && host.sceneDismissals[detailID] == nil
+                detail == nil && host.nativeWindows[detailID] == nil
             }
             precondition(host.window(for: host.primarySceneID) === main)
-            host.requestClose(host.primarySceneID)
+            host.nativeWindows.performClose(host.primarySceneID)
         }
     }
 

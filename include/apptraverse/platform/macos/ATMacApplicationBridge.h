@@ -47,6 +47,7 @@ typedef NS_ENUM(NSInteger, ATMacPublicationKind) {
 - (void)bridge:(ATMacApplicationBridge*)bridge
     orderWindowFront:(uint64_t)token activate:(BOOL)activate;
 - (NSArray<NSNumber*>*)orderedWindowTokens;
+- (void)bridgeDidFinishPublication:(ATMacApplicationBridge*)bridge;
 - (void)bridgeModelDidFinish:(ATMacApplicationBridge*)bridge;
 @optional
 - (void)bridge:(ATMacApplicationBridge*)bridge
@@ -54,9 +55,25 @@ typedef NS_ENUM(NSInteger, ATMacPublicationKind) {
 @required
 @end
 
+// Immutable layout snapshot owned by the SwiftUI scene. Its measurement block
+// returns ideal size for width -1, minimum width for 0, or size at a real width.
+@interface ATMacLayoutResult : NSObject
+@property(nonatomic, readonly) CGSize contentSize;
+@property(nonatomic, readonly) NSDictionary<NSNumber*, NSValue*>* frames;
+@end
+
+@interface ATMacWindowLayout : NSObject
+- (ATMacLayoutResult*)solveViewport:(CGSize)viewport
+                        controlIDs:(NSArray<NSNumber*>*)controlIDs
+                           measure:(CGSize (^)(uint32_t controlID, double width))measure;
+@end
+
 @interface ATMacWindowState : NSObject
 @property(nonatomic, readonly) NSString* title;
 @property(nonatomic, readonly, getter=isPrimary) BOOL primary;
+@property(nonatomic, readonly) ATMacWindowLayout* layout;
+@property(nonatomic, readonly) NSUInteger theme;
+@property(nonatomic, readonly) BOOL softenDark;
 @property(nonatomic, readonly) double width;
 @property(nonatomic, readonly) double height;
 @end
@@ -65,10 +82,7 @@ typedef NS_ENUM(NSInteger, ATMacPublicationKind) {
 @property(nonatomic, readonly) uint64_t parentToken;
 @property(nonatomic, readonly) NSString* title;
 @property(nonatomic, readonly, getter=isEnabled) BOOL enabled;
-@property(nonatomic, readonly) double x;
-@property(nonatomic, readonly) double y;
-@property(nonatomic, readonly) double width;
-@property(nonatomic, readonly) double height;
+@property(nonatomic, readonly) uint32_t controlID;
 @end
 
 @interface ATMacListRowState : NSObject
@@ -80,10 +94,7 @@ typedef NS_ENUM(NSInteger, ATMacPublicationKind) {
 @property(nonatomic, readonly) uint64_t parentToken;
 @property(nonatomic, readonly) NSArray<ATMacListRowState*>* rows;
 @property(nonatomic, readonly) NSInteger selectedRow;
-@property(nonatomic, readonly) double x;
-@property(nonatomic, readonly) double y;
-@property(nonatomic, readonly) double width;
-@property(nonatomic, readonly) double height;
+@property(nonatomic, readonly) uint32_t controlID;
 @end
 
 @interface ATMacApplicationBridge : NSObject
@@ -99,8 +110,11 @@ typedef NS_ENUM(NSInteger, ATMacPublicationKind) {
 - (void)executeMenuGroup:(NSUInteger)group item:(NSUInteger)item;
 - (void)selectListRow:(NSInteger)row token:(uint64_t)token;
 - (void)activateListRow:(NSInteger)row token:(uint64_t)token;
-- (void)submitWindowWidth:(double)width height:(double)height
-                    token:(uint64_t)token;
+- (void)bindNativeWindow:(id)window token:(uint64_t)token;
+- (void)unbindNativeWindow:(uint64_t)token;
+- (void)observeNativeWindow:(uint64_t)token commit:(BOOL)commit;
+- (void)applyRequestedNativeFrame:(uint64_t)token;
+- (void)observeSystemEnvironment;
 - (void)activateWindow:(uint64_t)token;
 - (BOOL)requestCloseWindow:(uint64_t)token;
 - (void)requestStop;

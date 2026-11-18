@@ -45,7 +45,7 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
       [](auto const& node) { return node.control_id == 5005; });
   options.main_layout = std::move(layout);
   auto catalog = BuildWindowCatalogGraph(domain, factory, std::move(options));
-  ComposeCatalogMenu(domain, *catalog, CatalogThemeHandling::kNativeFollowsSystem);
+  ComposeCatalogMenu(domain, *catalog, CatalogThemeHandling::kAdapterAppliesTheme);
   return catalog;
 }
 

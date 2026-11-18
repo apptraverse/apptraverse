@@ -8,8 +8,11 @@
 #include "apptraverse/application_model_runtime.h"
 #include "apptraverse/application_ui_session.h"
 #include "apptraverse/model_object_proxy.h"
+#include "apptraverse/ui/ui_device_state.h"
 
 namespace apptraverse::ui::macos {
+
+UiDeviceEnvironment ReadMacDeviceEnvironment();
 
 struct MacApplicationBridgeCallbacks {
   // Optional application composition; generic hosts do not invent a menu.

@@ -1,28 +1,27 @@
 # macOS SwiftUI presentation
 
-WindowCatalog and MinimalApp use the shared `MacApplicationScenes` scene from
-their SwiftUI `App` entry points. The scene owns windows, lists, buttons, and
-commands. Thin C++ presenters and the Foundation bridge publish display state
-and send actions through `ModelObjectProxy`. Each application composition
-identifies its primary model window and supplies its own close and quit policy.
+WindowCatalog and MinimalApp use the shared `MacApplicationScenes` from their
+SwiftUI `App` entry points. SwiftUI owns content, lists, buttons, commands, and
+separate `WindowGroup` scenes. A small native attachment disables automatic
+tabbing and supplies window close, activation, screen geometry, and placement.
+Normal user close calls the application's close policy. Model unload removes
+its matching native window, including when WindowCatalog deletes an open row.
 
-On macOS 14 or newer, child presenters map to distinct SwiftUI windows. The host
-uses `openWindow` and `dismissWindow` with scene identities. On macOS 13,
-secondary presentations appear as independently selectable tabs in the primary
-window so model-driven close works without AppKit. A model close unmounts the
-tab or dismisses the corresponding scene. A user close goes through the
-application's policy. Quit drains model work and reports its exit status after
-presenters have been torn down.
+The bridge publishes immutable constraint snapshots. SwiftUI measures its
+controls and reuses the common C++ constraint solver with the current viewport
+in points. The layout can therefore switch between horizontal and vertical
+arrangements during resize without portable frame round-trips. A scroll view
+preserves controls when the required minimum exceeds the available viewport.
 
-The model retains its semantic desktop geometry. The SwiftUI host renders the
-size portion of explicit frame requests and observes client viewport dimensions
-in points. SwiftUI owns screen placement. Scene activation supplies the model's
-application-level ordering; the host does not read screen coordinates, monitor
-work areas, or the system window stack. OS window restoration cannot rebind
-child presenters from another process, since child scene IDs are valid for one
-mount only.
+Desktop placement is stored in LOCAL as outer-window geometry in logical
+points relative to the work area. Native events submit observations into
+`UiDeviceState`; they don't synthesize portable window-frame requests. Explicit
+semantic requests still move and resize the native window. The platform uses
+the current screen scale for DPI metadata and restores LOCAL monitor placement
+through the common monitor resolution events. WindowCatalog's language and
+theme commands come from the same distilled menu as Windows.
 
-`ctest -R '^apptraverse_macos_'` exercises the adapter boundaries, the
-WindowCatalog fresh and embedded/cold flows, and independent MinimalApp
-presentation and teardown. The integration cases use real SwiftUI scenes and
-invoke control actions through their adapters.
+`ctest -R '^apptraverse_macos_'` exercises both applications on actual SwiftUI
+scenes, including native resize, separate windows, close, deletion, and cold
+restore. The control test drives intents through the same adapters used by the
+SwiftUI views.

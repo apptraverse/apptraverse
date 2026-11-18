@@ -22,7 +22,7 @@ private struct WindowCatalogMain: App {
                 for: .applicationSupportDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("AppTraverse/WindowCatalog", isDirectory: true)
         }
-        _host = StateObject(wrappedValue: MacApplicationHost(followsSystemAppearance: true) {
+        _host = StateObject(wrappedValue: MacApplicationHost {
             ATCreateWindowCatalogApplicationBridge(directory.path, $0)
         })
     }

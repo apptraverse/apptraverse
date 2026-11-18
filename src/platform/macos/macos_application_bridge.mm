@@ -1,10 +1,14 @@
 #import "apptraverse/platform/macos/ATMacApplicationBridge.h"
+#import <AppKit/AppKit.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <cmath>
 #include <limits>
 #include <memory>
+#include <map>
+#include <set>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -18,6 +22,11 @@
 #include "apptraverse/ui/ui_list_container.h"
 #include "apptraverse/ui/ui_localization_string.h"
 
+using apptraverse::ui::UiDisplayRect;
+using apptraverse::ui::UiDeviceState;
+using apptraverse::ui::UiEnvironmentReason;
+using apptraverse::ui::UiMonitorResolution;
+using apptraverse::ui::UiWindowEnvironment;
 using apptraverse::ui::macos::MacDesktopWindowPresenter;
 using apptraverse::ui::macos::MacListContainerPresenter;
 using apptraverse::ui::macos::MacPushButtonPresenter;
@@ -55,6 +64,31 @@ NSString* ToNSString(std::string const& text) {
   return result;
 }
 
+std::string ScreenKey(NSScreen* screen) {
+  auto const display = [screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue];
+  auto uuid = CGDisplayCreateUUIDFromDisplayID(display);
+  if (!uuid) return "cgdisplay:" + std::to_string(display);
+  NSString* key = CFBridgingRelease(CFUUIDCreateString(nullptr, uuid));
+  CFRelease(uuid);
+  return std::string{key.UTF8String};
+}
+
+// SwiftUI's full-size content includes the title bar in contentRect. The
+// model's semantic size is the unobscured layout viewport.
+NSSize ContentSizeForViewport(NSWindow* window, double width, double height) {
+  auto const current = [window contentRectForFrameRect:window.frame].size;
+  auto const viewport = window.contentLayoutRect.size;
+  return NSMakeSize(width + current.width - viewport.width,
+                    height + current.height - viewport.height);
+}
+
+struct NativeWindow {
+  __weak NSWindow* window{};
+  std::uint64_t placement_revision{};
+  bool applying_frame{};
+  bool own_initial_placement{};
+};
+
 class MacNativeViews final
     : public apptraverse::ui::macos::MacUiNativeViews {
  public:
@@ -67,6 +101,7 @@ class MacNativeViews final
     [owner_.delegate bridge:owner_ syncWindow:Token(presenter)];
   }
   void UnloadDesktopWindow(MacDesktopWindowPresenter& presenter) override {
+    [owner_ unbindNativeWindow:Token(presenter)];
     [owner_.delegate bridge:owner_ unloadWindow:Token(presenter)];
   }
   void ApplyRequestedDesktopFrame(MacDesktopWindowPresenter& presenter) override {
@@ -124,23 +159,109 @@ class MacNativeViews final
 }
 @end
 
+@interface ATMacLayoutResult ()
+- (instancetype)initWithResult:(apptraverse::ui::UiConstraintLayoutResult const&)result;
+@end
+
+@implementation ATMacLayoutResult
+- (instancetype)initWithResult:(apptraverse::ui::UiConstraintLayoutResult const&)result {
+  if ((self = [super init])) {
+    _contentSize = CGSizeMake(result.content_width, result.content_height);
+    NSMutableDictionary<NSNumber*, NSValue*>* frames = [NSMutableDictionary dictionary];
+    for (auto const& frame : result.controls) {
+      frames[@(frame.control_id)] = [NSValue valueWithRect:
+          CGRectMake(frame.x, frame.y, frame.width, frame.height)];
+    }
+    _frames = [frames copy];
+  }
+  return self;
+}
+@end
+
+@interface ATMacWindowLayout () {
+  apptraverse::ui::UiLayoutNode _root;
+}
+- (instancetype)initWithRoot:(apptraverse::ui::UiLayoutNode const&)root;
+@end
+
+@implementation ATMacWindowLayout
+- (instancetype)initWithRoot:(apptraverse::ui::UiLayoutNode const&)root {
+  if ((self = [super init])) _root = root;
+  return self;
+}
+
+- (ATMacLayoutResult*)solveViewport:(CGSize)viewport
+                        controlIDs:(NSArray<NSNumber*>*)controlIDs
+                           measure:(CGSize (^)(uint32_t, double))measure {
+  using namespace apptraverse::ui;
+  std::set<std::uint32_t> slots;
+  auto collect = [&](auto&& self, UiLayoutNode const& node) -> void {
+    if (node.flow == UiLayoutFlow::kLeaf) slots.insert(node.control_id);
+    for (auto const& child : node.children) self(self, child);
+  };
+  collect(collect, _root);
+  std::vector<UiLayoutMeasurement> measurements;
+  for (NSNumber* control in controlIDs) {
+    auto const id = control.unsignedIntValue;
+    if (slots.erase(id) != 1) {
+      apptraverse::WriteFatalStderr("duplicate or unknown macOS layout control\n");
+      std::abort();
+    }
+    auto const ideal = measure(id, -1);
+    auto const minimum = measure(id, 0);
+    measurements.push_back({id, minimum.width, ideal.height,
+                            ideal.width, ideal.height});
+  }
+  if (!slots.empty()) {
+    std::string detail = "missing required macOS layout controls:";
+    for (auto const id : slots) detail += " " + std::to_string(id);
+    detail += "; mounted:";
+    for (NSNumber* id in controlIDs) detail += " " + std::to_string(id.unsignedIntValue);
+    detail += "\n";
+    apptraverse::WriteFatalStderr(detail.c_str());
+    std::abort();
+  }
+  auto result = ComputeUiConstraintLayout(_root, viewport.width, viewport.height,
+      measurements, [&](std::uint32_t id, double width) {
+        auto measured = *std::find_if(measurements.begin(), measurements.end(),
+            [&](auto const& entry) { return entry.control_id == id; });
+        auto const size = measure(id, width);
+        measured.min_height = std::max(measured.min_height, size.height);
+        measured.preferred_height = std::max(measured.preferred_height, size.height);
+        return measured;
+      });
+  if (!result.valid) {
+    apptraverse::WriteFatalStderr(result.error.c_str());
+    std::abort();
+  }
+  return [[ATMacLayoutResult alloc] initWithResult:result];
+}
+@end
+
 @interface ATMacWindowState ()
 - (instancetype)initWithTitle:(NSString*)title
                         width:(double)width
                        height:(double)height
-                      primary:(BOOL)primary;
+                      primary:(BOOL)primary
+                       layout:(ATMacWindowLayout*)layout
+                       theme:(NSUInteger)theme softenDark:(BOOL)softenDark;
 @end
 
 @implementation ATMacWindowState
 - (instancetype)initWithTitle:(NSString*)title
                         width:(double)width
                        height:(double)height
-                      primary:(BOOL)primary {
+                      primary:(BOOL)primary
+                       layout:(ATMacWindowLayout*)layout
+                       theme:(NSUInteger)theme softenDark:(BOOL)softenDark {
   if ((self = [super init])) {
     _title = title;
     _width = width;
     _height = height;
     _primary = primary;
+    _layout = layout;
+    _theme = theme;
+    _softenDark = softenDark;
   }
   return self;
 }
@@ -150,28 +271,19 @@ class MacNativeViews final
 - (instancetype)initWithParentToken:(uint64_t)parentToken
                               title:(NSString*)title
                             enabled:(BOOL)enabled
-                                  x:(double)x
-                                  y:(double)y
-                              width:(double)width
-                             height:(double)height;
+                     controlID:(uint32_t)controlID;
 @end
 
 @implementation ATMacButtonState
 - (instancetype)initWithParentToken:(uint64_t)parentToken
                               title:(NSString*)title
                             enabled:(BOOL)enabled
-                                  x:(double)x
-                                  y:(double)y
-                              width:(double)width
-                             height:(double)height {
+                     controlID:(uint32_t)controlID {
   if ((self = [super init])) {
     _parentToken = parentToken;
     _title = title;
     _enabled = enabled;
-    _x = x;
-    _y = y;
-    _width = width;
-    _height = height;
+    _controlID = controlID;
   }
   return self;
 }
@@ -195,28 +307,19 @@ class MacNativeViews final
 - (instancetype)initWithParentToken:(uint64_t)parentToken
                                rows:(NSArray<ATMacListRowState*>*)rows
                         selectedRow:(NSInteger)selectedRow
-                                  x:(double)x
-                                  y:(double)y
-                              width:(double)width
-                             height:(double)height;
+                     controlID:(uint32_t)controlID;
 @end
 
 @implementation ATMacListState
 - (instancetype)initWithParentToken:(uint64_t)parentToken
                                rows:(NSArray<ATMacListRowState*>*)rows
                         selectedRow:(NSInteger)selectedRow
-                                  x:(double)x
-                                  y:(double)y
-                              width:(double)width
-                             height:(double)height {
+                     controlID:(uint32_t)controlID {
   if ((self = [super init])) {
     _parentToken = parentToken;
     _rows = rows;
     _selectedRow = selectedRow;
-    _x = x;
-    _y = y;
-    _width = width;
-    _height = height;
+    _controlID = controlID;
   }
   return self;
 }
@@ -233,6 +336,7 @@ class MacNativeViews final
   int _modelExitStatus;
   bool _stopping;
   ae::ObjId _mainWindowId;
+  std::map<uint64_t, NativeWindow> _windows;
 }
 @property(nonatomic, weak, readwrite)
     id<ATMacApplicationBridgeDelegate> delegate;
@@ -317,43 +421,42 @@ class MacNativeViews final
   if (_callbacks.menu_state) {
     [self.delegate bridge:self syncMenu:_callbacks.menu_state(_uiSession->root())];
   }
+  for (auto& [token, native] : _windows) {
+    [self applyLocalPlacement:token];
+  }
+  [self.delegate bridgeDidFinishPublication:self];
   _runtime->NotifyPublicationConsumed();
 }
 
 - (ATMacWindowState*)windowState:(uint64_t)token {
   auto& presenter = FromToken<MacDesktopWindowPresenter>(token);
   auto desktop = presenter.desktop_window();
+  auto const appearance = presenter.LocalDeviceState()->appearance;
   NSString* title = ToNSString(presenter.ResolvePresentedWindowTitle(
       presenter.locale->language_index()));
   return [[ATMacWindowState alloc]
       initWithTitle:title
               width:desktop->restore_client_width()
              height:desktop->restore_client_height()
-            primary:desktop->obj_id == _mainWindowId];
+            primary:desktop->obj_id == _mainWindowId
+             layout:[[ATMacWindowLayout alloc] initWithRoot:*presenter.LayoutRoot()]
+              theme:static_cast<NSUInteger>(appearance.theme)
+         softenDark:appearance.soften_dark];
 }
 
 - (ATMacButtonState*)buttonState:(uint64_t)token {
   auto& presenter = FromToken<MacPushButtonPresenter>(token);
-  auto layout = presenter.window_presenter->ResolveChildLayout(
-      {presenter.layout_x, presenter.layout_y, presenter.layout_width,
-       presenter.layout_height, presenter.control_id});
   NSString* title = ToNSString(presenter.button->label->Resolve(
       presenter.window_presenter->locale->language_index()));
   return [[ATMacButtonState alloc]
       initWithParentToken:Token(*presenter.window_presenter)
                     title:title
                   enabled:presenter.button->enabled()
-                        x:layout.x
-                        y:layout.y
-                    width:layout.width
-                   height:layout.height];
+                 controlID:presenter.control_id];
 }
 
 - (ATMacListState*)listState:(uint64_t)token {
   auto& presenter = FromToken<MacListContainerPresenter>(token);
-  auto layout = presenter.window_presenter->ResolveChildLayout(
-      {presenter.layout_x, presenter.layout_y, presenter.layout_width,
-       presenter.layout_height, presenter.control_id});
   int const language_index =
       presenter.window_presenter->locale->language_index();
   NSMutableArray<ATMacListRowState*>* rows =
@@ -369,10 +472,7 @@ class MacNativeViews final
       initWithParentToken:Token(*presenter.window_presenter)
                      rows:rows
               selectedRow:presenter.container->selection_index
-                        x:layout.x
-                        y:layout.y
-                    width:layout.width
-                   height:layout.height];
+                 controlID:presenter.control_id];
 }
 
 - (void)executeMenuGroup:(NSUInteger)group item:(NSUInteger)item {
@@ -398,14 +498,107 @@ class MacNativeViews final
       .SubmitListRowActivatedFromUi(static_cast<std::size_t>(row));
 }
 
-- (void)submitWindowWidth:(double)width height:(double)height
-                    token:(uint64_t)token {
-  if (_stopping) return;
+- (void)bindNativeWindow:(id)window token:(uint64_t)token {
+  auto& native = _windows[token];
+  native.window = static_cast<NSWindow*>(window);
   auto& presenter = FromToken<MacDesktopWindowPresenter>(token);
-  auto const window = presenter.desktop_window();
-  // SwiftUI exposes the client size. Keep the existing semantic origin.
-  presenter.ReportNativeFrameToModel(window->x(), window->y(),
-      ModelCoordinate(width), ModelCoordinate(height), true);
+  if ([self applyLocalPlacement:token]) return;
+
+  auto const desktop = presenter.desktop_window();
+  native.applying_frame = true;
+  if (desktop->HasExplicitPosition()) {
+    [self placeSemanticFrame:token];
+  } else {
+    [native.window setContentSize:ContentSizeForViewport(native.window,
+        desktop->restore_client_width(), desktop->restore_client_height())];
+  }
+  native.applying_frame = false;
+  [self observeNativeWindow:token commit:NO];
+}
+
+- (void)unbindNativeWindow:(uint64_t)token { _windows.erase(token); }
+
+- (void)observeNativeWindow:(uint64_t)token commit:(BOOL)commit {
+  auto const found = _windows.find(token);
+  if (_stopping || found == _windows.end() || found->second.applying_frame) return;
+  auto& native = found->second;
+  NSWindow* window = native.window;
+  if (!window || window.isMiniaturized || window.isZoomed ||
+      (window.styleMask & NSWindowStyleMaskFullScreen) || !window.screen) return;
+  auto& presenter = FromToken<MacDesktopWindowPresenter>(token);
+  auto* state = presenter.LocalDeviceState();
+  auto const frame = window.frame;
+  auto const area = window.screen.visibleFrame;
+  UiDisplayRect const outer{ModelCoordinate(frame.origin.x - area.origin.x),
+      ModelCoordinate(NSMaxY(area) - NSMaxY(frame)),
+      ModelCoordinate(frame.size.width), ModelCoordinate(frame.size.height)};
+  if (!state->PlacementFor(presenter.window.id())) native.own_initial_placement = true;
+  auto const dpi = static_cast<std::uint32_t>(std::lround(96 * window.backingScaleFactor));
+  _proxy->Invoke(state->obj_id, &UiDeviceState::ObserveWindow,
+      UiWindowEnvironment{presenter.window.id(), ScreenKey(window.screen), dpi, dpi, outer},
+      commit ? UiEnvironmentReason::kUserWindowChange : UiEnvironmentReason::kSystemNotification);
+}
+
+- (BOOL)applyLocalPlacement:(uint64_t)token {
+  auto& native = _windows.at(token);
+  NSWindow* window = native.window;
+  auto& presenter = FromToken<MacDesktopWindowPresenter>(token);
+  auto const* placement = presenter.LocalDeviceState()->PlacementFor(presenter.window.id());
+  if (!window || !placement || placement->revision == native.placement_revision ||
+      placement->resolution == UiMonitorResolution::kUnavailable) return NO;
+  if (native.own_initial_placement && placement->revision == 1) {
+    native.placement_revision = placement->revision;
+    return NO;
+  }
+  for (NSScreen* screen in NSScreen.screens) {
+    if (ScreenKey(screen) != placement->resolved_monitor) continue;
+    auto const area = screen.visibleFrame;
+    auto const saved = placement->frame_dip;
+    double const width = std::clamp<double>(saved.width, 1, std::max(1.0, area.size.width));
+    double const height = std::clamp<double>(saved.height, 1, std::max(1.0, area.size.height));
+    auto const target = NSMakeRect(area.origin.x + std::clamp<double>(saved.x, 0, area.size.width - width),
+        NSMaxY(area) - std::clamp<double>(saved.y, 0, area.size.height - height) - height, width, height);
+    native.placement_revision = placement->revision;
+    native.applying_frame = true;
+    [window setFrame:target display:YES];
+    native.applying_frame = false;
+    [self observeNativeWindow:token commit:NO];
+    return YES;
+  }
+  return NO;
+}
+
+- (void)placeSemanticFrame:(uint64_t)token {
+  NSWindow* window = _windows.at(token).window;
+  auto const desktop = FromToken<MacDesktopWindowPresenter>(token).desktop_window();
+  auto const size = ContentSizeForViewport(window, desktop->restore_client_width(),
+                                            desktop->restore_client_height());
+  auto const outer = [window frameRectForContentRect:NSMakeRect(0, 0, size.width, size.height)];
+  auto const primary = NSScreen.screens.firstObject;
+  [window setFrame:NSMakeRect(desktop->x(), NSMaxY(primary.frame) - desktop->y() - outer.size.height,
+                            outer.size.width, outer.size.height) display:YES];
+}
+
+- (void)applyRequestedNativeFrame:(uint64_t)token {
+  auto const found = _windows.find(token);
+  if (found == _windows.end() || !found->second.window) return;
+  found->second.applying_frame = true;
+  [self placeSemanticFrame:token];
+  found->second.applying_frame = false;
+  [self observeNativeWindow:token commit:YES];
+}
+
+- (void)observeSystemEnvironment {
+  if (_stopping || !_proxy) return;
+  auto const environment = apptraverse::ui::macos::ReadMacDeviceEnvironment();
+  std::set<ae::ObjId> roots;
+  for (auto const& [token, native] : _windows) {
+    auto* state = FromToken<MacDesktopWindowPresenter>(token).LocalDeviceState();
+    if (roots.insert(state->obj_id).second) {
+      _proxy->Invoke(state->obj_id, &UiDeviceState::ObserveEnvironment,
+                     environment, UiEnvironmentReason::kSystemNotification);
+    }
+  }
 }
 
 - (void)activateWindow:(uint64_t)token {
@@ -446,6 +639,36 @@ class MacNativeViews final
 @end
 
 namespace apptraverse::ui::macos {
+
+UiDeviceEnvironment ReadMacDeviceEnvironment() {
+  UiDeviceEnvironment environment;
+  auto* workspace = NSWorkspace.sharedWorkspace;
+  environment.supported_settings = kSystemDarkMode | kSystemHighContrast |
+      kSystemReducedMotion | kSystemKeyboardCues | kSystemScreenReaderHint;
+  environment.dark = [[NSApp.effectiveAppearance bestMatchFromAppearancesWithNames:
+      @[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]] isEqualToString:NSAppearanceNameDarkAqua];
+  environment.high_contrast = workspace.accessibilityDisplayShouldIncreaseContrast;
+  environment.reduced_motion = workspace.accessibilityDisplayShouldReduceMotion;
+  environment.keyboard_cues = NSApp.fullKeyboardAccessEnabled;
+  environment.screen_reader_hint = workspace.voiceOverEnabled;
+  NSScreen* primary = NSScreen.screens.firstObject;
+  environment.system_dpi_x = environment.system_dpi_y =
+      static_cast<unsigned>(std::lround(96 * primary.backingScaleFactor));
+  for (NSScreen* screen in NSScreen.screens) {
+    auto rect = [primary](NSRect value) -> UiDisplayRect {
+      return {ModelCoordinate(value.origin.x), ModelCoordinate(NSMaxY(primary.frame) - NSMaxY(value)),
+          ModelCoordinate(value.size.width), ModelCoordinate(value.size.height)};
+    };
+    auto const display = [screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue];
+    CGDisplayModeRef mode = CGDisplayCopyDisplayMode(display);
+    auto const refresh = mode ? static_cast<unsigned>(std::lround(CGDisplayModeGetRefreshRate(mode))) : 0u;
+    if (mode) CGDisplayModeRelease(mode);
+    environment.monitors.push_back({ScreenKey(screen), rect(screen.frame), rect(screen.visibleFrame),
+        screen == primary, static_cast<unsigned>(CGDisplayRotation(display)), refresh});
+  }
+  NormalizeUiDeviceEnvironment(environment);
+  return environment;
+}
 
 ATMacApplicationBridge* MakeMacApplicationBridge(
     MacApplicationBridgeCallbacks callbacks,

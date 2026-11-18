@@ -2,34 +2,20 @@ import Foundation
 import AppTraverseMacBridge
 import SwiftUI
 
-struct MacControlFrame: Equatable {
-    var x: Double
-    var y: Double
-    var width: Double
-    var height: Double
-
-    var cgRect: CGRect { CGRect(x: x, y: y, width: width, height: height) }
-}
-
 protocol MacUiCommandSink: AnyObject {
     func clickButton(_ token: UInt64)
     func selectListRow(_ row: Int, token: UInt64)
     func activateListRow(_ row: Int, token: UInt64)
-    func submitWindowSize(_ size: CGSize, token: UInt64)
 }
 
-extension ATMacApplicationBridge: MacUiCommandSink {
-    func submitWindowSize(_ size: CGSize, token: UInt64) {
-        submitWindowWidth(size.width, height: size.height, token: token)
-    }
-}
+extension ATMacApplicationBridge: MacUiCommandSink {}
 
 final class MacButtonAdapter: ObservableObject, Identifiable {
     let id: UInt64
     weak var commandSink: MacUiCommandSink?
     @Published var title = ""
     @Published var enabled = false
-    @Published var frame = MacControlFrame(x: 0, y: 0, width: 0, height: 0)
+    @Published private(set) var controlID: UInt32 = 0
 
     init(token: UInt64, commandSink: MacUiCommandSink) {
         id = token
@@ -39,8 +25,7 @@ final class MacButtonAdapter: ObservableObject, Identifiable {
     func sync(_ state: ATMacButtonState) {
         title = state.title
         enabled = state.isEnabled
-        frame = MacControlFrame(x: state.x, y: state.y,
-                                width: state.width, height: state.height)
+        controlID = state.controlID
     }
 
     func click() {
@@ -61,7 +46,7 @@ final class MacListAdapter: ObservableObject, Identifiable {
     weak var commandSink: MacUiCommandSink?
     @Published var rows: [MacListRowSnapshot] = []
     @Published var selectedRow: Int?
-    @Published var frame = MacControlFrame(x: 0, y: 0, width: 0, height: 0)
+    @Published private(set) var controlID: UInt32 = 0
 
     init(token: UInt64, commandSink: MacUiCommandSink) {
         id = token
@@ -71,15 +56,12 @@ final class MacListAdapter: ObservableObject, Identifiable {
     func sync(_ state: ATMacListState) {
         rows = state.rows.map { MacListRowSnapshot(id: $0.identity, text: $0.text) }
         selectedRow = state.selectedRow >= 0 ? state.selectedRow : nil
-        frame = MacControlFrame(x: state.x, y: state.y,
-                                width: state.width, height: state.height)
+        controlID = state.controlID
     }
 
-    func sync(rows: [MacListRowSnapshot], selectedRow: Int?,
-              frame: MacControlFrame) {
+    func sync(rows: [MacListRowSnapshot], selectedRow: Int?) {
         self.rows = rows
         self.selectedRow = selectedRow
-        self.frame = frame
     }
 
     var selection: Binding<UInt64?> {
@@ -101,45 +83,79 @@ final class MacListAdapter: ObservableObject, Identifiable {
     func disconnect() { commandSink = nil }
 }
 
+struct MacWindowSnapshot {
+    let state: ATMacWindowState
+    let buttons: [MacButtonAdapter]
+    let lists: [MacListAdapter]
+}
+
 final class MacWindowAdapter: ObservableObject, Identifiable {
     let id: UInt64
     let sceneID: UUID
-    weak var commandSink: MacUiCommandSink?
-    @Published var title = ""
-    @Published var buttons: [MacButtonAdapter] = []
-    @Published var lists: [MacListAdapter] = []
-    @Published private(set) var requestedSize: CGSize?
-    @Published private(set) var clientSize: CGSize?
+    var windowState: ATMacWindowState
+    var pendingButtons: [MacButtonAdapter] = []
+    var pendingLists: [MacListAdapter] = []
+    @Published private(set) var snapshot: MacWindowSnapshot?
+    private(set) var clientSize: CGSize?
 
-    init(token: UInt64, sceneID: UUID, commandSink: MacUiCommandSink) {
+    var title: String { windowState.title }
+    var softenDark: Bool { windowState.softenDark }
+    var layout: ATMacWindowLayout { windowState.layout }
+    var buttons: [MacButtonAdapter] { pendingButtons }
+    var lists: [MacListAdapter] { pendingLists }
+
+    init(token: UInt64, sceneID: UUID, windowState: ATMacWindowState) {
         id = token
         self.sceneID = sceneID
-        self.commandSink = commandSink
+        self.windowState = windowState
     }
 
-    func sync(_ state: ATMacWindowState) {
-        if title != state.title { title = state.title }
+    func observeViewport(_ size: CGSize) { clientSize = size }
+
+    func publish() {
+        snapshot = MacWindowSnapshot(state: windowState, buttons: pendingButtons, lists: pendingLists)
+    }
+}
+
+private struct MacControlID: LayoutValueKey {
+    static let defaultValue: UInt32 = 0
+}
+
+private struct MacConstraintLayout: Layout {
+    let definition: ATMacWindowLayout
+    let viewport: CGSize
+
+    func makeCache(subviews: Subviews) -> ATMacLayoutResult? { nil }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews,
+                      cache: inout ATMacLayoutResult?) -> CGSize {
+        let result = solve(subviews)
+        cache = result
+        return result.contentSize
     }
 
-    func requestSize(_ size: CGSize) {
-        if size != clientSize { requestedSize = size }
-    }
-
-    func observeSize(_ size: CGSize) {
-        guard size.width >= 1, size.height >= 1 else { return }
-        let measured = CGSize(width: size.width.rounded(), height: size.height.rounded())
-        if let requestedSize {
-            // Ignore the old viewport while SwiftUI applies the scene's content
-            // constraints. Release them as soon as layout reaches the new size.
-            guard measured == requestedSize else { return }
-            self.requestedSize = nil
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize,
+                       subviews: Subviews, cache: inout ATMacLayoutResult?) {
+        let result = cache ?? solve(subviews)
+        for view in subviews {
+            let id = NSNumber(value: view[MacControlID.self])
+            let frame = result.frames[id]!.rectValue
+            view.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                       anchor: .topLeading,
+                       proposal: ProposedViewSize(width: frame.width, height: frame.height))
         }
-        guard clientSize != measured else { return }
-        clientSize = measured
-        commandSink?.submitWindowSize(measured, token: id)
     }
 
-    func disconnect() { commandSink = nil }
+    private func solve(_ subviews: Subviews) -> ATMacLayoutResult {
+        let controls = subviews.map { (id: $0[MacControlID.self], view: $0) }
+        return definition.solveViewport(viewport, controlIDs: controls.map { NSNumber(value: $0.id) }) {
+            id, width in
+            let view = controls.first { $0.id == id }!.view
+            let proposal = width < 0 ? ProposedViewSize.unspecified :
+                ProposedViewSize(width: width, height: nil)
+            return view.sizeThatFits(proposal)
+        }
+    }
 }
 
 private struct MacButtonControl: View {
@@ -148,14 +164,13 @@ private struct MacButtonControl: View {
     var body: some View {
         Button(action: adapter.click) {
             Text(adapter.title)
+                .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .buttonStyle(.bordered)
         .disabled(!adapter.enabled)
-        .frame(width: adapter.frame.width, height: adapter.frame.height)
         .accessibilityIdentifier("button-\(adapter.id)")
-        .position(x: adapter.frame.x + adapter.frame.width / 2,
-                  y: adapter.frame.y + adapter.frame.height / 2)
+        .layoutValue(key: MacControlID.self, value: adapter.controlID)
     }
 }
 
@@ -170,159 +185,82 @@ private struct MacListControl: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                     .tag(row.id)
-                    .simultaneousGesture(TapGesture(count: 2).onEnded {
-                        adapter.activate(row.id)
-                    })
                     .accessibilityAction(named: Text("Open")) { adapter.activate(row.id) }
             }
         }
+        .contextMenu(forSelectionType: UInt64.self, menu: { _ in EmptyView() }) { selection in
+            if let identity = selection.first { adapter.activate(identity) }
+        }
         .listStyle(.plain)
         .overlay(Rectangle().strokeBorder(.secondary, lineWidth: 1).allowsHitTesting(false))
-        .frame(width: adapter.frame.width, height: adapter.frame.height)
         .accessibilityIdentifier("list-\(adapter.id)")
-        .position(x: adapter.frame.x + adapter.frame.width / 2,
-                  y: adapter.frame.y + adapter.frame.height / 2)
+        .layoutValue(key: MacControlID.self, value: adapter.controlID)
     }
 }
 
 private struct MacWindowContent: View {
-    @ObservedObject var adapter: MacWindowAdapter
-    let followsSystemAppearance: Bool
-    var fixedPanelSize = false
+    let adapter: MacWindowAdapter
+    let snapshot: MacWindowSnapshot
+    @Environment(\.colorSchemeContrast) private var contrast
 
-    private var sizeConstraint: CGSize? {
-        adapter.requestedSize ?? (fixedPanelSize ? adapter.clientSize : nil)
+    private var preferredScheme: ColorScheme? {
+        guard contrast != .increased else { return nil }
+        switch snapshot.state.theme {
+        case 1: return .light
+        case 2: return .dark
+        default: return nil
+        }
     }
 
     var body: some View {
         GeometryReader { geometry in
-            ZStack(alignment: .topLeading) {
-                ForEach(adapter.buttons) { MacButtonControl(adapter: $0) }
-                ForEach(adapter.lists) { MacListControl(adapter: $0) }
+            ScrollView([.horizontal, .vertical]) {
+                if geometry.size.width >= 1, geometry.size.height >= 1 {
+                    MacConstraintLayout(definition: snapshot.state.layout, viewport: geometry.size) {
+                        ForEach(snapshot.buttons) { MacButtonControl(adapter: $0) }
+                        ForEach(snapshot.lists) { MacListControl(adapter: $0) }
+                    }
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .onAppear { observe(geometry.size) }
-            .onChange(of: geometry.size, perform: observe)
+            .onAppear { adapter.observeViewport(geometry.size) }
+            .onChange(of: geometry.size) { adapter.observeViewport($0) }
         }
-        .frame(minWidth: sizeConstraint?.width ?? 1,
-               maxWidth: sizeConstraint?.width ?? .infinity,
-               minHeight: sizeConstraint?.height ?? 1,
-               maxHeight: sizeConstraint?.height ?? .infinity)
-        .navigationTitle(adapter.title)
-        .preferredColorScheme(followsSystemAppearance ? nil : .light)
-    }
-
-    private func observe(_ size: CGSize) {
-        DispatchQueue.main.async { adapter.observeSize(size) }
+        .frame(minWidth: 1, minHeight: 1)
+        .navigationTitle(snapshot.state.title)
+        .background(snapshot.state.softenDark && contrast != .increased ?
+                    Color(white: 0.18) : Color.clear)
+        .preferredColorScheme(preferredScheme)
     }
 }
 
-@available(macOS 14.0, *)
+private struct MacWindowPresentation: View {
+    @ObservedObject var adapter: MacWindowAdapter
+
+    var body: some View {
+        if let snapshot = adapter.snapshot { MacWindowContent(adapter: adapter, snapshot: snapshot) }
+        else { ProgressView() }
+    }
+}
+
 private struct MacWindowScene: View {
     @ObservedObject var host: MacApplicationHost
     let sceneID: UUID
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.dismissWindow) private var dismissWindow
-    @Environment(\.controlActiveState) private var controlActiveState
 
     var body: some View {
         Group {
             if let adapter = host.window(for: sceneID) {
-                MacWindowContent(adapter: adapter,
-                                 followsSystemAppearance: host.followsSystemAppearance)
+                MacWindowPresentation(adapter: adapter)
             } else {
                 ProgressView()
             }
         }
+        .background(MacNativeWindowAttachment(sceneID: sceneID, host: host)
+            .frame(width: 0, height: 0))
         .onAppear {
             DispatchQueue.main.async {
-                host.sceneAppeared(sceneID, open: { openWindow(id: MacApplicationScenes.windowGroupID,
-                                                               value: $0) },
-                                   dismiss: {
-                    dismissWindow(id: MacApplicationScenes.windowGroupID, value: sceneID)
-                })
-                if controlActiveState == .key { host.sceneFocused(sceneID) }
-            }
-        }
-        .onDisappear { DispatchQueue.main.async { host.sceneDisappeared(sceneID) } }
-        .onChange(of: controlActiveState) { state in
-            if state == .key { DispatchQueue.main.async { host.sceneFocused(sceneID) } }
-        }
-    }
-}
-
-// Ventura has openWindow, but no matching SwiftUI window-dismissal action.
-// Keep every child independently addressable in the primary window.
-private struct MacTabbedWorkspace: View {
-    @ObservedObject var host: MacApplicationHost
-    @State private var selection: UUID
-
-    init(host: MacApplicationHost) {
-        self.host = host
-        _selection = State(initialValue: host.primarySceneID)
-    }
-
-    var body: some View {
-        Group {
-            if let primary = host.window(for: host.primarySceneID) {
-                if host.windows.count == 1 {
-                    MacWindowContent(adapter: primary,
-                                     followsSystemAppearance: host.followsSystemAppearance)
-                } else {
-                    TabView(selection: $selection) {
-                        ForEach(host.orderedPanels) { adapter in
-                            MacWorkspacePanel(host: host, adapter: adapter)
-                                .tabItem { MacPanelTitle(adapter: adapter) }
-                                .tag(adapter.sceneID)
-                        }
-                    }
-                    .navigationTitle(primary.title)
-                }
-            } else {
-                ProgressView()
-            }
-        }
-        .onAppear {
-            DispatchQueue.main.async {
-                host.sceneAppeared(host.primarySceneID, open: { selection = $0 }, dismiss: {})
-            }
-        }
-        .onDisappear {
-            DispatchQueue.main.async { host.sceneDisappeared(host.primarySceneID) }
-        }
-        .onChange(of: selection) { id in
-            DispatchQueue.main.async { host.sceneFocused(id) }
-        }
-        .onChange(of: host.windows.keys.sorted()) { _ in
-            if host.window(for: selection) == nil { selection = host.primarySceneID }
-        }
-    }
-}
-
-private struct MacPanelTitle: View {
-    @ObservedObject var adapter: MacWindowAdapter
-    var body: some View { Text(adapter.title) }
-}
-
-private struct MacWorkspacePanel: View {
-    @ObservedObject var host: MacApplicationHost
-    @ObservedObject var adapter: MacWindowAdapter
-
-    var body: some View {
-        if adapter.sceneID == host.primarySceneID {
-            MacWindowContent(adapter: adapter, followsSystemAppearance: host.followsSystemAppearance)
-        } else {
-            VStack(alignment: .trailing) {
-                Button {
-                    host.requestClose(adapter.sceneID)
-                } label: {
-                    Label("Close Panel", systemImage: "xmark")
-                }
-                .padding(.horizontal)
-                ScrollView([.horizontal, .vertical]) {
-                    MacWindowContent(adapter: adapter,
-                                     followsSystemAppearance: host.followsSystemAppearance,
-                                     fixedPanelSize: true)
+                host.sceneAppeared(sceneID) {
+                    openWindow(id: MacApplicationScenes.windowGroupID, value: $0)
                 }
             }
         }
@@ -359,15 +297,14 @@ public struct MacApplicationScenes: Scene {
     fileprivate static let windowGroupID = "apptraverse-window"
     @ObservedObject private var host: MacApplicationHost
 
-    public init(host: MacApplicationHost) { self.host = host }
+    public init(host: MacApplicationHost) {
+        self.host = host
+        MacNativeWindows.disableTabbing()
+    }
 
     public var body: some Scene {
         WindowGroup("AppTraverse", id: Self.windowGroupID, for: UUID.self) { $sceneID in
-            if #available(macOS 14.0, *) {
-                MacWindowScene(host: host, sceneID: sceneID)
-            } else {
-                MacTabbedWorkspace(host: host)
-            }
+            MacWindowScene(host: host, sceneID: sceneID)
         } defaultValue: {
             host.primarySceneID
         }
@@ -379,7 +316,6 @@ public struct MacApplicationScenes: Scene {
 
 public final class MacApplicationHost: NSObject, ObservableObject, ATMacApplicationBridgeDelegate {
     private let bridgeFactory: (ATMacApplicationBridgeDelegate) -> ATMacApplicationBridge
-    let followsSystemAppearance: Bool
     // Stable primary scene. Child mount IDs are per-session capabilities so
     // SwiftUI restoration cannot reopen a stale presenter from another run.
     let primarySceneID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
@@ -388,71 +324,84 @@ public final class MacApplicationHost: NSObject, ObservableObject, ATMacApplicat
     @Published private(set) var menuGroups: [ATMacMenuGroupState] = []
     private(set) var buttons: [UInt64: MacButtonAdapter] = [:]
     private(set) var lists: [UInt64: MacListAdapter] = [:]
-    private(set) var sceneDismissals: [UUID: () -> Void] = [:]
+    let nativeWindows = MacNativeWindows()
+    private var boundScenes = Set<UUID>()
+    private var pendingFrames = Set<UInt64>()
+    private var openingScenes = Set<UUID>()
     private var openScene: ((UUID) -> Void)?
-    private var pendingPresentations: [UUID] = []
+    private var pendingPresentations: [(id: UUID, activate: Bool)] = []
     private var didSchedulePresentations = false
-    private var focusOrder: [UUID] = []
-    private var panelOrder: [UInt64] = []
     private var terminating = false
     var onFinished: (Int32) -> Void = { exit($0) }
 
-    public init(followsSystemAppearance: Bool = false, bridgeFactory: @escaping
+    public init(bridgeFactory: @escaping
         (ATMacApplicationBridgeDelegate) -> ATMacApplicationBridge) {
-        self.followsSystemAppearance = followsSystemAppearance
         self.bridgeFactory = bridgeFactory
     }
 
     deinit { bridge?.requestStop() }
 
-    var orderedPanels: [MacWindowAdapter] { panelOrder.compactMap { windows[$0] } }
-
     func window(for id: UUID) -> MacWindowAdapter? {
         windows.values.first { $0.sceneID == id }
     }
 
-    func sceneAppeared(_ id: UUID, open: @escaping (UUID) -> Void,
-                       dismiss: @escaping () -> Void) {
+    func sceneAppeared(_ id: UUID, open: @escaping (UUID) -> Void) {
         guard !terminating else { return }
         openScene = open
+        schedulePresentations()
         if id == primarySceneID {
-            sceneDismissals[id] = dismiss
             if bridge == nil {
                 bridge = bridgeFactory(self)
                 bridge!.start()
+                nativeWindows.observeEnvironment { [weak self] in self?.bridge?.observeSystemEnvironment() }
             }
-        } else if window(for: id) != nil {
-            sceneDismissals[id] = dismiss
-        } else {
-            // Drop a child restored by SwiftUI without a matching presenter.
-            if sceneDismissals[primarySceneID] == nil { open(primarySceneID) }
-            dismiss()
+        } else if window(for: id) == nil {
+            // A restored scene from another run cannot address this model.
+            if nativeWindows[primarySceneID] == nil { open(primarySceneID) }
+            nativeWindows.close(id)
         }
     }
 
-    func sceneDisappeared(_ id: UUID) {
-        sceneDismissals.removeValue(forKey: id)
-        focusOrder.removeAll { $0 == id }
-        guard !terminating else { return }
-        requestClose(id)
+    func nativeWindowAttached(_ id: UUID, _ native: MacNativeWindowHandle) {
+        nativeWindows[id] = native
+        openingScenes.remove(id)
+        if id != primarySceneID && window(for: id) == nil {
+            nativeWindows.close(id)
+            return
+        }
+        bindNativeWindow(id)
+        schedulePresentations()
     }
 
-    func requestClose(_ id: UUID) {
-        guard !terminating else { return }
-        if let window = window(for: id), let bridge {
-            if bridge.requestCloseWindow(window.id) { terminating = true }
+    private func bindNativeWindow(_ id: UUID) {
+        guard let native = nativeWindows[id], let adapter = window(for: id),
+              adapter.snapshot != nil, let bridge else { return }
+        if boundScenes.insert(id).inserted { bridge.bindNativeWindow(native, token: adapter.id) }
+        if pendingFrames.remove(adapter.id) != nil { bridge.applyRequestedNativeFrame(adapter.id) }
+    }
+
+    func nativeWindowClosed(_ id: UUID, _ native: MacNativeWindowHandle) {
+        guard nativeWindows[id] === native else { return }
+        if !terminating, let adapter = window(for: id), let bridge {
+            if bridge.requestCloseWindow(adapter.id) { terminating = true }
         } else if id == primarySceneID {
             requestStop()
         }
+        nativeWindows[id] = nil
+        boundScenes.remove(id)
+        openingScenes.remove(id)
     }
 
-    func sceneFocused(_ id: UUID) {
-        guard !terminating, let window = window(for: id) else { return }
-        if focusOrder.first != id {
-            focusOrder.removeAll { $0 == id }
-            focusOrder.insert(id, at: 0)
-            bridge?.activateWindow(window.id)
-        }
+    func nativeWindowFocused(_ id: UUID, _ native: MacNativeWindowHandle) {
+        guard !terminating, pendingPresentations.isEmpty, nativeWindows[id] === native,
+              let adapter = window(for: id) else { return }
+        bridge?.activateWindow(adapter.id)
+    }
+
+    func nativeWindowChanged(_ id: UUID, _ native: MacNativeWindowHandle, commit: Bool) {
+        guard !terminating, nativeWindows[id] === native,
+              let adapter = window(for: id) else { return }
+        bridge?.observeNativeWindow(adapter.id, commit: commit)
     }
 
     public func requestStop() {
@@ -467,20 +416,36 @@ public final class MacApplicationHost: NSObject, ObservableObject, ATMacApplicat
         bridge?.executeMenuGroup(UInt(group), item: UInt(item))
     }
 
-    private func present(_ id: UUID) {
-        pendingPresentations.append(id)
-        guard !didSchedulePresentations else { return }
+    private func present(_ id: UUID, activate: Bool) {
+        pendingPresentations.append((id, activate))
+        schedulePresentations()
+    }
+
+    private func schedulePresentations() {
+        guard !didSchedulePresentations, !pendingPresentations.isEmpty else { return }
         didSchedulePresentations = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.didSchedulePresentations = false
+            guard !self.terminating else { return }
+            self.pendingPresentations.removeAll { self.window(for: $0.id) == nil }
+            guard let open = self.openScene else { return }
+            for request in self.pendingPresentations where self.nativeWindows[request.id] == nil {
+                if self.openingScenes.insert(request.id).inserted { open(request.id) }
+            }
+            // SwiftUI creates scenes asynchronously. Apply the model's desktop
+            // order as a batch so a late window cannot steal cold-start focus.
+            guard self.pendingPresentations.allSatisfy({ self.boundScenes.contains($0.id) }) else { return }
             let requests = self.pendingPresentations
             self.pendingPresentations.removeAll()
-            guard !self.terminating else { return }
-            // Replay the model's requested order after the full publication is
-            // mounted. The system owns the actual desktop stacking order.
-            for id in requests where self.window(for: id) != nil {
-                self.openScene?(id)
+            for request in requests {
+                if let native = self.nativeWindows[request.id] {
+                    self.nativeWindows.raise(native, activate: request.activate)
+                }
+            }
+            if let key = requests.last(where: { self.nativeWindows[$0.id]?.isKeyWindow == true }),
+               let native = self.nativeWindows[key.id] {
+                self.nativeWindowFocused(key.id, native)
             }
         }
     }
@@ -488,43 +453,37 @@ public final class MacApplicationHost: NSObject, ObservableObject, ATMacApplicat
     public func bridge(_ bridge: ATMacApplicationBridge, loadWindow token: UInt64) {
         let state = bridge.windowState(token)
         let id = state.isPrimary ? primarySceneID : UUID()
-        let adapter = MacWindowAdapter(token: token, sceneID: id, commandSink: bridge)
-        adapter.sync(state)
-        adapter.requestSize(CGSize(width: state.width, height: state.height))
+        let adapter = MacWindowAdapter(token: token, sceneID: id, windowState: state)
         windows[token] = adapter
-        if id == primarySceneID { panelOrder.insert(token, at: 0) }
-        else { panelOrder.append(token) }
-        focusOrder.append(id)
-        if id != primarySceneID { present(id) }
+        if id != primarySceneID { present(id, activate: false) }
     }
 
     public func bridge(_ bridge: ATMacApplicationBridge, syncWindow token: UInt64) {
-        windows[token]!.sync(bridge.windowState(token))
+        windows[token]!.windowState = bridge.windowState(token)
     }
 
     public func bridge(_ bridge: ATMacApplicationBridge, applyWindowFrame token: UInt64) {
-        let state = bridge.windowState(token)
-        windows[token]!.requestSize(CGSize(width: state.width, height: state.height))
+        pendingFrames.insert(token)
     }
 
     public func bridge(_ bridge: ATMacApplicationBridge,
                        orderWindowFront token: UInt64, activate: Bool) {
-        present(windows[token]!.sceneID)
+        present(windows[token]!.sceneID, activate: activate)
     }
 
     public func orderedWindowTokens() -> [NSNumber] {
-        focusOrder.compactMap { id in window(for: id).map { NSNumber(value: $0.id) } }
+        nativeWindows.orderedSceneIDs(windows.values.map(\.sceneID)).map {
+            NSNumber(value: window(for: $0)!.id)
+        }
     }
 
     public func bridge(_ bridge: ATMacApplicationBridge, unloadWindow token: UInt64) {
         let adapter = windows.removeValue(forKey: token)!
-        panelOrder.removeAll { $0 == token }
-        adapter.disconnect()
-        focusOrder.removeAll { $0 == adapter.sceneID }
-        let dismiss = sceneDismissals.removeValue(forKey: adapter.sceneID)
-        if adapter.sceneID != primarySceneID, let dismiss {
-            DispatchQueue.main.async { dismiss() }
-        }
+        pendingFrames.remove(token)
+        boundScenes.remove(adapter.sceneID)
+        openingScenes.remove(adapter.sceneID)
+        schedulePresentations()
+        if adapter.sceneID != primarySceneID { nativeWindows.close(adapter.sceneID) }
     }
 
     public func bridge(_ bridge: ATMacApplicationBridge, loadButton token: UInt64) {
@@ -532,7 +491,7 @@ public final class MacApplicationHost: NSObject, ObservableObject, ATMacApplicat
         let adapter = MacButtonAdapter(token: token, commandSink: bridge)
         adapter.sync(state)
         buttons[token] = adapter
-        windows[state.parentToken]!.buttons.append(adapter)
+        windows[state.parentToken]!.pendingButtons.append(adapter)
     }
 
     public func bridge(_ bridge: ATMacApplicationBridge, syncButton token: UInt64) {
@@ -542,7 +501,7 @@ public final class MacApplicationHost: NSObject, ObservableObject, ATMacApplicat
     public func bridge(_ bridge: ATMacApplicationBridge, unloadButton token: UInt64) {
         let adapter = buttons.removeValue(forKey: token)!
         adapter.disconnect()
-        for window in windows.values { window.buttons.removeAll { $0 === adapter } }
+        for window in windows.values { window.pendingButtons.removeAll { $0 === adapter } }
     }
 
     public func bridge(_ bridge: ATMacApplicationBridge, loadList token: UInt64) {
@@ -550,7 +509,7 @@ public final class MacApplicationHost: NSObject, ObservableObject, ATMacApplicat
         let adapter = MacListAdapter(token: token, commandSink: bridge)
         adapter.sync(state)
         lists[token] = adapter
-        windows[state.parentToken]!.lists.append(adapter)
+        windows[state.parentToken]!.pendingLists.append(adapter)
     }
 
     public func bridge(_ bridge: ATMacApplicationBridge, syncList token: UInt64) {
@@ -560,11 +519,19 @@ public final class MacApplicationHost: NSObject, ObservableObject, ATMacApplicat
     public func bridge(_ bridge: ATMacApplicationBridge, unloadList token: UInt64) {
         let adapter = lists.removeValue(forKey: token)!
         adapter.disconnect()
-        for window in windows.values { window.lists.removeAll { $0 === adapter } }
+        for window in windows.values { window.pendingLists.removeAll { $0 === adapter } }
     }
 
     public func bridge(_ bridge: ATMacApplicationBridge, syncMenu groups: [ATMacMenuGroupState]) {
         menuGroups = groups
+    }
+
+    public func bridgeDidFinishPublication(_ bridge: ATMacApplicationBridge) {
+        // Loading the window precedes loading its controls. AppKit frame changes
+        // can lay out SwiftUI synchronously, so bind only after the whole graph.
+        for adapter in windows.values { adapter.publish() }
+        for adapter in windows.values { bindNativeWindow(adapter.sceneID) }
+        schedulePresentations()
     }
 
     public func bridgeModelDidFinish(_ bridge: ATMacApplicationBridge) {
@@ -572,7 +539,7 @@ public final class MacApplicationHost: NSObject, ObservableObject, ATMacApplicat
         let status = Int32(bridge.finishTeardown())
         self.bridge = nil
         openScene = nil
-        sceneDismissals.removeAll()
+        boundScenes.removeAll()
         onFinished(status)
     }
 }
