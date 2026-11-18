@@ -281,8 +281,9 @@ void WindowCatalog::Apply(SetWindowCatalogMainClientViewportEvent const& event) 
   ApplyButtonChromeRect(persisted.presenters.open_button_presenter, layout.open);
   ApplyButtonChromeRect(persisted.presenters.delete_button_presenter,
                         layout.delete_button);
-  ApplyButtonChromeRect(persisted.presenters.language_button_presenter,
-                        layout.language);
+  if (persisted.presenters.language_button_presenter.id().is_valid())
+    ApplyButtonChromeRect(persisted.presenters.language_button_presenter,
+                          layout.language);
   NoteMaterializedChange();
 }
 
@@ -445,7 +446,8 @@ void WindowCatalog::MaterializeCatalogStrings(int language_index) {
   persisted.texts.label_add->MaterializeLanguage(language_index);
   persisted.texts.label_open->MaterializeLanguage(language_index);
   persisted.texts.label_delete->MaterializeLanguage(language_index);
-  persisted.texts.label_language->MaterializeLanguage(language_index);
+  if (persisted.texts.label_language.id().is_valid())
+    persisted.texts.label_language->MaterializeLanguage(language_index);
   persisted.texts.window_title_prefix->MaterializeLanguage(language_index);
   persisted.texts.list_row_title_format->MaterializeLanguage(language_index);
   persisted.texts.list_row_title_closed_suffix->MaterializeLanguage(

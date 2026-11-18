@@ -18,7 +18,8 @@ class ApplicationUiSession {
   ApplicationUiSession(std::vector<std::uint8_t> const& initial_publication,
                        void* presentation_host,
                        ModelObjectProxy& model_proxy,
-                       UiPresentersPrepareHook prepare_presenters = nullptr);
+                       UiPresentersPrepareHook prepare_presenters = nullptr,
+                       bool mount_presentation = true);
   ~ApplicationUiSession();
 
   ApplicationUiSession(ApplicationUiSession const&) = delete;
@@ -29,6 +30,8 @@ class ApplicationUiSession {
   // Unload native views and rebuild them against the current presentation host
   // (same UI mirror graph and presenter identities).
   void RemountPresentation();
+  // Release native views while retaining the mirror and applying publications.
+  void UnmountPresentation();
 
   ae::Obj& root();
   ae::Obj const& root() const;
@@ -40,6 +43,7 @@ class ApplicationUiSession {
   void* presentation_host_;
   ModelObjectProxy& model_proxy_;
   UiPresentersPrepareHook prepare_presenters_;
+  bool presentation_mounted_{false};
 };
 
 }  // namespace apptraverse

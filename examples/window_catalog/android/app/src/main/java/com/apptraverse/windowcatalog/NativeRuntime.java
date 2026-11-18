@@ -15,6 +15,7 @@ public final class NativeRuntime {
       long handle, android.app.Activity activity, android.view.ViewGroup contentRoot);
 
   public static native void nativeStartModel(long handle);
+  public static native void nativeClearPresentationRoot(long handle, android.app.Activity activity);
 
   public static native void nativeConsumePublication(long handle, int kind);
 
@@ -22,6 +23,10 @@ public final class NativeRuntime {
   public static native void nativeFlushPendingBackgroundSaves(long handle);
 
   public static native void nativeMobileSwipe(long handle, int delta);
+
+  public static native void nativePopulateMenu(long handle, android.view.Menu menu);
+
+  public static native void nativeExecuteMenuCommand(long handle, int nativeItemId);
 
   public static native void nativeDestroy(long handle);
 }

@@ -4,9 +4,9 @@
 #include "window_catalog_android_persistence.h"
 #include "window_catalog_ids.h"
 #include "window_catalog_model.h"
+#include "window_catalog_menu.h"
 
 #include "android_jni_util.h"
-#include "android_log.h"
 
 #include "apptraverse/platform/android/android_ui_window_presenter.h"
 #include "apptraverse/ui/ui_presented_window.h"
@@ -88,7 +88,6 @@ void WindowCatalogNativeRuntime::SetPresentationRoot(JNIEnv* env,
     callbacks.after_initial = [this](ae::Obj& root) {
       SyncMobilePagerChrome(CatalogRoot(root));
       PublishMobilePages();
-      apptraverse::android::LogInfo("WINDOW_CATALOG_INITIAL_RENDER_OK");
     };
     callbacks.after_incremental = [this](ae::Obj& root) {
       SyncMobilePagerChrome(CatalogRoot(root));
@@ -107,6 +106,10 @@ void WindowCatalogNativeRuntime::SetPresentationRoot(JNIEnv* env,
     SyncMobilePagerChrome(CatalogRoot(host_->ui_session()->root()));
     PublishMobilePages();
   }
+}
+
+void WindowCatalogNativeRuntime::ClearPresentationRoot(JNIEnv* env, jobject activity) {
+  if (host_) host_->ClearPresentationRoot(env, activity);
 }
 
 void WindowCatalogNativeRuntime::StartModelThread() {
@@ -129,6 +132,62 @@ void WindowCatalogNativeRuntime::MobileSwipe(int delta) {
       window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Catalog)};
   host_->model_proxy().Invoke(
       catalog_id, &apptraverse::WindowCatalog::SubmitWindowNavigationFromUi, delta);
+}
+
+void WindowCatalogNativeRuntime::PopulateMenu(JNIEnv* env, jobject menu) {
+  // The Activity can request its menu before the initial publication. It has
+  // no semantic menu until the required authored graph reaches the UI mirror.
+  if (!host_ || !host_->ui_session()) return;
+  auto& catalog = CatalogRoot(host_->ui_session()->root());
+  auto const& state = static_cast<CatalogUiState const&>(*catalog.persisted.device_state);
+  int const language = catalog.persisted.locale->language_index();
+  auto* menu_class = CheckedJni(env, "menu class", [&] { return env->FindClass("android/view/Menu"); });
+  auto* item_class = CheckedJni(env, "menu item class", [&] { return env->FindClass("android/view/MenuItem"); });
+  auto add_submenu = CheckedJni(env, "add submenu", [&] { return env->GetMethodID(menu_class, "addSubMenu", "(Ljava/lang/CharSequence;)Landroid/view/SubMenu;"); });
+  auto add_item = CheckedJni(env, "add menu item", [&] { return env->GetMethodID(menu_class, "add", "(IIILjava/lang/CharSequence;)Landroid/view/MenuItem;"); });
+  auto checkable = CheckedJni(env, "checkable menu group", [&] { return env->GetMethodID(menu_class, "setGroupCheckable", "(IZZ)V"); });
+  auto checked = CheckedJni(env, "checked menu item", [&] { return env->GetMethodID(item_class, "setChecked", "(Z)Landroid/view/MenuItem;"); });
+  auto caption = [&](ui::UiLocalizationString const& text) {
+    // Android has no menu mnemonic marker. Preserve escaped literal '&'.
+    std::string result;
+    auto const source = text.Resolve(language);
+    for (std::size_t index = 0; index < source.size(); ++index) {
+      if (source[index] != '&') result += source[index];
+      else if (index + 1 < source.size() && source[index + 1] == '&') { result += '&'; ++index; }
+    }
+    return ui::android::Utf8ToJstring(env, result.c_str());
+  };
+  int native_id = 1;
+  for (auto const& group : state.menu->groups) {
+    auto title = caption(*group.label);
+    auto submenu = CheckedJni(env, "create authored submenu", [&] { return env->CallObjectMethod(menu, add_submenu, title); });
+    env->DeleteLocalRef(title);
+    for (auto const& item : group.items) {
+      title = caption(*item.label);
+      auto native_item = CheckedJni(env, "create authored item", [&] { return env->CallObjectMethod(submenu, add_item, 1, native_id++, 0, title); });
+      auto result = CheckedJni(env, "project published menu check", [&] { return env->CallObjectMethod(native_item, checked, state.MenuItemSelected(item) ? JNI_TRUE : JNI_FALSE); });
+      env->DeleteLocalRef(result);
+      env->DeleteLocalRef(native_item);
+      env->DeleteLocalRef(title);
+    }
+    CheckedJni(env, "project native radio group", [&] { env->CallVoidMethod(submenu, checkable, 1, JNI_TRUE, JNI_TRUE); });
+    env->DeleteLocalRef(submenu);
+  }
+  env->DeleteLocalRef(item_class);
+  env->DeleteLocalRef(menu_class);
+}
+
+void WindowCatalogNativeRuntime::ExecuteMenuCommand(int native_item_id) {
+  if (!host_ || !host_->ui_session()) return;
+  auto& catalog = CatalogRoot(host_->ui_session()->root());
+  auto const& state = static_cast<CatalogUiState const&>(*catalog.persisted.device_state);
+  int token = 1;
+  for (unsigned group = 0; group < state.menu->groups.size(); ++group)
+    for (unsigned item = 0; item < state.menu->groups[group].items.size(); ++item, ++token)
+      if (token == native_item_id) {
+        host_->model_proxy().Invoke(state.obj_id, &CatalogUiState::ExecuteMenuCommand, group, item);
+        return;
+      }
 }
 
 void WindowCatalogNativeRuntime::SyncMobilePagerChrome(

@@ -123,11 +123,12 @@ foreach(_catalog_web_app web_window_catalog_demo web_window_catalog_demo_load_on
     -pthread -sPTHREAD_POOL_SIZE=1 -sINITIAL_MEMORY=268435456
     -sALLOW_MEMORY_GROWTH=0 -sFORCE_FILESYSTEM=1 -sEXIT_RUNTIME=0
     -lidbfs.js --bind
-    -sEXPORTED_FUNCTIONS=_main,_ApptraverseWebWindowRefresh,_ApptraverseWebWindowFinishLayout,_ApptraverseWindowCatalogAppearance,_ApptraverseWebUiPushButtonClicked,_ApptraverseWebUiListSelectionChanged,_ApptraverseWebUiListRowActivated,_ApptraverseWebIdbfsLoadDone,_ApptraverseWebIdbfsLoadFailed,_ApptraverseWebIdbfsStoreDone,_ApptraverseWebIdbfsStoreFailed,_ApptraverseWindowCatalogRequestShutdown,_ApptraverseWindowCatalogPageHidden,_ApptraverseWindowCatalogMobileSwipe,_ApptraverseWindowCatalogMobilePageShown,_ApptraverseWindowCatalogViewportChanged,_ApptraverseWindowCatalogChildViewportChanged
+    -sEXPORTED_FUNCTIONS=_main,_ApptraverseWebWindowRefresh,_ApptraverseWebWindowFinishLayout,_ApptraverseWindowCatalogMenuCommand,_ApptraverseWebUiPushButtonClicked,_ApptraverseWebUiListSelectionChanged,_ApptraverseWebUiListRowActivated,_ApptraverseWebIdbfsLoadDone,_ApptraverseWebIdbfsLoadFailed,_ApptraverseWebIdbfsStoreDone,_ApptraverseWebIdbfsStoreFailed,_ApptraverseWindowCatalogRequestShutdown,_ApptraverseWindowCatalogPageHidden,_ApptraverseWindowCatalogMobileSwipe,_ApptraverseWindowCatalogMobilePageShown,_ApptraverseWindowCatalogViewportChanged,_ApptraverseWindowCatalogChildViewportChanged
     -sALLOW_TABLE_GROWTH=1
     -sEXPORTED_RUNTIME_METHODS=FS,addRunDependency,removeRunDependency,ccall,cwrap,UTF8ToString$<$<NOT:$<CONFIG:MinSizeRel>>:,count_emval_handles>
     --shell-file=${CMAKE_CURRENT_SOURCE_DIR}/window_catalog_shell.html)
   set_target_properties(${_catalog_web_app} PROPERTIES SUFFIX ".html")
+  set_property(TARGET ${_catalog_web_app} APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/window_catalog_shell.html")
 endforeach()
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
   target_compile_definitions(web_window_catalog_demo PRIVATE APPTRAVERSE_WEB_CATALOG_FRESH_USER)
@@ -177,4 +178,5 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
   target_link_options(web_window_catalog_demo_update PRIVATE ${_catalog_web_update_options})
   target_compile_options(web_window_catalog_demo_update PRIVATE -pthread)
   set_target_properties(web_window_catalog_demo_update PROPERTIES SUFFIX ".html")
+  set_property(TARGET web_window_catalog_demo_update APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/window_catalog_shell.html")
 endif()

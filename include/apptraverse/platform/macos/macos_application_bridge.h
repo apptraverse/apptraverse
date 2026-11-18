@@ -8,10 +8,17 @@
 #include "apptraverse/application_model_runtime.h"
 #include "apptraverse/application_ui_session.h"
 #include "apptraverse/model_object_proxy.h"
+#include "apptraverse/ui/ui_device_state.h"
 
 namespace apptraverse::ui::macos {
 
+UiDeviceEnvironment ReadMacDeviceEnvironment();
+
 struct MacApplicationBridgeCallbacks {
+  // Optional application composition; generic hosts do not invent a menu.
+  std::function<NSArray<ATMacMenuGroupState*>*(ae::Obj&)> menu_state;
+  std::function<void(ae::Obj&, ModelObjectProxy&, unsigned, unsigned)>
+      on_menu_command;
   ApplicationModelRuntime* runtime = nullptr;
   std::function<void(ae::Obj&, ModelObjectProxy&, std::function<void()>)>
       on_application_quit;
@@ -19,6 +26,7 @@ struct MacApplicationBridgeCallbacks {
   std::function<void(ae::Obj&)> after_incremental;
   std::function<void(ae::Obj&)> after_initial;
   UiPresentersPrepareHook prepare_ui_presenters;
+  std::function<ae::ObjId(ae::Obj&)> main_window_id;
   std::function<int(ApplicationModelRuntime&, ApplicationPublishedCallback)>
       run_model;
   std::function<bool(ae::Obj&, ae::Obj&, ModelObjectProxy&,

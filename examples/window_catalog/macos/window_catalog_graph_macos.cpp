@@ -6,6 +6,7 @@
 #include "window_catalog_ids.h"
 #include "window_catalog_list_presenter_mixin.h"
 #include "window_catalog_model.h"
+#include "window_catalog_menu.h"
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/platform/macos/macos_ui_presenters.h"
@@ -44,6 +45,7 @@ void EnsureWindowCatalogGraphRegistration() {
   // The single macOS application entry point: all transitive schema anchors.
   EnsureCoreObjectRegistration();
   EnsureWindowCatalogDesktopModelRegistration();
+  EnsureCatalogMenuRegistration();
   ui::macos::EnsureMacUiPresenterRegistration();
   (void)&example::surfaces::g_apptraverse_registrar_CatalogListContainerPresenter;
   (void)&example::surfaces::g_apptraverse_registrar_CatalogDesktopWindowPresenter;

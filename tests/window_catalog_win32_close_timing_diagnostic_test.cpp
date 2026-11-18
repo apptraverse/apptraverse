@@ -457,7 +457,7 @@ void BurstResizeOnDemo(HWND main) {
     std::int32_t cw = 0;
     std::int32_t ch0 = 0;
     apptraverse::ui::windows::ReadModelFrameFromHwnd(main, x, y, cw, ch0);
-    apptraverse::ui::windows::ClientSizeToOuter(w, ch, outer_w, outer_h);
+    apptraverse::ui::windows::ClientSizeToOuter(w, ch, outer_w, outer_h, GetMenu(main) != nullptr);
     SetWindowPos(main, nullptr, x, y, outer_w, outer_h,
                  SWP_NOZORDER | SWP_NOACTIVATE);
   }

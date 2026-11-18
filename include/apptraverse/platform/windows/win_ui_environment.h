@@ -13,6 +13,13 @@ UINT GetWinWindowDpi(HWND window);
 std::string GetWinWindowMonitorKey(HWND window);
 
 inline constexpr UINT kWinPresentationSettingsChanged = WM_APP + 0x310;
+struct WinUiPalette {
+  COLORREF background{}, foreground{}, control_background{}, disabled_foreground{}, border{};
+  bool dark{}, high_contrast{};
+  bool operator==(WinUiPalette const&) const = default;
+};
+WinUiPalette ResolveWinUiPalette(WinUiPalette system, WinUiPalette light,
+                                  UiAppearancePreferences preferences);
 
 // Native resources and subscriptions stay runtime-only. snapshot() contains
 // serializable OS facts; the owning model decides how to compare/persist them.

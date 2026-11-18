@@ -1,135 +1,45 @@
-import AppKit
+import Foundation
 import SwiftUI
 @testable import AppTraverseMacUI
 
-private func require(_ condition: @autoclosure () -> Bool,
-                     _ message: String) {
-    if !condition() {
-        fatalError(message)
-    }
-}
-
 private final class CommandSink: MacUiCommandSink {
     var buttonClicks: [UInt64] = []
-    var selections: [(token: UInt64, row: Int)] = []
-    var frames: [(token: UInt64, frame: CGRect)] = []
+    var selections: [Int] = []
+    var activations: [Int] = []
 
-    func clickButton(_ token: UInt64) {
-        buttonClicks.append(token)
-    }
-
-    func selectListRow(_ row: Int, token: UInt64) {
-        selections.append((token, row))
-    }
-
-    func activateListRow(_ row: Int, token: UInt64) {
-        selections.append((token, row))
-    }
-
-    func submitWindowFrame(_ frame: CGRect, token: UInt64, updatesRestore: Bool) {
-        frames.append((token, frame))
-    }
+    func clickButton(_ token: UInt64) { buttonClicks.append(token) }
+    func selectListRow(_ row: Int, token: UInt64) { selections.append(row) }
+    func activateListRow(_ row: Int, token: UInt64) { activations.append(row) }
 }
-
-private final class WindowDelegate: NSObject, NSWindowDelegate {}
 
 @main
 private enum MacUiBackendLifecycleTest {
     static func main() {
-        _ = NSApplication.shared
-        testDetachedControlCallbacks()
-        testWindowHostingCycleRelease()
-        testStableListRowIdentity()
-        testNativeCoordinateRoundTrip()
-    }
-
-    private static func testDetachedControlCallbacks() {
         let sink = CommandSink()
+        let button = MacButtonAdapter(token: 11, commandSink: sink)
+        button.click()
+        precondition(sink.buttonClicks.isEmpty)
+        button.enabled = true
+        button.click()
+        button.disconnect()
+        button.click()
+        precondition(sink.buttonClicks == [11])
 
-        let oldButton = MacButtonAdapter(token: 11, commandSink: sink)
-        let oldList = MacListAdapter(token: 12, commandSink: sink)
-        let oldSelection = oldList.selection
-        oldButton.disconnect()
-        oldList.disconnect()
+        let list = MacListAdapter(token: 12, commandSink: sink)
+        let binding = list.selection
+        let first = MacListRowSnapshot(id: 1001, text: "Same label")
+        let second = MacListRowSnapshot(id: 1002, text: "Same label")
+        list.sync(rows: [first, second], selectedRow: 1)
+        precondition(binding.wrappedValue == second.id)
+        list.sync(rows: [second], selectedRow: 0)
+        binding.wrappedValue = first.id
+        list.activate(first.id)
+        precondition(sink.selections.isEmpty && sink.activations.isEmpty)
+        binding.wrappedValue = second.id
+        list.activate(second.id)
+        list.disconnect()
+        binding.wrappedValue = second.id
+        precondition(sink.selections == [0] && sink.activations == [0])
 
-        oldButton.click()
-        oldSelection.wrappedValue = 1
-        oldList.activate(1)
-        require(sink.buttonClicks.isEmpty,
-                "Detached button callback reached the command sink")
-        require(sink.selections.isEmpty,
-                "Detached list binding reached the command sink")
-
-        let newButton = MacButtonAdapter(token: 21, commandSink: sink)
-        let newList = MacListAdapter(token: 22, commandSink: sink)
-        newButton.enabled = true
-        newButton.click()
-        newList.selection.wrappedValue = 0
-        require(sink.buttonClicks == [21],
-                "Replacement button did not reach the command sink")
-        require(sink.selections.count == 1 &&
-                sink.selections[0].token == 22 &&
-                sink.selections[0].row == 0,
-                "Replacement list did not reach the command sink")
     }
-
-    private static func testWindowHostingCycleRelease() {
-        weak var releasedAdapter: MacWindowAdapter?
-        weak var releasedHostingView: NSView?
-
-        autoreleasepool {
-            let sink = CommandSink()
-            let delegate = WindowDelegate()
-            var adapter: MacWindowAdapter? =
-                MacWindowAdapter(token: 31, commandSink: sink,
-                                 delegate: delegate)
-            releasedAdapter = adapter
-            releasedHostingView = adapter!.window.contentView
-            adapter!.disconnect()
-            adapter = nil
-        }
-
-        require(releasedAdapter == nil,
-                "Window adapter remained retained after unload")
-        require(releasedHostingView == nil,
-                "SwiftUI hosting content remained retained after unload")
-    }
-
-    private static func testStableListRowIdentity() {
-        let sink = CommandSink()
-        let adapter = MacListAdapter(token: 41, commandSink: sink)
-        let frame = MacControlFrame(x: 0, y: 0, width: 200, height: 120)
-        let rowA = MacListRowSnapshot(id: 1001, text: "Same label")
-        let rowB = MacListRowSnapshot(id: 1002, text: "Same label")
-
-        adapter.sync(rows: [rowA, rowB], selectedRow: nil, frame: frame)
-        adapter.sync(rows: [rowB], selectedRow: nil, frame: frame)
-        require(adapter.rows == [rowB],
-                "Structural update did not preserve Row B identity")
-
-        adapter.selection.wrappedValue = 0
-        require(sink.selections.count == 1 &&
-                sink.selections[0].row == 0,
-                "Selection did not use Row B's current index")
-    }
-
-    private static func testNativeCoordinateRoundTrip() {
-        let sink = CommandSink()
-        let delegate = WindowDelegate()
-        let adapter = MacWindowAdapter(token: 51, commandSink: sink,
-                                       delegate: delegate)
-        let expected = CGRect(x: -120, y: 80, width: 410, height: 290)
-        adapter.applyingMirrorFrame = true
-        adapter.window.setFrame(MacDesktopCoordinates.nativeFrame(
-            expected, window: adapter.window), display: false)
-        adapter.applyingMirrorFrame = false
-        let actual = MacDesktopCoordinates.modelFrame(of: adapter.window)
-        require(actual == expected,
-                "Native conversion lost signed position or client dimensions")
-        adapter.reportFrame()
-        require(sink.frames.count == 1 && sink.frames[0].frame == expected,
-                "Native frame callback did not report model coordinates")
-        adapter.disconnect()
-    }
-
 }

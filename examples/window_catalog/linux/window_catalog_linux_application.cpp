@@ -6,6 +6,7 @@
 #include "window_catalog_linux_desktop_zorder.h"
 #include "window_catalog_main_native_frame_wiring.h"
 #include "window_catalog_model.h"
+#include "window_catalog_menu.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/platform/linux/linux_ui_window_presenter.h"
 
@@ -98,6 +99,7 @@ int WindowCatalogLinuxApplication::Run(
   session_.prepare_local_state = [environment, prepare](WindowCatalog& catalog) {
     catalog.persisted.device_state->ObserveEnvironment(environment, ui::UiEnvironmentReason::kStartup);
     if (prepare) prepare(catalog);
+    PrepareCatalogMenuForRun(catalog);
   };
   linux::LinuxApplicationHost host{session_.runtime, std::move(callbacks)};
   host.Run();

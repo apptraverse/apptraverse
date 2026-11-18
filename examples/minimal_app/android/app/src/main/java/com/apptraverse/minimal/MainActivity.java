@@ -46,4 +46,11 @@ public final class MainActivity extends Activity {
     MinimalAppApplication app = (MinimalAppApplication) getApplication();
     app.requestBackgroundSave();
   }
+
+  @Override protected void onDestroy() {
+    MinimalAppApplication app = (MinimalAppApplication) getApplication();
+    if (app.runtimeHandle() != 0L)
+      NativeRuntime.nativeClearPresentationRoot(app.runtimeHandle(), this);
+    super.onDestroy();
+  }
 }

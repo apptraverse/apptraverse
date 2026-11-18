@@ -1,21 +1,27 @@
-# macOS native presentation
+# macOS SwiftUI presentation
 
-The backend uses thin C++ Window/Button/List presenters, an Objective-C++ bridge,
-and a SwiftUI host inside native AppKit windows. Model commands are addressed
-through `ModelObjectProxy`; only publications supply displayed state.
+WindowCatalog and MinimalApp use the shared `MacApplicationScenes` from their
+SwiftUI `App` entry points. SwiftUI owns content, lists, buttons, commands, and
+separate `WindowGroup` scenes. A small native attachment disables automatic
+tabbing and supplies window close, activation, screen geometry, and placement.
+Normal user close calls the application's close policy. Model unload removes
+its matching native window, including when WindowCatalog deletes an open row.
 
-The application supplies its model runtime, preparation hook and publication
-sidecar callbacks through `MacApplicationBridgeCallbacks`. The host does not
-know WindowCatalog classes or root IDs. Focus and desktop Z-order are backend
-operations addressed by logical window identity.
+The bridge publishes immutable constraint snapshots. SwiftUI measures its
+controls and reuses the common C++ constraint solver with the current viewport
+in points. The layout can therefore switch between horizontal and vertical
+arrangements during resize without portable frame round-trips. A scroll view
+preserves controls when the required minimum exceeds the available viewport.
 
-Desktop geometry uses top-left screen coordinates and client sizes. Initial
-placement may be selected by AppKit, then actual frame/work area are reported
-through model Events. A model publication changes native geometry only through
-`ApplyRequestedFrameFromMirror`; reflected native reports never snap a live
-window back to old geometry. Native handles, adapters and callback tokens are
-runtime-only.
+Desktop placement is stored in LOCAL as outer-window geometry in logical
+points relative to the work area. Native events submit observations into
+`UiDeviceState`; they don't synthesize portable window-frame requests. Explicit
+semantic requests still move and resize the native window. The platform uses
+the current screen scale for DPI metadata and restores LOCAL monitor placement
+through the common monitor resolution events. WindowCatalog's language and
+theme commands come from the same distilled menu as Windows.
 
-`MacApplicationHost.run()` returns the joined model runtime's status after
-tearing down presenters. Close and Quit enqueue native frame reports before
-the application's close/quit policy and runtime stop barrier.
+`ctest -R '^apptraverse_macos_'` exercises both applications on actual SwiftUI
+scenes, including native resize, separate windows, close, deletion, and cold
+restore. The control test drives intents through the same adapters used by the
+SwiftUI views.

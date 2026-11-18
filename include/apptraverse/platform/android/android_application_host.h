@@ -44,6 +44,7 @@ class AndroidApplicationHost {
   AndroidApplicationHost& operator=(AndroidApplicationHost const&) = delete;
 
   void SetPresentationRoot(JNIEnv* env, jobject activity, jobject content_root);
+  void ClearPresentationRoot(JNIEnv* env, jobject activity);
   void StartModelThread();
   void ConsumePublication(ApplicationPublicationKind kind);
 

@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <vector>
+#include <optional>
 #include "apptraverse/ui/ui_constraint_layout.h"
 #include "apptraverse/ui/ui_device_state.h"
 
@@ -48,6 +49,8 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
   GtkWidget* ClientMount() const;
   GtkWidget* ClientViewport() const { return scroller_; }
   GtkWidget* TopLevelWindow() const { return window_; }
+  GtkWidget* PresentationMenu() const { return presentation_menu_; }
+  virtual GtkWidget* CreatePresentationMenu() { return nullptr; }
 
   void ReportNativeClientFrame();
 
@@ -57,6 +60,7 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
   void UnregisterChildControl(GtkWidget* child);
   void RefreshLayout();
   void RefreshPresentationSettings();
+  void ApplyNativeAppearance(GtkWidget* subtree);
 
  private:
   struct ClientFrame {
@@ -77,6 +81,7 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
   void DisconnectNativeFrameReports();
   void ObserveNativeEnvironment(UiEnvironmentReason reason);
   void ApplyLocalPlacement();
+  int NativeMenuHeight() const;
   UiConstraintLayoutResult ComputeLocalLayout() const;
   bool NativeMeasurementsReady() const;
   static void OnSettingsChanged(GObject*, GParamSpec*, gpointer);
@@ -85,6 +90,10 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
   struct NativeChild { GtkWidget* widget; std::uint32_t control_id; };
   std::vector<NativeChild> native_children_;
   GtkWidget* scroller_{nullptr};
+  GtkWidget* presentation_menu_{nullptr};
+  std::optional<UiAppearancePreferences> applied_appearance_;
+  std::optional<UiDeviceEnvironment> applied_environment_;
+  std::optional<UiWindowEnvironment> last_reported_window_;
   GtkCssProvider* appearance_provider_{nullptr};
   GtkCssProvider* native_theme_provider_{nullptr};
   gulong settings_handler_{0}, monitors_handler_{0};
@@ -116,7 +125,7 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
   UiDisplayRect frame_reference_{};
   bool local_placement_pending_{false};
   bool native_initial_placement_observed_{false};
-  bool environment_placement_pending_{false};
+  std::optional<std::uint64_t> pending_environment_revision_;
 };
 
 }  // namespace apptraverse::ui::linux

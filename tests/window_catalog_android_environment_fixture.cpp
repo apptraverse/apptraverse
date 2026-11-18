@@ -82,5 +82,8 @@ int main(int argc, char** argv) {
   for (auto const& monitor : state.environment.monitors)
     std::cout << "monitor=" << monitor.key << ',' << monitor.bounds.width << ','
               << monitor.bounds.height << '\n';
+  for (auto const& window : state.windows)
+    std::cout << "window_display=" << window.window_id.id() << ','
+              << window.monitor_key << ',' << window.dpi_x << '\n';
   std::cout << "ANDROID_ENVIRONMENT_INSPECT_OK\n";
 }

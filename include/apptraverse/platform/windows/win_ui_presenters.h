@@ -93,6 +93,9 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
   // measurements, DPI, focus and actual rectangles stay local to this window.
   bool NativeCaptionProvidesClose() const override { return true; }
   virtual bool ShowPresentationContextMenu(int, int) { return false; }
+  // Optional native menu composition. Windows owns the returned menu after
+  // successful window creation; command actions still go through the proxy.
+  virtual HMENU CreatePresentationMenu() { return nullptr; }
   static WinDesktopWindowPresenter* FromNativeWindow(HWND window);
   UiControlLayout ResolveChildLayout(UiControlLayout requested) const override;
   void RegisterChildControl(HWND child, std::uint32_t control_id);
@@ -137,6 +140,7 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
   ClientFrame ReadNativeClientFrame() const;
 
   void TrackInteractiveNativeFrame();
+  void ApplyRequestedNativeFrame(ClientFrame frame);
 
   static bool FramesEqual(ClientFrame a, ClientFrame b);
 
@@ -171,6 +175,7 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
   bool applying_native_frame_;
 
   bool interactive_move_active_;
+  std::optional<ClientFrame> pending_requested_frame_;
 
   std::int32_t last_native_client_width_{-1};
 

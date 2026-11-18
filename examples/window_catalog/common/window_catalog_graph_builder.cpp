@@ -1,6 +1,7 @@
 #include "window_catalog_graph_builder.h"
 
 #include <cstdlib>
+#include <algorithm>
 
 #include "window_catalog_actions.h"
 #include "window_catalog_chrome_layout.h"
@@ -59,48 +60,65 @@ ui::UiPushButtonPresenter::ptr MakeButtonPresenter(
 }  // namespace
 
 ui::UiLayoutNode DefaultWindowCatalogMainLayout() {
-  ui::UiLayoutNode root;
-  root.flow = ui::UiLayoutFlow::kAdaptive;
-  root.padding = 12;
-  root.gap = 12;
-  ui::UiLayoutNode list;
-  list.control_id = kListControlId;
-  list.min_width = 120;
-  list.min_height = 80;
-  list.preferred_width = 300;
-  list.preferred_height = 240;
-  list.grow = 1;
-  ui::UiLayoutNode actions;
-  actions.flow = ui::UiLayoutFlow::kVertical;
-  actions.gap = 8;
-  actions.min_width = 120;
-  for (auto id : {kAddControlId, kOpenControlId, kDeleteControlId,
-                  kLanguageControlId}) {
-    ui::UiLayoutNode button;
-    button.control_id = id;
-    button.min_width = 100;
-    button.min_height = 32;
-    actions.children.push_back(button);
+  // Every persisted constraint field is authored here; engine convenience
+  // defaults remain available to runtime callers.
+  ui::UiLayoutNode list{
+      .control_id = kListControlId, .flow = ui::UiLayoutFlow::kLeaf,
+      .min_width = 120, .min_height = 80,
+      .preferred_width = 300, .preferred_height = 240,
+      .max_width = -1, .max_height = -1, .grow = 1,
+      .padding = 0, .gap = 0, .alignment = ui::UiLayoutAlignment::kStretch,
+      .children = {}};
+  ui::UiLayoutNode actions{
+      .control_id = 0, .flow = ui::UiLayoutFlow::kVertical,
+      .min_width = 120, .min_height = 0,
+      .preferred_width = 0, .preferred_height = 0,
+      .max_width = -1, .max_height = -1, .grow = 0,
+      .padding = 0, .gap = 8, .alignment = ui::UiLayoutAlignment::kStretch,
+      .children = {}};
+  for (auto id : {kAddControlId, kOpenControlId, kDeleteControlId, kLanguageControlId}) {
+    ui::UiLayoutNode button{
+        .control_id = id, .flow = ui::UiLayoutFlow::kLeaf,
+        .min_width = 100, .min_height = 32,
+        .preferred_width = 0, .preferred_height = 0,
+        .max_width = -1, .max_height = -1, .grow = 0,
+        .padding = 0, .gap = 0, .alignment = ui::UiLayoutAlignment::kStretch,
+        .children = {}};
+    actions.children.push_back(std::move(button));
   }
-  root.children = {list, actions};
-  return root;
+  return ui::UiLayoutNode{
+      .control_id = 0, .flow = ui::UiLayoutFlow::kAdaptive,
+      .min_width = 0, .min_height = 0,
+      .preferred_width = 0, .preferred_height = 0,
+      .max_width = -1, .max_height = -1, .grow = 0,
+      .padding = 12, .gap = 12, .alignment = ui::UiLayoutAlignment::kStretch,
+      .children = {list, actions}};
 }
 
 ui::UiLayoutNode DefaultWindowCatalogChildLayout() {
-  ui::UiLayoutNode root;
-  root.flow = ui::UiLayoutFlow::kVertical;
-  root.padding = 12;
-  ui::UiLayoutNode close;
-  close.control_id = 5006;
-  close.min_width = 100;
-  close.min_height = 32;
+  ui::UiLayoutNode close{
+      .control_id = 5006, .flow = ui::UiLayoutFlow::kLeaf,
+      .min_width = 100, .min_height = 32,
+      .preferred_width = 0, .preferred_height = 0,
+      .max_width = -1, .max_height = -1, .grow = 0,
+      .padding = 0, .gap = 0, .alignment = ui::UiLayoutAlignment::kStretch,
+      .children = {}};
   // Flexible empty content keeps the child action at the bottom on every
   // content-presenting backend. Native caption policy removes only Close.
-  ui::UiLayoutNode content;
-  content.flow = ui::UiLayoutFlow::kVertical;
-  content.grow = 1;
-  root.children = {content, close};
-  return root;
+  ui::UiLayoutNode content{
+      .control_id = 0, .flow = ui::UiLayoutFlow::kVertical,
+      .min_width = 0, .min_height = 0,
+      .preferred_width = 0, .preferred_height = 0,
+      .max_width = -1, .max_height = -1, .grow = 1,
+      .padding = 0, .gap = 0, .alignment = ui::UiLayoutAlignment::kStretch,
+      .children = {}};
+  return ui::UiLayoutNode{
+      .control_id = 0, .flow = ui::UiLayoutFlow::kVertical,
+      .min_width = 0, .min_height = 0,
+      .preferred_width = 0, .preferred_height = 0,
+      .max_width = -1, .max_height = -1, .grow = 0,
+      .padding = 12, .gap = 0, .alignment = ui::UiLayoutAlignment::kStretch,
+      .children = {content, close}};
 }
 
 WindowCatalog::ptr BuildWindowCatalogGraph(
@@ -118,13 +136,14 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   // IDs after the scope ends. The range is disjoint from fixed IDs and from
   // ObjId::GenerateUnique's runtime range (10000 and above).
   ae::Domain::ObjectIdSequence supply_ids{domain, ae::ObjId{1000},
-                                         ae::ObjId{9999}};
+                                         ae::ObjId{1999}};
 
   auto catalog = WindowCatalog::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::Catalog)));
 
-  catalog->persisted.device_state = ui::UiDeviceState::ptr::Create(
-      ae::CreateWith{domain}.with_id(ToObjId(ObjId::DeviceState)));
+  catalog->persisted.device_state = options.create_device
+      ? options.create_device(domain, ae::ObjId{ToObjId(ObjId::DeviceState)})
+      : ui::UiDeviceState::ptr::Create(ae::CreateWith{domain}.with_id(ToObjId(ObjId::DeviceState)));
   catalog->persisted.device_state->Bootstrap({ui::UiThemeMode::kAuto, false}, ui::UiDeviceEnvironment{});
   InitializeRuntimeNode(*catalog->persisted.device_state, *catalog);
 
@@ -138,7 +157,7 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   catalog->persisted.list = list;
   InitializeRuntimeNode(*list, *catalog);
 
-  InstallWindowCatalogLocalization(*catalog, domain);
+  InstallWindowCatalogLocalization(*catalog, domain, options.language_button);
   auto main_title = CreateMainWindowTitle(*catalog, domain);
   auto main_window = CatalogWindow::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::MainWindow)));
@@ -146,6 +165,13 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::MainLayoutDefinition)));
   main_definition->root = options.main_layout.value_or(
       DefaultWindowCatalogMainLayout());
+  if (!options.language_button) {
+    auto omit_language = [&](auto&& self, ui::UiLayoutNode& node) -> void {
+      std::erase_if(node.children, [](auto const& child) { return child.control_id == kLanguageControlId; });
+      for (auto& child : node.children) self(self, child);
+    };
+    omit_language(omit_language, main_definition->root);
+  }
   auto child_definition = ui::UiLayoutDefinition::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::ChildLayoutDefinition)));
   child_definition->root = DefaultWindowCatalogChildLayout();
@@ -204,11 +230,14 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   delete_button->catalog = catalog;
   delete_button->label = catalog->persisted.texts.label_delete;
 
-  auto language_button = CatalogLanguageButton::ptr::Create(
-      ae::CreateWith{domain}.with_id(ToObjId(ObjId::LanguageButton)));
-  language_button->BootstrapSetEnabled(true);
-  language_button->catalog = catalog;
-  language_button->label = catalog->persisted.texts.label_language;
+  CatalogLanguageButton::ptr language_button;
+  if (options.language_button) {
+    language_button = CatalogLanguageButton::ptr::Create(
+        ae::CreateWith{domain}.with_id(ToObjId(ObjId::LanguageButton)));
+    language_button->BootstrapSetEnabled(true);
+    language_button->catalog = catalog;
+    language_button->label = catalog->persisted.texts.label_language;
+  }
 
   catalog->persisted.buttons.add_button = add_button;
   catalog->persisted.buttons.open_button = open_button;
@@ -224,9 +253,10 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   catalog->persisted.presenters.delete_button_presenter = MakeButtonPresenter(
       domain, *catalog, delete_button, factory, chrome.delete_button,
       kDeleteControlId, ae::ObjId{ToObjId(ObjId::DeleteButtonPresenter)});
-  catalog->persisted.presenters.language_button_presenter = MakeButtonPresenter(
-      domain, *catalog, language_button, factory, chrome.language,
-      kLanguageControlId, ae::ObjId{ToObjId(ObjId::LanguageButtonPresenter)});
+  if (options.language_button)
+    catalog->persisted.presenters.language_button_presenter = MakeButtonPresenter(
+        domain, *catalog, language_button, factory, chrome.language,
+        kLanguageControlId, ae::ObjId{ToObjId(ObjId::LanguageButtonPresenter)});
 
   catalog->RefreshChromeButtonEnabledState();
 
@@ -279,7 +309,12 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   InitializeRuntimeNode(*add_button, *catalog);
   InitializeRuntimeNode(*open_button, *catalog);
   InitializeRuntimeNode(*delete_button, *catalog);
-  InitializeRuntimeNode(*language_button, *catalog);
+  if (options.language_button) {
+    // Match the optional label's independent identity range; no shared supply
+    // cursor depends on whether an in-content language action is composed.
+    ae::Domain::ObjectIdSequence language_base_ids{domain, ae::ObjId{1810}, ae::ObjId{1819}};
+    InitializeRuntimeNode(*language_button, *catalog);
+  }
 
   list->catalog = catalog;
   catalog->persisted.list = list;

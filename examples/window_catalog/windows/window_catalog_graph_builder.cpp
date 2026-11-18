@@ -1,9 +1,13 @@
 #include "window_catalog_graph.h"
 #include "window_catalog_graph_builder.h"
 #include "window_catalog_presenters.h"
+#include "window_catalog_menu.h"
 
 namespace apptraverse {
 WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
+  return BuildWindowCatalogGraph(domain, CatalogThemeHandling::kAdapterAppliesTheme);
+}
+WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain, CatalogThemeHandling handling) {
   WindowCatalogPresenterFactory factory;
   factory.create_window =
       [](ae::Domain& build_domain, ae::ObjId presenter_id,
@@ -30,7 +34,16 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
             : ae::CreateWith{build_domain});
   };
 
-  return BuildWindowCatalogGraph(domain, factory);
+  WindowCatalogGraphOptions options;
+  options.create_device = [](ae::Domain& build_domain, ae::ObjId id) {
+    auto state = CatalogUiState::ptr::Create(ae::CreateWith{build_domain}.with_id(id));
+    state->catalog = {}; state->menu = {};
+    return ui::UiDeviceState::ptr{state};
+  };
+  options.language_button = false;
+  auto catalog = BuildWindowCatalogGraph(domain, factory, std::move(options));
+  ComposeCatalogMenu(domain, *catalog, handling, false, true);
+  return catalog;
 }
 
 }  // namespace apptraverse

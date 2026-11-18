@@ -2,19 +2,23 @@
 
 WindowCatalog uses the shared `WebApplicationHost`, model session, publication
 buffer, UI mirror and DOM presenters. The browser shell forwards native input
-and viewport measurements to model Events. The model owns the active page,
-localized text and control geometry. List commands capture holder IDs from the
+and viewport observations through model Events. The model owns the active page,
+localized text and semantic layout constraints. Native DOM measurement and the
+shared AppTraverse engine produce UI-local control rectangles. List commands capture holder IDs from the
 displayed mirror; Wasm-to-JavaScript object IDs retain their unsigned 32-bit
 identity.
 
 ## State and lifecycle
 
-USER is one ordinary `RamDomainStorage` over the embedded BACKING. Add, child
-Close, reopen, Delete, locale changes, paging and resizing do not write files.
-The browser lifecycle boundary is `visibilitychange` to hidden, with `pagehide`
-as a fallback. Accepted model commands finish before the model serializes its
+USER and LOCAL use separate ordinary `RamDomainStorage` partitions over embedded
+BACKING. Language and appearance belong to LOCAL; portable windows and constraint
+overrides belong to USER. Add, child Close, reopen, Delete, menu changes, paging
+and resizing do not write files.
+The browser captures the current model at `visibilitychange` to hidden and at
+`pagehide`. An earlier capture does not suppress a later boundary after new
+commands have been accepted. Accepted model commands finish before the model serializes its
 current state into the same binary `user.bin` representation. The main browser
-thread queues that file and its parent directory metadata in one transaction
+thread queues `user.bin`, `local/user.bin` and their directory metadata in one transaction
 against the already-open IDBFS database, and calls `commit()` before returning
 from the lifecycle event. Returning to the visible page keeps the live model.
 There are no object-layer files, checkpoint sidecars or gesture saves.
@@ -42,6 +46,20 @@ build-host producer runs under Node; builder and distillation definitions are
 absent from both runtime application translation units. Non-Debug builds consume
 the header prepared by Debug and do not build the producer. Non-Debug browser
 packaging was not run in this port acceptance.
+
+## Native menu controls
+
+The shared `CatalogUiState` and `ComposeCatalogMenu` supply author Theme and
+Language. The shell reflects model labels and selection through labeled native
+DOM selects and forwards command indices through the model proxy. The old
+content Language button and separate appearance checkbox are absent. Pager
+accessible labels and lifecycle status strings also come from model localization.
+Native selects retain browser keyboard and accessibility behavior.
+
+Auto follows live browser color-scheme notifications; forced colors takes
+priority over explicit themes on shell and window surfaces. Existing device
+LOCAL wins over an optional whole native LOCAL seed. Save/stop input blocking
+includes menus, pager buttons, dots, keyboard paging and swipes.
 
 ## Incremental build
 
@@ -93,8 +111,8 @@ The test uses a fresh browser context, native buttons/list input and real Chrome
 touch swipes. It checks Add, paging, Close, reopen, Delete, RU/EN localization,
 portrait/landscape model-derived Close geometry, and unsigned DOM object IDs.
 During foreground working actions the persistent file tree must be unchanged. Shutdown
-must create exactly one nonempty `user.bin` per profile. Two cold consumer
-navigations verify restored children, locale and subsequent saving; a second
+must create nonempty `user.bin` and `local/user.bin` in each profile. Cold
+consumer navigations verify restored children, locale and subsequent saving; a second
 normal Debug launch must start empty and preserve the old file bytes and mtime.
 There is no optimistic active-page mutation in the shell.
 

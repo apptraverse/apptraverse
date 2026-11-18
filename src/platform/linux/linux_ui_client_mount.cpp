@@ -43,4 +43,21 @@ GtkWidget* CreateClientMount() {
   return GTK_WIDGET(g_object_new(apptraverse_client_mount_get_type(), nullptr));
 }
 
+void SetNativeSizeRequestIfChanged(GtkWidget* widget, int width, int height) {
+  int current_width{}, current_height{};
+  gtk_widget_get_size_request(widget, &current_width, &current_height);
+  if (current_width != width || current_height != height)
+    gtk_widget_set_size_request(widget, width, height);
+}
+
+void SetClientMountChildFrameIfChanged(GtkWidget* child, int x, int y,
+                                       int width, int height) {
+  SetNativeSizeRequestIfChanged(child, width, height);
+  auto* parent = GTK_CONTAINER(gtk_widget_get_parent(child));
+  int current_x{}, current_y{};
+  gtk_container_child_get(parent, child, "x", &current_x, "y", &current_y, nullptr);
+  if (current_x != x || current_y != y)
+    gtk_fixed_move(GTK_FIXED(parent), child, x, y);
+}
+
 }  // namespace apptraverse::ui::linux

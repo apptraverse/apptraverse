@@ -129,7 +129,7 @@ void CheckManifest(Snapshot const& actual, Snapshot const& expected) {
 }
 
 void Save(WindowCatalog& catalog, ae::RamDomainStorage& user, ae::RamDomainStorage& local,
-          std::filesystem::path const& profile) {
+          ae::RamDomainStorage const& backing, std::filesystem::path const& profile) {
   Require(!std::filesystem::exists(profile / "user.bin"), "output profile already exists");
   std::filesystem::create_directories(profile);
   auto const snapshot = Inspect(catalog);
@@ -141,6 +141,22 @@ void Save(WindowCatalog& catalog, ae::RamDomainStorage& user, ae::RamDomainStora
   Require(static_cast<bool>(manifest), "manifest save failed");
   for (auto const& id : CollectWindowCatalogSupplyConstantIds(catalog)) {
     Require(user.state.count(id) == 0, "constant bodies leaked into USER");
+    Require(local.state.count(id) == 0, "constant bodies leaked into LOCAL");
+  }
+  // Check authored metadata independently of the exporter's explicit list.
+  // Menu definitions, localized slots and historical bases stay in supply even
+  // after selecting a language or writing a transferable LOCAL seed.
+  for (auto const& [id, scope] : backing.object_scopes) {
+    if (!scope.is_constant) continue;
+    if (user.state.count(id) != 0 || local.state.count(id) != 0) {
+      std::cerr << "authored constant leak id=" << id.id() << " root=" << scope.root_id.id()
+          << " USER=" << user.state.count(id) << " LOCAL=" << local.state.count(id) << " classes=";
+      auto const& layers = user.state.count(id) ? user.state.at(id) : local.state.at(id);
+      for (auto const& [class_id, bytes] : *layers) std::cerr << class_id << ':' << bytes.size() << ',';
+      std::cerr << '\n';
+    }
+    Require(user.state.count(id) == 0, "authored supply body leaked into USER");
+    Require(local.state.count(id) == 0, "authored supply body leaked into LOCAL");
   }
 }
 
@@ -256,11 +272,11 @@ int main(int argc, char** argv) {
     environment.monitors.push_back({"fixture-device", {0,0,1280,960}, {0,0,1280,920}, true, 0, 60});
     catalog->persisted.device_state->ObserveEnvironment(environment, ui::UiEnvironmentReason::kStartup);
     catalog->persisted.device_state->SetAppearance({ui::UiThemeMode::kDark, true});
-    Save(*catalog, user, local, profile);
+    Save(*catalog, user, local, backing, profile);
   } else if (operation == "transfer") {
     Require(argc >= 4, "transfer requires separate output profile");
     if (!existing_local.empty()) Require(local.state == existing_local, "loading portable USER changed existing LOCAL");
-    Save(*catalog, user, local, argv[3]);
+    Save(*catalog, user, local, backing, argv[3]);
     if (!existing_local.empty()) Require(local.state == existing_local, "transfer save changed existing LOCAL");
   } else if (operation == "inspect-local") {
     auto const& device = *catalog->persisted.device_state;
@@ -277,7 +293,7 @@ int main(int argc, char** argv) {
     if (operation == "set-layout-override") {
       auto root = state.EffectiveRoot(); root.padding = 44; state.SetOverride(root);
     } else state.ClearOverride();
-    Save(*catalog, user, local, argv[3]);
+    Save(*catalog, user, local, backing, argv[3]);
   } else if (operation == "inspect") {
     for (auto const& [key, value] : Inspect(*catalog)) {
       std::cout << key << '=' << value << '\n';
@@ -312,7 +328,7 @@ int main(int argc, char** argv) {
     if (operation == "continue") {
       Require(argc == 4, "continue requires separate output profile");
       Continue(*catalog);
-      Save(*catalog, user, local, argv[3]);
+      Save(*catalog, user, local, backing, argv[3]);
     } else {
       Require(operation == "verify", "unknown operation");
     }

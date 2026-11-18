@@ -15,6 +15,7 @@ void UiLocaleSettings::SubmitLanguageIndexFromUi(int language_index) {
     return;
   }
   auto event = SetUiLanguageIndexEvent::ptr::Create(ae::CreateWith{*domain});
+  event->SetObjectScope(object_scope());
   event->language_index = language_index;
   Commit(std::move(event));
 }

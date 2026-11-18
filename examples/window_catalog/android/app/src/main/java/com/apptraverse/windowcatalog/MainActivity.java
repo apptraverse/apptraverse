@@ -2,15 +2,14 @@ package com.apptraverse.windowcatalog;
 
 import android.app.Activity;
 import android.os.Bundle;
-import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
 /** Native Activity shell; page selection belongs to the model. */
-public final class MainActivity extends Activity {
-  private static final String TAG = "AppTraverseWindowCatalog";
+public final class MainActivity extends Activity
+    implements com.apptraverse.ui.android.AppTraverseAndroidUi.ActivityAppearanceHost {
   private static final int SWIPE_MIN_DISTANCE_PX = 80;
   public static final String EXTRA_STATE_SUBDIR = "stateSubdir";
   public static final String DEFAULT_STATE_SUBDIR = "window_catalog_state";
@@ -18,9 +17,18 @@ public final class MainActivity extends Activity {
   private float gestureDownX, gestureDownY;
   private long gestureDownTime;
   private boolean trackingGesture;
+  private boolean mountedDark, themeRecreationPosted;
+
+  private boolean isDark(int mode) {
+    return mode == 2 || (mode == 0 && (getResources().getConfiguration().uiMode
+        & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+        == android.content.res.Configuration.UI_MODE_NIGHT_YES);
+  }
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
+    mountedDark = isDark(application().appearanceMode());
+    setTheme(mountedDark ? android.R.style.Theme_Material : android.R.style.Theme_Material_Light);
     super.onCreate(savedInstanceState);
     setContentView(R.layout.activity_main);
     loading = findViewById(R.id.loading);
@@ -35,12 +43,29 @@ public final class MainActivity extends Activity {
     app.startModelOnce();
   }
 
+  @Override public void setPresentedAppearance(int mode, boolean soften) {
+    application().setAppearanceMode(mode);
+    if (mountedDark == isDark(mode) || themeRecreationPosted) return;
+    themeRecreationPosted = true;
+    // Recreate standard Android chrome with its native theme after this apply.
+    getWindow().getDecorView().post(() -> {
+      themeRecreationPosted = false;
+      if (!isFinishing() && !isDestroyed() && mountedDark != isDark(application().appearanceMode()))
+        recreate();
+    });
+  }
+
   @Override public boolean onCreateOptionsMenu(android.view.Menu menu) { return true; }
 
   @Override public boolean onPrepareOptionsMenu(android.view.Menu menu) {
     menu.clear();
-    com.apptraverse.ui.android.AppTraverseAndroidUi.populateAppearanceMenu(
-        (android.view.ViewGroup) findViewById(R.id.page_container), menu);
+    NativeRuntime.nativePopulateMenu(application().runtimeHandle(), menu);
+    return true;
+  }
+
+  @Override public boolean onOptionsItemSelected(android.view.MenuItem item) {
+    if (item.hasSubMenu()) return super.onOptionsItemSelected(item);
+    NativeRuntime.nativeExecuteMenuCommand(application().runtimeHandle(), item.getItemId());
     return true;
   }
 
@@ -83,7 +108,6 @@ public final class MainActivity extends Activity {
   public void onMobilePages(long[] windowIds, long activeWindowId) {
     loading.setVisibility(View.GONE);
     invalidateOptionsMenu();
-    Log.i(TAG, "PAGE_SHOWN id=" + activeWindowId + " count=" + windowIds.length);
   }
 
   private WindowCatalogApplication application() {

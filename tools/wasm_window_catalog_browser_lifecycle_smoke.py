@@ -164,11 +164,18 @@ def main() -> int:
             with (artifacts / 'chrome.log').open('a', encoding='utf-8') as chrome_log:
                 chrome_process = subprocess.Popen(command, stdout=chrome_log, stderr=subprocess.STDOUT)
             deadline = time.monotonic() + 15
-            while not port_file.exists():
+            while True:
                 assert chrome_process.poll() is None, 'Chrome exited before opening its debugging port'
                 assert time.monotonic() < deadline, 'Chrome debugging port did not become ready'
+                try:
+                    lines = port_file.read_text(encoding='utf-8').splitlines()
+                    if lines and lines[0].isdigit():
+                        port = lines[0]
+                        break
+                except (FileNotFoundError, PermissionError):
+                    # Chrome can hold the newly created file while writing it.
+                    pass
                 time.sleep(.05)
-            port = port_file.read_text(encoding='utf-8').splitlines()[0]
             # Playwright normally forces every tab to appear focused/visible.
             # Attaching without its defaults preserves real browser lifecycle.
             browser = playwright.chromium.connect_over_cdp(
@@ -202,7 +209,7 @@ def main() -> int:
             child_page(page)
             first_id = active_id(page)
             main_page(page)
-            control(page, 5005).click()
+            page.locator('#catalog-menu-1').select_option('1')
             expect(control(page, 5002)).to_have_text('Добавить')
             page.locator('#next-page').click()
             child_page(page, 'Окно 1')
@@ -276,7 +283,7 @@ def main() -> int:
                 print('PASS: actual tab hide/return kept the live model and persisted one USER file')
 
             main_page(page)
-            control(page, 5005).click()
+            page.locator('#catalog-menu-1').select_option('0')
             expect(control(page, 5002)).to_have_text('Add')
             page.locator('#next-page').click()
             child_page(page, 'Window 1')
@@ -315,6 +322,19 @@ def main() -> int:
             child_page(page, 'Window 3')
             expect(page.locator(ROWS)).to_have_text(['Window 1', 'Window 2', 'Window 3'])
             print('PASS: application Close and reload in the same JS turn preserved the latest child')
+            # Deterministic handler regression, separate from the real browser
+            # events above: an earlier boundary must not suppress a later one
+            # after another native command has been accepted.
+            page.evaluate("window.dispatchEvent(new PageTransitionEvent('pagehide'))")
+            with page.expect_navigation(wait_until='domcontentloaded'):
+                page.evaluate("""() => {
+                  document.querySelector('button[data-apptraverse-control-id="5002"]').click();
+                  window.dispatchEvent(new PageTransitionEvent('pagehide'));
+                  location.reload();
+                }""")
+            child_page(page, 'Window 4')
+            expect(page.locator(ROWS)).to_have_text(['Window 1', 'Window 2', 'Window 3', 'Window 4'])
+            print('PASS: repeated pagehide handler boundaries captured newly accepted commands')
             assert not errors, errors
             known_warning = 'error: Blocking on the main thread is very dangerous, see https://emscripten.org/docs/porting/pthreads.html#blocking-on-the-main-browser-thread'
             unexpected = [message for message in messages
@@ -336,6 +356,10 @@ def main() -> int:
             if browser is not None and browser.is_connected():
                 browser.new_browser_cdp_session().send('Browser.close')
             if chrome_process is not None:
+                if browser is None and chrome_process.poll() is None:
+                    # Startup failed before CDP attachment; this is our private
+                    # test process, with no application lifecycle to exercise.
+                    chrome_process.terminate()
                 chrome_process.wait(timeout=15)
 
 

@@ -1,5 +1,6 @@
 #include "window_catalog_graph_android.h"
 #include "window_catalog_graph_builder.h"
+#include "window_catalog_menu.h"
 #include "window_catalog_presenters_android.h"
 #include "window_catalog_ids.h"
 #include "apptraverse/platform/android/android_ui_push_button_presenter.h"
@@ -35,7 +36,15 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
 
   WindowCatalogGraphOptions options;
   options.mobile_close_in_prefab = true;
-  return BuildWindowCatalogGraph(domain, factory, options);
+  options.language_button = false;
+  options.create_device = [](ae::Domain& build_domain, ae::ObjId id) {
+    auto state = CatalogUiState::ptr::Create(ae::CreateWith{build_domain}.with_id(id));
+    state->catalog = {}; state->menu = {};
+    return ui::UiDeviceState::ptr{state};
+  };
+  auto catalog = BuildWindowCatalogGraph(domain, factory, std::move(options));
+  ComposeCatalogMenu(domain, *catalog, CatalogThemeHandling::kAdapterAppliesTheme);
+  return catalog;
 }
 
 }

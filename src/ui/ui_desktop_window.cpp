@@ -125,18 +125,19 @@ void UiDesktopWindow::Apply(ReportUiDesktopScreenEvent const& event) {
                               restore_client_width_, restore_client_height_);
     placement_ = InitialPlacement::Explicit;
     NoteMaterializedChange();
-    frame_request_pending_publication_ = true;
   }
 }
 
 void UiDesktopWindow::SubmitScreenFromNative(std::int32_t x, std::int32_t y,
                                              std::int32_t width, std::int32_t height) {
+  bool const centered = placement_ == InitialPlacement::Centered;
   auto event = ReportUiDesktopScreenEvent::ptr::Create(ae::CreateWith{*domain});
   event->x = x;
   event->y = y;
   event->width = width;
   event->height = height;
   Commit(std::move(event));
+  if (centered) frame_request_pending_publication_ = true;
 }
 
 }  // namespace apptraverse::ui

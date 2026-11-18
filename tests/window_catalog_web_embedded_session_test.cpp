@@ -16,6 +16,8 @@
 #include "window_catalog_ids.h"
 #include "window_catalog_list_row_text.h"
 #include "window_catalog_model.h"
+#include "window_catalog_menu.h"
+#include "apptraverse/client_local_state.h"
 #include "window_catalog_prepare.h"
 #include "window_catalog_supply_constant_ids.h"
 
@@ -91,6 +93,60 @@ void MutateCatalogSession(WindowCatalog& catalog) {
   catalog.persisted.locale->SubmitLanguageIndexFromUi(0);
   catalog.MaterializeCatalogStrings(0);
   CHECK(catalog.persisted.locale->language_index() == 0);
+}
+
+void TestWebMenuLanguageStaysInLocalPartition() {
+  ae::RamDomainStorage backing, user, local;
+  InstallEmbeddedDistilledBacking(backing,
+      embedded_distilled::window_catalog_web::kEmbeddedGraph);
+  ClientLocalDomainStorage routed{user, local, backing,
+      CollectClientLocalRoots(backing)};
+  OverlayDomainStorage overlay{routed, backing, EmbeddedSupplyConstantIdSet(
+      embedded_distilled::window_catalog_web::kEmbeddedGraph)};
+  ae::Domain domain{overlay};
+  auto catalog = LoadApplication<WindowCatalog>(domain, kCatalogId);
+  PrepareWindowCatalogForRun(*catalog);
+  PrepareCatalogMenuForRun(*catalog);
+  catalog->AddWindow();
+  SaveWindowCatalogPersistentSnapshot(*catalog);
+  auto const portable_before = user.state;
+  auto const scope_before = user.object_scopes;
+  auto const local_before = local.state;
+  auto& state = static_cast<CatalogUiState&>(*catalog->persisted.device_state);
+  bool executed = false;
+  for (unsigned group = 0; group < state.menu->groups.size(); ++group)
+    for (unsigned item = 0; item < state.menu->groups[group].items.size(); ++item) {
+      auto const& command = state.menu->groups[group].items[item];
+      if (command.action == CatalogMenuAction::kLanguage && command.value == 1) {
+        state.ExecuteMenuCommand(group, item);
+        executed = true;
+      }
+    }
+  CHECK(executed);
+  CHECK(catalog->persisted.locale->language_index() == 1);
+  SaveWindowCatalogPersistentSnapshot(*catalog);
+  CHECK(user.state.count(catalog->persisted.locale.id()) == 0);
+  CHECK(local.state.count(catalog->persisted.locale.id()) != 0);
+  for (auto id : EmbeddedSupplyConstantIdSet(
+           embedded_distilled::window_catalog_web::kEmbeddedGraph)) {
+    CHECK(user.state.count(id) == 0);
+    CHECK(local.state.count(id) == 0);
+  }
+  if (user.state != portable_before) {
+    for (auto const& [id, layers] : user.state) {
+      auto old = portable_before.find(id);
+      if (old != portable_before.end() && old->second == layers) continue;
+      std::cerr << "USER_DIFF id=" << id.id() << " classes=";
+      if (layers) for (auto const& [cls, versions] : *layers) {
+        std::cerr << cls << ':';
+        for (auto const& [version, data] : versions) std::cerr << unsigned(version) << '/' << data.size() << ',';
+      }
+      std::cerr << '\n';
+    }
+  }
+  CHECK(user.state == portable_before);
+  CHECK(user.object_scopes == scope_before);
+  CHECK(local.state != local_before);
 }
 
 void TestWebEmbeddedBackingUserColdLoadWithoutNormalize() {
@@ -174,9 +230,25 @@ void TestWebEmbeddedBackingUserColdLoadWithoutNormalize() {
 }  // namespace
 }  // namespace apptraverse::test
 
-int main() {
+int main(int argc, char** argv) {
   apptraverse::EnsureWebWindowCatalogGraphRegistration();
+  if (argc == 3 && std::string{argv[1]} == "--inspect-native") {
+    ae::RamDomainStorage native;
+    CHECK(apptraverse::LoadUserStorageFile(native, argv[2]));
+    for (auto const& [id, layers] : native.state) {
+      auto scope = native.ReadObjectScope(id);
+      std::cout << "NATIVE id=" << id.id() << " root=" << (scope ? scope->root_id.id() : 0)
+                << " constant=" << (scope && scope->is_constant) << " classes=";
+      if (layers) for (auto const& [cls, versions] : *layers) {
+        std::cout << cls << (cls == apptraverse::CatalogMenuDefinition::kClassId ? "(CatalogMenuDefinition)" : "") << ':';
+        for (auto const& [version, data] : versions) std::cout << unsigned(version) << '/' << data.size() << ',';
+      }
+      std::cout << '\n';
+    }
+    return 0;
+  }
   apptraverse::test::TestWebEmbeddedBackingUserColdLoadWithoutNormalize();
+  apptraverse::test::TestWebMenuLanguageStaysInLocalPartition();
   std::cout << "window_catalog_web_embedded_session_test OK\n";
   return 0;
 }

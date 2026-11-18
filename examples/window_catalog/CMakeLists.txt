@@ -113,6 +113,8 @@ target_compile_features(window_catalog_mobile PUBLIC cxx_std_20)
 
 add_library(window_catalog_window_catalog_common STATIC
   common/window_catalog_model.cpp
+  common/window_catalog_menu.cpp
+  common/window_catalog_menu_builder.cpp
   common/window_catalog_localization.cpp
   common/window_catalog_registration.cpp
   common/window_catalog_desktop_registration.cpp
@@ -187,6 +189,7 @@ if(WIN32 AND NOT EMSCRIPTEN)
   target_link_libraries(window_catalog_window_catalog PUBLIC
     window_catalog_window_catalog_common
     apptraverse_ui_windows)
+  target_link_libraries(window_catalog_window_catalog PUBLIC uxtheme)
   target_compile_features(window_catalog_window_catalog PUBLIC cxx_std_20)
   if(MSVC)
     target_compile_options(window_catalog_window_catalog PRIVATE /utf-8)

@@ -28,7 +28,7 @@ class WebWindowCatalogApp {
   void ViewportChanged(int width, int height);
   void ChildViewportChanged(unsigned window_id, int width, int height);
   void FinishTeardown(bool shutdown_succeeded);
-  void SetAppearance(int theme, bool soften);
+  void ExecuteMenuCommand(unsigned group, unsigned item);
 
  private:
   WebWindowCatalogApp() = default;

@@ -48,7 +48,6 @@ jlong NativeCreate(JNIEnv* env, jclass, jstring files_dir, jstring state_subdir,
                      ui::android::JstringToUtf8(env, local_seed_subdir);
   auto* runtime = new WindowCatalogNativeRuntime(
       std::move(state_dir), std::move(local_seed_dir), std::move(wc_bridge), std::move(android_bridge));
-  android::LogInfo("WINDOW_CATALOG_NATIVE_RUNTIME_CREATED");
   return reinterpret_cast<jlong>(runtime);
 }
 
@@ -59,6 +58,10 @@ void NativeSetPresentationRoot(JNIEnv* env, jclass, jlong handle, jobject activi
 
 void NativeStartModel(JNIEnv*, jclass, jlong handle) {
   FromHandle(handle)->StartModelThread();
+}
+
+void NativeClearPresentationRoot(JNIEnv* env, jclass, jlong handle, jobject activity) {
+  FromHandle(handle)->ClearPresentationRoot(env, activity);
 }
 
 void NativeConsumePublication(JNIEnv*, jclass, jlong handle, jint kind) {
@@ -73,6 +76,14 @@ void NativeMobileSwipe(JNIEnv*, jclass, jlong handle, jint delta) {
   FromHandle(handle)->MobileSwipe(static_cast<int>(delta));
 }
 
+void NativePopulateMenu(JNIEnv* env, jclass, jlong handle, jobject menu) {
+  FromHandle(handle)->PopulateMenu(env, menu);
+}
+
+void NativeExecuteMenuCommand(JNIEnv*, jclass, jlong handle, jint native_item_id) {
+  FromHandle(handle)->ExecuteMenuCommand(native_item_id);
+}
+
 void NativeDestroy(JNIEnv*, jclass, jlong handle) { delete FromHandle(handle); }
 
 JNINativeMethod const kNativeMethods[] = {
@@ -82,11 +93,15 @@ JNINativeMethod const kNativeMethods[] = {
     {"nativeSetPresentationRoot", "(JLandroid/app/Activity;Landroid/view/ViewGroup;)V",
      reinterpret_cast<void*>(&NativeSetPresentationRoot)},
     {"nativeStartModel", "(J)V", reinterpret_cast<void*>(&NativeStartModel)},
+    {"nativeClearPresentationRoot", "(JLandroid/app/Activity;)V",
+     reinterpret_cast<void*>(&NativeClearPresentationRoot)},
     {"nativeConsumePublication", "(JI)V",
      reinterpret_cast<void*>(&NativeConsumePublication)},
     {"nativeFlushPendingBackgroundSaves", "(J)V",
      reinterpret_cast<void*>(&NativeFlushPendingBackgroundSaves)},
     {"nativeMobileSwipe", "(JI)V", reinterpret_cast<void*>(&NativeMobileSwipe)},
+    {"nativePopulateMenu", "(JLandroid/view/Menu;)V", reinterpret_cast<void*>(&NativePopulateMenu)},
+    {"nativeExecuteMenuCommand", "(JI)V", reinterpret_cast<void*>(&NativeExecuteMenuCommand)},
     {"nativeDestroy", "(J)V", reinterpret_cast<void*>(&NativeDestroy)},
 };
 

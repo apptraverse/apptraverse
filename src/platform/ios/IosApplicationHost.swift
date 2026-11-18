@@ -313,6 +313,26 @@ public struct IosApplicationRootView: View {
                 IosPagerIndicator(host: host).frame(height: 24)
             }
           }
+          .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                ForEach(Array(host.menuGroups.enumerated()), id: \.offset) { groupIndex, group in
+                    Menu(group.title.replacingOccurrences(of: "&", with: "")) {
+                        ForEach(Array(group.items.enumerated()), id: \.offset) { itemIndex, item in
+                            Button {
+                                host.executeMenu(group: groupIndex, item: itemIndex)
+                            } label: {
+                                if item.isSelected {
+                                    Label(item.title, systemImage: "checkmark")
+                                } else {
+                                    Text(item.title)
+                                }
+                            }
+                        }
+                    }
+                    .accessibilityIdentifier("catalog-menu-\(groupIndex)")
+                }
+            }
+          }
         }
         .onAppear { host.startIfNeeded() }
     }
@@ -325,6 +345,7 @@ public final class IosApplicationHost: NSObject, ObservableObject,
     @Published var scenes: [UInt64: IosWindowSceneModel] = [:]
     @Published var pageTokens: [UInt64] = []
     @Published var activeToken: UInt64?
+    @Published var menuGroups: [ATIosMenuGroupState] = []
     var buttons: [UInt64: IosButtonAdapter] = [:]
     var lists: [UInt64: IosListAdapter] = [:]
     private var started = false
@@ -377,6 +398,16 @@ public final class IosApplicationHost: NSObject, ObservableObject,
         bridge.start()
     }
     public func lastModelExitCode() -> Int? { lastExitStatus }
+
+    func executeMenu(group: Int, item: Int) {
+        guard started && !stopping else { return }
+        bridge.executeMenuGroup(UInt(group), item: UInt(item))
+    }
+
+    public func bridge(_ bridge: ATIosApplicationBridge,
+                       syncMenu groups: [ATIosMenuGroupState]) {
+        menuGroups = groups
+    }
 
     public func reportViewport(_ size: CGSize) {
         latestViewport = size
@@ -495,6 +526,7 @@ public final class IosApplicationHost: NSObject, ObservableObject,
         stopping = false
         activeToken = nil
         pageTokens = []
+        menuGroups = []
         endBackgroundTask()
         precondition(lastExitStatus == 0, "AppTraverse iOS model session failed")
         if applicationActive && !manualStop { startIfNeeded() }

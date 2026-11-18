@@ -40,6 +40,9 @@ android {
         if (cmakeInitialCache) {
           arguments "-DAPPTRAVERSE_CMAKE_INITIAL_CACHE=${cmakeInitialCache}"
         }
+        if (project.hasProperty("apptraverse.debugSupplyHeader")) {
+          arguments "-DAPPTRAVERSE_ANDROID_WINDOW_CATALOG_DEBUG_SUPPLY_HEADER=${project.property('apptraverse.debugSupplyHeader')}"
+        }
         targets "apptraverse_window_catalog_jni"
       }
     }

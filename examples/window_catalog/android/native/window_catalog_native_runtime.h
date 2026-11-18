@@ -27,10 +27,13 @@ class WindowCatalogNativeRuntime {
   ~WindowCatalogNativeRuntime();
 
   void SetPresentationRoot(JNIEnv* env, jobject activity, jobject content_root);
+  void ClearPresentationRoot(JNIEnv* env, jobject activity);
   void StartModelThread();
   void ConsumePublication(int kind);
   void FlushPendingBackgroundSaves();
   void MobileSwipe(int delta);
+  void PopulateMenu(JNIEnv* env, jobject menu);
+  void ExecuteMenuCommand(int native_item_id);
 
  private:
   void PublishMobilePages();

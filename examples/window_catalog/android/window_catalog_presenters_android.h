@@ -30,6 +30,7 @@ class CatalogDesktopWindowPresenter
   void Save(ae::Version<0>, Dnv& dnv) const {
     dnv(base_, catalog);
   }
+
 };
 
 class AndroidCatalogListContainerPresenter

@@ -2,6 +2,7 @@
 
 #include "window_catalog_model.h"
 #include "window_catalog_ids.h"
+#include "window_catalog_menu.h"
 
 #include "apptraverse/ui/ui_localization_string.h"
 
@@ -11,9 +12,15 @@ namespace {
 void AppendLocalizationStrings(ui::UiLocalizationString const& localization,
                                std::vector<ae::ObjId>& out) {
   out.push_back(localization.obj_id);
+  out.push_back(localization.base.id());
   for (auto const& entry : localization.strings) {
     out.push_back(entry.id());
   }
+  // Historical capture keeps Node identities but snapshots ordinary UiString
+  // leaves at private identities. Those base-owned leaves are supply too.
+  localization.base.Load();
+  auto const& historical = static_cast<ui::UiLocalizationString const&>(*localization.base);
+  for (auto const& entry : historical.strings) out.push_back(entry.id());
 }
 
 void AppendLocalizationRef(ui::UiLocalizationString::ptr const& localized,
@@ -34,7 +41,7 @@ std::vector<ae::ObjId> CollectWindowCatalogSupplyConstantIds(
   AppendLocalizationRef(texts.label_add, ids);
   AppendLocalizationRef(texts.label_open, ids);
   AppendLocalizationRef(texts.label_delete, ids);
-  AppendLocalizationRef(texts.label_language, ids);
+  if (texts.label_language.id().is_valid()) AppendLocalizationRef(texts.label_language, ids);
   AppendLocalizationRef(texts.window_title_prefix, ids);
   AppendLocalizationRef(texts.label_close, ids);
   AppendLocalizationRef(texts.list_row_title_format, ids);
@@ -44,6 +51,21 @@ std::vector<ae::ObjId> CollectWindowCatalogSupplyConstantIds(
       static_cast<ui::UiPresentedWindow const&>(*catalog.persisted.main_window)
           .presenter->title;
   AppendLocalizationRef(main_title, ids);
+  catalog.persisted.device_state.Load();
+  // Menus are an authored optional component: headless/common supplies can use
+  // the plain device state, while menu supplies own this immutable LOCAL graph.
+  if (catalog.persisted.device_state->GetClassId() == CatalogUiState::kClassId) {
+    auto const& state = static_cast<CatalogUiState const&>(*catalog.persisted.device_state);
+    state.menu.Load();
+    ids.push_back(state.menu.id());
+    ids.push_back(state.menu->base.id());
+    for (auto const& group : state.menu->groups) {
+      AppendLocalizationRef(group.label, ids);
+      for (auto const& item : group.items) AppendLocalizationRef(item.label, ids);
+    }
+    for (auto const& item : state.menu->layout_items) AppendLocalizationRef(item.label, ids);
+    for (auto const& text : state.menu->shell_strings) AppendLocalizationRef(text, ids);
+  }
   return ids;
 }
 

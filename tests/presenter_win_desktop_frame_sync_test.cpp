@@ -289,6 +289,26 @@ void TestProgrammaticMoveWhileNativePending() {
   CHECK(y == 800);
 }
 
+void TestPublishedRequestSurvivesInteractiveDrag() {
+  Harness h;
+  HWND const hwnd = h.presenter->hwnd();
+  SendMessageW(hwnd, WM_ENTERSIZEMOVE, 0, 0);
+  MoveNativeWindow(hwnd, 90, 100, 640, 480);
+  h.root->window->RequestFrame(710, 310, 730, 530);
+  ApplyModelStructuralPublication(h);
+  std::int32_t x{}, y{}, width{}, height{};
+  ReadHwndFrame(hwnd, x, y, width, height);
+  CHECK(x == 90 && y == 100);
+  // A later non-request publication cannot replace the target captured from
+  // the explicit request's publication envelope.
+  ApplyFrameToMirror(*h.root->window, 50, 60, 640, 480);
+  h.presenter->OnModelChanged();
+  MoveNativeWindow(hwnd, 110, 120, 650, 490);
+  SendMessageW(hwnd, WM_EXITSIZEMOVE, 0, 0);
+  ReadHwndFrame(hwnd, x, y, width, height);
+  CHECK(x == 710 && y == 310 && width == 730 && height == 530);
+}
+
 void TestInteractiveDragCoalescesModelSubmits() {
   Harness h;
   HWND const hwnd = h.presenter->hwnd();
@@ -348,6 +368,7 @@ int main() {
   apptraverse::test::TestInteractiveDragCoalescesModelSubmits();
   apptraverse::test::TestAbaStaleMiddlePublicationDoesNotJump();
   apptraverse::test::TestProgrammaticMoveWhileNativePending();
+  apptraverse::test::TestPublishedRequestSurvivesInteractiveDrag();
   apptraverse::test::TestResizeStaleEcho();
   std::cout << "presenter_win_desktop_frame_sync_test OK\n";
   return 0;

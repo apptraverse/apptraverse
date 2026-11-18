@@ -1,5 +1,11 @@
 # Agent rules (apptraverse — unified worktree)
 
+## Apple UI
+
+Use SwiftUI for Apple UI, including content, lists, layout, and commands.
+WindowCatalog and MinimalApp may use AppKit at the native-window boundary for
+desktop operations SwiftUI cannot provide, including close on macOS 13.
+
 ## Completed non-Apple layout / LOCAL contract — 2026-11-17
 
 The user authorized and implemented the common layout and LOCAL model on Windows,
@@ -134,8 +140,8 @@ supersedes demo profile-restore acceptance; SDK identity storage is separate.
 - Windows USER uses ordinary RamDomainStorage over embedded BACKING. Child Close saves only to RAM; application shutdown writes one user.bin. Normal Debug always creates a fresh graph and does not load prior USER. No separate checkpoint sidecar.
 - Prefer incremental **Debug** builds; do not clean/rebuild without cause. **No** Release by default, no fresh populate without user request.
 - Update [docs/versioning/PROGRESS.md](docs/versioning/PROGRESS.md) only after verified steps. Do not mark PASS without execution.
-- Do not merge to `main` or force-push without explicit user instruction (task may specify `--force-with-lease` on `integration/unified-application`).
-- Рабочие изменения: commit + push в текущую ветку. PR — только по прямой команде.
+- Standing user instruction (2026-11-18): publish completed, verified AppTraverse changes to `origin/main` by default. This supplies the explicit authorization for `main` required by Canon rule 30 and historical notes. Follow a different destination or publication hold when the user specifies one for the task.
+- Commit on the working branch and integrate into `main` without rewriting remote history. Force-push and PR creation still require a separate explicit request.
 - Distilled UI graph contract is mandatory (button, label, locale, window_presenter, links): do not re-validate with optional runtime checks, fallbacks, or silent skips in presenters.
 - Runtime lifecycle states (`ReadyForPresentation`, activated parent, disabled control, closed/lazy window) are real; do not conflate them with missing graph links.
 - Side effects (Save/Load/Inject, I/O, mutation) must not run only inside `assert`; execute once, store the result, assert on that result (must still run under `NDEBUG`).

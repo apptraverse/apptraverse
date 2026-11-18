@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <cstdlib>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -10,6 +11,7 @@
 #include "apptraverse/platform/macos/macos_ui_presenters.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "window_catalog_graph.h"
+#include "window_catalog_menu.h"
 #include "window_catalog_lifecycle.h"
 #include "window_catalog_main_native_frame_wiring.h"
 #include "window_catalog_model.h"
@@ -18,6 +20,15 @@
 #endif
 
 namespace {
+NSString* CatalogMenuText(std::string const& text) {
+  NSString* result = [[NSString alloc] initWithBytes:text.data()
+      length:text.size() encoding:NSUTF8StringEncoding];
+  if (result == nil) {
+    apptraverse::WriteFatalStderr("cannot create native catalog menu text\n");
+    std::abort();
+  }
+  return result;
+}
 std::filesystem::path NativeDirectory(NSString* directory) {
   char const* native_path = directory.fileSystemRepresentation;
   if (!native_path || native_path[0] == '\0') {
@@ -50,8 +61,17 @@ ATMacApplicationBridge* ATCreateWindowCatalogApplicationBridge(
     NSString* userDirectory, id<ATMacApplicationBridgeDelegate> delegate) {
   auto application = std::make_shared<CatalogApplication>();
   application->session.state_dir = NativeDirectory(userDirectory);
+  application->session.prepare_local_state =
+      [environment = apptraverse::ui::macos::ReadMacDeviceEnvironment()](apptraverse::WindowCatalog& catalog) {
+        catalog.persisted.device_state->ObserveEnvironment(
+            environment, apptraverse::ui::UiEnvironmentReason::kStartup);
+        apptraverse::PrepareCatalogMenuForRun(catalog);
+      };
   apptraverse::ui::macos::MacApplicationBridgeCallbacks callbacks;
   callbacks.runtime = &application->session.runtime;
+  callbacks.main_window_id = [](ae::Obj& root) {
+    return static_cast<apptraverse::WindowCatalog&>(root).persisted.main_window.id();
+  };
   callbacks.run_model =
       [application](apptraverse::ApplicationModelRuntime&,
                     apptraverse::ApplicationPublishedCallback on_published) {
@@ -70,6 +90,32 @@ ATMacApplicationBridge* ATCreateWindowCatalogApplicationBridge(
                      apptraverse::ui::macos::CaptureMacDesktopZOrder(root));
         request_stop();
       };
+  callbacks.menu_state = [](ae::Obj& root) -> NSArray<ATMacMenuGroupState*>* {
+    auto& catalog = static_cast<apptraverse::WindowCatalog&>(root);
+    auto& state = static_cast<apptraverse::CatalogUiState&>(
+        *catalog.persisted.device_state);
+    int const language = catalog.persisted.locale->language_index();
+    NSMutableArray<ATMacMenuGroupState*>* groups = [NSMutableArray array];
+    for (auto const& group : state.menu->groups) {
+      NSMutableArray<ATMacMenuItemState*>* items = [NSMutableArray array];
+      for (auto const& item : group.items) {
+        auto const& text = item.label->Resolve(language);
+        [items addObject:[[ATMacMenuItemState alloc]
+            initWithTitle:CatalogMenuText(text)
+            selected:state.MenuItemSelected(item)]];
+      }
+      auto const& title = group.label->Resolve(language);
+      [groups addObject:[[ATMacMenuGroupState alloc]
+          initWithTitle:CatalogMenuText(title) items:items]];
+    }
+    return [groups copy];
+  };
+  callbacks.on_menu_command = [](ae::Obj& root,
+      apptraverse::ModelObjectProxy& proxy, unsigned group, unsigned item) {
+    auto& catalog = static_cast<apptraverse::WindowCatalog&>(root);
+    proxy.Invoke(catalog.persisted.device_state.id(),
+        &apptraverse::CatalogUiState::ExecuteMenuCommand, group, item);
+  };
   callbacks.close_desktop_window =
       [](ae::Obj& root, ae::Obj& closed_window,
                     apptraverse::ModelObjectProxy& proxy,

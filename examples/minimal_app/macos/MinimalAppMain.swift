@@ -1,5 +1,6 @@
 import AppTraverseMacUI
 import Foundation
+import SwiftUI
 
 private func userDirectory() -> URL {
     if let index = CommandLine.arguments.firstIndex(of: "--state-dir"),
@@ -12,13 +13,16 @@ private func userDirectory() -> URL {
 }
 
 @main
-private enum MinimalAppMain {
-    static func main() {
+private struct MinimalAppMain: App {
+    @StateObject private var host: MacApplicationHost
+
+    init() {
         ATRegisterMinimalMacApplication()
         let directory = userDirectory()
-        let host = MacApplicationHost { delegate in
-            ATCreateMinimalApplicationBridge(directory.path, delegate)
-        }
-        exit(host.run())
+        _host = StateObject(wrappedValue: MacApplicationHost {
+            ATCreateMinimalApplicationBridge(directory.path, $0)
+        })
     }
+
+    var body: some Scene { MacApplicationScenes(host: host) }
 }

@@ -1,5 +1,6 @@
 #include "window_catalog_graph_android.h"
 #include "window_catalog_presenters_android.h"
+#include "window_catalog_menu.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/platform/android/android_ui_registration.h"
 
@@ -26,6 +27,7 @@ namespace apptraverse {
 void EnsureWindowCatalogAndroidGraphRegistration() {
   EnsureCoreObjectRegistration();
   EnsureWindowCatalogModelRegistration();
+  EnsureCatalogMenuRegistration();
   ui::android::EnsureAndroidUiPresenterRegistration();
   (void)&example::surfaces::g_apptraverse_registrar_AndroidCatalogListContainerPresenter;
   (void)&example::surfaces::g_apptraverse_registrar_CatalogDesktopWindowPresenter;

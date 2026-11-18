@@ -2,6 +2,7 @@
 
 #include "apptraverse/platform/linux/linux_fatal.h"
 #include "apptraverse/platform/linux/linux_ui_window_presenter.h"
+#include "apptraverse/platform/linux/linux_ui_client_mount.h"
 #include "apptraverse/ui/ui_localization_string.h"
 
 namespace apptraverse::ui::linux {
@@ -47,7 +48,8 @@ void LinuxPushButtonPresenter::OnLoad() {
 void LinuxPushButtonPresenter::SyncFromMirror() {
   int const language_index = window_presenter->locale->language_index();
   std::string const label = button->label->Resolve(language_index);
-  gtk_button_set_label(GTK_BUTTON(button_), label.c_str());
+  char const* current = gtk_button_get_label(GTK_BUTTON(button_));
+  if (!current || label != current) gtk_button_set_label(GTK_BUTTON(button_), label.c_str());
   auto* text = gtk_bin_get_child(GTK_BIN(button_));
   gtk_label_set_line_wrap(GTK_LABEL(text), TRUE);
   gtk_label_set_line_wrap_mode(GTK_LABEL(text), PANGO_WRAP_WORD);
@@ -59,10 +61,7 @@ void LinuxPushButtonPresenter::SyncFromMirror() {
   ui::UiControlLayout const layout = !button->visible()?ui::UiControlLayout{0,0,1,1,control_id}:
       window_presenter->ResolveChildLayout({layout_x, layout_y, layout_width,
                                             layout_height, control_id});
-  gtk_widget_set_size_request(button_, layout.width, layout.height);
-  auto* const parent = static_cast<GtkWidget*>(
-      window_presenter->NativeChildParentHandle());
-  gtk_fixed_move(GTK_FIXED(parent), button_, layout.x, layout.y);
+  SetClientMountChildFrameIfChanged(button_, layout.x, layout.y, layout.width, layout.height);
 }
 
 void LinuxPushButtonPresenter::OnModelChanged() { SyncFromMirror(); static_cast<LinuxDesktopWindowPresenter*>(window_presenter.operator->())->RefreshLayout(); }

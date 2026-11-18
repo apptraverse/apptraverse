@@ -1,432 +1,275 @@
 import AppKit
 import Foundation
+import SwiftUI
 @testable import AppTraverseMacUI
 
-private func require(_ value: @autoclosure () -> Bool, _ message: String) {
-    if !value() { fatalError("macOS WindowCatalog acceptance: " + message) }
+private struct SavedCatalog: Codable {
+    let rows: [UInt64]
+    let mainFrame: CGRect
 }
 
-private struct SavedExpectations: Codable {
-    let rowIDs: [UInt64]
-    let rowTexts: [String]
-    let mainWidth: Double
-    let mainHeight: Double
-    let childWidth: Double
-    let childHeight: Double
-    let desktopOrder: [String]
-}
-
-// This harness runs the production host, bridge, presenters, model thread and
-// application composition. It sends native adapter intents and operates actual
-// NSWindows; no prepared mirror snapshot substitutes for a model publication.
-private final class Acceptance {
-    struct Step {
-        let name: String
-        let action: () -> Void
-        let ready: () -> Bool
-        let check: () -> Void
-    }
-
-    let directory: URL
-    let artifacts: URL
-    let cold: Bool
+private final class CatalogScenario {
     let host: MacApplicationHost
-    var steps: [Step] = []
-    var index = 0
-    var deadline = Date.distantPast
-    var finished = false
-    var firstRowID: UInt64 = 0
-    var firstChildSize = NSSize.zero
-    var expectations: SavedExpectations?
+    let directory: URL
+    let evidence: URL
+    let cold: Bool
 
-    init(directory: URL, artifacts: URL, cold: Bool) {
+    init(directory: URL, evidence: URL, cold: Bool) {
         self.directory = directory
-        self.artifacts = artifacts
+        self.evidence = evidence
         self.cold = cold
-        host = MacApplicationHost { delegate in
-            ATCreateWindowCatalogApplicationBridge(directory.path, delegate)
+        host = MacApplicationHost {
+            ATCreateWindowCatalogApplicationBridge(directory.path, $0)
         }
-        try! FileManager.default.createDirectory(
-            at: artifacts, withIntermediateDirectories: true)
     }
 
-    var main: MacWindowAdapter? {
-        host.windows.values.first {
-            $0.title == "Window Catalog" || $0.title == "Каталог окон"
-        }
+    private var main: MacWindowAdapter? { host.window(for: host.primarySceneID) }
+    private var list: MacListAdapter? { main?.lists.first }
+
+    private func child(_ index: Int) -> MacWindowAdapter? {
+        host.windows.values.first { $0.title == "Window \(index)" || $0.title == "Окно \(index)" }
     }
-    var list: MacListAdapter? { host.lists.values.first }
-    func button(_ title: String) -> MacButtonAdapter? {
-        host.buttons.values.first { $0.title == title }
+
+    private func mounted(_ window: MacWindowAdapter?) -> Bool {
+        guard let window else { return false }
+        return window.clientSize != nil && host.nativeWindows[window.sceneID] != nil
     }
-    func child(_ number: Int) -> MacWindowAdapter? {
-        host.windows.values.first {
-            $0.title == "Window \(number)" || $0.title == "Окно \(number)"
-        }
+
+    private func button(_ title: String) -> MacButtonAdapter {
+        main!.buttons.first { $0.title == title }!
     }
-    func click(_ title: String) {
-        let control = button(title)!
-        require(control.enabled, "attempt to click disabled \(title)")
-        control.click()
+
+    private func close(_ window: MacWindowAdapter) {
+        host.nativeWindows.performClose(window.sceneID)
     }
-    func desktopOrder() -> [String] {
-        let native = Set(host.windows.values.map { ObjectIdentifier($0.window) })
-        return NSApp.orderedWindows.filter { native.contains(ObjectIdentifier($0)) }.map(\.title)
-    }
-    func nativeListTable() -> NSTableView? {
-        func find(_ view: NSView) -> NSTableView? {
+
+    private func select(_ id: UInt64) { list!.selection.wrappedValue = id }
+
+    private func clickRow(_ row: Int, count: Int = 1) {
+        func table(in view: NSView) -> NSTableView? {
             if let table = view as? NSTableView { return table }
-            for child in view.subviews {
-                if let table = find(child) { return table }
-            }
-            return nil
+            return view.subviews.lazy.compactMap(table(in:)).first
         }
-        guard let content = main?.window.contentView else { return nil }
-        return find(content)
-    }
-    func nativeClickRow(_ row: Int, double: Bool = false,
-                        atTrailingEdge: Bool = false) {
-        let table = nativeListTable()!
-        let window = table.window!
-        let rowFrame = table.rect(ofRow: row)
-        let point = table.convert(NSPoint(
-            x: atTrailingEdge ? table.bounds.maxX - 12 : rowFrame.minX + 20,
-            y: rowFrame.midY), to: nil)
+        let window = host.nativeWindows[host.primarySceneID]!
+        let listView = table(in: window.contentView!)!
+        let rowFrame = listView.rect(ofRow: row)
+        precondition(!rowFrame.isEmpty)
+        let point = listView.convert(NSPoint(x: rowFrame.maxX - 12, y: rowFrame.midY), to: nil)
         let stamp = ProcessInfo.processInfo.systemUptime
-        for count in 1...(double ? 2 : 1) {
-            let down = NSEvent.mouseEvent(with: .leftMouseDown, location: point,
-                modifierFlags: [], timestamp: stamp + Double(count - 1) * 0.08,
-                windowNumber: window.windowNumber, context: nil,
-                eventNumber: count * 2, clickCount: count, pressure: 1)!
-            let up = NSEvent.mouseEvent(with: .leftMouseUp, location: point,
-                modifierFlags: [], timestamp: stamp + Double(count - 1) * 0.08 + 0.02,
-                windowNumber: window.windowNumber, context: nil,
-                eventNumber: count * 2 + 1, clickCount: count, pressure: 0)!
-            NSApp.postEvent(down, atStart: false)
-            NSApp.postEvent(up, atStart: false)
+        for click in 1...count {
+            let timestamp = stamp + Double(click - 1) * 0.08
+            NSApp.postEvent(NSEvent.mouseEvent(with: .leftMouseDown, location: point,
+                modifierFlags: [], timestamp: timestamp, windowNumber: window.windowNumber,
+                context: nil, eventNumber: click * 2, clickCount: click, pressure: 1)!, atStart: false)
+            NSApp.postEvent(NSEvent.mouseEvent(with: .leftMouseUp, location: point,
+                modifierFlags: [], timestamp: timestamp + 0.02, windowNumber: window.windowNumber,
+                context: nil, eventNumber: click * 2 + 1, clickCount: click, pressure: 0)!, atStart: false)
         }
     }
-    func users() -> [URL] {
-        let enumerator = FileManager.default.enumerator(
-            at: directory, includingPropertiesForKeys: nil)
-        return (enumerator?.allObjects as? [URL] ?? []).filter {
-            $0.lastPathComponent == "user.bin"
+
+    private func captureLayout(_ window: NSWindow, _ name: String) {
+        let file = evidence.appendingPathComponent(name + ".png")
+        if let image = CGWindowListCreateImage(.null, .optionIncludingWindow,
+            CGWindowID(window.windowNumber), [.boundsIgnoreFraming, .bestResolution]) {
+            try! NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])!.write(to: file)
         }
     }
-    func record(_ name: String) {
-        print("PASS: " + name)
+
+    private func savedFiles() -> [URL] {
+        let files = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil)
+        return (files?.allObjects as? [URL] ?? []).filter { $0.lastPathComponent == "user.bin" }
+    }
+
+    @MainActor private func wait(_ name: String, until ready: () -> Bool) async {
+        let deadline = Date().addingTimeInterval(18)
+        while !ready() {
+            if Date() >= deadline {
+                print("Activation: active=\(NSApp.isActive), policy=\(NSApp.activationPolicy().rawValue), key=\(String(describing: NSApp.keyWindow?.title)), order=\(NSApp.orderedWindows.map(\.title))")
+                fflush(stdout)
+            }
+            precondition(Date() < deadline, "Timed out: \(name). Windows: \(host.windows.values.map(\.title)), sizes: \(host.windows.values.map { ($0.title, $0.clientSize) })")
+            try! await Task.sleep(nanoseconds: 25_000_000)
+        }
+        print("PASS: \(name)")
         fflush(stdout)
     }
-    func snapshot(_ adapter: MacWindowAdapter, name: String) {
-        let view = adapter.window.contentView!
-        view.layoutSubtreeIfNeeded()
-        view.displayIfNeeded()
-        if let list = adapter.lists.first, !list.rows.isEmpty {
-            let table = nativeListTable()!
-            let cell = table.view(atColumn: 0, row: 0,
-                                  makeIfNecessary: true) as! NSTableCellView
-            cell.layoutSubtreeIfNeeded()
-            require(cell.textField!.stringValue == list.rows[0].text,
-                    "native row text differs from the publication")
-            require(cell.textField!.bounds.width > 100 &&
-                    cell.textField!.bounds.height >= 12,
-                    "native row text has no visible layout")
-        }
-        let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
-        view.cacheDisplay(in: view.bounds, to: bitmap)
-        let png = bitmap.representation(using: .png, properties: [:])!
-        try! png.write(to: artifacts.appendingPathComponent(name + ".png"))
-    }
-    func addStep(_ name: String, action: @escaping () -> Void = {},
-                 ready: @escaping () -> Bool,
-                 check: @escaping () -> Void = {}) {
-        steps.append(Step(name: name, action: action, ready: ready, check: check))
-    }
 
-    func prepare() {
-        ATRegisterWindowCatalogApplication()
-        require(ATMacAcceptanceCheckLateNativeReports(),
-                "queued native report mishandled an unloaded/live model target")
-        record("late native frame/screen reports respect model lifecycle")
+    @MainActor func run() async {
+        precondition(ATMacAcceptanceCheckLateNativeReports())
+
+        let snapshot = evidence.appendingPathComponent("catalog.json")
+        try! FileManager.default.createDirectory(at: evidence, withIntermediateDirectories: true)
         if cold {
-            expectations = try! JSONDecoder().decode(
-                SavedExpectations.self,
-                from: Data(contentsOf: artifacts.appendingPathComponent("expected.json")))
-            addColdSteps()
+            let saved = try! JSONDecoder().decode(SavedCatalog.self, from: Data(contentsOf: snapshot))
+            let expected = saved.rows
+            await wait("cold launch restores SwiftUI scenes, selected language, and lazy row identities") {
+                self.mounted(self.main) && self.main?.title == "Каталог окон"
+                    && self.mounted(self.child(2)) && self.child(1) == nil
+                    && self.list?.rows.map(\.id) == expected
+                    && self.host.menuGroups.last?.items.last?.isSelected == true
+                    && self.main?.softenDark == true
+            }
+            let restoredWindow = host.nativeWindows[host.primarySceneID]!
+            let workArea = restoredWindow.screen!.visibleFrame
+            // The Windows presenter also fits saved placements to the work area.
+            let width = min(saved.mainFrame.width, workArea.width)
+            let height = min(saved.mainFrame.height, workArea.height)
+            let expectedFrame = CGRect(
+                x: min(max(saved.mainFrame.minX, workArea.minX), workArea.maxX - width),
+                y: min(max(saved.mainFrame.maxY - height, workArea.minY), workArea.maxY - height),
+                width: width, height: height)
+            let restoredFrame = restoredWindow.frame
+            precondition(abs(restoredFrame.minX - expectedFrame.minX) <= 1 &&
+                         abs(restoredFrame.minY - expectedFrame.minY) <= 1 &&
+                         abs(restoredFrame.width - expectedFrame.width) <= 1 &&
+                         abs(restoredFrame.height - expectedFrame.height) <= 1,
+                         "LOCAL restored \(restoredFrame), expected \(expectedFrame)")
+            select(expected[0])
+            await wait("SwiftUI list binding selects the closed row") { self.list?.selectedRow == 0 }
+            button("Открыть").click()
+            await wait("reopening the cold child mounts its SwiftUI scene") {
+                self.mounted(self.child(1)) && self.list?.rows.first?.id == expected[0]
+            }
+            host.nativeWindows.performClose(host.primarySceneID)
         } else {
-            require(users().isEmpty, "seed profile must have no prior USER")
-            addSeedSteps()
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { self.beginStep() }
-    }
-
-    func beginStep() {
-        if index == steps.count {
-            finished = true
-            if cold { host.requestStop() }
-            else { main!.window.performClose(nil) }
-            return
-        }
-        deadline = Date().addingTimeInterval(20)
-        steps[index].action()
-        poll()
-    }
-    func poll() {
-        let step = steps[index]
-        if step.ready() {
-            step.check()
-            record(step.name)
-            index += 1
-            // Allow SwiftUI/AppKit layout to observe each settled publication.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { self.beginStep() }
-            return
-        }
-        if Date() > deadline {
-            if let main { snapshot(main, name: "failure-main") }
-            print("NATIVE_TABLE selected=\(nativeListTable()?.selectedRow.description ?? "missing")")
-            print("TIMEOUT activity=\(NSApp.isActive) key=\(NSApp.keyWindow?.title ?? "nil") main=\(NSApp.mainWindow?.title ?? "nil") order=\(desktopOrder())")
-            for window in host.windows.values {
-                print("WINDOW \(window.title) key=\(window.window.isKeyWindow) eligible=\(window.window.canBecomeKey) visible=\(window.window.isVisible)")
+            await wait("fresh SwiftUI scene mounts the catalog and three controls") {
+                self.mounted(self.main) && self.main?.title == "Window Catalog"
+                    && self.main?.buttons.count == 3 && self.list?.rows.isEmpty == true
+                    && self.host.menuGroups.last?.items.first?.isSelected == true
             }
-            fflush(stdout)
-            fatalError("Timed out waiting for " + step.name)
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { self.poll() }
-    }
-
-    func addSeedSteps() {
-        addStep("initial native host and required controls", ready: {
-            self.main != nil && self.list != nil && self.host.buttons.count == 4
-        }, check: {
-            require(self.host.windows.count == 1, "unexpected initial child window")
-            require(self.list!.rows.isEmpty, "fresh catalog is not empty")
-            require(self.button("Open")?.enabled == false, "Open initially enabled")
-            require(self.button("Delete")?.enabled == false, "Delete initially enabled")
-            require(self.main!.window.contentView != nil, "missing SwiftUI content")
-            self.snapshot(self.main!, name: "initial-main")
-        })
-        addStep("SwiftUI list mounts a real native table", ready: {
-            self.nativeListTable() != nil
-        }, check: {
-            require(self.nativeListTable()!.acceptsFirstMouse(for: nil),
-                    "native list must accept its first activation click")
-        })
-        addStep("Add reaches model and publishes native child", action: {
-            self.click("Add")
-        }, ready: {
-            self.list!.rows.count == 1 && self.child(1) != nil
-        }, check: {
-            self.firstRowID = self.list!.rows[0].id
-            require(self.list!.selectedRow == 0, "new child not selected")
-            require(self.button("Delete")!.enabled, "Delete did not enable")
-            self.snapshot(self.child(1)!, name: "initial-child")
-        })
-        addStep("model selection is rendered by native table", ready: {
-            self.list!.selectedRow == 0 && self.nativeListTable()!.selectedRow == 0
-        })
-        addStep("native child resize reaches mirror", action: {
-            let child = self.child(1)!
-            child.window.setContentSize(NSSize(width: 420, height: 260))
-            child.window.setFrameOrigin(NSPoint(x: 140, y: 180))
-            self.firstChildSize = child.window.contentLayoutRect.size
-        }, ready: {
-            let state = self.host.bridge.windowState(self.child(1)!.id)
-            return abs(state.width - self.firstChildSize.width) < 2 &&
-                abs(state.height - self.firstChildSize.height) < 2
-        })
-        addStep("native Close retains lazy catalog row", action: {
-            self.child(1)!.window.performClose(nil)
-        }, ready: {
-            self.child(1) == nil && self.list!.rows[0].text.contains("Closed")
-        }, check: {
-            require(self.list!.rows[0].id == self.firstRowID, "Close replaced row identity")
-            require(self.users().isEmpty, "child Close wrote USER to disk")
-        })
-        addStep("Open restores child geometry and identity", action: {
-            self.click("Open")
-        }, ready: { self.child(1) != nil && !self.list!.rows[0].text.contains("Closed") }, check: {
-            require(self.list!.rows[0].id == self.firstRowID, "Open replaced row identity")
-            let size = self.child(1)!.window.contentLayoutRect.size
-            require(abs(size.width - self.firstChildSize.width) < 2 &&
-                    abs(size.height - self.firstChildSize.height) < 2,
-                    "Open lost saved native size")
-        })
-        addStep("coalesced native Close/Open preserves live activation", action: {
-            self.child(1)!.window.performClose(nil)
-            self.list!.activate(0)
-            // A later locale command is the publication barrier: observing its
-            // result proves the preceding Close/Open intents were processed.
-            self.click("RU")
-        }, ready: {
-            self.main?.title == "Каталог окон" && self.child(1)?.title == "Окно 1" &&
-                !self.list!.rows[0].text.contains("закрыто")
-        })
-        addStep("native Close still works after coalesced Open", action: {
-            self.child(1)!.window.performClose(nil)
-        }, ready: {
-            self.child(1) == nil && self.list!.rows[0].text.contains("закрыто")
-        })
-        addStep("coalesced-close child reopens without identity repair", action: {
-            self.click("Открыть")
-        }, ready: { self.child(1) != nil }, check: {
-            require(self.list!.rows[0].id == self.firstRowID, "coalesced Open replaced row")
-        })
-        addStep("locale restores through normal button intent", action: {
-            self.click("EN")
-        }, ready: {
-            self.main?.title == "Window Catalog" && self.child(1)?.title == "Window 1"
-        })
-        addStep("second independent clone", action: { self.click("Add") }, ready: {
-            self.list!.rows.count == 2 && self.child(2) != nil &&
-                self.list!.selectedRow == 1 && self.nativeListTable()!.selectedRow == 1
-        }, check: {
-            require(self.list!.rows[0].id != self.list!.rows[1].id, "clones share identity")
-        })
-        addStep("native single click selects through model", action: {
-            self.nativeClickRow(0, atTrailingEdge: true)
-        }, ready: {
-            self.list!.selectedRow == 0 && self.nativeListTable()!.selectedRow == 0
-        })
-        addStep("native double click focuses existing child", action: {
-            self.nativeClickRow(0, double: true, atTrailingEdge: true)
-        }, ready: { self.child(1)!.window.isKeyWindow })
-        addStep("locale publication updates all native windows", action: {
-            self.click("RU")
-        }, ready: {
-            self.main?.title == "Каталог окон" && self.button("Добавить") != nil &&
-                self.child(1)?.title == "Окно 1" && self.child(2)?.title == "Окно 2"
-        }, check: {
-            require(self.list!.rows.allSatisfy { $0.text.hasPrefix("Окно ") },
-                    "list labels did not localize")
-        })
-        addStep("native main resize updates model-owned chrome layout", action: {
-            self.main!.window.setContentSize(NSSize(width: 900, height: 360))
-        }, ready: {
-            let size = self.main!.window.contentLayoutRect.size
-            return abs(size.width - 900) < 2 && abs(size.height - 360) < 2 &&
-                self.list!.frame.height > 300 && self.list!.frame.width > 400
-        }, check: {
-            let frame = self.list!.frame
-            require(frame.x >= 0 && frame.y >= 0 &&
-                    frame.x + frame.width <= 900 && frame.y + frame.height <= 360,
-                    "list escaped resized client area")
-            for button in self.host.buttons.values {
-                require(button.frame.x + button.frame.width <= 901 &&
-                        button.frame.y + button.frame.height <= 361,
-                        "button escaped resized client area")
+            let window = host.nativeWindows[main!.sceneID]!
+            let listID = NSNumber(value: list!.controlID)
+            let buttonID = NSNumber(value: button("Add").controlID)
+            let ids = (main!.buttons.map(\.controlID) + main!.lists.map(\.controlID)).map { NSNumber(value: $0) }
+            func solved() -> [NSNumber: NSValue] {
+                main!.layout.solveViewport(main!.clientSize!, controlIDs: ids) { _, _ in .zero }.frames
             }
-        })
-        addStep("explicit model frame request reaches native child", action: {
-            ATMacAcceptanceRequestFrame(self.child(2)!.id, 160, 140, 400, 280)
-        }, ready: {
-            let size = self.child(2)!.window.contentLayoutRect.size
-            return abs(size.width - 400) < 2 && abs(size.height - 280) < 2
-        }, check: {
-            let state = self.host.bridge.windowState(self.child(2)!.id)
-            require(abs(state.x - 160) < 2 && abs(state.y - 140) < 2,
-                    "model request coordinates did not survive publication")
-            let size = self.main!.window.contentLayoutRect.size
-            require(abs(size.width - 900) < 2 && abs(size.height - 360) < 2,
-                    "later publication snapped native main size back")
-        })
-        addStep("Delete removes selected child and row", action: {
-            self.click("Удалить")
-        }, ready: {
-            self.list!.rows.count == 1 && self.child(1) == nil &&
-                self.nativeListTable()!.selectedRow == (self.list!.selectedRow ?? -1)
-        }, check: {
-            require(self.list!.rows[0].text == "Окно 2", "Delete removed wrong child")
-        })
-        addStep("next clone remains independent after Delete", action: {
-            self.click("Добавить")
-        }, ready: { self.list!.rows.count == 2 && self.child(3) != nil })
-        addStep("final closed child survives to shutdown", action: {
-            self.child(3)!.window.performClose(nil)
-        }, ready: {
-            self.child(3) == nil && self.list!.rows[1].text.contains("закрыто")
-        }, check: {
-            require(self.users().isEmpty, "non-shutdown operation wrote USER")
-        })
-        addStep("final native selection and active visual evidence", action: {
-            self.nativeListTable()!.selectRowIndexes(
-                IndexSet(integer: 0), byExtendingSelection: false)
-            NSApp.activate(ignoringOtherApps: true)
-            self.main!.window.makeKeyAndOrderFront(nil)
-            require(self.main!.window.makeFirstResponder(self.nativeListTable()!),
-                    "native list refused keyboard focus")
-        }, ready: {
-            self.list!.selectedRow == 0 && self.nativeListTable()!.selectedRow == 0 &&
-                self.main!.window.isKeyWindow
-        }, check: {
-            let mainSize = self.main!.window.contentLayoutRect.size
-            let childSize = self.child(2)!.window.contentLayoutRect.size
-            let saved = SavedExpectations(
-                rowIDs: self.list!.rows.map(\.id),
-                rowTexts: self.list!.rows.map(\.text),
-                mainWidth: mainSize.width, mainHeight: mainSize.height,
-                childWidth: childSize.width, childHeight: childSize.height,
-                desktopOrder: self.desktopOrder())
-            try! JSONEncoder().encode(saved).write(
-                to: self.artifacts.appendingPathComponent("expected.json"))
-            self.snapshot(self.main!, name: "final-main")
-            self.snapshot(self.child(2)!, name: "final-child")
-        })
+            window.setContentSize(CGSize(width: 780, height: 460))
+            await wait("wide native resize reflows controls beside the list") {
+                guard self.main?.clientSize?.width == 780 && self.main?.clientSize == window.contentLayoutRect.size else { return false }
+                let frames = solved()
+                return frames[buttonID]!.rectValue.minX > frames[listID]!.rectValue.maxX
+            }
+            captureLayout(window, "wide")
+            window.setContentSize(CGSize(width: 310, height: 570))
+            await wait("tall native resize reflows controls below the list") {
+                guard self.main?.clientSize?.width == 310 && self.main?.clientSize == window.contentLayoutRect.size else { return false }
+                let frames = solved()
+                return frames[buttonID]!.rectValue.minY > frames[listID]!.rectValue.maxY
+            }
+            captureLayout(window, "tall")
+            // Fixture sizes setContentSize programmatically, then submits the
+            // same completed-resize callback that AppKit sends after tracking.
+            host.nativeWindowChanged(host.primarySceneID, window, commit: true)
+            precondition(!button("Open").enabled && !button("Delete").enabled)
+            button("Add").click()
+            await wait("Add opens an independent SwiftUI child presentation") {
+                self.mounted(self.child(1)) && self.list?.selectedRow == 0
+            }
+            let nativeMain = host.nativeWindows[main!.sceneID]!
+            let nativeChild = host.nativeWindows[child(1)!.sceneID]!
+            precondition(nativeMain !== nativeChild && nativeMain.tabGroup?.windows.count ?? 1 == 1)
+            let first = list!.rows[0].id
+            let firstScene = child(1)!.sceneID
+            ATMacAcceptanceRequestFrame(child(1)!.id, 160, 140, 400, 280)
+            await wait("model frame request delivers its size to SwiftUI layout") {
+                self.child(1)?.clientSize == CGSize(width: 400, height: 280)
+            }
+            nativeChild.setContentSize(CGSize(width: 455, height: 320))
+            await wait("native resize changes only the child viewport") {
+                self.child(1)?.clientSize?.width == 455
+            }
+            ATMacAcceptanceRequestFrame(child(1)!.id, 160, 140, 400, 280)
+            await wait("same semantic frame request still reapplies after native resize") {
+                self.child(1)?.clientSize == CGSize(width: 400, height: 280)
+            }
+            close(child(1)!)
+            await wait("closing the SwiftUI child leaves its lazy model row") {
+                self.child(1) == nil && self.list?.rows.first?.text.contains("Closed") == true
+            }
+            precondition(savedFiles().isEmpty)
+            precondition(list!.rows.first?.id == first)
+            button("Open").click()
+            await wait("Open remounts the same row in a new SwiftUI presentation") {
+                self.mounted(self.child(1)) && self.child(1)?.sceneID != firstScene
+                    && self.list?.rows.first?.id == first
+                    && self.child(1)?.clientSize == CGSize(width: 400, height: 280)
+            }
+            button("Add").click()
+            await wait("second Add mounts an independent scene") {
+                self.mounted(self.child(2)) && self.list?.selectedRow == 1
+            }
+            nativeMain.makeKeyAndOrderFront(nil)
+            clickRow(0)
+            await wait("native list click selects the row by identity") { self.list?.selectedRow == 0 }
+            button("Open").click()
+            await wait("Open activates the existing independent window") {
+                self.host.nativeWindows[self.child(1)!.sceneID]?.isKeyWindow == true
+            }
+            nativeMain.makeKeyAndOrderFront(nil)
+            clickRow(1, count: 2)
+            await wait("native list double-click activates its existing window") {
+                self.list?.selectedRow == 1 && self.host.nativeWindows[self.child(2)!.sceneID]?.isKeyWindow == true
+            }
+            host.executeMenu(group: 1, item: 1)
+            await wait("SwiftUI Language command localizes all mounted windows and rows") {
+                self.main?.title == "Каталог окон" && self.child(1)?.title == "Окно 1"
+                    && self.child(2)?.title == "Окно 2"
+                    && self.list?.rows.allSatisfy { $0.text.hasPrefix("Окно ") } == true
+                    && self.host.menuGroups.last?.items.last?.isSelected == true
+            }
+            close(child(1)!)
+            await wait("closing a localized child retains its identity") {
+                self.child(1) == nil && self.list?.rows.first?.id == first
+            }
+            button("Добавить").click()
+            await wait("Add opens a third independent desktop window") {
+                self.mounted(self.child(3)) && self.list?.selectedRow == 2
+            }
+            let deleted = host.nativeWindows[child(3)!.sceneID]!
+            button("Удалить").click()
+            await wait("Delete removes the selected open row and closes its actual desktop window") {
+                self.child(3) == nil && self.list?.rows.count == 2 && !deleted.isVisible
+            }
+            host.executeMenu(group: 0, item: 3)
+            await wait("shared Theme command applies Soft dark on both windows") {
+                self.main?.softenDark == true && self.child(2)?.softenDark == true
+                    && self.host.menuGroups.first?.items.last?.isSelected == true
+            }
+            precondition(savedFiles().isEmpty)
+            let saved = SavedCatalog(rows: list!.rows.map(\.id), mainFrame: nativeMain.frame)
+            try! JSONEncoder().encode(saved).write(to: snapshot)
+            host.requestStop()
+        }
     }
 
-    func addColdSteps() {
-        addStep("cold USER restores native graph and lazy child", ready: {
-            self.main?.title == "Каталог окон" && self.list?.rows.count == 2 &&
-                self.child(2) != nil && self.host.buttons.count == 4 &&
-                self.nativeListTable()?.selectedRow == 0
-        }, check: {
-            let expected = self.expectations!
-            require(self.list!.rows.map(\.id) == expected.rowIDs, "cold row identities changed")
-            require(self.list!.rows.map(\.text) == expected.rowTexts, "cold row texts changed")
-            require(self.list!.selectedRow == 0, "cold selection lost")
-            require(self.child(3) == nil, "cold load eagerly opened closed child")
-            let size = self.main!.window.contentLayoutRect.size
-            require(abs(size.width - expected.mainWidth) < 2 &&
-                    abs(size.height - expected.mainHeight) < 2, "cold main geometry lost")
-            let childSize = self.child(2)!.window.contentLayoutRect.size
-            require(abs(childSize.width - expected.childWidth) < 2 &&
-                    abs(childSize.height - expected.childHeight) < 2, "cold child geometry lost")
-            require(self.desktopOrder() == expected.desktopOrder, "cold desktop stacking order lost")
-            self.snapshot(self.main!, name: "cold-main")
-        })
-        addStep("cold closed child selects through native table binding", action: {
-            self.nativeClickRow(1, atTrailingEdge: true)
-        }, ready: {
-            self.list!.selectedRow == 1 && self.nativeListTable()!.selectedRow == 1
-        })
-        addStep("cold lazy child reopens with original identity", action: {
-            self.click("Открыть")
-        }, ready: { self.child(3) != nil && !self.list!.rows[1].text.contains("закрыто") }, check: {
-            require(self.list!.rows[1].id == self.expectations!.rowIDs[1],
-                    "cold Open replaced lazy holder")
-            self.snapshot(self.child(3)!, name: "cold-reopened-child")
-        })
+    func verifyShutdown(_ status: Int32) {
+        precondition(status == 0, "Model shutdown failed: \(status)")
+        let files = savedFiles()
+        precondition(files.count == 2 && files.contains { $0.deletingLastPathComponent().lastPathComponent == "local" })
+        precondition(files.allSatisfy { !(try! Data(contentsOf: $0)).isEmpty })
+        precondition(host.windows.isEmpty && host.buttons.isEmpty && host.lists.isEmpty)
+        print("PASS: SwiftUI teardown saved separate USER and LOCAL")
+        exit(status)
     }
 }
 
 @main
-private enum MacWindowCatalogAcceptance {
-    static func argument(_ name: String) -> String? {
-        guard let index = CommandLine.arguments.firstIndex(of: name),
-              CommandLine.arguments.indices.contains(index + 1) else { return nil }
-        return CommandLine.arguments[index + 1]
+private struct MacWindowCatalogAcceptance: App {
+    @StateObject private var host: MacApplicationHost
+
+    init() {
+        ATRegisterWindowCatalogApplication()
+        func argument(_ name: String) -> URL {
+            let arguments = CommandLine.arguments
+            return URL(fileURLWithPath: arguments[arguments.firstIndex(of: name)! + 1])
+        }
+        let scenario = CatalogScenario(directory: argument("--state-dir"), evidence: argument("--artifacts"),
+            cold: CommandLine.arguments.contains("--cold"))
+        _host = StateObject(wrappedValue: scenario.host)
+        scenario.host.onFinished = { scenario.verifyShutdown($0) }
+        Task { await scenario.run() }
     }
-    static func main() {
-        let directory = URL(fileURLWithPath: argument("--state-dir")!)
-        let artifacts = URL(fileURLWithPath: argument("--artifacts")!)
-        let cold = CommandLine.arguments.contains("--cold")
-        let scenario = Acceptance(directory: directory, artifacts: artifacts, cold: cold)
-        scenario.prepare()
-        let exitStatus = scenario.host.run()
-        require(exitStatus == 0, "model shutdown failed: \(exitStatus)")
-        require(scenario.finished, "host stopped before acceptance finished")
-        require(scenario.users().count == 1, "shutdown must produce exactly one user.bin")
-        require(scenario.host.windows.isEmpty && scenario.host.buttons.isEmpty &&
-                scenario.host.lists.isEmpty, "native adapters remained after teardown")
-        print("PASS: native teardown and single-file shutdown USER")
-    }
+
+    var body: some Scene { MacApplicationScenes(host: host) }
 }

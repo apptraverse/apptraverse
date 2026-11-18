@@ -1,3 +1,103 @@
+## WindowCatalog shared native menu ports — 2026-11-18
+
+GTK and Android now consume the same distilled Theme and Language menu as
+Windows. The Apple Swift AppKit and SwiftUI hosts expose Language and follow
+system appearance. Apple builds and runtime verification belong to a separate
+task.
+
+Linux Debug native tests and three Android Debug instrumentation cases passed.
+Windows ↔ Android USER-only transfer passed in real load-only processes and
+kept device LOCAL preferences. Windows, Linux and Android x64 MinSizeRel builds
+passed native launch/restore or menu tests. The full Win32 Debug acceptance
+rerun stopped at the desktop foreground-window precondition. The menu model
+and Win32 native chrome tests passed.
+
+Sizes and evidence are in
+[platform menu validation](../validation/window-catalog-platform-menu-2026-11-18.md).
+
+## Windows WindowCatalog language/theme menu — 2026-11-17
+
+Windows now has only native application Theme and Language groups. Settings/demo
+windows and font/size/bold/cue overrides were removed. Menu composition and
+localized semantic commands are model-owned; Windows input follows proxy ->
+Event -> publication -> mirror. Language and appearance persist in existing
+LOCAL storage. Native-following composition omits Theme for future adapters.
+
+Windows incremental Debug and embedded supply generation PASS. Menu model,
+native chrome/adaptive regression and full Windows acceptance PASS. Actual
+process LOCAL cold restore and USER-only transfer PASS. Manual F10/arrows/Enter,
+Russian labels and Tab/Shift+Tab PASS. Embedded Debug consumer excludes menu
+builders by symbol inspection. Narrator speech, live changed OS accessibility
+settings, actual Win7 and other platforms remain NOT RUN. No OS settings changed.
+See [validation](../validation/window-catalog-menu-2026-11-17.md) and
+[porting structure](../window-catalog-platform-menus.md).
+
+## Linux WindowCatalog native Settings and input checkpoint — 2026-11-17
+
+Linux WindowCatalog now exposes the four native Settings radio choices (From
+system, Light, Dark and Custom dark), including Russian labels and themed
+attached popups. Commands pass through the model proxy and LOCAL Events; native
+checks follow publication. The custom slate palette reaches new windows, list
+rows and menu trees. Native menu height is measured outside the common solver's
+content viewport; initial/explicit client requests and LOCAL outer frames retain
+their distinct boundaries. Portable schemas and USER/LOCAL formats are unchanged.
+
+Shared GTK projection guards equal requested sizes and GtkFixed positions,
+retains unchanged CSS providers, avoids duplicate/per-child layout solves and
+deduplicates equal native frame observations. The native regression verifies
+all four menu actions without speculative mirror mutation, three Add actions,
+new-child palette, locale, exact content sizing, quiet allocation and a second
+process's LOCAL/menu restoration. The original Wayland process had no GDK input
+seat and pointer clicks never reached OnClicked; this host's Wayland input is
+NOT PASS. Explicit X11 accepts actual pointer/keyboard Add and F10 menu input.
+No application-specific backend override or product fallback was added.
+
+Final incremental Linux Debug CTest PASSes 4/4 in 54.86s, including the full
+historical Catalog lifecycle/geometry/z-order/cold scope. Same-final-library
+MinimalApp two-cycle and Surface native process smokes also PASS. The corrected
+historical geometry fixture accounts for actual native menu height; early
+private-WM diagnostic failures remain distinct from the final stable-WM run.
+The updated load-only app is open with the preserved profile, Custom dark,
+Russian locale, both rows and selection restored; the popup is dark/readable,
+CPU time remains idle and stderr is empty. The existing shared-chat native text
+consumer also PASSes keyboard/input/caret/remount/Enter/button, RAM restart and
+LOCAL cold restore against the final GTK sources, making seven distinct accepted
+native scopes. The AT-SPI bus was active; no reader certification is inferred.
+Full reader/hardware accessibility, Apple runtime, physical mixed-DPI matrices
+and Release packaging remain NOT RUN. [Implementation and evidence](../validation/window-catalog-linux-menu-input-2026-11-17.md),
+[focused 30-rule audit](../validation/linux-window-catalog-settings-input-audit-2026-11-17.md).
+
+## Windows WindowCatalog appearance menu and quiet native projection — 2026-11-17
+
+The visible native Settings menu now provides From system, Light, Dark and
+Custom dark (the existing soft graphite palette). Commands pass through the
+model proxy and LOCAL Events; published state controls all open-window colors
+and radio checks. The existing native shutdown/cold process acceptance now
+verifies a real menu choice saved to LOCAL, restored menu selection and LOCAL
+seed/precedence. Portable schemas and publication delivery are unchanged.
+
+Shared Win32 presenters avoid redundant text/state/child-frame/scrollbar writes;
+scrollbar comparison uses effective native page/position bounds. Native LISTBOX
+creation disables integral-height rounding so the common solver owns its exact
+rectangle. LOCAL geometry observations continue throughout movement, and actual
+post-placement geometry is still reported without unnecessary font/theme refresh.
+The native regression verifies zero unchanged-control writes during eight drag
+publications, stable list HWND/selection/top/focus, and no repeated nonclient
+paint for finite layout maxima below the viewport. Layout computation and
+all-presenter publication notifications still run.
+
+Final incremental v143/MSVC 14.44 Debug validation PASSes 4/4 modern native tests
+in 28.51s (Catalog lifecycle/cold LOCAL, expanded native chrome, MinimalApp and
+generic native text controls), plus 3/3 final current main/dynamic/Surface native
+smokes in 5.64s using the final shared library. These are seven distinct tests.
+The generic text-control fixture is now SDK-independent under tests/.
+The updated load-only application is open with the user's preserved matching
+S0 profile; launch produced the Window Catalog HWND with empty stderr.
+Actual Win7, physical mixed-DPI/accessibility matrices, Apple runtime and Release
+packaging remain NOT RUN; other backend source/runtime claims retain their
+previous scope. [Implementation and executed evidence](../validation/window-catalog-windows-theme-redraw-2026-11-17.md),
+[focused 30-rule audit](../validation/windows-window-catalog-theme-redraw-audit-2026-11-17.md).
+
 ## Remaining non-Apple application UI migration — 2026-11-17 — source accepted; scoped native validation complete
 
 All nine remaining non-Apple GUI entrypoints (fourteen target variants) now use

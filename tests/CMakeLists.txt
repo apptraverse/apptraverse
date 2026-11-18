@@ -876,6 +876,11 @@ add_test(
 endif() # APPTRAVERSE_BUILD_LEGACY_EXAMPLES
 
 if(WIN32)
+  # Generic native text controls must be testable without the optional chat SDK.
+  add_executable(apptraverse_ui_text_control_win32_test ui_text_control_win32_test.cpp)
+  target_link_libraries(apptraverse_ui_text_control_win32_test PRIVATE apptraverse_ui_windows)
+  add_test(NAME apptraverse_ui_text_control_win32_test COMMAND apptraverse_ui_text_control_win32_test)
+
   add_executable(apptraverse_surfaces_win32_library_consumer_test
     surfaces_win32_library_consumer_test.cpp
     surfaces_win32_library_consumer_presentation.cpp
@@ -1675,6 +1680,19 @@ if(TARGET window_catalog_window_catalog_linux)
   add_test(NAME apptraverse_window_catalog_linux_local_environment_test COMMAND apptraverse_window_catalog_linux_local_environment_test)
   set_tests_properties(apptraverse_window_catalog_linux_local_environment_test PROPERTIES LABELS "linux;window_catalog;gui" TIMEOUT 60 RUN_SERIAL TRUE ENVIRONMENT "GDK_BACKEND=x11")
 
+  add_executable(apptraverse_window_catalog_linux_menu_add_test
+    window_catalog_linux_menu_add_test.cpp
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/common/window_catalog_lifecycle.cpp)
+  target_link_libraries(apptraverse_window_catalog_linux_menu_add_test PRIVATE window_catalog_window_catalog_linux)
+  target_compile_definitions(apptraverse_window_catalog_linux_menu_add_test PRIVATE APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
+  target_include_directories(apptraverse_window_catalog_linux_menu_add_test PRIVATE ${APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR})
+  add_dependencies(apptraverse_window_catalog_linux_menu_add_test apptraverse_window_catalog_embedded_supply)
+  add_test(NAME apptraverse_window_catalog_linux_menu_add_test
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/linux_window_catalog_menu_add_smoke.py"
+      $<TARGET_FILE:apptraverse_window_catalog_linux_menu_add_test>)
+  set_tests_properties(apptraverse_window_catalog_linux_menu_add_test PROPERTIES
+    LABELS "linux;window_catalog;gui" TIMEOUT 90 RUN_SERIAL TRUE ENVIRONMENT "GDK_BACKEND=x11")
+
   set(_linux_catalog_fresh_args)
   set(_linux_catalog_acceptance_dependencies
     apptraverse_window_catalog_linux_acceptance_runner)
@@ -1866,6 +1884,8 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
 
   apptraverse_add_test(apptraverse_window_catalog_win32_chrome_adaptive_test
     window_catalog_win32_chrome_adaptive_test.cpp window_catalog_window_catalog)
+  apptraverse_add_test(apptraverse_window_catalog_menu_model_test
+    window_catalog_menu_model_test.cpp window_catalog_window_catalog)
   target_link_libraries(apptraverse_window_catalog_win32_chrome_adaptive_test PRIVATE
     apptraverse_ui_windows apptraverse)
   if(MSVC)

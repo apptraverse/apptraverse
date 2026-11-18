@@ -37,3 +37,27 @@ if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS" AND
   set_tests_properties(apptraverse_macos_window_catalog_acceptance PROPERTIES
     TIMEOUT 180 RUN_SERIAL TRUE)
 endif()
+
+if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS" AND
+   CMAKE_BUILD_TYPE STREQUAL "Debug" AND TARGET minimal_app_macos_composition)
+  add_library(apptraverse_macos_minimal_app_acceptance_swift STATIC
+    macos_minimal_app_acceptance.swift)
+  set_target_properties(apptraverse_macos_minimal_app_acceptance_swift PROPERTIES
+    Swift_MODULE_NAME MacMinimalAppAcceptance)
+  target_link_libraries(apptraverse_macos_minimal_app_acceptance_swift PRIVATE
+    apptraverse_ui_macos_swift)
+  target_compile_options(apptraverse_macos_minimal_app_acceptance_swift PRIVATE
+    "SHELL:-import-objc-header ${PROJECT_SOURCE_DIR}/examples/minimal_app/macos/minimal_app_macos_composition.h"
+    "SHELL:-Xcc -I${PROJECT_SOURCE_DIR}/include")
+  add_executable(apptraverse_macos_minimal_app_acceptance
+    macos_ui_backend_lifecycle_test_link.mm)
+  target_link_libraries(apptraverse_macos_minimal_app_acceptance PRIVATE
+    apptraverse_macos_minimal_app_acceptance_swift minimal_app_macos_composition
+    apptraverse_ui_macos)
+  set_target_properties(apptraverse_macos_minimal_app_acceptance PROPERTIES
+    LINKER_LANGUAGE OBJCXX)
+  add_test(NAME apptraverse_macos_minimal_app_acceptance
+    COMMAND apptraverse_macos_minimal_app_acceptance)
+  set_tests_properties(apptraverse_macos_minimal_app_acceptance PROPERTIES
+    TIMEOUT 45 RUN_SERIAL TRUE)
+endif()

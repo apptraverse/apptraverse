@@ -3,6 +3,7 @@
 #include "window_catalog_android_embedded_profile.h"
 #include "window_catalog_android_persistence.h"
 #include "window_catalog_prepare.h"
+#include "window_catalog_menu.h"
 #include "apptraverse/application_model_session.h"
 #include "apptraverse/embedded_application_model_session.h"
 #include "embedded_distilled_window_catalog_android_supply.h"
@@ -18,6 +19,7 @@ int RunWindowCatalogAndroidModel(WindowCatalogAndroidEmbeddedProfile& profile,
     catalog.persisted.device_state->ObserveEnvironment(
         startup_environment, ui::UiEnvironmentReason::kStartup);
     PrepareWindowCatalogForRun(catalog);
+    PrepareCatalogMenuForRun(catalog);
   };
   hooks.before_incremental = [](apptraverse::WindowCatalog& catalog) {
     // Page visibility is derived from the published order, not a focus sidecar.
