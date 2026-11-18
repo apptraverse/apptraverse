@@ -64,9 +64,6 @@ add_custom_target(apptraverse_generate_chat_ui_supply
 
 # Cloud validation is explicit; normal CTest must not create SDK identities.
 if(BUILD_TESTING)
-  add_executable(apptraverse_ui_text_control_win32_test ui_text_control_win32_test.cpp)
-  target_link_libraries(apptraverse_ui_text_control_win32_test PRIVATE apptraverse_ui_windows)
-  add_test(NAME apptraverse_ui_text_control_win32_test COMMAND apptraverse_ui_text_control_win32_test)
   add_executable(apptraverse_shared_chat_latency_worker EXCLUDE_FROM_ALL
     ../../tests/shared_chat_latency_worker.cpp)
   target_link_libraries(apptraverse_shared_chat_latency_worker PRIVATE

@@ -6,6 +6,7 @@
 #include "apptraverse/platform/windows/win32_fatal.h"
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "apptraverse/platform/windows/win_ui_utf8.h"
+#include "apptraverse/platform/windows/win_ui_frame.h"
 namespace apptraverse::ui::windows {
 namespace {
 std::wstring ReadText(HWND hwnd) {
@@ -75,8 +76,7 @@ void WinTextControlPresenter::OnModelChanged() {
       applied_accessible_label_ = control->accessible_label;
     }
   }
-  EnableWindow(hwnd_, control->enabled);
-  ShowWindow(hwnd_, control->visible ? SW_SHOW : SW_HIDE);
+  SetNativeControlStateIfChanged(hwnd_, control->enabled, control->visible);
   if (control->revision >= pending_edit) {
     auto value = control->text;
     if (control->kind == UiTextControlKind::kMultiline) {
@@ -96,8 +96,9 @@ void WinTextControlPresenter::OnModelChanged() {
       }
     }
   }
-  if (control->kind == UiTextControlKind::kEdit ||
-      control->kind == UiTextControlKind::kMultiline)
+  if ((control->kind == UiTextControlKind::kEdit ||
+      control->kind == UiTextControlKind::kMultiline) &&
+      ((GetWindowLongPtrW(hwnd_, GWL_STYLE) & ES_READONLY) != 0) != control->read_only)
     SendMessageW(hwnd_, EM_SETREADONLY, control->read_only, 0);
   applying_ = false;
   WinDesktopWindowPresenter::FromNativeWindow(GetParent(hwnd_))

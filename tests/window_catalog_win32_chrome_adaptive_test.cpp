@@ -21,6 +21,7 @@ int main() { return 0; }
 #include "apptraverse/platform/windows/win_ui_frame.h"
 #include "apptraverse/platform/windows/win_ui_environment.h"
 #include "apptraverse/platform/windows/win_ui_presenters.h"
+#include <commctrl.h>
 #include "window_catalog_graph.h"
 #include "window_catalog_presenters.h"
 #include "apptraverse/ui/ui_layout_state.h"
@@ -180,7 +181,7 @@ void SetMainClientSize(HWND hwnd, std::int32_t client_w, std::int32_t client_h,
   ui::windows::ReadModelFrameFromHwnd(hwnd, x, y, cw, ch);
   int outer_w = 0;
   int outer_h = 0;
-  ui::windows::ClientSizeToOuter(client_w, client_h, outer_w, outer_h);
+  ui::windows::ClientSizeToOuter(client_w, client_h, outer_w, outer_h, GetMenu(hwnd) != nullptr);
   CHECK(SetWindowPos(hwnd, nullptr, x, y, outer_w, outer_h,
                      SWP_NOZORDER | SWP_NOACTIVATE) != 0);
   if (!interactive) {
@@ -544,6 +545,120 @@ void TestSystemSettingsNotificationsStayLocal() {
   ExpectWideChrome(h.MainHwnd(), 900, 500);
 }
 
+struct NativeProjectionProbe {
+  HWND hwnd;
+  bool track_geometry;
+  bool track_nonclient;
+  unsigned text_writes{}, font_writes{}, frame_writes{}, list_writes{}, nonclient_paints{};
+  explicit NativeProjectionProbe(HWND target, bool geometry = true, bool nonclient = false)
+      : hwnd{target}, track_geometry{geometry}, track_nonclient{nonclient} {
+    CHECK(SetWindowSubclass(hwnd, Observe, 0xAC71, reinterpret_cast<DWORD_PTR>(this)));
+  }
+  ~NativeProjectionProbe() { CHECK(RemoveWindowSubclass(hwnd, Observe, 0xAC71)); }
+  static LRESULT CALLBACK Observe(HWND hwnd, UINT msg, WPARAM w, LPARAM l,
+                                   UINT_PTR, DWORD_PTR context) {
+    auto& probe = *reinterpret_cast<NativeProjectionProbe*>(context);
+    if (msg == WM_SETTEXT) ++probe.text_writes;
+    if (msg == WM_SETFONT) ++probe.font_writes;
+    if (msg == WM_WINDOWPOSCHANGING && probe.track_geometry) ++probe.frame_writes;
+    if (msg == WM_NCPAINT && probe.track_nonclient) ++probe.nonclient_paints;
+    if (msg == LB_RESETCONTENT || msg == LB_DELETESTRING || msg == LB_INSERTSTRING ||
+        msg == LB_ADDSTRING) ++probe.list_writes;
+    return DefSubclassProc(hwnd, msg, w, l);
+  }
+  void ExpectNoWrites() const {
+    CHECK(text_writes == 0);
+    CHECK(font_writes == 0);
+    CHECK(frame_writes == 0);
+    CHECK(list_writes == 0);
+    CHECK(nonclient_paints == 0);
+  }
+};
+
+void TestFiniteLayoutMaximumDoesNotRepeatedlyRedrawScrollbars() {
+  Harness h;
+  // Acknowledge initial native placement before intentionally enlarging the
+  // viewport beyond the root maximum; do not race the startup resolution.
+  h.PumpModelAndApply();
+  h.PumpModelAndApply();
+  double const scale = h.main_presenter->LayoutScale();
+  h.ResizeClient(static_cast<int>(900 * scale), static_cast<int>(600 * scale), false);
+  auto layout = h.ui_catalog->persisted.main_window->layout;
+  auto changed = layout->EffectiveRoot();
+  changed.max_width = 600;
+  changed.max_height = 400;
+  h.model_proxy.Invoke(layout.id(), &ui::UiLayoutState::SetOverride, changed);
+  h.PumpModelAndApply();
+  h.PumpModelAndApply();
+  RECT client{}; CHECK(GetClientRect(h.MainHwnd(), &client));
+  SCROLLINFO horizontal{sizeof(SCROLLINFO), SIF_RANGE | SIF_PAGE | SIF_POS};
+  CHECK(GetScrollInfo(h.MainHwnd(), SB_HORZ, &horizontal));
+  CHECK(horizontal.nPage < static_cast<UINT>(client.right));
+  CHECK(horizontal.nPage == static_cast<UINT>(horizontal.nMax - horizontal.nMin + 1));
+  CHECK(RedrawWindow(h.MainHwnd(), nullptr, nullptr,
+                     RDW_INVALIDATE | RDW_FRAME | RDW_UPDATENOW | RDW_ALLCHILDREN));
+  DispatchPendingWin32Messages();
+  NativeProjectionProbe probe{h.MainHwnd(), true, true};
+  for (int pass = 0; pass < 3; ++pass) {
+    h.main_presenter->RefreshLayout();
+    h.PumpModelAndApply();
+  }
+  probe.ExpectNoWrites();
+}
+
+void TestPositionOnlyPublicationPreservesNativeControls() {
+  Harness h;
+  // Populate a genuinely scrolling native list, retaining one visible child.
+  for (int i = 0; i < 20; ++i) {
+    h.model_catalog->AddWindow();
+    if (i != 19) {
+      auto& holder = static_cast<WindowHolder&>(*h.model_catalog->persisted.list->rows.back());
+      h.model_catalog->CloseHolderWindow(holder);
+    }
+  }
+  h.model_catalog->SubmitSelectionFromUi(10);
+  h.PumpModelAndApply();
+  h.ResizeClient(900, 250, false);
+  HWND const list = h.ControlHwnd(kListControlId);
+  SetActiveWindow(h.MainHwnd());
+  SetFocus(list);
+  h.PumpModelAndApply();
+  h.PumpModelAndApply();
+  CHECK(SendMessageW(list, LB_SETTOPINDEX, 5, 0) != LB_ERR);
+  LRESULT const selection = SendMessageW(list, LB_GETCURSEL, 0, 0);
+  LRESULT const top = SendMessageW(list, LB_GETTOPINDEX, 0, 0);
+  CHECK(selection == 10 && top > 0);
+  CHECK(GetFocus() == list);
+  auto* holder = static_cast<WindowHolder*>(&*h.ui_catalog->persisted.list->rows.back());
+  auto& child = static_cast<ui::windows::WinDesktopWindowPresenter&>(*holder->window->presenter);
+  std::vector<std::unique_ptr<NativeProjectionProbe>> probes;
+  probes.push_back(std::make_unique<NativeProjectionProbe>(h.MainHwnd()));
+  for (auto id : {kListControlId, kAddControlId, kOpenControlId, kDeleteControlId, kLanguageControlId})
+    probes.push_back(std::make_unique<NativeProjectionProbe>(h.ControlHwnd(id)));
+  // Moving the child itself is expected; its title/font must still stay quiet.
+  probes.push_back(std::make_unique<NativeProjectionProbe>(child.hwnd(), false));
+  auto const local_generation = h.model_catalog->persisted.device_state->Generation();
+  RECT initial{}; CHECK(GetWindowRect(child.hwnd(), &initial));
+  MONITORINFO monitor{sizeof(monitor)};
+  CHECK(GetMonitorInfoW(MonitorFromWindow(child.hwnd(), MONITOR_DEFAULTTONEAREST), &monitor));
+  int const direction = initial.right + 40 < monitor.rcWork.right ? 1 : -1;
+  SendMessageW(child.hwnd(), WM_ENTERSIZEMOVE, 0, 0);
+  for (int step = 1; step <= 8; ++step) {
+    CHECK(SetWindowPos(child.hwnd(), nullptr, initial.left + direction * step * 4,
+                       initial.top, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE));
+    h.PumpModelAndApply();
+  }
+  EndInteractive(child.hwnd());
+  h.PumpModelAndApply();
+  h.PumpModelAndApply();
+  CHECK(h.model_catalog->persisted.device_state->Generation() > local_generation);
+  CHECK(h.ControlHwnd(kListControlId) == list);
+  CHECK(SendMessageW(list, LB_GETCURSEL, 0, 0) == selection);
+  CHECK(SendMessageW(list, LB_GETTOPINDEX, 0, 0) == top);
+  CHECK(GetFocus() == list);
+  for (auto const& probe : probes) probe->ExpectNoWrites();
+}
+
 void TestLocalAppearancePreferences() {
   using namespace ui;
   Harness first;
@@ -559,26 +674,45 @@ void TestLocalAppearancePreferences() {
   auto& child = static_cast<ui::windows::WinDesktopWindowPresenter&>(*holder->window->presenter);
   auto local = first.model_catalog->persisted.device_state;
   auto second_local = second.model_catalog->persisted.device_state;
-  auto command = [&](UiAppearancePreferences preferences) {
-    first.model_proxy.Invoke(local.id(), &UiDeviceState::SetAppearance, preferences);
+  using CatalogPresenter = example::surfaces::CatalogDesktopWindowPresenter;
+  HMENU const settings = GetSubMenu(GetMenu(first.MainHwnd()), 0);
+  CHECK(settings != nullptr);
+  CHECK(GetMenuItemCount(settings) == 4);
+  auto command = [&](UINT id, UiAppearancePreferences preferences) {
+    auto const previous = local->appearance;
+    SendMessageW(first.MainHwnd(), WM_COMMAND, MAKEWPARAM(id, 0), 0);
     // No speculative mutation of either UI mirror or canonical graph.
-    CHECK(first.ui_catalog->persisted.device_state->appearance == local->appearance);
+    CHECK(local->appearance == previous);
+    CHECK(first.ui_catalog->persisted.device_state->appearance == previous);
     first.PumpModelAndApply();
     CHECK(local->appearance == preferences);
     CHECK(first.ui_catalog->persisted.device_state->appearance == preferences);
+    for (UINT choice = CatalogPresenter::kThemeFromSystem; choice <= CatalogPresenter::kThemeCustomDark; ++choice)
+      CHECK(((GetMenuState(settings, choice, MF_BYCOMMAND) & MF_CHECKED) != 0) == (choice == id));
   };
-  command({UiThemeMode::kDark, false});
+  command(CatalogPresenter::kThemeDark, {UiThemeMode::kDark, false});
   if (!first.main_presenter->HighContrast()) {
     CHECK(first.main_presenter->DarkTheme());
-    command({UiThemeMode::kDark, true});
+    auto const stock_background = first.main_presenter->BackgroundColor();
+    command(CatalogPresenter::kThemeCustomDark, {UiThemeMode::kDark, true});
     CHECK(first.main_presenter->BackgroundColor() == RGB(32,32,32));
+    CHECK(first.main_presenter->BackgroundColor() != stock_background);
     CHECK(child.BackgroundColor() == RGB(32,32,32));
-    command({UiThemeMode::kLight, true});
+    command(CatalogPresenter::kThemeLight, {UiThemeMode::kLight, false});
     CHECK(!first.main_presenter->DarkTheme());
     CHECK(first.main_presenter->BackgroundColor() == GetSysColor(COLOR_WINDOW));
   }
-  CHECK(second_local->appearance == UiAppearancePreferences{});
+  command(CatalogPresenter::kThemeFromSystem, {UiThemeMode::kAuto, false});
   CHECK(first.model_catalog->Generation() == first_generation);
+  SendMessageW(first.ControlHwnd(kLanguageControlId), BM_CLICK, 0, 0);
+  first.PumpModelAndApply();
+  CHECK((GetMenuState(settings, CatalogPresenter::kThemeFromSystem, MF_BYCOMMAND) & MF_CHECKED) != 0);
+  wchar_t translated[64]{};
+  CHECK(GetMenuStringW(GetMenu(first.MainHwnd()), 0, translated, 64, MF_BYPOSITION));
+  CHECK(std::wstring{translated} == L"Настройки");
+  CHECK(second_local->appearance == UiAppearancePreferences{});
+  // The separate language action intentionally changes portable model state.
+  CHECK(first.model_catalog->Generation() > first_generation);
   CHECK(second.model_catalog->Generation() == second_generation);
 }
 
@@ -670,6 +804,8 @@ int main() {
   apptraverse::test::TestLocalResizeDoesNotDependOnModelPump();
   apptraverse::test::TestRuntimeConstraintOverrideAndClear();
   apptraverse::test::TestSystemSettingsNotificationsStayLocal();
+  apptraverse::test::TestPositionOnlyPublicationPreservesNativeControls();
+  apptraverse::test::TestFiniteLayoutMaximumDoesNotRepeatedlyRedrawScrollbars();
   apptraverse::test::TestLocalAppearancePreferences();
   apptraverse::test::TestStartupObservationAndMonitorResolution();
   std::cout << "window_catalog_win32_chrome_adaptive_test OK\n";

@@ -41,6 +41,7 @@
 #include "window_catalog_ids.h"
 #include "window_catalog_list_row_text.h"
 #include "window_catalog_model.h"
+#include "window_catalog_presenters.h"
 
 #include "apptraverse/platform/windows/win_ui_frame.h"
 #include "apptraverse/ui/ui_localization_string.h"
@@ -143,7 +144,7 @@ void ApplyCatalogFrame(HWND hwnd, int x, int y, int client_width,
   int outer_width = 0;
   int outer_height = 0;
   apptraverse::ui::windows::ClientSizeToOuter(client_width, client_height,
-                                              outer_width, outer_height);
+                                              outer_width, outer_height, GetMenu(hwnd) != nullptr);
   CHECK(SetWindowPos(hwnd, nullptr, x, y, outer_width, outer_height,
                      SWP_NOZORDER | SWP_NOACTIVATE) != 0);
   SendMessageW(hwnd, WM_EXITSIZEMOVE, 0, 0);
@@ -1007,6 +1008,20 @@ void ExpectSameTopLevelWithTitle(DWORD pid, HWND expected,
   CHECK(found == expected);
 }
 
+void ExpectCustomDarkMenu(HWND main) {
+  using CatalogPresenter = example::surfaces::CatalogDesktopWindowPresenter;
+  CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
+    HMENU const settings = GetSubMenu(GetMenu(main), 0);
+    if (!settings || GetMenuItemCount(settings) != 4) return false;
+    for (UINT id = CatalogPresenter::kThemeFromSystem; id <= CatalogPresenter::kThemeCustomDark; ++id) {
+      UINT const state = GetMenuState(settings, id, MF_BYCOMMAND);
+      if (state == static_cast<UINT>(-1) ||
+          ((state & MF_CHECKED) != 0) != (id == CatalogPresenter::kThemeCustomDark)) return false;
+    }
+    return true;
+  }));
+}
+
 std::uint64_t PrepareStaleLocalEnvironment(std::filesystem::path const& profile) {
   ae::RamDomainStorage portable, local, backing;
   CHECK(LoadUserStorageFile(portable, profile));
@@ -1019,6 +1034,8 @@ std::uint64_t PrepareStaleLocalEnvironment(std::filesystem::path const& profile)
   catalog->persisted.device_state.Load();
   auto device = catalog->persisted.device_state;
   CHECK(device->has_environment);
+  // The preceding native menu action must already have survived shutdown.
+  CHECK(device->appearance.theme == ui::UiThemeMode::kDark && device->appearance.soften_dark);
   CHECK(device->windows.size() >= 3);
   CHECK(device->placements.size() >= 3);
   auto environment = device->environment;
@@ -1027,7 +1044,6 @@ std::uint64_t PrepareStaleLocalEnvironment(std::filesystem::path const& profile)
   environment.monitors.push_back({"old-disconnected-screen", {20000, 0, 800, 600},
                                   {20000, 0, 800, 600}, false, 0, 60});
   device->ObserveEnvironment(environment, ui::UiEnvironmentReason::kSystemNotification);
-  device->SetAppearance({ui::UiThemeMode::kDark, true});
   device.Save();
   CHECK(SaveUserStorageFile(local, profile / "local"));
   return device->observation_revision;
@@ -1134,6 +1150,9 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
   ExpectSameTopLevelWithTitle(pid, child2, L"Window 2",
                               "after_close_reopened_window1");
 
+  SendMessageW(main, WM_COMMAND,
+      MAKEWPARAM(example::surfaces::CatalogDesktopWindowPresenter::kThemeCustomDark, 0), 0);
+  ExpectCustomDarkMenu(main);
   CloseProcessGracefully(main, session.pi);
   session.Release();
 
@@ -1148,6 +1167,7 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
     main = WaitCatalogMainWindow(load_pid, std::chrono::seconds{30});
     CHECK(main != nullptr);
     WaitChromeReady(main);
+    ExpectCustomDarkMenu(main);
     ExpectListRows(main, {L"Window 1 (Closed)", L"Window 2"});
     CHECK(FindTopLevelWithTitle(load_pid, L"Window 1") == nullptr);
     CHECK(FindTopLevelWithTitle(load_pid, L"Window 2") != nullptr);
@@ -1198,6 +1218,7 @@ std::filesystem::path RunRestartPersistenceAcceptance() {
     main = WaitCatalogMainWindow(restart_pid, std::chrono::seconds{30});
     CHECK(main != nullptr);
     WaitChromeReady(main);
+    ExpectCustomDarkMenu(main);
     ExpectListRows(main, {L"Window 1", L"Window 2", L"Window 3"});
     CHECK(WaitUntil(std::chrono::seconds{20}, [&] {
       return TopLevelWindowsForPid(restart_pid).size() >= 3;
@@ -1606,6 +1627,7 @@ void RunInitialLocalSeedAcceptance(std::filesystem::path const& source) {
     HWND main = WaitCatalogMainWindow(session.pi.dwProcessId, std::chrono::seconds{30});
     CHECK(main != nullptr);
     WaitChromeReady(main);
+    ExpectCustomDarkMenu(main);
     CloseProcessGracefully(main, session.pi);
     session.Release();
     ae::RamDomainStorage local, backing;

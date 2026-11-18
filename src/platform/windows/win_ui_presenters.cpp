@@ -38,6 +38,21 @@ Presenter* PresenterFromChildHwnd(HWND child) {
   return reinterpret_cast<Presenter*>(GetWindowLongPtrW(child, GWLP_USERDATA));
 }
 
+void ApplyScrollInfoIfChanged(HWND hwnd, int bar, SCROLLINFO requested) {
+  // SetScrollInfo normalizes these values. Compare that effective request,
+  // otherwise a finite layout maximum below the viewport redraws forever.
+  requested.nPage = std::min(requested.nPage,
+      static_cast<UINT>(requested.nMax - requested.nMin + 1));
+  int const last_position = requested.nMax -
+      std::max(static_cast<int>(requested.nPage) - 1, 0);
+  requested.nPos = std::clamp(requested.nPos, requested.nMin, last_position);
+  SCROLLINFO current{sizeof(SCROLLINFO), SIF_RANGE | SIF_PAGE | SIF_POS};
+  GetScrollInfo(hwnd, bar, &current);
+  if (requested.nMin != current.nMin || requested.nMax != current.nMax ||
+      requested.nPage != current.nPage || requested.nPos != current.nPos)
+    SetScrollInfo(hwnd, bar, &requested, TRUE);
+}
+
 WinDesktopWindowPresenter* DesktopFromHwnd(HWND hwnd) {
   return reinterpret_cast<WinDesktopWindowPresenter*>(
       GetWindowLongPtrW(hwnd, GWLP_USERDATA));
@@ -140,6 +155,9 @@ LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
   }
   if (msg == WM_COMMAND) {
     HWND const child = reinterpret_cast<HWND>(lparam);
+    if (child == nullptr && presenter->OnCommand(
+        static_cast<std::uint32_t>(LOWORD(wparam)),
+        static_cast<std::uint16_t>(HIWORD(wparam)))) return 0;
     if (presenter->RouteChildCommand(static_cast<std::uint32_t>(LOWORD(wparam)),
                                      static_cast<std::uint16_t>(HIWORD(wparam)),
                                      child)) {
@@ -208,13 +226,14 @@ void WinDesktopWindowPresenter::OnLoad() {
 
   int outer_w = 0;
   int outer_h = 0;
+  HMENU const menu = CreatePresentationMenu();
   ClientSizeToOuter(desktop->restore_client_width(),
-                    desktop->restore_client_height(), outer_w, outer_h);
+                    desktop->restore_client_height(), outer_w, outer_h, menu != nullptr);
   auto const title = ResolveTitleText();
   hwnd_ = CreateWindowExW(0, kDesktopWindowClass, title.c_str(),
                           WindowStyleForClientFrame(),
                           desktop->HasExplicitPosition() ? desktop->x() : CW_USEDEFAULT,
-                          desktop->HasExplicitPosition() ? desktop->y() : CW_USEDEFAULT, outer_w, outer_h, nullptr, nullptr,
+                          desktop->HasExplicitPosition() ? desktop->y() : CW_USEDEFAULT, outer_w, outer_h, nullptr, menu,
                           instance, nullptr);
   if (hwnd_ == nullptr) {
     FatalWin32("CreateWindowExW Ui desktop window", GetLastError());
@@ -269,7 +288,7 @@ void WinDesktopWindowPresenter::ApplyRequestedFrameFromMirror() {
   int outer_w = 0;
   int outer_h = 0;
   ClientSizeToOuter(mirror.client_width, mirror.client_height, outer_w,
-                    outer_h);
+                    outer_h, GetMenu(hwnd_) != nullptr);
   if (!SetWindowPos(hwnd_, nullptr, mirror.x, mirror.y, outer_w, outer_h,
                     SWP_NOZORDER | SWP_NOACTIVATE)) {
     FatalWin32("SetWindowPos Ui desktop window", GetLastError());
@@ -307,9 +326,7 @@ void WinDesktopWindowPresenter::OnModelChanged() {
   auto const* local = LocalDeviceState();
   if (local && local->appearance != applied_appearance_) RefreshPresentationSettings();
   RefreshLayout();
-  if (!SetWindowTextW(hwnd_, ResolveTitleText().c_str())) {
-    FatalWin32("SetWindowTextW Ui desktop window", GetLastError());
-  }
+  SetNativeWindowTextIfChanged(hwnd_, ResolveTitleText());
 }
 
 void WinDesktopWindowPresenter::OnUnload() {
@@ -423,6 +440,7 @@ void WinDesktopWindowPresenter::ApplyLocalPlacement() {
   // A temporarily headless environment has no placement to apply yet.
   if (monitor == local->environment.monitors.end()) return;
   auto const& work = monitor->work_area;
+  UINT const previous_dpi = GetWinWindowDpi(hwnd_);
   applying_local_placement_ = true;
   bool const prior_native = applying_native_frame_;
   applying_native_frame_ = true;
@@ -449,7 +467,10 @@ void WinDesktopWindowPresenter::ApplyLocalPlacement() {
   applied_placement_revision_ = placement->revision;
   applying_native_frame_ = prior_native;
   applying_local_placement_ = false;
-  if (environment_) RefreshPresentationSettings();
+  if (environment_) {
+    if (previous_dpi != GetWinWindowDpi(hwnd_)) RefreshPresentationSettings();
+    else ReportEnvironmentFromNative();
+  }
 }
 
 void WinDesktopWindowPresenter::KeepInCurrentWorkArea() {
@@ -618,24 +639,35 @@ void WinDesktopWindowPresenter::RefreshLayout() {
     return;
   }
   applying_layout_ = true;
+  UiConstraintLayoutResult result;
   for (int pass = 0; pass < 2; ++pass) {
-    auto const result = ComputeLocalLayout();
+    result = ComputeLocalLayout();
     RECT client{}; GetClientRect(hwnd_, &client);
     SCROLLINFO horizontal{sizeof(SCROLLINFO), SIF_RANGE | SIF_PAGE | SIF_POS};
     horizontal.nMax = std::max(0, static_cast<int>(std::ceil(result.content_width * LayoutScale())) - 1);
     horizontal.nPage = static_cast<UINT>(client.right); horizontal.nPos = scroll_x_;
-    SetScrollInfo(hwnd_, SB_HORZ, &horizontal, TRUE);
+    ApplyScrollInfoIfChanged(hwnd_, SB_HORZ, horizontal);
     SCROLLINFO vertical{sizeof(SCROLLINFO), SIF_RANGE | SIF_PAGE | SIF_POS};
     vertical.nMax = std::max(0, static_cast<int>(std::ceil(result.content_height * LayoutScale())) - 1);
     vertical.nPage = static_cast<UINT>(client.bottom); vertical.nPos = scroll_y_;
-    SetScrollInfo(hwnd_, SB_VERT, &vertical, TRUE);
+    ApplyScrollInfoIfChanged(hwnd_, SB_VERT, vertical);
     scroll_x_ = GetScrollPos(hwnd_, SB_HORZ); scroll_y_ = GetScrollPos(hwnd_, SB_VERT);
   }
+  // The final scrollbar update may itself alter the native client viewport.
+  result = ComputeLocalLayout();
   for (auto const& child : native_children_) {
     if((GetWindowLongPtrW(child.hwnd,GWL_STYLE)&WS_VISIBLE)==0)continue;
-    auto const layout = ResolveChildLayout({0, 0, 1, 1, child.control_id});
-    if (!SetWindowPos(child.hwnd, nullptr, layout.x, layout.y, layout.width, layout.height,
-                      SWP_NOZORDER | SWP_NOACTIVATE)) FatalWin32("SetWindowPos constraint layout", GetLastError());
+    auto const found = std::find_if(result.controls.begin(), result.controls.end(), [&](auto const& rect) {
+      return rect.control_id == child.control_id;
+    });
+    if (found == result.controls.end()) FatalWin32("Missing required child in layout", ERROR_INVALID_DATA);
+    double const scale = LayoutScale();
+    int const left = static_cast<int>(std::lround(found->x * scale));
+    int const top = static_cast<int>(std::lround(found->y * scale));
+    int const right = static_cast<int>(std::lround((found->x + found->width) * scale));
+    int const bottom = static_cast<int>(std::lround((found->y + found->height) * scale));
+    SetNativeChildFrameIfChanged(child.hwnd, left - scroll_x_, top - scroll_y_,
+                                std::max(1, right - left), std::max(1, bottom - top));
   }
   applying_layout_ = false;
 }
@@ -701,7 +733,9 @@ void WinListContainerPresenter::OnLoad() {
   auto* desktop = Desktop();
   hwnd_ = CreateWindowExW(
       WS_EX_CLIENTEDGE, L"LISTBOX", L"",
-      WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_TABSTOP | LBS_NOTIFY,
+      // The common solver owns the exact outer rectangle. Default integral
+      // item sizing silently rounds this height and defeats native equality.
+      WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_TABSTOP | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT,
       layout_x, layout_y, layout_width, layout_height, desktop->hwnd(),
       reinterpret_cast<HMENU>(static_cast<INT_PTR>(control_id)),
       GetModuleHandleW(nullptr), nullptr);

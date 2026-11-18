@@ -1,3 +1,34 @@
+## Windows WindowCatalog appearance menu and quiet native projection — 2026-11-17
+
+The visible native Settings menu now provides From system, Light, Dark and
+Custom dark (the existing soft graphite palette). Commands pass through the
+model proxy and LOCAL Events; published state controls all open-window colors
+and radio checks. The existing native shutdown/cold process acceptance now
+verifies a real menu choice saved to LOCAL, restored menu selection and LOCAL
+seed/precedence. Portable schemas and publication delivery are unchanged.
+
+Shared Win32 presenters avoid redundant text/state/child-frame/scrollbar writes;
+scrollbar comparison uses effective native page/position bounds. Native LISTBOX
+creation disables integral-height rounding so the common solver owns its exact
+rectangle. LOCAL geometry observations continue throughout movement, and actual
+post-placement geometry is still reported without unnecessary font/theme refresh.
+The native regression verifies zero unchanged-control writes during eight drag
+publications, stable list HWND/selection/top/focus, and no repeated nonclient
+paint for finite layout maxima below the viewport. Layout computation and
+all-presenter publication notifications still run.
+
+Final incremental v143/MSVC 14.44 Debug validation PASSes 4/4 modern native tests
+in 28.51s (Catalog lifecycle/cold LOCAL, expanded native chrome, MinimalApp and
+generic native text controls), plus 3/3 final current main/dynamic/Surface native
+smokes in 5.64s using the final shared library. These are seven distinct tests.
+The generic text-control fixture is now SDK-independent under tests/.
+The updated load-only application is open with the user's preserved matching
+S0 profile; launch produced the Window Catalog HWND with empty stderr.
+Actual Win7, physical mixed-DPI/accessibility matrices, Apple runtime and Release
+packaging remain NOT RUN; other backend source/runtime claims retain their
+previous scope. [Implementation and executed evidence](../validation/window-catalog-windows-theme-redraw-2026-11-17.md),
+[focused 30-rule audit](../validation/windows-window-catalog-theme-redraw-audit-2026-11-17.md).
+
 ## Remaining non-Apple application UI migration — 2026-11-17 — source accepted; scoped native validation complete
 
 All nine remaining non-Apple GUI entrypoints (fourteen target variants) now use

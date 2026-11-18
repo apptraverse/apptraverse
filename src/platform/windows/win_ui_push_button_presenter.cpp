@@ -44,14 +44,9 @@ void WinPushButtonPresenter::OnLoad() {
 }
 
 void WinPushButtonPresenter::SyncFromMirror() {
-  if (!SetWindowTextW(
-      hwnd_, Utf8ToWide(button->label->Resolve(
-                        window_presenter->locale->language_index()))
-                 .c_str())) {
-    FatalWin32("SetWindowTextW Ui push button", GetLastError());
-  }
-  EnableWindow(hwnd_, button->enabled() ? TRUE : FALSE);
-  ShowWindow(hwnd_, button->visible() ? SW_SHOW : SW_HIDE);
+  SetNativeWindowTextIfChanged(hwnd_, Utf8ToWide(button->label->Resolve(
+      window_presenter->locale->language_index())));
+  SetNativeControlStateIfChanged(hwnd_, button->enabled(), button->visible());
   if(button->visible())ApplyLayout();
   if (auto* host = WinDesktopWindowPresenter::FromNativeWindow(GetParent(hwnd_))) host->RefreshLayout();
 }

@@ -876,6 +876,11 @@ add_test(
 endif() # APPTRAVERSE_BUILD_LEGACY_EXAMPLES
 
 if(WIN32)
+  # Generic native text controls must be testable without the optional chat SDK.
+  add_executable(apptraverse_ui_text_control_win32_test ui_text_control_win32_test.cpp)
+  target_link_libraries(apptraverse_ui_text_control_win32_test PRIVATE apptraverse_ui_windows)
+  add_test(NAME apptraverse_ui_text_control_win32_test COMMAND apptraverse_ui_text_control_win32_test)
+
   add_executable(apptraverse_surfaces_win32_library_consumer_test
     surfaces_win32_library_consumer_test.cpp
     surfaces_win32_library_consumer_presentation.cpp
