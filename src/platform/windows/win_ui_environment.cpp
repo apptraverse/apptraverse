@@ -43,6 +43,19 @@ UINT WindowDpi(HWND window) {
 }  // namespace
 
 UINT GetWinWindowDpi(HWND window) { return WindowDpi(window); }
+WinUiPalette ResolveWinUiPalette(WinUiPalette system, WinUiPalette light,
+                                  UiAppearancePreferences preferences) {
+  if (system.high_contrast) return system;
+  auto result = system;
+  if (preferences.theme == UiThemeMode::kLight) result = light;
+  else if (preferences.theme == UiThemeMode::kDark && !result.dark)
+    result = {RGB(0, 0, 0), RGB(255, 255, 255), RGB(40, 40, 40),
+              RGB(160, 160, 160), RGB(150, 150, 150), true, false};
+  if (result.dark && preferences.soften_dark) {
+    result.background = RGB(32, 32, 32); result.control_background = RGB(43, 43, 43);
+  }
+  return result;
+}
 std::string GetWinWindowMonitorKey(HWND window) {
   MONITORINFOEXW info{}; info.cbSize = sizeof(info);
   if (!GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &info))
@@ -179,6 +192,7 @@ void WinUiEnvironment::Refresh(UiAppearancePreferences preferences) {
   control_background_ = GetSysColor(COLOR_BTNFACE);
   disabled_foreground_ = GetSysColor(COLOR_GRAYTEXT);
   border_ = GetSysColor(COLOR_WINDOWFRAME);
+  WinUiPalette const light_palette{background_, foreground_, control_background_, disabled_foreground_, border_, false, high_contrast_};
   dark_ = false;
   if (!high_contrast_ && modern_->colors) {
     ABI::Windows::UI::Color background{};
@@ -237,28 +251,14 @@ void WinUiEnvironment::Refresh(UiAppearancePreferences preferences) {
       }, reinterpret_cast<LPARAM>(&snapshot_.monitors)))
     FatalWin32("EnumDisplayMonitors environment", GetLastError());
   NormalizeUiDeviceEnvironment(snapshot_);
-  // High Contrast always wins over a local appearance preference.
-  if (!high_contrast_) {
-    if (preferences.theme == UiThemeMode::kLight) {
-      dark_ = false;
-      background_ = GetSysColor(COLOR_WINDOW);
-      foreground_ = GetSysColor(COLOR_WINDOWTEXT);
-      control_background_ = GetSysColor(COLOR_BTNFACE);
-      disabled_foreground_ = GetSysColor(COLOR_GRAYTEXT);
-      border_ = GetSysColor(COLOR_WINDOWFRAME);
-    } else if (preferences.theme == UiThemeMode::kDark && !dark_) {
-      dark_ = true;
-      background_ = RGB(0, 0, 0);
-      foreground_ = RGB(255, 255, 255);
-      control_background_ = RGB(40, 40, 40);
-      disabled_foreground_ = RGB(160, 160, 160);
-      border_ = RGB(150, 150, 150);
-    }
-    if (dark_ && preferences.soften_dark) {
-      background_ = RGB(32, 32, 32);
-      control_background_ = RGB(43, 43, 43);
-    }
-  }
+  // The pure resolver preserves the native High Contrast palette verbatim.
+  auto const palette = ResolveWinUiPalette(
+      {background_, foreground_, control_background_, disabled_foreground_, border_, dark_, high_contrast_},
+      light_palette, preferences);
+  background_ = palette.background; foreground_ = palette.foreground;
+  control_background_ = palette.control_background;
+  disabled_foreground_ = palette.disabled_foreground; border_ = palette.border;
+  dark_ = palette.dark;
   NONCLIENTMETRICSW metrics{sizeof(metrics)};
   if (!SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0)) {
     FatalWin32("SystemParametersInfoW system fonts", GetLastError());

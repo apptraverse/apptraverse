@@ -347,7 +347,7 @@ HWND FindTopLevelWithTitle(DWORD pid, std::wstring const& needle) {
 
 void WaitChromeReady(HWND main) {
   CHECK(WaitUntil(std::chrono::seconds{20},
-                  [&] { return CountChildClass(main, L"Button") >= 4; }));
+                  [&] { return CountChildClass(main, L"Button") == 3; }));
 }
 
 void EnsureCatalogMainWindow(DWORD pid, HWND& main) {
@@ -410,7 +410,10 @@ void ExpectChrome(HWND main, wchar_t const* add, wchar_t const* open,
     return GetControlText(main, kAddControlId) == add &&
            GetControlText(main, kOpenControlId) == open &&
            GetControlText(main, kDeleteControlId) == remove &&
-           GetControlText(main, kLanguageControlId) == language;
+           GetDlgItem(main, kLanguageControlId) == nullptr &&
+           (GetMenuState(GetSubMenu(GetMenu(main), 1),
+               example::surfaces::CatalogDesktopWindowPresenter::kLanguageFirst + (std::wstring{language} == L"RU" ? 0 : 1),
+               MF_BYCOMMAND) & MF_CHECKED) != 0;
   });
   if (!ready) {
     std::wcerr << L"Chrome did not converge: Add=["
@@ -770,7 +773,7 @@ ae::ObjId WriteProfileMissingLocaleObject(
     std::filesystem::path const& state_dir) {
   ae::ObjId const locale_id = LoadCatalogLocaleObjId(state_dir);
   ae::RamDomainStorage storage;
-  auto const storage_profile = state_dir;
+  auto const storage_profile = state_dir / "local";
   CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   storage.Remove(locale_id);
   CHECK(apptraverse::SaveUserStorageFile(storage, storage_profile));
@@ -780,7 +783,7 @@ ae::ObjId WriteProfileMissingLocaleObject(
 void AssertLocaleObjectAbsent(std::filesystem::path const& state_dir,
                               ae::ObjId locale_id) {
   ae::RamDomainStorage storage;
-  auto const storage_profile = state_dir;
+  auto const storage_profile = state_dir / "local";
   CHECK(apptraverse::LoadUserStorageFile(storage, storage_profile));
   CHECK(storage.Enumerate(locale_id).empty());
 }
@@ -910,7 +913,7 @@ void RunRequiredListLocaleNegativeTests(
     CopyStateDir(good_state, dir);
     ae::ObjId const locale_id = WriteProfileMissingLocaleObject(dir);
     AssertLocaleObjectAbsent(dir, locale_id);
-    ExpectEmbeddedOverlayUserTombstone(dir, locale_id,
+    ExpectEmbeddedOverlayUserTombstone(dir / "local", locale_id,
                                        ui::UiLocaleSettings::kClassId,
                                        "missing_locale_object");
     auto const result =
@@ -1307,13 +1310,15 @@ void RunLanguageAndFocusAcceptance() {
   CHECK(WaitUntil(std::chrono::seconds{5},
                   [&] { return !IsIconic(child2_reopened); }));
 
-  ClickControl(main, kLanguageControlId);
+  SendMessageW(main, WM_COMMAND,
+      MAKEWPARAM(example::surfaces::CatalogDesktopWindowPresenter::kLanguageFirst + 1, 0), 0);
   ExpectChromeRu(main);
   ExpectListRows(main,
                  {L"\x041E\x043A\x043D\x043E 1", L"\x041E\x043A\x043D\x043E 2",
                   L"\x041E\x043A\x043D\x043E 3"});
 
-  ClickControl(main, kLanguageControlId);
+  SendMessageW(main, WM_COMMAND,
+      MAKEWPARAM(example::surfaces::CatalogDesktopWindowPresenter::kLanguageFirst, 0), 0);
   EnsureCatalogMainWindow(pi.dwProcessId, main);
   ExpectChromeEn(main);
 
@@ -1641,6 +1646,74 @@ void RunInitialLocalSeedAcceptance(std::filesystem::path const& source) {
   }
 }
 
+struct DemoProfileSnapshot {
+  ui::UiAppearancePreferences appearance;
+  int language{};
+  std::size_t rows{};
+};
+DemoProfileSnapshot ReadDemoProfile(std::filesystem::path const& profile, bool include_local) {
+  ae::RamDomainStorage portable, local, backing;
+  CHECK(LoadUserStorageFile(portable, profile));
+  if (include_local) CHECK(LoadUserStorageFile(local, profile / "local"));
+  InstallEmbeddedDistilledBacking(backing, WindowCatalogEmbeddedGraph());
+  auto const roots = CollectClientLocalRoots(backing);
+  ClientLocalDomainStorage routed{portable, local, backing, roots};
+  OverlayDomainStorage overlay{routed, backing, EmbeddedSupplyConstantIdSet(WindowCatalogEmbeddedGraph())};
+  ae::Domain domain{overlay};
+  auto catalog = LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
+  catalog->persisted.device_state.Load(); catalog->persisted.locale.Load(); catalog->persisted.list.Load();
+  auto& state = static_cast<CatalogUiState&>(*catalog->persisted.device_state);
+  CHECK(catalog->persisted.locale->object_scope().root_id == state.obj_id);
+  CHECK(portable.Load({CatalogLocaleObjId(), ui::UiLocaleSettings::kClassId, 0}).result == ae::DomainLoadResult::kEmpty);
+  CHECK(local.Load({CatalogRootObjId(), WindowCatalog::kClassId, 0}).result == ae::DomainLoadResult::kEmpty);
+  if (include_local) {
+    CHECK(local.Load({CatalogLocaleObjId(), ui::UiLocaleSettings::kClassId, 0}).result == ae::DomainLoadResult::kLoaded);
+    CHECK(local.Load({state.obj_id, CatalogUiState::kClassId, 0}).result == ae::DomainLoadResult::kLoaded);
+  }
+  CHECK(state.journal.empty() && catalog->persisted.locale->journal.empty());
+  return {state.appearance, catalog->persisted.locale->language_index(), catalog->persisted.list->rows.size()};
+}
+void RunMenuLocalPersistenceAcceptance() {
+  using CatalogPresenter = example::surfaces::CatalogDesktopWindowPresenter;
+  auto const profile = FreshStateDir("window_catalog_menu_local");
+  auto const exe = RuntimeDemoExe();
+  {
+    ActiveDemoProcess process{StartDemo(exe, profile)};
+    HWND main = WaitCatalogMainWindow(process.pi.dwProcessId, std::chrono::seconds{30});
+    CHECK(main); WaitChromeReady(main);
+    SendMessageW(main, WM_COMMAND, MAKEWPARAM(CatalogPresenter::kLanguageFirst + 1, 0), 0);
+    ExpectChromeRu(main);
+    SendMessageW(main, WM_COMMAND, MAKEWPARAM(CatalogPresenter::kThemeCustomDark, 0), 0);
+    ExpectCustomDarkMenu(main);
+    CHECK(TopLevelWindowsForPid(process.pi.dwProcessId).size() == 1);
+    ClickControl(main, kAddControlId);
+    ExpectListRows(main, {L"Окно 1"});
+    CloseProcessGracefully(main, process.pi); process.Release();
+  }
+  auto const saved = ReadDemoProfile(profile, true);
+  CHECK(saved.language == 1 && saved.rows == 1);
+  CHECK(saved.appearance == (ui::UiAppearancePreferences{ui::UiThemeMode::kDark, true}));
+  {
+    ActiveDemoProcess cold{StartDemo(exe, profile)};
+    HWND main = WaitCatalogMainWindow(cold.pi.dwProcessId, std::chrono::seconds{30});
+    CHECK(main); WaitChromeReady(main); ExpectChromeRu(main); ExpectCustomDarkMenu(main);
+    ExpectListRows(main, {L"Окно 1"});
+    CloseProcessGracefully(main, cold.pi); cold.Release();
+  }
+  // USER-only transfer preserves windows but does not carry language or theme.
+  auto const portable_profile = FreshStateDir("window_catalog_menu_user_only");
+  CHECK(std::filesystem::copy_file(profile / "user.bin", portable_profile / "user.bin"));
+  auto const portable = ReadDemoProfile(portable_profile, false);
+  CHECK(portable.language == 0 && portable.rows == 1);
+  CHECK(portable.appearance == ui::UiAppearancePreferences{});
+  {
+    ActiveDemoProcess transferred{StartDemo(exe, portable_profile)};
+    HWND main = WaitCatalogMainWindow(transferred.pi.dwProcessId, std::chrono::seconds{30});
+    CHECK(main); WaitChromeReady(main); ExpectChromeEn(main); ExpectListRows(main, {L"Window 1"});
+    CloseProcessGracefully(main, transferred.pi); transferred.Release();
+  }
+}
+
 void RunAcceptanceAndRequiredMainWindowNegatives() {
 #if defined(APPTRAVERSE_TEST_DEBUG_BOOTSTRAP)
   // Normal Debug deliberately ignores previous USER, unlike the load consumer.
@@ -1693,6 +1766,7 @@ void RunAcceptanceAndRequiredMainWindowNegatives() {
   RunInitialLocalSeedAcceptance(good_state);
   RunDeleteAndColdReloadAcceptance();
   RunLanguageAndFocusAcceptance();
+  RunMenuLocalPersistenceAcceptance();
   auto const load_only = DemoExe("win32_window_catalog_demo_load_only.exe");
   RunRequiredMainWindowNegativeTests(good_state, load_only);
   RunRequiredListLocaleNegativeTests(good_state, load_only);

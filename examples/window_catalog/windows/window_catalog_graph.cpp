@@ -16,6 +16,7 @@
 #include "apptraverse/noninteractive_crt.h"
 
 #include "window_catalog_presenters.h"
+#include "window_catalog_menu.h"
 
 namespace apptraverse::example::surfaces {
 
@@ -45,6 +46,7 @@ void EnsureWindowCatalogGraphRegistration() {
   // The single Windows application entry point: all transitive schema anchors.
   EnsureCoreObjectRegistration();
   EnsureWindowCatalogDesktopModelRegistration();
+  EnsureCatalogMenuRegistration();
   ui::windows::EnsureWinControlPresenterRegistration();
   (void)&example::surfaces::g_apptraverse_registrar_CatalogListContainerPresenter;
   (void)&example::surfaces::g_apptraverse_registrar_CatalogDesktopWindowPresenter;

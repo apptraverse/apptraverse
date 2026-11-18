@@ -31,6 +31,8 @@ struct WindowCatalogGraphOptions {
   // Supply authoring input, shared by native/headless distillation. A new
   // compatible supply can replace this tree at the same definition identity.
   std::optional<ui::UiLayoutNode> main_layout;
+  // Explicit supply-authoring extension; ordinary applications use UiDeviceState.
+  std::function<ui::UiDeviceState::ptr(ae::Domain&, ae::ObjId)> create_device;
 };
 
 ui::UiLayoutNode DefaultWindowCatalogMainLayout();

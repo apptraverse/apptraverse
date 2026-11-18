@@ -180,6 +180,8 @@ if(WIN32 AND NOT EMSCRIPTEN)
   add_library(window_catalog_window_catalog STATIC
     windows/window_catalog_graph.cpp
     windows/window_catalog_graph_builder.cpp
+    common/window_catalog_menu_builder.cpp
+    common/window_catalog_menu.cpp
   )
   target_include_directories(window_catalog_window_catalog PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/common
@@ -187,6 +189,7 @@ if(WIN32 AND NOT EMSCRIPTEN)
   target_link_libraries(window_catalog_window_catalog PUBLIC
     window_catalog_window_catalog_common
     apptraverse_ui_windows)
+  target_link_libraries(window_catalog_window_catalog PUBLIC uxtheme)
   target_compile_features(window_catalog_window_catalog PUBLIC cxx_std_20)
   if(MSVC)
     target_compile_options(window_catalog_window_catalog PRIVATE /utf-8)

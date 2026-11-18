@@ -118,13 +118,14 @@ WindowCatalog::ptr BuildWindowCatalogGraph(
   // IDs after the scope ends. The range is disjoint from fixed IDs and from
   // ObjId::GenerateUnique's runtime range (10000 and above).
   ae::Domain::ObjectIdSequence supply_ids{domain, ae::ObjId{1000},
-                                         ae::ObjId{9999}};
+                                         ae::ObjId{1999}};
 
   auto catalog = WindowCatalog::ptr::Create(
       ae::CreateWith{domain}.with_id(ToObjId(ObjId::Catalog)));
 
-  catalog->persisted.device_state = ui::UiDeviceState::ptr::Create(
-      ae::CreateWith{domain}.with_id(ToObjId(ObjId::DeviceState)));
+  catalog->persisted.device_state = options.create_device
+      ? options.create_device(domain, ae::ObjId{ToObjId(ObjId::DeviceState)})
+      : ui::UiDeviceState::ptr::Create(ae::CreateWith{domain}.with_id(ToObjId(ObjId::DeviceState)));
   catalog->persisted.device_state->Bootstrap({ui::UiThemeMode::kAuto, false}, ui::UiDeviceEnvironment{});
   InitializeRuntimeNode(*catalog->persisted.device_state, *catalog);
 

@@ -1884,6 +1884,8 @@ if(WIN32 AND APPTRAVERSE_BUILD_EXAMPLES)
 
   apptraverse_add_test(apptraverse_window_catalog_win32_chrome_adaptive_test
     window_catalog_win32_chrome_adaptive_test.cpp window_catalog_window_catalog)
+  apptraverse_add_test(apptraverse_window_catalog_menu_model_test
+    window_catalog_menu_model_test.cpp window_catalog_window_catalog)
   target_link_libraries(apptraverse_window_catalog_win32_chrome_adaptive_test PRIVATE
     apptraverse_ui_windows apptraverse)
   if(MSVC)

@@ -317,9 +317,10 @@ void ExpectReadableControl(HWND control, ClientRect const& rect) {
 void ExpectChromeIntegrity(HWND main) {
   RECT client{};
   CHECK(GetClientRect(main, &client) != 0);
-  std::array<std::uint32_t, 5> const ids{kListControlId, kAddControlId,
-      kOpenControlId, kDeleteControlId, kLanguageControlId};
-  std::array<ClientRect, 5> rects{};
+  std::array<std::uint32_t, 4> const ids{kListControlId, kAddControlId,
+      kOpenControlId, kDeleteControlId};
+  std::array<ClientRect, 4> rects{};
+  CHECK(GetDlgItem(main, kLanguageControlId) == nullptr);
   for (std::size_t i = 0; i < ids.size(); ++i) {
     HWND const control = GetDlgItem(main, static_cast<int>(ids[i]));
     CHECK(control != nullptr);
@@ -633,7 +634,7 @@ void TestPositionOnlyPublicationPreservesNativeControls() {
   auto& child = static_cast<ui::windows::WinDesktopWindowPresenter&>(*holder->window->presenter);
   std::vector<std::unique_ptr<NativeProjectionProbe>> probes;
   probes.push_back(std::make_unique<NativeProjectionProbe>(h.MainHwnd()));
-  for (auto id : {kListControlId, kAddControlId, kOpenControlId, kDeleteControlId, kLanguageControlId})
+  for (auto id : {kListControlId, kAddControlId, kOpenControlId, kDeleteControlId})
     probes.push_back(std::make_unique<NativeProjectionProbe>(h.ControlHwnd(id)));
   // Moving the child itself is expected; its title/font must still stay quiet.
   probes.push_back(std::make_unique<NativeProjectionProbe>(child.hwnd(), false));
@@ -704,15 +705,15 @@ void TestLocalAppearancePreferences() {
   }
   command(CatalogPresenter::kThemeFromSystem, {UiThemeMode::kAuto, false});
   CHECK(first.model_catalog->Generation() == first_generation);
-  SendMessageW(first.ControlHwnd(kLanguageControlId), BM_CLICK, 0, 0);
+  SendMessageW(first.MainHwnd(), WM_COMMAND, MAKEWPARAM(CatalogPresenter::kLanguageFirst + 1, 0), 0);
   first.PumpModelAndApply();
   CHECK((GetMenuState(settings, CatalogPresenter::kThemeFromSystem, MF_BYCOMMAND) & MF_CHECKED) != 0);
   wchar_t translated[64]{};
   CHECK(GetMenuStringW(GetMenu(first.MainHwnd()), 0, translated, 64, MF_BYPOSITION));
-  CHECK(std::wstring{translated} == L"Настройки");
+  CHECK(std::wstring{translated} == L"&Тема");
   CHECK(second_local->appearance == UiAppearancePreferences{});
-  // The separate language action intentionally changes portable model state.
-  CHECK(first.model_catalog->Generation() > first_generation);
+  CHECK(first.model_catalog->persisted.locale->language_index() == 1);
+  CHECK(first.model_catalog->persisted.locale->object_scope().root_id == local.id());
   CHECK(second.model_catalog->Generation() == second_generation);
 }
 

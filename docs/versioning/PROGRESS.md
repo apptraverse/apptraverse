@@ -1,3 +1,20 @@
+## Windows WindowCatalog language/theme menu — 2026-11-17
+
+Windows now has only native application Theme and Language groups. Settings/demo
+windows and font/size/bold/cue overrides were removed. Menu composition and
+localized semantic commands are model-owned; Windows input follows proxy ->
+Event -> publication -> mirror. Language and appearance persist in existing
+LOCAL storage. Native-following composition omits Theme for future adapters.
+
+Windows incremental Debug and embedded supply generation PASS. Menu model,
+native chrome/adaptive regression and full Windows acceptance PASS. Actual
+process LOCAL cold restore and USER-only transfer PASS. Manual F10/arrows/Enter,
+Russian labels and Tab/Shift+Tab PASS. Embedded Debug consumer excludes menu
+builders by symbol inspection. Narrator speech, live changed OS accessibility
+settings, actual Win7 and other platforms remain NOT RUN. No OS settings changed.
+See [validation](../validation/window-catalog-menu-2026-11-17.md) and
+[porting structure](../window-catalog-platform-menus.md).
+
 ## Linux WindowCatalog native Settings and input checkpoint — 2026-11-17
 
 Linux WindowCatalog now exposes the four native Settings radio choices (From
