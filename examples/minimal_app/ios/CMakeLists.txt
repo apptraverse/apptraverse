@@ -112,3 +112,27 @@ target_link_options(apptraverse_minimal_app_ios PRIVATE
   -L${CMAKE_OSX_SYSROOT}/usr/lib/swift
   -L${_swift_runtime_dir}
   -Wl,-rpath,/usr/lib/swift)
+
+if(APPTRAVERSE_BUILD_IOS_ACCEPTANCE AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+  add_library(apptraverse_ios_minimal_app_acceptance_swift STATIC
+    ${PROJECT_SOURCE_DIR}/tests/ios_minimal_app_acceptance.swift)
+  set_target_properties(apptraverse_ios_minimal_app_acceptance_swift PROPERTIES
+    Swift_MODULE_NAME MinimalIosAcceptance)
+  target_link_libraries(apptraverse_ios_minimal_app_acceptance_swift PRIVATE
+    apptraverse_ui_ios_swift)
+  target_compile_options(apptraverse_ios_minimal_app_acceptance_swift PRIVATE
+    "SHELL:-import-objc-header ${CMAKE_CURRENT_SOURCE_DIR}/minimal_app_ios_composition.h"
+    "SHELL:-Xcc -I${PROJECT_SOURCE_DIR}/include")
+  add_executable(apptraverse_ios_minimal_app_acceptance minimal_app_ios_link.mm)
+  target_link_libraries(apptraverse_ios_minimal_app_acceptance PRIVATE
+    apptraverse_ios_minimal_app_acceptance_swift minimal_app_ios_composition
+    apptraverse_ui_ios)
+  set_target_properties(apptraverse_ios_minimal_app_acceptance PROPERTIES
+    LINKER_LANGUAGE OBJCXX
+    MACOSX_BUNDLE TRUE
+    MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in
+    MACOSX_BUNDLE_BUNDLE_NAME apptraverse_ios_minimal_app_acceptance
+    MACOSX_BUNDLE_GUI_IDENTIFIER com.apptraverse.minimalapp.ios.acceptance
+    MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
+    MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION})
+endif()

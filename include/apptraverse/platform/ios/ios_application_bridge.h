@@ -9,6 +9,7 @@
 #include "apptraverse/application_model_runtime.h"
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/application_ui_session.h"
+#include "apptraverse/ui/ui_device_state.h"
 
 namespace apptraverse::ui::ios {
 
@@ -28,13 +29,12 @@ struct IosApplicationBridgeCallbacks {
   std::function<void(ae::Obj&)> after_initial;
   std::function<void(ae::Obj&)> after_incremental;
   std::function<IosMobilePresentation(ae::Obj&)> mobile_presentation;
-  std::function<void(ae::Obj&, ModelObjectProxy&, std::int32_t, std::int32_t)>
-      on_viewport;
   // Optional for consumers whose model presents a single page rather than a
   // navigation ring (for example MinimalApp's current main/detail window).
   std::function<void(ae::Obj&, ModelObjectProxy&, int)> on_mobile_swipe;
   std::function<void(ae::Obj&, ModelObjectProxy&, ae::ObjId)> on_mobile_page;
-  std::function<int(ApplicationModelRuntime&, ApplicationPublishedCallback)>
+  std::function<int(ApplicationModelRuntime&, ApplicationPublishedCallback,
+                    UiDeviceEnvironment const&)>
       run_model;
   std::function<bool(ae::Obj&, ae::Obj&, ModelObjectProxy&,
                      std::function<void()>)>

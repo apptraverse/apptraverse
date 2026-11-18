@@ -1,5 +1,6 @@
 #import "apptraverse/platform/macos/ATMacApplicationBridge.h"
 #import <AppKit/AppKit.h>
+#import "apptraverse/platform/apple/apple_window_layout.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -159,91 +160,12 @@ class MacNativeViews final
 }
 @end
 
-@interface ATMacLayoutResult ()
-- (instancetype)initWithResult:(apptraverse::ui::UiConstraintLayoutResult const&)result;
-@end
-
-@implementation ATMacLayoutResult
-- (instancetype)initWithResult:(apptraverse::ui::UiConstraintLayoutResult const&)result {
-  if ((self = [super init])) {
-    _contentSize = CGSizeMake(result.content_width, result.content_height);
-    NSMutableDictionary<NSNumber*, NSValue*>* frames = [NSMutableDictionary dictionary];
-    for (auto const& frame : result.controls) {
-      frames[@(frame.control_id)] = [NSValue valueWithRect:
-          CGRectMake(frame.x, frame.y, frame.width, frame.height)];
-    }
-    _frames = [frames copy];
-  }
-  return self;
-}
-@end
-
-@interface ATMacWindowLayout () {
-  apptraverse::ui::UiLayoutNode _root;
-}
-- (instancetype)initWithRoot:(apptraverse::ui::UiLayoutNode const&)root;
-@end
-
-@implementation ATMacWindowLayout
-- (instancetype)initWithRoot:(apptraverse::ui::UiLayoutNode const&)root {
-  if ((self = [super init])) _root = root;
-  return self;
-}
-
-- (ATMacLayoutResult*)solveViewport:(CGSize)viewport
-                        controlIDs:(NSArray<NSNumber*>*)controlIDs
-                           measure:(CGSize (^)(uint32_t, double))measure {
-  using namespace apptraverse::ui;
-  std::set<std::uint32_t> slots;
-  auto collect = [&](auto&& self, UiLayoutNode const& node) -> void {
-    if (node.flow == UiLayoutFlow::kLeaf) slots.insert(node.control_id);
-    for (auto const& child : node.children) self(self, child);
-  };
-  collect(collect, _root);
-  std::vector<UiLayoutMeasurement> measurements;
-  for (NSNumber* control in controlIDs) {
-    auto const id = control.unsignedIntValue;
-    if (slots.erase(id) != 1) {
-      apptraverse::WriteFatalStderr("duplicate or unknown macOS layout control\n");
-      std::abort();
-    }
-    auto const ideal = measure(id, -1);
-    auto const minimum = measure(id, 0);
-    measurements.push_back({id, minimum.width, ideal.height,
-                            ideal.width, ideal.height});
-  }
-  if (!slots.empty()) {
-    std::string detail = "missing required macOS layout controls:";
-    for (auto const id : slots) detail += " " + std::to_string(id);
-    detail += "; mounted:";
-    for (NSNumber* id in controlIDs) detail += " " + std::to_string(id.unsignedIntValue);
-    detail += "\n";
-    apptraverse::WriteFatalStderr(detail.c_str());
-    std::abort();
-  }
-  auto result = ComputeUiConstraintLayout(_root, viewport.width, viewport.height,
-      measurements, [&](std::uint32_t id, double width) {
-        auto measured = *std::find_if(measurements.begin(), measurements.end(),
-            [&](auto const& entry) { return entry.control_id == id; });
-        auto const size = measure(id, width);
-        measured.min_height = std::max(measured.min_height, size.height);
-        measured.preferred_height = std::max(measured.preferred_height, size.height);
-        return measured;
-      });
-  if (!result.valid) {
-    apptraverse::WriteFatalStderr(result.error.c_str());
-    std::abort();
-  }
-  return [[ATMacLayoutResult alloc] initWithResult:result];
-}
-@end
-
 @interface ATMacWindowState ()
 - (instancetype)initWithTitle:(NSString*)title
                         width:(double)width
                        height:(double)height
                       primary:(BOOL)primary
-                       layout:(ATMacWindowLayout*)layout
+                       layout:(ATAppleWindowLayout*)layout
                        theme:(NSUInteger)theme softenDark:(BOOL)softenDark;
 @end
 
@@ -252,7 +174,7 @@ class MacNativeViews final
                         width:(double)width
                        height:(double)height
                       primary:(BOOL)primary
-                       layout:(ATMacWindowLayout*)layout
+                       layout:(ATAppleWindowLayout*)layout
                        theme:(NSUInteger)theme softenDark:(BOOL)softenDark {
   if ((self = [super init])) {
     _title = title;
@@ -439,7 +361,7 @@ class MacNativeViews final
               width:desktop->restore_client_width()
              height:desktop->restore_client_height()
             primary:desktop->obj_id == _mainWindowId
-             layout:[[ATMacWindowLayout alloc] initWithRoot:*presenter.LayoutRoot()]
+             layout:[[ATAppleWindowLayout alloc] initWithRoot:*presenter.LayoutRoot()]
               theme:static_cast<NSUInteger>(appearance.theme)
          softenDark:appearance.soften_dark];
 }

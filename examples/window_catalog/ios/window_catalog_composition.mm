@@ -55,7 +55,8 @@ struct CatalogProfile {
   }
 
   int Run(apptraverse::ApplicationModelRuntime& runtime,
-          apptraverse::ApplicationPublishedCallback on_published) {
+          apptraverse::ApplicationPublishedCallback on_published,
+          apptraverse::ui::UiDeviceEnvironment const& environment) {
     if (!prepared) {
 #if defined(APPTRAVERSE_WINDOW_CATALOG_DEBUG_BOOTSTRAP)
       // The producer owns independent RAM. Normal Debug execution writes only
@@ -80,8 +81,9 @@ struct CatalogProfile {
       prepared = true;
     }
     apptraverse::ApplicationModelSessionHooks<apptraverse::WindowCatalog> hooks;
-    hooks.prepare = [](apptraverse::WindowCatalog& catalog) {
-      catalog.persisted.device_state.Load();
+    hooks.prepare = [&environment](apptraverse::WindowCatalog& catalog) {
+      catalog.persisted.device_state->ObserveEnvironment(
+          environment, apptraverse::ui::UiEnvironmentReason::kStartup);
       apptraverse::PrepareCatalogMenuForRun(catalog);
       apptraverse::PrepareWindowCatalogForRun(catalog);
     };
@@ -125,8 +127,9 @@ struct CatalogProfile {
   auto profile = _profile;
   apptraverse::ui::ios::IosApplicationBridgeCallbacks callbacks;
   callbacks.run_model = [profile](apptraverse::ApplicationModelRuntime& runtime,
-                                 apptraverse::ApplicationPublishedCallback published) {
-    return profile->Run(runtime, std::move(published));
+                                 apptraverse::ApplicationPublishedCallback published,
+                                 apptraverse::ui::UiDeviceEnvironment const& environment) {
+    return profile->Run(runtime, std::move(published), environment);
   };
   callbacks.persist_model = [profile](ae::Domain& domain) {
     auto catalog = domain.Find(ae::ObjId{
@@ -180,25 +183,6 @@ struct CatalogProfile {
       result.windows.push_back(window.id());
     result.active_window = catalog.ResolveActiveWindow().id();
     return result;
-  };
-  callbacks.on_viewport = [](ae::Obj& root, apptraverse::ModelObjectProxy& proxy,
-                             std::int32_t width, std::int32_t height) {
-    auto& catalog = static_cast<apptraverse::WindowCatalog&>(root);
-    auto const& viewport = catalog.persisted.main_client_viewport;
-    if (viewport.width != width || viewport.height != height ||
-        viewport.density_dpi != 160) {
-      proxy.Invoke(catalog.obj_id,
-          &apptraverse::WindowCatalog::SubmitMainClientViewportFromUi,
-          width, height, std::int32_t{160});
-    }
-    for (auto const& window : catalog.BuildWindowNavigationRing()) {
-      if (window.id() == catalog.persisted.main_window.id()) continue;
-      if (window->client_width() == width && window->client_height() == height)
-        continue;
-      proxy.Invoke(catalog.obj_id,
-          &apptraverse::WindowCatalog::SubmitHolderChildWindowClientSizeFromUi,
-          window.id().id(), width, height, std::int32_t{160});
-    }
   };
   callbacks.on_mobile_swipe = [](ae::Obj& root,
       apptraverse::ModelObjectProxy& proxy, int delta) {

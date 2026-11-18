@@ -1,13 +1,6 @@
 import AppTraverseIosBridge
+import Foundation
 import SwiftUI
-import UIKit
-
-struct IosControlFrame: Equatable {
-    var x: Double
-    var y: Double
-    var width: Double
-    var height: Double
-}
 
 protocol IosUiCommandSink: AnyObject {
     func clickButton(_ token: UInt64)
@@ -25,9 +18,9 @@ struct IosListRowSnapshot: Identifiable, Equatable {
 final class IosButtonAdapter: ObservableObject, Identifiable {
     let id: UInt64
     weak var commandSink: IosUiCommandSink?
-    @Published var title = ""
-    @Published var enabled = false
-    @Published var frame = IosControlFrame(x: 0, y: 0, width: 0, height: 0)
+    @Published private(set) var title = ""
+    @Published private(set) var enabled = false
+    private(set) var controlID: UInt32 = 0
 
     init(token: UInt64, commandSink: IosUiCommandSink) {
         id = token
@@ -35,15 +28,13 @@ final class IosButtonAdapter: ObservableObject, Identifiable {
     }
 
     func sync(_ state: ATIosButtonState) {
+        controlID = state.controlID
         title = state.title
         enabled = state.isEnabled
-        frame = IosControlFrame(x: state.x, y: state.y,
-                                width: state.width, height: state.height)
     }
 
     func click() {
-        guard enabled else { return }
-        commandSink?.clickButton(id)
+        if enabled { commandSink?.clickButton(id) }
     }
 
     func disconnect() { commandSink = nil }
@@ -53,8 +44,8 @@ final class IosListAdapter: ObservableObject, Identifiable {
     let id: UInt64
     weak var commandSink: IosUiCommandSink?
     @Published var rows: [IosListRowSnapshot] = []
-    @Published var selectedRow: Int?
-    @Published var frame = IosControlFrame(x: 0, y: 0, width: 0, height: 0)
+    @Published private(set) var selectedRow: Int?
+    private(set) var controlID: UInt32 = 0
 
     init(token: UInt64, commandSink: IosUiCommandSink) {
         id = token
@@ -62,341 +53,319 @@ final class IosListAdapter: ObservableObject, Identifiable {
     }
 
     func sync(_ state: ATIosListState) {
+        controlID = state.controlID
         rows = state.rows.map { IosListRowSnapshot(id: $0.identity, text: $0.text) }
         selectedRow = state.selectedRow >= 0 ? state.selectedRow : nil
-        frame = IosControlFrame(x: state.x, y: state.y,
-                                width: state.width, height: state.height)
     }
 
-    func select(_ row: Int) { commandSink?.selectListRow(row, token: id) }
-    func activate(_ row: Int) { commandSink?.activateListRow(row, token: id) }
-    var selection: Binding<Int?> {
-        Binding(get: { self.selectedRow }, set: { value in
-            if let row = value { self.select(row) }
-        })
+    var selectedIdentity: UInt64? {
+        guard let row = selectedRow, rows.indices.contains(row) else { return nil }
+        return rows[row].id
     }
+
+    func select(_ identity: UInt64) {
+        if let row = rows.firstIndex(where: { $0.id == identity }) {
+            commandSink?.selectListRow(row, token: id)
+        }
+    }
+
+    func activate(_ identity: UInt64) {
+        if let row = rows.firstIndex(where: { $0.id == identity }) {
+            commandSink?.activateListRow(row, token: id)
+        }
+    }
+
     func disconnect() { commandSink = nil }
+}
+
+struct IosWindowSnapshot {
+    let state: ATIosWindowState
+    let buttons: [IosButtonAdapter]
+    let lists: [IosListAdapter]
 }
 
 final class IosWindowSceneModel: ObservableObject, Identifiable {
     let id: UInt64
     let identity: UInt64
-    weak var commandSink: IosUiCommandSink?
-    @Published var title = ""
-    @Published var buttons: [IosButtonAdapter] = []
-    @Published var lists: [IosListAdapter] = []
+    var state: ATIosWindowState
+    var buttons: [IosButtonAdapter] = []
+    var lists: [IosListAdapter] = []
+    @Published private(set) var snapshot: IosWindowSnapshot?
 
-    init(token: UInt64, identity: UInt64, commandSink: IosUiCommandSink) {
+    init(token: UInt64, state: ATIosWindowState) {
         id = token
-        self.identity = identity
-        self.commandSink = commandSink
+        identity = state.identity
+        self.state = state
     }
 
-    func sync(_ state: ATIosWindowState) { title = state.title }
+    var title: String { state.title }
 
-    func disconnect() {
-        commandSink = nil
-        buttons = []
-        lists = []
-    }
-}
-
-// UIKit owns its native tracking, scroll and double-tap recognizers. The model
-// publication owns confirmed selection; native input never edits the mirror.
-struct IosNativeList: UIViewRepresentable {
-    @ObservedObject var adapter: IosListAdapter
-
-    final class Coordinator: NSObject, UITableViewDataSource, UITableViewDelegate,
-                             UIGestureRecognizerDelegate {
-        weak var adapter: IosListAdapter?
-        var rows: [IosListRowSnapshot] = []
-        var applyingSnapshot = false
-
-        func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-            rows.count
-        }
-        func tableView(_ tableView: UITableView,
-                       cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-            let cell = tableView.dequeueReusableCell(withIdentifier: "row", for: indexPath)
-            var content = cell.defaultContentConfiguration()
-            content.text = rows[indexPath.row].text
-            content.textProperties.font = .systemFont(ofSize: 16)
-            cell.contentConfiguration = content
-            return cell
-        }
-        private func currentIndex(forDisplayedRow row: Int) -> Int? {
-            guard rows.indices.contains(row), let adapter else { return nil }
-            let identity = rows[row].id
-            // UIKit may still display the preceding snapshot while SwiftUI has
-            // already published a new adapter value. Match that displayed
-            // identity into the current mirror instead of reusing its index.
-            return adapter.rows.firstIndex { $0.id == identity }
-        }
-        func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-            guard !applyingSnapshot,
-                  let index = currentIndex(forDisplayedRow: indexPath.row) else { return }
-            adapter?.select(index)
-        }
-        func activateDisplayedRow(_ row: Int) {
-            guard !applyingSnapshot,
-                  let index = currentIndex(forDisplayedRow: row) else { return }
-            adapter?.activate(index)
-        }
-        @objc func doubleTap(_ gesture: UITapGestureRecognizer) {
-            guard gesture.state == .ended,
-                  let table = gesture.view as? UITableView,
-                  let path = table.indexPathForRow(at: gesture.location(in: table)) else { return }
-            activateDisplayedRow(path.row)
-        }
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
-            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-            true
-        }
-        func sync(_ adapter: IosListAdapter, table: UITableView) {
-            self.adapter = adapter
-            applyingSnapshot = true
-            if rows != adapter.rows {
-                rows = adapter.rows
-                table.reloadData()
-            }
-            let path = adapter.selectedRow.map { IndexPath(row: $0, section: 0) }
-            if table.indexPathForSelectedRow != path {
-                table.selectRow(at: path, animated: false, scrollPosition: .none)
-            }
-            applyingSnapshot = false
-        }
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-    func makeUIView(context: Context) -> UITableView {
-        let table = UITableView(frame: .zero, style: .plain)
-        table.register(UITableViewCell.self, forCellReuseIdentifier: "row")
-        table.dataSource = context.coordinator
-        table.delegate = context.coordinator
-        table.rowHeight = 44
-        table.allowsMultipleSelection = false
-        table.accessibilityIdentifier = "list-\(adapter.id)"
-        table.layer.borderWidth = 1
-        table.layer.borderColor = UIColor.separator.cgColor
-        let tap = UITapGestureRecognizer(target: context.coordinator,
-                                         action: #selector(Coordinator.doubleTap(_:)))
-        tap.numberOfTapsRequired = 2
-        tap.cancelsTouchesInView = false
-        tap.delaysTouchesBegan = false
-        tap.delaysTouchesEnded = false
-        tap.delegate = context.coordinator
-        table.addGestureRecognizer(tap)
-        context.coordinator.sync(adapter, table: table)
-        return table
-    }
-    func updateUIView(_ uiView: UITableView, context: Context) {
-        context.coordinator.sync(adapter, table: uiView)
-    }
-    static func dismantleUIView(_ uiView: UITableView, coordinator: Coordinator) {
-        uiView.delegate = nil
-        uiView.dataSource = nil
-        coordinator.adapter = nil
-    }
-}
-
-private struct IosModelButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var enabled
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundStyle(enabled ? Color.primary : Color.secondary)
-            .background(configuration.isPressed ? Color(uiColor: .systemGray3)
-                                                : Color(uiColor: .secondarySystemBackground))
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(
-                Color(uiColor: .separator), lineWidth: 1))
+    func publish() {
+        snapshot = IosWindowSnapshot(state: state, buttons: buttons, lists: lists)
     }
 }
 
 private struct IosButtonControl: View {
     @ObservedObject var adapter: IosButtonAdapter
+
     var body: some View {
-        Button(action: { adapter.click() }) {
+        Button(action: adapter.click) {
             Text(adapter.title)
-                .frame(width: adapter.frame.width, height: adapter.frame.height)
-                .contentShape(Rectangle())
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, minHeight: 44, maxHeight: .infinity)
         }
-        .buttonStyle(IosModelButtonStyle())
+        .buttonStyle(.bordered)
         .disabled(!adapter.enabled)
         .accessibilityIdentifier("button-\(adapter.id)")
-        .position(x: adapter.frame.x + adapter.frame.width / 2,
-                  y: adapter.frame.y + adapter.frame.height / 2)
+        .layoutValue(key: AppleControlID.self, value: adapter.controlID)
     }
 }
 
 private struct IosListControl: View {
     @ObservedObject var adapter: IosListAdapter
+
     var body: some View {
-        IosNativeList(adapter: adapter)
-            .frame(width: adapter.frame.width, height: adapter.frame.height)
-            .position(x: adapter.frame.x + adapter.frame.width / 2,
-                      y: adapter.frame.y + adapter.frame.height / 2)
+        List(adapter.rows) { row in
+            let selected = adapter.selectedIdentity == row.id
+            Text(row.text)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+                .gesture(TapGesture(count: 2).exclusively(before: TapGesture()).onEnded { tap in
+                    switch tap {
+                    case .first: adapter.activate(row.id)
+                    case .second: adapter.select(row.id)
+                    }
+                })
+                .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+                .accessibilityAction { adapter.select(row.id) }
+                .accessibilityIdentifier("row-\(row.id)")
+                .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12))
+                .listRowBackground(selected ? Color.accentColor.opacity(0.17) : Color.clear)
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .overlay(Rectangle().strokeBorder(.secondary, lineWidth: 1).allowsHitTesting(false))
+        .accessibilityIdentifier("list-\(adapter.id)")
+        .layoutValue(key: AppleControlID.self, value: adapter.controlID)
     }
 }
 
 private struct IosWindowView: View {
     @ObservedObject var scene: IosWindowSceneModel
+    let viewport: CGSize
+    @Environment(\.colorSchemeContrast) private var contrast
+
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            Color(uiColor: .systemBackground)
-            ForEach(scene.buttons) { IosButtonControl(adapter: $0) }
-            ForEach(scene.lists) { IosListControl(adapter: $0) }
+        if let snapshot = scene.snapshot, viewport.width >= 1, viewport.height >= 1 {
+            ScrollView([.horizontal, .vertical]) {
+                AppleConstraintLayout(definition: snapshot.state.layout, viewport: viewport) {
+                    ForEach(snapshot.buttons) { IosButtonControl(adapter: $0) }
+                    ForEach(snapshot.lists) { IosListControl(adapter: $0) }
+                }
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .background(snapshot.state.softenDark && contrast != .increased ?
+                        Color(white: 0.18) : Color.clear)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .navigationTitle(scene.title)
-        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
-private struct IosPagerIndicator: UIViewRepresentable {
+private struct IosPagePicker: View {
     @ObservedObject var host: IosApplicationHost
-    final class Coordinator: NSObject {
-        weak var host: IosApplicationHost?
-        @objc func changed(_ control: UIPageControl) {
-            guard let host, host.pageTokens.indices.contains(control.currentPage) else { return }
-            host.selectPage(host.pageTokens[control.currentPage])
+
+    var body: some View {
+        GeometryReader { geometry in
+            ScrollViewReader { scroll in
+                ScrollView(.horizontal) {
+                    HStack(spacing: 0) {
+                        ForEach(Array(host.pageTokens.enumerated()), id: \.element) { index, token in
+                            let selected = token == host.activeToken
+                            Button {
+                                host.selectPage(token)
+                            } label: {
+                                Circle()
+                                    .fill(selected ? Color.accentColor : Color.secondary.opacity(0.4))
+                                    .frame(width: 8, height: 8)
+                                    .frame(width: 44, height: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(Text(host.scenes[token]!.title))
+                            .accessibilityAddTraits(selected ? .isSelected : [])
+                            .accessibilityIdentifier("mobile-page-\(index)")
+                            .id(token)
+                        }
+                    }
+                    .frame(minWidth: geometry.size.width)
+                }
+                .scrollIndicators(.hidden)
+                .scrollBounceBehavior(.basedOnSize)
+                .onChange(of: host.activeToken, initial: true) {
+                    if let token = host.activeToken { scroll.scrollTo(token, anchor: .center) }
+                }
+            }
         }
+        .frame(height: 44)
+        .accessibilityIdentifier("mobile-pages")
     }
-    func makeCoordinator() -> Coordinator { Coordinator() }
-    func makeUIView(context: Context) -> UIPageControl {
-        let control = UIPageControl()
-        control.pageIndicatorTintColor = .systemGray3
-        control.currentPageIndicatorTintColor = .systemBlue
-        control.accessibilityIdentifier = "mobile-pages"
-        control.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)),
-                          for: .valueChanged)
-        return control
-    }
-    func updateUIView(_ control: UIPageControl, context: Context) {
-        context.coordinator.host = host
-        control.numberOfPages = host.pageTokens.count
-        if let active = host.activeToken {
-            control.currentPage = host.pageTokens.firstIndex(of: active)!
-        }
-    }
-    static func dismantleUIView(_ control: UIPageControl, coordinator: Coordinator) {
-        coordinator.host = nil
-        control.removeTarget(nil, action: nil, for: .allEvents)
+}
+
+struct IosSystemSettings: Equatable {
+    let displayScale: Double
+    let bodyTextScale: Double
+    let dark: Bool
+    let highContrast: Bool
+    let reducedMotion: Bool
+    let voiceOver: Bool
+
+    func bridgeSettings(systemDark: Bool) -> ATIosDeviceSettings {
+        ATIosDeviceSettings(displayScale: displayScale, bodyTextScale: bodyTextScale,
+            dark: systemDark, highContrast: highContrast, reducedMotion: reducedMotion, voiceOver: voiceOver)
     }
 }
 
 public struct IosApplicationRootView: View {
     @ObservedObject public var host: IosApplicationHost
+    @Environment(\.scenePhase) private var phase
+    @Environment(\.displayScale) private var displayScale
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceMotion) private var reducedMotion
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
+    @ScaledMetric(relativeTo: .body) private var bodyTextScale = 1.0
 
     public init(host: IosApplicationHost) { self.host = host }
 
+    private var preferredScheme: ColorScheme? {
+        guard contrast != .increased else { return nil }
+        switch host.activeScene?.snapshot?.state.theme {
+        case 1: return .light
+        case 2: return .dark
+        default: return nil
+        }
+    }
+
+    private var settings: IosSystemSettings {
+        IosSystemSettings(displayScale: displayScale, bodyTextScale: bodyTextScale,
+            dark: scheme == .dark, highContrast: contrast == .increased,
+            reducedMotion: reducedMotion, voiceOver: voiceOver)
+    }
+
     public var body: some View {
         NavigationStack {
-          VStack(spacing: 0) {
-            GeometryReader { geometry in
-                Group {
-                    if let scene = host.activeScene {
-                        IosWindowView(scene: scene)
-                    } else {
-                        ProgressView()
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .onAppear { host.reportViewport(geometry.size) }
-                .onChange(of: geometry.size) { _, size in host.reportViewport(size) }
-                .simultaneousGesture(DragGesture(minimumDistance: 40).onEnded { value in
-                    if abs(value.translation.width) > 60 &&
-                        abs(value.translation.width) > abs(value.translation.height) * 2 {
-                        host.swipe(value.translation.width < 0 ? 1 : -1)
-                    }
-                })
-            }
-            if host.pageTokens.count > 1 {
-                IosPagerIndicator(host: host).frame(height: 24)
-            }
-          }
-          .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                ForEach(Array(host.menuGroups.enumerated()), id: \.offset) { groupIndex, group in
-                    Menu(group.title.replacingOccurrences(of: "&", with: "")) {
-                        ForEach(Array(group.items.enumerated()), id: \.offset) { itemIndex, item in
-                            Button {
-                                host.executeMenu(group: groupIndex, item: itemIndex)
-                            } label: {
-                                if item.isSelected {
-                                    Label(item.title, systemImage: "checkmark")
-                                } else {
-                                    Text(item.title)
-                                }
-                            }
+            VStack(spacing: 0) {
+                GeometryReader { geometry in
+                    Group {
+                        if let scene = host.activeScene {
+                            IosWindowView(scene: scene, viewport: geometry.size).id(scene.id)
+                        } else {
+                            ProgressView()
                         }
                     }
-                    .accessibilityIdentifier("catalog-menu-\(groupIndex)")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onChange(of: geometry.size, initial: true) { host.reportViewport(geometry.size) }
+                    .simultaneousGesture(DragGesture(minimumDistance: 40).onEnded { value in
+                        if abs(value.translation.width) > 60 &&
+                            abs(value.translation.width) > abs(value.translation.height) * 2 {
+                            host.swipe(value.translation.width < 0 ? 1 : -1)
+                        }
+                    })
+                }
+                if host.pageTokens.count > 1 { IosPagePicker(host: host) }
+            }
+            .navigationTitle(host.activeScene?.title ?? "")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    ForEach(Array(host.menuGroups.enumerated()), id: \.offset) { groupIndex, group in
+                        Menu(group.title.replacingOccurrences(of: "&", with: "")) {
+                            ForEach(Array(group.items.enumerated()), id: \.offset) { itemIndex, item in
+                                Toggle(item.title, isOn: Binding(get: { item.isSelected }, set: { _ in
+                                    host.executeMenu(group: groupIndex, item: itemIndex)
+                                }))
+                            }
+                        }
+                        .accessibilityIdentifier("catalog-menu-\(groupIndex)")
+                    }
                 }
             }
-          }
         }
-        .onAppear { host.startIfNeeded() }
+        .preferredColorScheme(preferredScheme)
+        .onChange(of: settings, initial: true) {
+            host.observeSettings(settings, followsSystemAppearance: preferredScheme == nil)
+        }
+        .onChange(of: phase, initial: true) {
+            if phase == .active {
+                host.observeSettings(settings, followsSystemAppearance: preferredScheme == nil)
+                host.sceneDidBecomeActive()
+            } else {
+                host.sceneWillDeactivate()
+            }
+        }
     }
 }
 
-public final class IosApplicationHost: NSObject, ObservableObject,
-    ATIosApplicationBridgeDelegate {
+private struct IosPresentation {
+    var pages: [UInt64] = []
+    var active: UInt64?
+    var menu: [ATIosMenuGroupState] = []
+}
+
+public final class IosApplicationHost: NSObject, ObservableObject, ATIosApplicationBridgeDelegate {
     private let bridgeFactory: (ATIosApplicationBridgeDelegate) -> ATIosApplicationBridge
-    var bridge: ATIosApplicationBridge!
-    @Published var scenes: [UInt64: IosWindowSceneModel] = [:]
-    @Published var pageTokens: [UInt64] = []
-    @Published var activeToken: UInt64?
-    @Published var menuGroups: [ATIosMenuGroupState] = []
-    var buttons: [UInt64: IosButtonAdapter] = [:]
-    var lists: [UInt64: IosListAdapter] = [:]
+    private(set) var bridge: ATIosApplicationBridge!
+    private(set) var scenes: [UInt64: IosWindowSceneModel] = [:]
+    private(set) var buttons: [UInt64: IosButtonAdapter] = [:]
+    private(set) var lists: [UInt64: IosListAdapter] = [:]
+    @Published private var presentation = IosPresentation()
+    private var pendingPresentation = IosPresentation()
     private var started = false
     private var stopping = false
-    private var applicationActive = true
+    private(set) var applicationActive = false
     private var manualStop = false
-    private var latestViewport = CGSize.zero
+    private(set) var latestViewport = CGSize.zero
+    private var latestSettings: ATIosDeviceSettings?
+    private var systemDark = false
     private var lastExitStatus: Int?
     private var lastBackgroundSaveStatus: Int?
     private var pendingBackgroundSaves = 0
     private var backgroundSaveFailure: Int?
-    private var backgroundTask = UIBackgroundTaskIdentifier.invalid
+    private let suspension = IosSuspensionAssertion()
 
-    var activeScene: IosWindowSceneModel? {
-        activeToken.flatMap { scenes[$0] }
-    }
-    var mainScene: IosWindowSceneModel? {
-        pageTokens.first.flatMap { scenes[$0] }
-    }
+    var pageTokens: [UInt64] { presentation.pages }
+    var activeToken: UInt64? { presentation.active }
+    var menuGroups: [ATIosMenuGroupState] { presentation.menu }
+    var activeScene: IosWindowSceneModel? { activeToken.flatMap { scenes[$0] } }
+    var mainScene: IosWindowSceneModel? { pageTokens.first.flatMap { scenes[$0] } }
     public var isRunning: Bool { started && !stopping }
 
     public init(bridgeFactory: @escaping
         (ATIosApplicationBridgeDelegate) -> ATIosApplicationBridge) {
         self.bridgeFactory = bridgeFactory
-        super.init()
-        let notifications = NotificationCenter.default
-        notifications.addObserver(self, selector: #selector(applicationWillResignActive),
-                                  name: UIApplication.willResignActiveNotification, object: nil)
-        notifications.addObserver(self, selector: #selector(applicationDidEnterBackground),
-                                  name: UIApplication.didEnterBackgroundNotification, object: nil)
-        notifications.addObserver(self, selector: #selector(applicationDidBecomeActive),
-                                  name: UIApplication.didBecomeActiveNotification, object: nil)
     }
 
-    deinit {
-        NotificationCenter.default.removeObserver(self)
-        endBackgroundTask()
-        bridge?.requestStop()
-    }
+    deinit { bridge?.requestStop() }
 
-    @objc private func applicationWillResignActive() { sceneWillDeactivate() }
-    @objc private func applicationDidEnterBackground() { sceneDidEnterBackground() }
-    @objc private func applicationDidBecomeActive() { sceneDidBecomeActive() }
+    func observeSettings(_ settings: IosSystemSettings, followsSystemAppearance: Bool) {
+        // A preferred scheme may change the environment of the presentation.
+        // Record the system value only while SwiftUI follows the system.
+        if followsSystemAppearance { systemDark = settings.dark }
+        let value = settings.bridgeSettings(systemDark: systemDark)
+        latestSettings = value
+        if started && !stopping { bridge.observeDeviceSettings(value) }
+    }
 
     public func startIfNeeded() {
         guard !started && !manualStop && applicationActive else { return }
         started = true
         stopping = false
         bridge = bridgeFactory(self)
+        if let latestSettings { bridge.observeDeviceSettings(latestSettings) }
         bridge.start()
+        bridge.submitViewportWidth(latestViewport.width, height: latestViewport.height)
     }
+
     public func lastModelExitCode() -> Int? { lastExitStatus }
 
     func executeMenu(group: Int, item: Int) {
@@ -404,91 +373,77 @@ public final class IosApplicationHost: NSObject, ObservableObject,
         bridge.executeMenuGroup(UInt(group), item: UInt(item))
     }
 
-    public func bridge(_ bridge: ATIosApplicationBridge,
-                       syncMenu groups: [ATIosMenuGroupState]) {
-        menuGroups = groups
-    }
-
     public func reportViewport(_ size: CGSize) {
         latestViewport = size
-        guard started && !stopping else { return }
-        bridge.submitViewportWidth(size.width, height: size.height)
+        if started && !stopping { bridge.submitViewportWidth(size.width, height: size.height) }
     }
+
     public func swipe(_ delta: Int) {
-        guard started && !stopping else { return }
-        bridge.submitMobileSwipe(delta)
+        if started && !stopping { bridge.submitMobileSwipe(delta) }
     }
+
     public func selectPage(_ token: UInt64) {
-        guard started && !stopping else { return }
-        bridge.submitMobilePage(token)
+        if started && !stopping && pageTokens.contains(token) { bridge.submitMobilePage(token) }
     }
+
     public func closeDetailFromUi() {
-        guard let scene = activeScene, activeToken != pageTokens.first else { return }
+        guard started && !stopping, let scene = activeScene, activeToken != pageTokens.first else { return }
         _ = bridge.requestCloseWindow(scene.id)
     }
+
     public func requestStop() {
         manualStop = true
-        stopSession()
-    }
-    private func stopSession() {
         guard started && !stopping else { return }
         stopping = true
         bridge.requestStop()
     }
+
     public func sceneWillDeactivate() {
-        // One save for this active-to-inactive transition. didEnterBackground
-        // may follow the same deactivation without introducing another save.
         guard applicationActive else { return }
         applicationActive = false
-        requestLiveSave()
+        requestBackgroundCheckpoint()
     }
-    private func requestLiveSave() {
-        guard started && !stopping else { return }
-        lastBackgroundSaveStatus = nil
-        if pendingBackgroundSaves == 0 { backgroundSaveFailure = nil }
-        pendingBackgroundSaves += 1
-        if backgroundTask == .invalid {
-            backgroundTask = UIApplication.shared.beginBackgroundTask(
-                withName: "AppTraverse USER save") { [weak self] in
-                    self?.endBackgroundTask()
-                }
-        }
-        bridge.requestBackgroundSave()
-    }
+
     public func sceneDidEnterBackground() { sceneWillDeactivate() }
+
     public func sceneDidBecomeActive() {
         applicationActive = true
         startIfNeeded()
     }
-    private func endBackgroundTask() {
-        guard backgroundTask != .invalid else { return }
-        UIApplication.shared.endBackgroundTask(backgroundTask)
-        backgroundTask = .invalid
+
+    public func requestBackgroundCheckpoint() {
+        guard started && !stopping else { return }
+        lastBackgroundSaveStatus = nil
+        if pendingBackgroundSaves == 0 { backgroundSaveFailure = nil }
+        pendingBackgroundSaves += 1
+        suspension.begin()
+        bridge.requestBackgroundSave()
     }
-    public func requestBackgroundCheckpoint() { requestLiveSave() }
+
     public func lastBackgroundSaveExitCode() -> Int? { lastBackgroundSaveStatus }
 
     public func bridge(_ bridge: ATIosApplicationBridge, loadWindow token: UInt64) {
-        let state = bridge.windowState(token)
-        let scene = IosWindowSceneModel(token: token, identity: state.identity,
-                                       commandSink: bridge)
-        scene.sync(state)
-        scenes[token] = scene
+        scenes[token] = IosWindowSceneModel(token: token, state: bridge.windowState(token))
     }
+
     public func bridge(_ bridge: ATIosApplicationBridge, syncWindow token: UInt64) {
-        scenes[token]!.sync(bridge.windowState(token))
+        scenes[token]!.state = bridge.windowState(token)
     }
+
     public func bridge(_ bridge: ATIosApplicationBridge, unloadWindow token: UInt64) {
-        scenes.removeValue(forKey: token)!.disconnect()
+        scenes.removeValue(forKey: token)
     }
+
     public func bridge(_ bridge: ATIosApplicationBridge,
                        applyMobilePages tokens: [NSNumber], activeToken token: UInt64) {
-        pageTokens = tokens.map(\.uint64Value)
-        activeToken = token
-        if latestViewport.width > 0 && latestViewport.height > 0 && !stopping {
-            bridge.submitViewportWidth(latestViewport.width, height: latestViewport.height)
-        }
+        pendingPresentation.pages = tokens.map(\.uint64Value)
+        pendingPresentation.active = token
     }
+
+    public func bridge(_ bridge: ATIosApplicationBridge, syncMenu groups: [ATIosMenuGroupState]) {
+        pendingPresentation.menu = groups
+    }
+
     public func bridge(_ bridge: ATIosApplicationBridge, loadButton token: UInt64) {
         let state = bridge.buttonState(token)
         let adapter = IosButtonAdapter(token: token, commandSink: bridge)
@@ -496,14 +451,17 @@ public final class IosApplicationHost: NSObject, ObservableObject,
         buttons[token] = adapter
         scenes[state.parentToken]!.buttons.append(adapter)
     }
+
     public func bridge(_ bridge: ATIosApplicationBridge, syncButton token: UInt64) {
         buttons[token]!.sync(bridge.buttonState(token))
     }
+
     public func bridge(_ bridge: ATIosApplicationBridge, unloadButton token: UInt64) {
         let adapter = buttons.removeValue(forKey: token)!
         adapter.disconnect()
         for scene in scenes.values { scene.buttons.removeAll { $0 === adapter } }
     }
+
     public func bridge(_ bridge: ATIosApplicationBridge, loadList token: UInt64) {
         let state = bridge.listState(token)
         let adapter = IosListAdapter(token: token, commandSink: bridge)
@@ -511,35 +469,40 @@ public final class IosApplicationHost: NSObject, ObservableObject,
         lists[token] = adapter
         scenes[state.parentToken]!.lists.append(adapter)
     }
+
     public func bridge(_ bridge: ATIosApplicationBridge, syncList token: UInt64) {
         lists[token]!.sync(bridge.listState(token))
     }
+
     public func bridge(_ bridge: ATIosApplicationBridge, unloadList token: UInt64) {
         let adapter = lists.removeValue(forKey: token)!
         adapter.disconnect()
         for scene in scenes.values { scene.lists.removeAll { $0 === adapter } }
     }
+
+    public func bridgeDidFinishPublication(_ bridge: ATIosApplicationBridge) {
+        // Project each complete presenter graph after its structure and
+        // controls have been reconciled on the main thread.
+        for scene in scenes.values { scene.publish() }
+        presentation = pendingPresentation
+    }
+
     public func bridgeModelDidFinish(_ bridge: ATIosApplicationBridge) {
         lastExitStatus = Int(bridge.finishTeardown())
         self.bridge = nil
         started = false
         stopping = false
-        activeToken = nil
-        pageTokens = []
-        menuGroups = []
-        endBackgroundTask()
-        precondition(lastExitStatus == 0, "AppTraverse iOS model session failed")
-        if applicationActive && !manualStop { startIfNeeded() }
+        pendingPresentation = IosPresentation()
+        presentation = pendingPresentation
+        suspension.end()
     }
-    public func bridge(_ bridge: ATIosApplicationBridge,
-                       backgroundSaveDidFinish result: NSInteger) {
-        if result != 0 { backgroundSaveFailure = Int(result) }
+
+    public func bridge(_ bridge: ATIosApplicationBridge, backgroundSaveDidFinish result: Int) {
+        if result != 0 { backgroundSaveFailure = result }
         pendingBackgroundSaves -= 1
-        precondition(pendingBackgroundSaves >= 0)
         if pendingBackgroundSaves == 0 {
-            lastBackgroundSaveStatus = backgroundSaveFailure ?? 0
-            endBackgroundTask()
-            precondition(lastBackgroundSaveStatus == 0, "AppTraverse iOS USER save failed")
+            lastBackgroundSaveStatus = backgroundSaveFailure ?? result
+            suspension.end()
         }
     }
 }

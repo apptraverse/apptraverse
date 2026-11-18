@@ -78,25 +78,24 @@ it to finish rather than erase device data. The acceptance runner allows up to
 
 ## Behavior and storage
 
-Add creates and activates a page. The catalog list selects a holder; Open or
-row double-tap opens/activates it. Delete removes the selected entry. The bottom
-page control and horizontal swipes address the model's mobile ring. Close is a
-localized model button; closing an active child follows the shared model's
-remaining-window activation order.
-Selection and active page are distinct model state. RU/EN updates all pages.
-Layout follows the real safe-area canvas and responds to rotation. The common
-model's viewport Event places the child Close control with 12dp margins and a
-48dp height; iOS uses logical points at density 160.
+Add creates and activates a page. A tap selects a holder. Open or a
+double-tap opens or activates it. Delete removes the selected holder, and
+Close leaves its row available for reopening. A SwiftUI page picker and
+horizontal swipes navigate the model's mobile ring. Language and Theme are
+the same distilled commands used on macOS. MinimalApp shares the host and
+supplies a single active page with its own Open Detail and Close Detail actions.
 
-Native UIApplication deactivation queues a save on the live model thread,
-behind accepted commands. The ordinary snapshot updates RAM USER and writes
-one `user.bin` under a UIKit background task. The same model graph, runtime,
-mirror, presenters and view adapters stay alive. Native activation continues
-that session, without exposing the initial loading placeholder. Repeated
-inactive/background notifications are coalesced; a later active-to-inactive
-transition saves newer accepted work. Only explicit application shutdown stops
-and joins the model thread and releases its presenters. No graph keepalive,
-per-click/resize flush or new checkpoint format is added.
+Both apps use the Apple SwiftUI constraint layout. Controls are measured in
+points and placed by the shared C++ solver against the current safe-area
+viewport. The catalog fits its list and actions horizontally in landscape and
+vertically in portrait. iOS records the canvas in LOCAL without converting a
+rotation into a portable window frame request.
+
+SwiftUI scene deactivation queues a save on the continuing model thread after
+accepted commands. The OS background assertion allows the writes of USER
+and `local/user.bin` to finish. Reactivation keeps the same model graph and
+presenter adapters. Explicit shutdown drains the worker and releases the
+presenters.
 
 Ordinary Debug starts fresh on a new process launch. Explicit load-only startup
 reads the saved USER against its embedded supply. Portable platform supplies of
@@ -118,22 +117,20 @@ python3 scripts/test_ios_window_catalog.py \
   --artifacts /absolute/evidence
 ```
 
-The runner installs test-only apps and verifies result files from three actual
-processes: Debug fresh, embedded seed, embedded cold restart. It checks native
-UITableView selection and UIPageControl callbacks, model page intents, rotation,
-Close/Open/Delete, localization, lazy identities, live saves and one USER file.
-Across deactivation/activation the test compares actual bridge, scene, adapter
-and native-window object identities, not only restored values. A separate test verifies displayed-row identity
-when native callbacks outlive a structural snapshot. PNGs capture actual app
-window content; test expectations live outside the application USER profile.
+The runner checks Debug fresh, embedded seed and cold processes. It covers
+layout on rotation, page selection, Close/Open/Delete, language and theme,
+lazy identities, and real app switching to verify USER/LOCAL saves while the
+live model continues.
 
-An additional embedded scenario leaves the seeded app running, switches to the
-system Settings app through simctl and observes one USER file. Reactivation must
-retain the same process, bridge and presenter adapters, and accept more model
-work. A second OS deactivation saves that later work; the process is then
-terminated and a separate cold launch verifies the same profile. This exercises
-real OS lifecycle delivery as well as the in-process native notification checks.
+After installing the product Debug bundles, run the touch tests for both apps
+on the same device:
 
-The additional XCUITest project in `tests/ios_ui_clicks` exercises actual
-Simulator taps/double-taps/swipes against the installed product Debug app.
-The validation report records the executed scope and results.
+```sh
+xcodebuild test -project tests/ios_ui/AppTraverseIosUi.xcodeproj \
+  -scheme AppTraverseIosUi -configuration Debug \
+  -destination "platform=iOS Simulator,id=DEVICE_ID" \
+  -parallel-testing-enabled NO
+```
+
+The touch tests exercise rotation, list taps and double-taps, page buttons,
+swipes, and MinimalApp's Detail flow.

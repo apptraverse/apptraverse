@@ -138,24 +138,24 @@ private final class CatalogScenario {
                     && self.host.menuGroups.last?.items.first?.isSelected == true
             }
             let window = host.nativeWindows[main!.sceneID]!
-            let listID = NSNumber(value: list!.controlID)
-            let buttonID = NSNumber(value: button("Add").controlID)
+            let listID = list!.controlID
+            let buttonID = button("Add").controlID
             let ids = (main!.buttons.map(\.controlID) + main!.lists.map(\.controlID)).map { NSNumber(value: $0) }
-            func solved() -> [NSNumber: NSValue] {
-                main!.layout.solveViewport(main!.clientSize!, controlIDs: ids) { _, _ in .zero }.frames
+            func solved() -> ATAppleLayoutResult {
+                main!.layout.solveViewport(main!.clientSize!, controlIDs: ids) { _, _ in .zero }
             }
             window.setContentSize(CGSize(width: 780, height: 460))
             await wait("wide native resize reflows controls beside the list") {
                 guard self.main?.clientSize?.width == 780 && self.main?.clientSize == window.contentLayoutRect.size else { return false }
                 let frames = solved()
-                return frames[buttonID]!.rectValue.minX > frames[listID]!.rectValue.maxX
+                return frames.frame(forControl: buttonID).minX > frames.frame(forControl: listID).maxX
             }
             captureLayout(window, "wide")
             window.setContentSize(CGSize(width: 310, height: 570))
             await wait("tall native resize reflows controls below the list") {
                 guard self.main?.clientSize?.width == 310 && self.main?.clientSize == window.contentLayoutRect.size else { return false }
                 let frames = solved()
-                return frames[buttonID]!.rectValue.minY > frames[listID]!.rectValue.maxY
+                return frames.frame(forControl: buttonID).minY > frames.frame(forControl: listID).maxY
             }
             captureLayout(window, "tall")
             // Fixture sizes setContentSize programmatically, then submits the

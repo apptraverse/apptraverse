@@ -1,34 +1,23 @@
-# iOS native presentation
+# iOS SwiftUI presentation
 
-The generic backend uses thin C++ Window/Button/List presenters, an Objective-C++
-bridge, SwiftUI content, and a native UITableView for list tracking and selection.
-The application supplies model runtime/session, UI preparation and publication
-hooks, viewport intents and a model-authored ordered mobile-page snapshot.
+WindowCatalog and MinimalApp use the same SwiftUI host for content, lists,
+buttons, menus, and page selection. Thin C++ presenters and a Foundation bridge
+publish complete control graphs. A row gesture resolves the displayed row
+identity against the current publication before sending its model intent.
 
-The host renders only the model's active page. Horizontal swipes and UIPageControl
-input become model intents; the host does not decide which catalog window opens,
-closes or becomes active. Buttons and list rectangles are the model's rectangles
-in logical points, measured inside the actual safe-area client viewport.
+The host renders the model's active page. Page buttons and swipes submit intents
+through the model proxy. WindowCatalog supplies its navigation ring, and
+MinimalApp supplies its single active main or Detail page.
 
-Native callbacks route presenter -> proxy -> model Events. Model/mirror values
-remain the authority for row selection, titles, enabled state, geometry and page
-identity. UIKit selection and activation recognizers do not compete with SwiftUI
-row gestures. Runtime tokens and view adapters are never persistent model fields.
+SwiftUI measures controls in points and uses the same Apple constraint layout
+as macOS. It solves against the live safe-area viewport and scrolls if the
+required minimum size exceeds that viewport. The backend observes the current
+viewport and device settings in LOCAL. Native rotation leaves portable window
+geometry to the model.
 
-The host observes native UIApplication deactivation, background and activation
-notifications independently of the SwiftUI view. Deactivation queues the
-application's `persist_model` callback behind already accepted model work.
-It uses the continuing model thread and Domain; neither the runtime, mirror,
-presenters nor view adapters are torn down. One UIKit background task covers
-pending saves. Background after the same deactivation is coalesced; a new
-active-to-inactive transition queues another save after newer accepted work.
-Activation continues the same live session and UI. Save completion has its own
-status, separate from model exit. Explicit `requestStop` retains the normal
-drain/save/join/teardown path. No per-click flush, UI-mirror persistence or new
-checkpoint format is introduced. A suspended app need not receive a termination
-callback; forced process termination cannot guarantee new I/O. The application
-decides fresh Debug process startup versus embedded cold USER loading.
-
-Queued button intents resolve their model target when executed. An already
-unloaded child Close control is skipped as a real lifecycle disappearance;
-the backend never reconstructs its graph to execute a late tap.
+SwiftUI scene deactivation queues the application's save behind accepted model
+work. A background suspension assertion allows the USER and LOCAL files to
+finish writing. Foreground activation retains the bridge, model, and view
+adapters. Explicit stop drains the model and releases the presenters. Fresh Debug
+startup uses a new profile, and the explicit embedded consumer can cold-load the
+matching supply and stored state.

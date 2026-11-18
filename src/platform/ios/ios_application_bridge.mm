@@ -1,10 +1,12 @@
 #import "apptraverse/platform/ios/ATIosApplicationBridge.h"
+#import "apptraverse/platform/apple/apple_window_layout.h"
 
 #include <cstdlib>
 #include <cstdint>
 #include <cmath>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -20,6 +22,10 @@
 #include "apptraverse/ui/ui_list_container.h"
 #include "apptraverse/ui/ui_localization_string.h"
 
+using apptraverse::ui::UiDeviceEnvironment;
+using apptraverse::ui::UiDeviceState;
+using apptraverse::ui::UiEnvironmentReason;
+using apptraverse::ui::UiWindowEnvironment;
 using apptraverse::ui::ios::IosDesktopWindowPresenter;
 using apptraverse::ui::ios::IosListContainerPresenter;
 using apptraverse::ui::ios::IosPushButtonPresenter;
@@ -102,28 +108,21 @@ class IosNativeViews final
 @end
 
 @interface ATIosWindowState ()
-- (instancetype)initWithTitle:(NSString*)title
-                     identity:(uint64_t)identity
-                            x:(double)x
-                            y:(double)y
-                        width:(double)width
-                       height:(double)height;
+- (instancetype)initWithTitle:(NSString*)title identity:(uint64_t)identity
+                      layout:(ATAppleWindowLayout*)layout theme:(NSUInteger)theme
+                  softenDark:(BOOL)softenDark;
 @end
 
 @implementation ATIosWindowState
-- (instancetype)initWithTitle:(NSString*)title
-                     identity:(uint64_t)identity
-                            x:(double)x
-                            y:(double)y
-                        width:(double)width
-                       height:(double)height {
+- (instancetype)initWithTitle:(NSString*)title identity:(uint64_t)identity
+                      layout:(ATAppleWindowLayout*)layout theme:(NSUInteger)theme
+                  softenDark:(BOOL)softenDark {
   if ((self = [super init])) {
     _title = title;
     _identity = identity;
-    _x = x;
-    _y = y;
-    _width = width;
-    _height = height;
+    _layout = layout;
+    _theme = theme;
+    _softenDark = softenDark;
   }
   return self;
 }
@@ -133,28 +132,19 @@ class IosNativeViews final
 - (instancetype)initWithParentToken:(uint64_t)parentToken
                               title:(NSString*)title
                             enabled:(BOOL)enabled
-                                  x:(double)x
-                                  y:(double)y
-                              width:(double)width
-                             height:(double)height;
+                          controlID:(uint32_t)controlID;
 @end
 
 @implementation ATIosButtonState
 - (instancetype)initWithParentToken:(uint64_t)parentToken
                               title:(NSString*)title
                             enabled:(BOOL)enabled
-                                  x:(double)x
-                                  y:(double)y
-                              width:(double)width
-                             height:(double)height {
+                          controlID:(uint32_t)controlID {
   if ((self = [super init])) {
     _parentToken = parentToken;
     _title = title;
     _enabled = enabled;
-    _x = x;
-    _y = y;
-    _width = width;
-    _height = height;
+    _controlID = controlID;
   }
   return self;
 }
@@ -178,28 +168,19 @@ class IosNativeViews final
 - (instancetype)initWithParentToken:(uint64_t)parentToken
                                rows:(NSArray<ATIosListRowState*>*)rows
                         selectedRow:(NSInteger)selectedRow
-                                  x:(double)x
-                                  y:(double)y
-                              width:(double)width
-                             height:(double)height;
+                          controlID:(uint32_t)controlID;
 @end
 
 @implementation ATIosListState
 - (instancetype)initWithParentToken:(uint64_t)parentToken
                                rows:(NSArray<ATIosListRowState*>*)rows
                         selectedRow:(NSInteger)selectedRow
-                                  x:(double)x
-                                  y:(double)y
-                              width:(double)width
-                             height:(double)height {
+                          controlID:(uint32_t)controlID {
   if ((self = [super init])) {
     _parentToken = parentToken;
     _rows = rows;
     _selectedRow = selectedRow;
-    _x = x;
-    _y = y;
-    _width = width;
-    _height = height;
+    _controlID = controlID;
   }
   return self;
 }
@@ -217,6 +198,10 @@ class IosNativeViews final
   bool _stopping;
   std::int32_t _viewportWidth;
   std::int32_t _viewportHeight;
+  uint64_t _activeWindowToken;
+  UiDeviceEnvironment _deviceEnvironment;
+  UiDeviceEnvironment _submittedDeviceEnvironment;
+  std::optional<UiWindowEnvironment> _submittedViewport;
 }
 @property(nonatomic, weak, readwrite)
     id<ATIosApplicationBridgeDelegate> delegate;
@@ -225,6 +210,8 @@ class IosNativeViews final
                         callbacks
                          delegate:(id<ATIosApplicationBridgeDelegate>)delegate;
 - (void)publishMobilePresentation;
+- (void)observeMobileViewport;
+- (void)publishDeviceSettings;
 @end
 
 @implementation ATIosApplicationBridge
@@ -251,7 +238,8 @@ class IosNativeViews final
         _runtime->Post(std::move(work));
       });
   _nativeViews = std::make_unique<IosNativeViews>(self);
-  _modelThread = std::thread([self] {
+  _submittedDeviceEnvironment = _deviceEnvironment;
+  _modelThread = std::thread([self, environment = _deviceEnvironment] {
     _modelExitStatus = _callbacks.run_model(
         *_runtime, [self](apptraverse::ApplicationPublicationKind kind) {
           dispatch_async(dispatch_get_main_queue(), ^{
@@ -261,7 +249,7 @@ class IosNativeViews final
                         ? ATIosPublicationKindInitial
                         : ATIosPublicationKindIncremental];
           });
-        });
+        }, environment);
     dispatch_async(dispatch_get_main_queue(), ^{
       id<ATIosApplicationBridgeDelegate> delegate = self.delegate;
       if (delegate != nil) {
@@ -307,13 +295,51 @@ class IosNativeViews final
   };
   NSMutableArray<NSNumber*>* pages = [NSMutableArray arrayWithCapacity:snapshot.windows.size()];
   for (auto id : snapshot.windows) [pages addObject:@(token_for(id))];
-  [self.delegate bridge:self applyMobilePages:pages
-              activeToken:token_for(snapshot.active_window)];
-  if (_viewportWidth > 0 && _viewportHeight > 0 && !_stopping &&
-      _callbacks.on_viewport) {
-    _callbacks.on_viewport(_uiSession->root(), *_proxy,
-                           _viewportWidth, _viewportHeight);
-  }
+  _activeWindowToken = token_for(snapshot.active_window);
+  [self.delegate bridge:self applyMobilePages:pages activeToken:_activeWindowToken];
+  [self publishDeviceSettings];
+  [self observeMobileViewport];
+}
+
+- (void)observeMobileViewport {
+  if (_stopping || !_activeWindowToken || _viewportWidth < 1 || _viewportHeight < 1) return;
+  auto& presenter = FromToken<IosDesktopWindowPresenter>(_activeWindowToken);
+  auto const dpi = _deviceEnvironment.system_dpi_x;
+  UiWindowEnvironment const viewport{presenter.window.id(), {}, dpi, dpi,
+                                     {0, 0, _viewportWidth, _viewportHeight}};
+  if (_submittedViewport == viewport) return;
+  _submittedViewport = viewport;
+  _proxy->Invoke(presenter.LocalDeviceState()->obj_id, &UiDeviceState::ObserveWindow,
+                 viewport, UiEnvironmentReason::kSystemNotification);
+}
+
+- (void)observeDeviceSettings:(ATIosDeviceSettings)settings {
+  if (_stopping) return;
+  UiDeviceEnvironment environment;
+  using namespace apptraverse::ui;
+  environment.supported_settings = kSystemTextScale | kSystemDarkMode |
+      kSystemHighContrast | kSystemReducedMotion | kSystemScreenReaderHint;
+  environment.system_dpi_x = environment.system_dpi_y =
+      static_cast<unsigned>(std::lround(96 * settings.displayScale));
+  environment.text_scale_milli =
+      static_cast<unsigned>(std::lround(1000 * settings.bodyTextScale));
+  environment.dark = settings.dark;
+  environment.high_contrast = settings.highContrast;
+  environment.reduced_motion = settings.reducedMotion;
+  environment.screen_reader_hint = settings.voiceOver;
+  if (environment == _deviceEnvironment) return;
+  _deviceEnvironment = environment;
+  [self publishDeviceSettings];
+  [self observeMobileViewport];
+}
+
+- (void)publishDeviceSettings {
+  if (_stopping || !_activeWindowToken || _submittedDeviceEnvironment == _deviceEnvironment)
+    return;
+  _submittedDeviceEnvironment = _deviceEnvironment;
+  auto& presenter = FromToken<IosDesktopWindowPresenter>(_activeWindowToken);
+  _proxy->Invoke(presenter.LocalDeviceState()->obj_id, &UiDeviceState::ObserveEnvironment,
+                 _deviceEnvironment, UiEnvironmentReason::kSystemNotification);
 }
 
 - (void)consumePublication:(ATIosPublicationKind)kind {
@@ -329,6 +355,7 @@ class IosNativeViews final
           kind == ATIosPublicationKindInitial
               ? apptraverse::TakePublishedSidecarCallback{}
               : _callbacks.take_incremental_sidecar);
+  _activeWindowToken = 0;
   if (kind == ATIosPublicationKindInitial) {
     _uiSession = std::make_unique<apptraverse::ApplicationUiSession>(
         publication, _nativeViews.get(), *_proxy,
@@ -342,45 +369,36 @@ class IosNativeViews final
   if (_callbacks.menu_state) {
     [self.delegate bridge:self syncMenu:_callbacks.menu_state(_uiSession->root())];
   }
+  [self.delegate bridgeDidFinishPublication:self];
   _runtime->NotifyPublicationConsumed();
 }
 
 - (ATIosWindowState*)windowState:(uint64_t)token {
   auto& presenter = FromToken<IosDesktopWindowPresenter>(token);
-  auto desktop = presenter.desktop_window();
+  auto const appearance = presenter.LocalDeviceState()->appearance;
   NSString* title = ToNSString(presenter.ResolvePresentedWindowTitle(
       presenter.locale->language_index()));
   return [[ATIosWindowState alloc]
       initWithTitle:title
-           identity:desktop->obj_id.id()
-                  x:desktop->x()
-                  y:desktop->y()
-              width:desktop->client_width()
-             height:desktop->client_height()];
+           identity:presenter.window.id().id()
+             layout:[[ATAppleWindowLayout alloc] initWithRoot:*presenter.LayoutRoot()]
+              theme:static_cast<NSUInteger>(appearance.theme)
+         softenDark:appearance.soften_dark];
 }
 
 - (ATIosButtonState*)buttonState:(uint64_t)token {
   auto& presenter = FromToken<IosPushButtonPresenter>(token);
-  auto layout = presenter.window_presenter->ResolveChildLayout(
-      {presenter.layout_x, presenter.layout_y, presenter.layout_width,
-       presenter.layout_height, presenter.control_id});
   NSString* title = ToNSString(presenter.button->label->Resolve(
       presenter.window_presenter->locale->language_index()));
   return [[ATIosButtonState alloc]
       initWithParentToken:Token(*presenter.window_presenter)
                     title:title
                   enabled:presenter.button->enabled()
-                        x:layout.x
-                        y:layout.y
-                    width:layout.width
-                   height:layout.height];
+                controlID:presenter.control_id];
 }
 
 - (ATIosListState*)listState:(uint64_t)token {
   auto& presenter = FromToken<IosListContainerPresenter>(token);
-  auto layout = presenter.window_presenter->ResolveChildLayout(
-      {presenter.layout_x, presenter.layout_y, presenter.layout_width,
-       presenter.layout_height, presenter.control_id});
   int const language_index =
       presenter.window_presenter->locale->language_index();
   NSMutableArray<ATIosListRowState*>* rows =
@@ -397,10 +415,7 @@ class IosNativeViews final
       initWithParentToken:Token(*presenter.window_presenter)
                      rows:rows
               selectedRow:presenter.container->selection_index
-                        x:layout.x
-                        y:layout.y
-                    width:layout.width
-                   height:layout.height];
+                controlID:presenter.control_id];
 }
 
 - (void)executeMenuGroup:(NSUInteger)group item:(NSUInteger)item {
@@ -437,10 +452,7 @@ class IosNativeViews final
   if (width < 1 || height < 1) return;
   _viewportWidth = static_cast<std::int32_t>(width);
   _viewportHeight = static_cast<std::int32_t>(height);
-  if (!_uiSession) return;
-  if (_callbacks.on_viewport) {
-    _callbacks.on_viewport(_uiSession->root(), *_proxy, _viewportWidth, _viewportHeight);
-  }
+  [self observeMobileViewport];
 }
 
 - (void)submitMobileSwipe:(NSInteger)delta {
@@ -452,12 +464,6 @@ class IosNativeViews final
   if (_stopping || !_uiSession || !_callbacks.on_mobile_page) return;
   auto& presenter = FromToken<IosDesktopWindowPresenter>(token);
   _callbacks.on_mobile_page(_uiSession->root(), *_proxy, presenter.window.id());
-}
-
-- (void)submitWindowX:(double)x y:(double)y width:(double)width
-               height:(double)height token:(uint64_t)token {
-  (void)x; (void)y; (void)token;
-  [self submitViewportWidth:width height:height];
 }
 
 - (BOOL)requestCloseWindow:(uint64_t)token {

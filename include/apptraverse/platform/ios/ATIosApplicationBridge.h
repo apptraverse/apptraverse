@@ -1,4 +1,6 @@
 #import <Foundation/Foundation.h>
+#include <stdbool.h>
+#import "../apple/ATAppleWindowLayout.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -8,6 +10,15 @@ typedef NS_ENUM(NSInteger, ATIosPublicationKind) {
 };
 
 @class ATIosApplicationBridge;
+
+typedef struct {
+  double displayScale;
+  double bodyTextScale;
+  bool dark;
+  bool highContrast;
+  bool reducedMotion;
+  bool voiceOver;
+} ATIosDeviceSettings;
 
 // Published menu values only. Native menu objects and handlers live in Swift.
 @interface ATIosMenuItemState : NSObject
@@ -44,6 +55,7 @@ typedef NS_ENUM(NSInteger, ATIosPublicationKind) {
     unloadList:(uint64_t)token;
 - (void)bridge:(ATIosApplicationBridge*)bridge
     applyMobilePages:(NSArray<NSNumber*>*)tokens activeToken:(uint64_t)token;
+- (void)bridgeDidFinishPublication:(ATIosApplicationBridge*)bridge;
 - (void)bridgeModelDidFinish:(ATIosApplicationBridge*)bridge;
 @optional
 - (void)bridge:(ATIosApplicationBridge*)bridge
@@ -56,20 +68,16 @@ typedef NS_ENUM(NSInteger, ATIosPublicationKind) {
 @interface ATIosWindowState : NSObject
 @property(nonatomic, readonly) uint64_t identity;
 @property(nonatomic, readonly) NSString* title;
-@property(nonatomic, readonly) double x;
-@property(nonatomic, readonly) double y;
-@property(nonatomic, readonly) double width;
-@property(nonatomic, readonly) double height;
+@property(nonatomic, readonly) ATAppleWindowLayout* layout;
+@property(nonatomic, readonly) NSUInteger theme;
+@property(nonatomic, readonly) BOOL softenDark;
 @end
 
 @interface ATIosButtonState : NSObject
 @property(nonatomic, readonly) uint64_t parentToken;
 @property(nonatomic, readonly) NSString* title;
 @property(nonatomic, readonly, getter=isEnabled) BOOL enabled;
-@property(nonatomic, readonly) double x;
-@property(nonatomic, readonly) double y;
-@property(nonatomic, readonly) double width;
-@property(nonatomic, readonly) double height;
+@property(nonatomic, readonly) uint32_t controlID;
 @end
 
 @interface ATIosListRowState : NSObject
@@ -81,16 +89,15 @@ typedef NS_ENUM(NSInteger, ATIosPublicationKind) {
 @property(nonatomic, readonly) uint64_t parentToken;
 @property(nonatomic, readonly) NSArray<ATIosListRowState*>* rows;
 @property(nonatomic, readonly) NSInteger selectedRow;
-@property(nonatomic, readonly) double x;
-@property(nonatomic, readonly) double y;
-@property(nonatomic, readonly) double width;
-@property(nonatomic, readonly) double height;
+@property(nonatomic, readonly) uint32_t controlID;
 @end
 
 @interface ATIosApplicationBridge : NSObject
 @property(nonatomic, weak, readonly)
     id<ATIosApplicationBridgeDelegate> delegate;
 - (instancetype)init NS_UNAVAILABLE;
+- (void)observeDeviceSettings:(ATIosDeviceSettings)settings
+    NS_SWIFT_NAME(observeDeviceSettings(_:));
 - (void)start;
 - (void)consumePublication:(ATIosPublicationKind)kind;
 - (ATIosWindowState*)windowState:(uint64_t)token;
@@ -103,11 +110,6 @@ typedef NS_ENUM(NSInteger, ATIosPublicationKind) {
 - (void)submitViewportWidth:(double)width height:(double)height;
 - (void)submitMobileSwipe:(NSInteger)delta;
 - (void)submitMobilePage:(uint64_t)token;
-- (void)submitWindowX:(double)x
-                    y:(double)y
-                width:(double)width
-               height:(double)height
-                token:(uint64_t)token;
 - (BOOL)requestCloseWindow:(uint64_t)token;
 // Queue application persistence on the live model thread without teardown.
 // Completion is delivered on the main queue through backgroundSaveDidFinish.

@@ -22,7 +22,7 @@ def wait_for(predicate, message, timeout=120):
 
 
 def check_os_background(device, evidence, stamp):
-    """Use UIKit's actual app transition, then kill and cold-load its USER."""
+    """Switch apps on the simulator and cold-load the separate USER and LOCAL files."""
     bundle = "org.apptraverse.WindowCatalog.ios.acceptance.loadonly"
     run_id = stamp + "-os"
     container = pathlib.Path(run("xcrun", "simctl", "get_app_container", device,
@@ -38,15 +38,16 @@ def check_os_background(device, evidence, stamp):
     profile = source / "profile"
     assert not list(profile.rglob("user.bin")), "OS fixture saved before deactivation"
     run("xcrun", "simctl", "launch", device, "com.apple.Preferences", timeout=300)
-    wait_for(lambda: (profile / "user.bin").exists(),
-             "Native OS deactivation did not save USER")
     user = profile / "user.bin"
+    local = profile / "local/user.bin"
+    wait_for(lambda: user.exists() and local.exists(),
+             "OS deactivation did not save USER and LOCAL")
     saved = user.read_bytes()
     assert saved, "OS deactivation produced an empty USER"
     time.sleep(0.25)
     assert saved == user.read_bytes(), "OS save did not finish"
-    assert list(profile.rglob("*")) == [user], "OS profile is not one USER file"
-    print("PASS actual OS deactivation: one USER; live process retained", flush=True)
+    assert set(profile.rglob("user.bin")) == {user, local}, "OS profile lacks separate USER and LOCAL"
+    print("PASS actual OS deactivation: separate USER and LOCAL; live process retained", flush=True)
     activated = run("xcrun", "simctl", "launch", device, bundle,
         capture_output=True, timeout=300).stdout
     print(activated.strip(), flush=True)
@@ -63,7 +64,7 @@ def check_os_background(device, evidence, stamp):
     assert second_saved, "Second OS save produced an empty USER"
     time.sleep(0.25)
     assert user.read_bytes() == second_saved, "Second OS save did not finish"
-    assert list(profile.rglob("*")) == [user], "Repeated OS saves created additional profile files"
+    assert set(profile.rglob("user.bin")) == {user, local}, "Repeated OS saves created additional profile files"
     run("xcrun", "simctl", "terminate", device, bundle, timeout=60)
     print("PASS actual OS activation: same process, bridge and presenters; later work saved", flush=True)
     target = evidence / "os-lifecycle"

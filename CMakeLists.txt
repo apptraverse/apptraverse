@@ -284,7 +284,8 @@ if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
   target_compile_features(apptraverse_ui_macos_presenters PUBLIC cxx_std_20)
 
   add_library(apptraverse_ui_macos_bridge STATIC
-    src/platform/macos/macos_application_bridge.mm)
+    src/platform/macos/macos_application_bridge.mm
+    src/platform/apple/apple_window_layout.mm)
   target_include_directories(apptraverse_ui_macos_bridge PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include)
   target_link_libraries(apptraverse_ui_macos_bridge PUBLIC
@@ -294,12 +295,14 @@ if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     "-framework Foundation")
   set_source_files_properties(
     src/platform/macos/macos_application_bridge.mm
+    src/platform/apple/apple_window_layout.mm
     PROPERTIES COMPILE_FLAGS "-fobjc-arc")
   target_compile_options(apptraverse_ui_macos_bridge PRIVATE
     $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-rtti>
     $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-objc-exceptions>)
 
   add_library(apptraverse_ui_macos_swift STATIC
+    src/platform/apple/AppleConstraintLayout.swift
     src/platform/macos/MacApplicationHost.swift
     src/platform/macos/MacNativeWindow.swift)
   set_target_properties(apptraverse_ui_macos_swift PROPERTIES
@@ -349,7 +352,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
   enable_language(Swift)
 
   add_library(apptraverse_ui_ios_bridge STATIC
-    src/platform/ios/ios_application_bridge.mm)
+    src/platform/ios/ios_application_bridge.mm
+    src/platform/apple/apple_window_layout.mm)
   target_include_directories(apptraverse_ui_ios_bridge PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include)
   target_link_libraries(apptraverse_ui_ios_bridge PUBLIC
@@ -357,13 +361,16 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     "-framework Foundation")
   set_source_files_properties(
     src/platform/ios/ios_application_bridge.mm
+    src/platform/apple/apple_window_layout.mm
     PROPERTIES COMPILE_FLAGS "-fobjc-arc")
   target_compile_options(apptraverse_ui_ios_bridge PRIVATE
     $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-rtti>
     $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-objc-exceptions>)
 
   add_library(apptraverse_ui_ios_swift STATIC
-    src/platform/ios/IosApplicationHost.swift)
+    src/platform/apple/AppleConstraintLayout.swift
+    src/platform/ios/IosApplicationHost.swift
+    src/platform/ios/IosSuspensionAssertion.swift)
   set_target_properties(apptraverse_ui_ios_swift PROPERTIES
     Swift_MODULE_NAME AppTraverseIosUI)
   target_compile_options(apptraverse_ui_ios_swift PRIVATE

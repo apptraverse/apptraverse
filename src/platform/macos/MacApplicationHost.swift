@@ -100,7 +100,7 @@ final class MacWindowAdapter: ObservableObject, Identifiable {
 
     var title: String { windowState.title }
     var softenDark: Bool { windowState.softenDark }
-    var layout: ATMacWindowLayout { windowState.layout }
+    var layout: ATAppleWindowLayout { windowState.layout }
     var buttons: [MacButtonAdapter] { pendingButtons }
     var lists: [MacListAdapter] { pendingLists }
 
@@ -117,47 +117,6 @@ final class MacWindowAdapter: ObservableObject, Identifiable {
     }
 }
 
-private struct MacControlID: LayoutValueKey {
-    static let defaultValue: UInt32 = 0
-}
-
-private struct MacConstraintLayout: Layout {
-    let definition: ATMacWindowLayout
-    let viewport: CGSize
-
-    func makeCache(subviews: Subviews) -> ATMacLayoutResult? { nil }
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews,
-                      cache: inout ATMacLayoutResult?) -> CGSize {
-        let result = solve(subviews)
-        cache = result
-        return result.contentSize
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize,
-                       subviews: Subviews, cache: inout ATMacLayoutResult?) {
-        let result = cache ?? solve(subviews)
-        for view in subviews {
-            let id = NSNumber(value: view[MacControlID.self])
-            let frame = result.frames[id]!.rectValue
-            view.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
-                       anchor: .topLeading,
-                       proposal: ProposedViewSize(width: frame.width, height: frame.height))
-        }
-    }
-
-    private func solve(_ subviews: Subviews) -> ATMacLayoutResult {
-        let controls = subviews.map { (id: $0[MacControlID.self], view: $0) }
-        return definition.solveViewport(viewport, controlIDs: controls.map { NSNumber(value: $0.id) }) {
-            id, width in
-            let view = controls.first { $0.id == id }!.view
-            let proposal = width < 0 ? ProposedViewSize.unspecified :
-                ProposedViewSize(width: width, height: nil)
-            return view.sizeThatFits(proposal)
-        }
-    }
-}
-
 private struct MacButtonControl: View {
     @ObservedObject var adapter: MacButtonAdapter
 
@@ -170,7 +129,7 @@ private struct MacButtonControl: View {
         .buttonStyle(.bordered)
         .disabled(!adapter.enabled)
         .accessibilityIdentifier("button-\(adapter.id)")
-        .layoutValue(key: MacControlID.self, value: adapter.controlID)
+        .layoutValue(key: AppleControlID.self, value: adapter.controlID)
     }
 }
 
@@ -194,7 +153,7 @@ private struct MacListControl: View {
         .listStyle(.plain)
         .overlay(Rectangle().strokeBorder(.secondary, lineWidth: 1).allowsHitTesting(false))
         .accessibilityIdentifier("list-\(adapter.id)")
-        .layoutValue(key: MacControlID.self, value: adapter.controlID)
+        .layoutValue(key: AppleControlID.self, value: adapter.controlID)
     }
 }
 
@@ -216,7 +175,7 @@ private struct MacWindowContent: View {
         GeometryReader { geometry in
             ScrollView([.horizontal, .vertical]) {
                 if geometry.size.width >= 1, geometry.size.height >= 1 {
-                    MacConstraintLayout(definition: snapshot.state.layout, viewport: geometry.size) {
+                    AppleConstraintLayout(definition: snapshot.state.layout, viewport: geometry.size) {
                         ForEach(snapshot.buttons) { MacButtonControl(adapter: $0) }
                         ForEach(snapshot.lists) { MacListControl(adapter: $0) }
                     }
