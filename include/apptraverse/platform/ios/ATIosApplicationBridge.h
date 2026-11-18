@@ -9,6 +9,20 @@ typedef NS_ENUM(NSInteger, ATIosPublicationKind) {
 
 @class ATIosApplicationBridge;
 
+// Published menu values only. Native menu objects and handlers live in Swift.
+@interface ATIosMenuItemState : NSObject
+@property(nonatomic, readonly) NSString* title;
+@property(nonatomic, readonly, getter=isSelected) BOOL selected;
+- (instancetype)initWithTitle:(NSString*)title selected:(BOOL)selected;
+@end
+
+@interface ATIosMenuGroupState : NSObject
+@property(nonatomic, readonly) NSString* title;
+@property(nonatomic, readonly) NSArray<ATIosMenuItemState*>* items;
+- (instancetype)initWithTitle:(NSString*)title
+                        items:(NSArray<ATIosMenuItemState*>*)items;
+@end
+
 @protocol ATIosApplicationBridgeDelegate <NSObject>
 - (void)bridge:(ATIosApplicationBridge*)bridge
     loadWindow:(uint64_t)token;
@@ -31,6 +45,10 @@ typedef NS_ENUM(NSInteger, ATIosPublicationKind) {
 - (void)bridge:(ATIosApplicationBridge*)bridge
     applyMobilePages:(NSArray<NSNumber*>*)tokens activeToken:(uint64_t)token;
 - (void)bridgeModelDidFinish:(ATIosApplicationBridge*)bridge;
+@optional
+- (void)bridge:(ATIosApplicationBridge*)bridge
+    syncMenu:(NSArray<ATIosMenuGroupState*>*)groups;
+@required
 - (void)bridge:(ATIosApplicationBridge*)bridge
     backgroundSaveDidFinish:(NSInteger)result;
 @end
@@ -79,6 +97,7 @@ typedef NS_ENUM(NSInteger, ATIosPublicationKind) {
 - (ATIosButtonState*)buttonState:(uint64_t)token;
 - (ATIosListState*)listState:(uint64_t)token;
 - (void)clickButton:(uint64_t)token;
+- (void)executeMenuGroup:(NSUInteger)group item:(NSUInteger)item;
 - (void)selectListRow:(NSInteger)row token:(uint64_t)token;
 - (void)activateListRow:(NSInteger)row token:(uint64_t)token;
 - (void)submitViewportWidth:(double)width height:(double)height;

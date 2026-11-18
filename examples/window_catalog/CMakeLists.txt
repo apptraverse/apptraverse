@@ -113,6 +113,8 @@ target_compile_features(window_catalog_mobile PUBLIC cxx_std_20)
 
 add_library(window_catalog_window_catalog_common STATIC
   common/window_catalog_model.cpp
+  common/window_catalog_menu.cpp
+  common/window_catalog_menu_builder.cpp
   common/window_catalog_localization.cpp
   common/window_catalog_registration.cpp
   common/window_catalog_desktop_registration.cpp
@@ -180,8 +182,6 @@ if(WIN32 AND NOT EMSCRIPTEN)
   add_library(window_catalog_window_catalog STATIC
     windows/window_catalog_graph.cpp
     windows/window_catalog_graph_builder.cpp
-    common/window_catalog_menu_builder.cpp
-    common/window_catalog_menu.cpp
   )
   target_include_directories(window_catalog_window_catalog PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/common

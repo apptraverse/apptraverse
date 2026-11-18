@@ -44,6 +44,7 @@ void EnsureWindowCatalogGraphRegistration() {
   // The single Linux application entry point: all transitive schema anchors.
   EnsureCoreObjectRegistration();
   EnsureWindowCatalogDesktopModelRegistration();
+  EnsureCatalogMenuRegistration();
   ui::linux::EnsureLinuxUiPresenterRegistration();
   (void)&example::surfaces::g_apptraverse_registrar_CatalogListContainerPresenter;
   (void)&example::surfaces::g_apptraverse_registrar_CatalogDesktopWindowPresenter;

@@ -51,6 +51,7 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
   GtkWidget* TopLevelWindow() const { return window_; }
   GtkWidget* PresentationMenu() const { return presentation_menu_; }
   virtual GtkWidget* CreatePresentationMenu() { return nullptr; }
+  virtual bool PresentsAppearanceContextMenu() const { return true; }
 
   void ReportNativeClientFrame();
 

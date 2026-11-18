@@ -523,6 +523,7 @@ void LinuxDesktopWindowPresenter::OnLoad() {
     if (event->button != 3) return FALSE;
     auto* self = static_cast<LinuxDesktopWindowPresenter*>(data);
     auto* state = self->LocalDeviceState();
+    if (!self->PresentsAppearanceContextMenu()) return FALSE;
     auto* menu = gtk_menu_new();
     struct Choice { LinuxDesktopWindowPresenter* presenter; UiAppearancePreferences preferences; };
     auto add = [&](char const* text, UiAppearancePreferences preferences, bool active) {

@@ -9,6 +9,20 @@ typedef NS_ENUM(NSInteger, ATMacPublicationKind) {
 
 @class ATMacApplicationBridge;
 
+// Published menu values only. Native menu objects and handlers live in Swift.
+@interface ATMacMenuItemState : NSObject
+@property(nonatomic, readonly) NSString* title;
+@property(nonatomic, readonly, getter=isSelected) BOOL selected;
+- (instancetype)initWithTitle:(NSString*)title selected:(BOOL)selected;
+@end
+
+@interface ATMacMenuGroupState : NSObject
+@property(nonatomic, readonly) NSString* title;
+@property(nonatomic, readonly) NSArray<ATMacMenuItemState*>* items;
+- (instancetype)initWithTitle:(NSString*)title
+                        items:(NSArray<ATMacMenuItemState*>*)items;
+@end
+
 @protocol ATMacApplicationBridgeDelegate <NSObject>
 - (void)bridge:(ATMacApplicationBridge*)bridge
     loadWindow:(uint64_t)token;
@@ -34,6 +48,10 @@ typedef NS_ENUM(NSInteger, ATMacPublicationKind) {
     orderWindowFront:(uint64_t)token activate:(BOOL)activate;
 - (NSArray<NSNumber*>*)orderedWindowTokens;
 - (void)bridgeModelDidFinish:(ATMacApplicationBridge*)bridge;
+@optional
+- (void)bridge:(ATMacApplicationBridge*)bridge
+    syncMenu:(NSArray<ATMacMenuGroupState*>*)groups;
+@required
 @end
 
 @interface ATMacWindowState : NSObject
@@ -80,6 +98,7 @@ typedef NS_ENUM(NSInteger, ATMacPublicationKind) {
 - (ATMacButtonState*)buttonState:(uint64_t)token;
 - (ATMacListState*)listState:(uint64_t)token;
 - (void)clickButton:(uint64_t)token;
+- (void)executeMenuGroup:(NSUInteger)group item:(NSUInteger)item;
 - (void)selectListRow:(NSInteger)row token:(uint64_t)token;
 - (void)activateListRow:(NSInteger)row token:(uint64_t)token;
 - (void)submitWindowX:(double)x

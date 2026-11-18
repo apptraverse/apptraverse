@@ -1,19 +1,19 @@
 # WindowCatalog: platform menus and system appearance
 
-Decision: 2026-11-17. Windows implementation; other adapters are porting guidance,
-not an implementation or runtime acceptance claim.
+Windows, Linux and Android expose the shared appearance and language choices.
+The macOS and iOS implementations expose Language through Swift and follow
+system appearance. Web remains a future consumer of the same menu definition.
 
 ## User interface
 
-Windows WindowCatalog has two ordinary application menu groups:
+Windows, GTK and Android WindowCatalog expose two application menu groups:
 
 - Theme: From system, Light, Dark, Soft dark.
 - Language: English, Русский (language endonyms).
 
-There is no settings/demo window and no local font family, weight, text size,
-high contrast or keyboard cue override. Text and layout follow the OS. The
-language action is not presented as a button in Windows content. Other platform
-supplies currently keep their existing content policy.
+The menu has no separate window or overrides for font family, weight, text size,
+high contrast or keyboard cues. Text and layout follow the OS. On the ports
+that use the menu, Language replaces the old content button.
 
 The existing layout context menu remains a constraint-engine demonstration;
 it is separate from language and appearance preferences.
@@ -28,14 +28,16 @@ the supply, not by reconstructing missing menu objects at runtime.
 `CatalogMenuDefinition` holds localized group/item labels and semantic commands.
 It is an immutable supply object. `CatalogUiState` extends the existing LOCAL
 device root; appearance uses the existing UiDeviceState Events. The existing
-locale identity and its base belong to that LOCAL root in the Windows supply.
-Language uses SetUiLanguageIndexEvent with the same LOCAL scope. No additional
-file format, migration or profile compatibility is introduced.
+locale identity and its base belong to that LOCAL root in menu-enabled supplies.
+`SetUiLanguageIndexEvent` inherits the locale's scope. Portable USER transfer
+copies only `user.bin`. The destination keeps its own `local/user.bin` and
+continues observing its own OS. Use matching supplies for the S0 profiles.
 
 Native input -> presenter/proxy -> CatalogUiState command -> model Event ->
-publication -> UI mirror -> native menu. The presenter creates and updates HMENU
-resources, resolves localized labels and projects checked states. It stores only
-runtime rendering caches. Menu choices and command behavior belong to the model.
+publication -> UI mirror -> native menu. The presentation layer maps the same
+labels, commands and selection to Win32 HMENU, GTK radio items, Android
+submenus, AppKit NSMenu or SwiftUI Menu. Menu choices and command behavior
+belong to the model.
 Active language materialization releases inactive string slots; native handles
 and rendering caches are not serialized.
 
@@ -65,16 +67,16 @@ This change removes demo font/cue painting policy, not the existing dark palette
 | Adapter | How to follow system theme | Menu policy |
 | --- | --- | --- |
 | Windows / classic Win32 | Read changes; apply supported native appearance APIs and existing adapter palette. Win7 has no modern application dark preference. | Theme + Language. Auto uses only available OS facts. |
-| macOS / AppKit | Native NSAppearance and semantic colors adapt controls. Custom surfaces/resources must also adapt. | Native-following composition: Language only. No need to add a theme override merely to follow the OS. |
-| iOS / UIKit | Dynamic semantic colors and traits; Dynamic Type for system text preferences. | Native-following policy when ported; native menu/navigation host chosen separately. |
-| Android / Views | DayNight resources/theme; system `sp` conversion for text, including nonlinear scaling. | Native-following policy where the adapter uses these mechanisms. Do not duplicate a text scale control. |
-| Linux / GTK | GTK theme/style context and GtkSettings; availability depends on theme/desktop integration. | Choose policy for the actual adapter; do not infer native dark support from the OS name alone. |
+| macOS / AppKit | NSAppearance and semantic colors drive the WindowCatalog host. | Language only, in the Swift AppKit menu bar. |
+| iOS / SwiftUI | Semantic colors follow system appearance. | Language only, in the SwiftUI toolbar. |
+| Android / Views | Existing adapter palette follows the OS in Auto and keeps native controls. Text uses the Android scaling path. | Theme + Language in the Activity options menu. |
+| Linux / GTK | GTK theme/style context and GtkSettings provide the system baseline. The adapter also supports explicit palettes. | Theme + Language in the GTK menu bar. |
 | Web / native DOM | Declare `color-scheme`; preserve browser forced colors and form rendering; adapt authored page surfaces with CSS system colors/media queries. | Native-following if all surfaces adapt declaratively; otherwise adapter-applied theme. Use DOM menus with semantics/keyboard behavior when ported. |
 
-A native-following backend can still implement application theme overrides if
-separately requested. Automatic following alone does not justify exposing one.
-The current task changes Windows execution only; future adapters consume the
-same semantic definition and map it to their own native menu surfaces.
+The Apple UI is written in Swift. The existing bridge supplies localized menu
+values and forwards command indices to the shared model. On macOS the desktop
+session saves LOCAL at shutdown. On iOS the current lifecycle save writes the
+same two partitions.
 
 ## Primary references
 

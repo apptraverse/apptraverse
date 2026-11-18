@@ -39,8 +39,13 @@ public final class MainActivity extends Activity {
 
   @Override public boolean onPrepareOptionsMenu(android.view.Menu menu) {
     menu.clear();
-    com.apptraverse.ui.android.AppTraverseAndroidUi.populateAppearanceMenu(
-        (android.view.ViewGroup) findViewById(R.id.page_container), menu);
+    NativeRuntime.nativePopulateMenu(application().runtimeHandle(), menu);
+    return true;
+  }
+
+  @Override public boolean onOptionsItemSelected(android.view.MenuItem item) {
+    if (item.hasSubMenu()) return super.onOptionsItemSelected(item);
+    NativeRuntime.nativeExecuteMenuCommand(application().runtimeHandle(), item.getItemId());
     return true;
   }
 

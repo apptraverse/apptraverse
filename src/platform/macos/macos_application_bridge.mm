@@ -109,6 +109,21 @@ class MacNativeViews final
 
 }  // namespace
 
+@implementation ATMacMenuItemState
+- (instancetype)initWithTitle:(NSString*)title selected:(BOOL)selected {
+  if ((self = [super init])) { _title = title; _selected = selected; }
+  return self;
+}
+@end
+
+@implementation ATMacMenuGroupState
+- (instancetype)initWithTitle:(NSString*)title
+                        items:(NSArray<ATMacMenuItemState*>*)items {
+  if ((self = [super init])) { _title = title; _items = [items copy]; }
+  return self;
+}
+@end
+
 @interface ATMacWindowState ()
 - (instancetype)initWithTitle:(NSString*)title
                             x:(double)x
@@ -300,6 +315,9 @@ class MacNativeViews final
     _uiSession->ApplyStructural(publication);
     if (_callbacks.after_incremental) _callbacks.after_incremental(_uiSession->root());
   }
+  if (_callbacks.menu_state) {
+    [self.delegate bridge:self syncMenu:_callbacks.menu_state(_uiSession->root())];
+  }
   _runtime->NotifyPublicationConsumed();
 }
 
@@ -358,6 +376,12 @@ class MacNativeViews final
                         y:layout.y
                     width:layout.width
                    height:layout.height];
+}
+
+- (void)executeMenuGroup:(NSUInteger)group item:(NSUInteger)item {
+  if (_stopping || !_uiSession || !_callbacks.on_menu_command) return;
+  _callbacks.on_menu_command(_uiSession->root(), *_proxy,
+      static_cast<unsigned>(group), static_cast<unsigned>(item));
 }
 
 - (void)clickButton:(uint64_t)token {

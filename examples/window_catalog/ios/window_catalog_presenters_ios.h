@@ -21,6 +21,10 @@ class IosCatalogWindowPresenter
   void Load(ae::Version<0>, Dnv& dnv) { dnv(base_, catalog); }
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const { dnv(base_, catalog); }
+  bool PresentsChildControl(Presenter const& child) const override {
+    return child.obj_id != catalog->persisted.presenters.language_button_presenter.id() &&
+        ui::ios::IosDesktopWindowPresenter::PresentsChildControl(child);
+  }
 };
 
 class IosCatalogListPresenter

@@ -9,6 +9,14 @@ pixels once. Native scroll views expose the solver's overflow content extent;
 they do not solve control geometry. Viewport/DPI observations go to LOCAL Events.
 List commands carry holder IDs captured from the displayed mirror.
 
+The native options menu projects the distilled `CatalogMenuDefinition`: Theme
+offers From system, Light, Dark and Soft dark; Language lists English and
+Русский by their endonyms. Labels and checks come from the published UI mirror.
+The Activity passes only a native command token, which the native adapter maps
+back to authored group/item indices and submits through `ModelObjectProxy`.
+The old in-content language control and the generic appearance popup are not
+presented by WindowCatalog. Other applications retain the generic backend menu.
+
 ## State and lifecycle
 
 Portable USER and device LOCAL use separate ordinary `RamDomainStorage` instances
@@ -22,7 +30,8 @@ save after already accepted model work, then writes `<profile>/user.bin` and
 background process without delivering `onDestroy`. `onDestroy` does not request
 another save. An abrupt kill before `onStop` is not a supported persistence
 boundary. There are no gesture saves, object-layer files or checkpoint sidecars. LOCAL
-contains the OS comparison baseline, window observations and appearance preferences;
+contains the OS comparison baseline, window observations, appearance preferences
+and selected language;
 it is excluded from portable USER.
 
 Normal **Debug** starts each process with fresh USER and never loads the previous
@@ -77,6 +86,11 @@ This is how the verification run reused the previously verified Æther patch
 chain and dependency sources. That file may set `AE_NO_DEBUG_LOG=ON` to disable
 object logging while retaining Debug assertions. `ANDROID_STL=c++_static` is
 set by the application build.
+
+For MinSizeRel, pass the matching supply prepared by Debug with
+`-Papptraverse.debugSupplyHeader=C:/absolute/path/embedded_distilled_window_catalog_android_supply.h`.
+The NDK consumer embeds that header; it does not run a graph builder or distiller.
+R8 keeps the exact Java classes and members resolved by JNI.
 
 ## Emulator acceptance
 

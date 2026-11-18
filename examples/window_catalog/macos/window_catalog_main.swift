@@ -19,7 +19,7 @@ private enum WindowCatalogMain {
                 for: .applicationSupportDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("AppTraverse/WindowCatalog", isDirectory: true)
         }
-        let host = MacApplicationHost { delegate in
+        let host = MacApplicationHost(followsSystemAppearance: true) { delegate in
             ATCreateWindowCatalogApplicationBridge(directory.path, delegate)
         }
         exit(host.run())

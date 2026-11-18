@@ -62,6 +62,7 @@ struct MacListRowSnapshot: Identifiable, Equatable {
 
 final class MacListAdapter: ObservableObject, Identifiable {
     let id: UInt64
+    var followsSystemAppearance = false
     weak var commandSink: MacUiCommandSink?
     @Published var rows: [MacListRowSnapshot] = []
     @Published var selectedRow: Int?
@@ -125,6 +126,7 @@ enum MacDesktopCoordinates {
 
 final class MacWindowAdapter: ObservableObject, Identifiable {
     let id: UInt64
+    let followsSystemAppearance: Bool
     weak var commandSink: MacUiCommandSink?
     let window: NSWindow
     @Published var title = ""
@@ -133,8 +135,9 @@ final class MacWindowAdapter: ObservableObject, Identifiable {
     var applyingMirrorFrame = false
 
     init(token: UInt64, commandSink: MacUiCommandSink,
-         delegate: NSWindowDelegate) {
+         delegate: NSWindowDelegate, followsSystemAppearance: Bool = false) {
         id = token
+        self.followsSystemAppearance = followsSystemAppearance
         self.commandSink = commandSink
         window = NSWindow(contentRect: .zero,
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -197,6 +200,7 @@ final class MacWindowAdapter: ObservableObject, Identifiable {
 }
 
 private struct MacCatalogButtonStyle: ButtonStyle {
+    var followsSystemAppearance = false
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
@@ -204,13 +208,15 @@ private struct MacCatalogButtonStyle: ButtonStyle {
             .foregroundColor(isEnabled ? .primary : .gray)
             .background(configuration.isPressed
                 ? Color(nsColor: .selectedControlColor)
-                : Color(white: 0.94))
+                : followsSystemAppearance ? Color(nsColor: .controlBackgroundColor)
+                                          : Color(white: 0.94))
             .overlay(Rectangle().strokeBorder(Color(white: 0.55), lineWidth: 1))
     }
 }
 
 private struct MacButtonControl: View {
     @ObservedObject var adapter: MacButtonAdapter
+    var followsSystemAppearance = false
 
     var body: some View {
         Button(action: { adapter.click() }) {
@@ -219,7 +225,7 @@ private struct MacButtonControl: View {
                 .frame(width: adapter.frame.width, height: adapter.frame.height)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(MacCatalogButtonStyle())
+        .buttonStyle(MacCatalogButtonStyle(followsSystemAppearance: followsSystemAppearance))
         .disabled(!adapter.enabled)
         .accessibilityIdentifier("button-\(adapter.id)")
         .position(x: adapter.frame.x + adapter.frame.width / 2,
@@ -244,7 +250,7 @@ private struct MacNativeList: NSViewRepresentable {
         table.intercellSpacing = .zero
         table.allowsMultipleSelection = false
         table.allowsEmptySelection = true
-        table.backgroundColor = .white
+        table.backgroundColor = adapter.followsSystemAppearance ? .textBackgroundColor : .white
         table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         table.setAccessibilityIdentifier("list-\(adapter.id)")
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("primary"))
@@ -259,7 +265,7 @@ private struct MacNativeList: NSViewRepresentable {
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         scroll.drawsBackground = true
-        scroll.backgroundColor = .white
+        scroll.backgroundColor = adapter.followsSystemAppearance ? .textBackgroundColor : .white
         scroll.documentView = table
         context.coordinator.sync(table)
         return scroll
@@ -392,18 +398,23 @@ private struct MacWindowContent: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            Color.white
-            ForEach(adapter.buttons) { MacButtonControl(adapter: $0) }
+            adapter.followsSystemAppearance ? Color(nsColor: .windowBackgroundColor) : Color.white
+            ForEach(adapter.buttons) {
+                MacButtonControl(adapter: $0,
+                    followsSystemAppearance: adapter.followsSystemAppearance)
+            }
             ForEach(adapter.lists) { MacListControl(adapter: $0) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .preferredColorScheme(.light)
+        .preferredColorScheme(adapter.followsSystemAppearance ? nil : .light)
     }
 }
 
 public final class MacApplicationHost: NSObject,
     NSApplicationDelegate, NSWindowDelegate, ATMacApplicationBridgeDelegate {
     private let bridgeFactory: (ATMacApplicationBridgeDelegate) -> ATMacApplicationBridge
+    private let followsSystemAppearance: Bool
+    private var modelMenuItems: [NSMenuItem] = []
     var bridge: ATMacApplicationBridge!
     var windows: [UInt64: MacWindowAdapter] = [:]
     var buttons: [UInt64: MacButtonAdapter] = [:]
@@ -412,8 +423,9 @@ public final class MacApplicationHost: NSObject,
     private var modelFinished = false
     private var exitStatus: Int32 = 1
 
-    public init(bridgeFactory: @escaping
+    public init(followsSystemAppearance: Bool = false, bridgeFactory: @escaping
         (ATMacApplicationBridgeDelegate) -> ATMacApplicationBridge) {
+        self.followsSystemAppearance = followsSystemAppearance
         self.bridgeFactory = bridgeFactory
     }
 
@@ -505,7 +517,8 @@ public final class MacApplicationHost: NSObject,
     }
 
     public func bridge(_ bridge: ATMacApplicationBridge, loadWindow token: UInt64) {
-        let adapter = MacWindowAdapter(token: token, commandSink: bridge, delegate: self)
+        let adapter = MacWindowAdapter(token: token, commandSink: bridge, delegate: self,
+            followsSystemAppearance: followsSystemAppearance)
         windows[token] = adapter
         let state = bridge.windowState(token)
         adapter.sync(state)
@@ -556,6 +569,7 @@ public final class MacApplicationHost: NSObject,
     public func bridge(_ bridge: ATMacApplicationBridge, loadList token: UInt64) {
         let state = bridge.listState(token)
         let adapter = MacListAdapter(token: token, commandSink: bridge)
+        adapter.followsSystemAppearance = followsSystemAppearance
         adapter.sync(state)
         lists[token] = adapter
         windows[state.parentToken]!.lists.append(adapter)
@@ -568,6 +582,35 @@ public final class MacApplicationHost: NSObject,
         adapter.disconnect()
         for window in windows.values { window.lists.removeAll { $0 === adapter } }
     }
+    public func bridge(_ bridge: ATMacApplicationBridge,
+                       syncMenu groups: [ATMacMenuGroupState]) {
+        let menu = NSApp.mainMenu!
+        for item in modelMenuItems { menu.removeItem(item) }
+        modelMenuItems = []
+        for (groupIndex, group) in groups.enumerated() {
+            let title = group.title.replacingOccurrences(of: "&", with: "")
+            let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            let submenu = NSMenu(title: title)
+            submenu.autoenablesItems = false
+            for (itemIndex, state) in group.items.enumerated() {
+                let item = NSMenuItem(title: state.title,
+                    action: #selector(executeModelMenu(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = [groupIndex, itemIndex]
+                item.state = state.isSelected ? .on : .off
+                submenu.addItem(item)
+            }
+            parent.submenu = submenu
+            menu.addItem(parent)
+            modelMenuItems.append(parent)
+        }
+    }
+
+    @objc private func executeModelMenu(_ sender: NSMenuItem) {
+        guard !terminating, let indices = sender.representedObject as? [Int] else { return }
+        bridge.executeMenuGroup(UInt(indices[0]), item: UInt(indices[1]))
+    }
+
     public func bridgeModelDidFinish(_ bridge: ATMacApplicationBridge) {
         exitStatus = Int32(bridge.finishTeardown())
         modelFinished = true

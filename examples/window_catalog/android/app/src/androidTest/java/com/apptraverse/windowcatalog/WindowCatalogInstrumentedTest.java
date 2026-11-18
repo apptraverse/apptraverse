@@ -154,7 +154,8 @@ public final class WindowCatalogInstrumentedTest {
     waitChild();
     swipe(1);
     waitCatalog();
-    tap("RU");
+    languageMenu(false);
+    tap("Русский");
     waitText("Каталог окон");
     waitText("Добавить");
     waitText("Окно 1");
@@ -163,7 +164,8 @@ public final class WindowCatalogInstrumentedTest {
     waitText("Закрыть");
     swipe(1);
     waitText("Каталог окон");
-    tap("EN");
+    languageMenu(true);
+    tap("English");
     waitCatalog();
     swipe(-1);
     waitChild();
@@ -221,19 +223,29 @@ public final class WindowCatalogInstrumentedTest {
     try { waitForCatalogInputFocus(); } catch (Exception error) { throw new AssertionError(error); }
     device.waitForIdle();
     keyEvent(82);
-    waitText("Auto theme");
+    tap("Theme");
+    waitText("From system");
+  }
+
+  private void languageMenu(boolean russian) {
+    try { waitForCatalogInputFocus(); } catch (Exception error) { throw new AssertionError(error); }
+    device.waitForIdle();
+    keyEvent(82);
+    tap(russian ? "Язык" : "Language");
+    waitText("English");
+    waitText("Русский");
   }
 
   @Test public void appearanceCommandsPersistLocallyAndFollowFreshProfilePolicy() throws Exception {
     launch();
     waitCatalog();
     appearanceMenu();
-    tap("Dark theme");
+    tap("Dark");
     appearanceMenu();
-    assertTrue(menuChecked("Dark theme"));
-    tap("Soften dark theme");
+    assertTrue(menuChecked("Dark"));
+    tap("Soft dark");
     appearanceMenu();
-    assertTrue(menuChecked("Soften dark theme"));
+    assertTrue(menuChecked("Soft dark"));
     back();
     assertTrue("Appearance changes remain RAM-backed until lifecycle", userFiles().isEmpty());
     home();
@@ -245,15 +257,52 @@ public final class WindowCatalogInstrumentedTest {
     appearanceMenu();
     boolean fresh = Boolean.parseBoolean(
         InstrumentationRegistry.getArguments().getString("debugFresh", "true"));
-    assertTrue(menuChecked(fresh ? "Auto theme" : "Dark theme"));
-    assertEquals(!fresh, menuChecked("Soften dark theme"));
-    tap("Light theme");
+    assertTrue(menuChecked(fresh ? "From system" : "Soft dark"));
+    assertEquals(!fresh, menuChecked("Soft dark"));
+    tap("Light");
     appearanceMenu();
-    assertTrue(menuChecked("Light theme"));
-    tap("Auto theme");
+    assertTrue(menuChecked("Light"));
+    tap("From system");
     appearanceMenu();
-    assertTrue(menuChecked("Auto theme"));
+    assertTrue(menuChecked("From system"));
     back();
+  }
+
+  @Test public void nativeLanguageMenuPersistsLocallyAndRestoresPublishedChecks() throws Exception {
+    launch();
+    waitCatalog();
+    assertFalse("No duplicate content language toggle", device.hasObject(By.text("RU")));
+    languageMenu(false);
+    assertTrue(menuChecked("English"));
+    tap("Русский");
+    waitText("Каталог окон");
+    waitText("Добавить");
+    languageMenu(true);
+    assertTrue(menuChecked("Русский"));
+    assertFalse(menuChecked("English"));
+    back();
+    keyEvent(82);
+    tap("Тема");
+    waitText("Из системы");
+    waitText("Мягкая тёмная");
+    back();
+    assertTrue("Menu intent remains RAM-backed until lifecycle", userFiles().isEmpty());
+    home();
+    assertEquals(1, userFiles().size());
+    assertTrue(new File(userFiles().get(0).getParentFile(), "local/user.bin").length() > 0);
+    killDemoProcessOnly();
+    launch();
+    boolean fresh = Boolean.parseBoolean(
+        InstrumentationRegistry.getArguments().getString("debugFresh", "true"));
+    waitText(fresh ? "Window Catalog" : "Каталог окон");
+    languageMenu(!fresh);
+    assertTrue(menuChecked(fresh ? "English" : "Русский"));
+    back();
+    if (!fresh) {
+      languageMenu(true);
+      tap("English");
+      waitCatalog();
+    }
   }
 
   @Test public void darkSofteningPreservesNativeDisabledTextState() {
@@ -343,7 +392,8 @@ public final class WindowCatalogInstrumentedTest {
     waitChild();
     swipe(1);
     waitCatalog();
-    tap("RU");
+    languageMenu(false);
+    tap("Русский");
     waitText("Каталог окон");
     swipe(-1);
     waitText("Окно 1");

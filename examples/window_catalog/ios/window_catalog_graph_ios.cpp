@@ -2,6 +2,7 @@
 
 #include "window_catalog_list_presenter_mixin.h"
 #include "window_catalog_model.h"
+#include "window_catalog_menu.h"
 #include "window_catalog_presenters_ios.h"
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/object_macros.h"
@@ -34,6 +35,7 @@ namespace apptraverse {
 void EnsureWindowCatalogGraphRegistration() {
   EnsureCoreObjectRegistration();
   EnsureWindowCatalogModelRegistration();
+  EnsureCatalogMenuRegistration();
   ui::ios::EnsureIosUiPresenterRegistration();
   (void)&example::surfaces::g_apptraverse_registrar_IosCatalogWindowPresenter;
   (void)&example::surfaces::g_apptraverse_registrar_IosCatalogListPresenter;

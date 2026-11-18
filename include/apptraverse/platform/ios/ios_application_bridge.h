@@ -18,6 +18,10 @@ struct IosMobilePresentation {
 };
 
 struct IosApplicationBridgeCallbacks {
+  // Optional application composition; generic hosts do not invent a menu.
+  std::function<NSArray<ATIosMenuGroupState*>*(ae::Obj&)> menu_state;
+  std::function<void(ae::Obj&, ModelObjectProxy&, unsigned, unsigned)>
+      on_menu_command;
   ApplicationModelRuntime* runtime = nullptr;
   UiPresentersPrepareHook prepare_ui_presenters;
   TakePublishedSidecarCallback take_incremental_sidecar;

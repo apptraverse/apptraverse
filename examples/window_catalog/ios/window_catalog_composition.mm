@@ -3,16 +3,19 @@
 #include <filesystem>
 #include <cstdlib>
 #include <memory>
+#include <string>
 #include <set>
 #include <utility>
 
 #include "apptraverse/application_model_session.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/embedded_distilled_domain.h"
+#include "apptraverse/embedded_application_model_session.h"
 #include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/platform/ios/ios_application_bridge.h"
 #include "apptraverse/single_file_user_storage.h"
 #include "window_catalog_graph.h"
+#include "window_catalog_menu.h"
 #include "window_catalog_ids.h"
 #include "window_catalog_prepare.h"
 #if defined(APPTRAVERSE_WINDOW_CATALOG_DEBUG_BOOTSTRAP)
@@ -23,6 +26,15 @@
 #endif
 
 namespace {
+NSString* CatalogMenuText(std::string const& text) {
+  NSString* result = [[NSString alloc] initWithBytes:text.data()
+      length:text.size() encoding:NSUTF8StringEncoding];
+  if (result == nil) {
+    apptraverse::WriteFatalStderr("cannot create native catalog menu text\n");
+    std::abort();
+  }
+  return result;
+}
 
 struct CatalogProfile {
   explicit CatalogProfile(std::filesystem::path path)
@@ -31,12 +43,15 @@ struct CatalogProfile {
   std::filesystem::path directory;
   ae::RamDomainStorage backing;
   ae::RamDomainStorage user;
+  ae::RamDomainStorage local;
   std::set<ae::ObjId> constants;
   bool prepared = false;
 
   int Persist(apptraverse::WindowCatalog& catalog) {
     apptraverse::SaveWindowCatalogPersistentSnapshot(catalog);
-    return apptraverse::SaveUserStorageFile(user, directory) ? 0 : 1;
+    return apptraverse::SaveUserStorageFile(user, directory) &&
+                   apptraverse::SaveUserStorageFile(local, directory / "local")
+               ? 0 : 1;
   }
 
   int Run(apptraverse::ApplicationModelRuntime& runtime,
@@ -60,20 +75,24 @@ struct CatalogProfile {
       apptraverse::InstallEmbeddedDistilledBacking(backing, graph);
       constants = apptraverse::EmbeddedSupplyConstantIdSet(graph);
       if (!apptraverse::LoadUserStorageFile(user, directory)) return 1;
+      if (!apptraverse::LoadUserStorageFile(local, directory / "local")) return 1;
 #endif
       prepared = true;
     }
-    apptraverse::OverlayDomainStorage storage{user, backing, constants};
     apptraverse::ApplicationModelSessionHooks<apptraverse::WindowCatalog> hooks;
-    hooks.prepare = apptraverse::PrepareWindowCatalogForRun;
+    hooks.prepare = [](apptraverse::WindowCatalog& catalog) {
+      catalog.persisted.device_state.Load();
+      apptraverse::PrepareCatalogMenuForRun(catalog);
+      apptraverse::PrepareWindowCatalogForRun(catalog);
+    };
     hooks.before_incremental = [](apptraverse::WindowCatalog& catalog) {
       catalog.pending_focus_window = {};
     };
     hooks.persist = [this](apptraverse::WindowCatalog& catalog) {
       return Persist(catalog);
     };
-    return apptraverse::RunApplicationModelSession(
-        storage,
+    return apptraverse::RunClientLocalApplicationModelSession(
+        user, local, backing, constants,
         ae::ObjId{apptraverse::window_catalog_demo::ToObjId(
             apptraverse::window_catalog_demo::ObjId::Catalog)},
         runtime, std::move(on_published), hooks);
@@ -115,6 +134,32 @@ struct CatalogProfile {
             apptraverse::window_catalog_demo::ObjId::Catalog)})
                        .as<apptraverse::WindowCatalog>();
     return profile->Persist(*catalog);
+  };
+  callbacks.menu_state = [](ae::Obj& root) -> NSArray<ATIosMenuGroupState*>* {
+    auto& catalog = static_cast<apptraverse::WindowCatalog&>(root);
+    auto& state = static_cast<apptraverse::CatalogUiState&>(
+        *catalog.persisted.device_state);
+    int const language = catalog.persisted.locale->language_index();
+    NSMutableArray<ATIosMenuGroupState*>* groups = [NSMutableArray array];
+    for (auto const& group : state.menu->groups) {
+      NSMutableArray<ATIosMenuItemState*>* items = [NSMutableArray array];
+      for (auto const& item : group.items) {
+        auto const& text = item.label->Resolve(language);
+        [items addObject:[[ATIosMenuItemState alloc]
+            initWithTitle:CatalogMenuText(text)
+            selected:state.MenuItemSelected(item)]];
+      }
+      auto const& title = group.label->Resolve(language);
+      [groups addObject:[[ATIosMenuGroupState alloc]
+          initWithTitle:CatalogMenuText(title) items:items]];
+    }
+    return [groups copy];
+  };
+  callbacks.on_menu_command = [](ae::Obj& root,
+      apptraverse::ModelObjectProxy& proxy, unsigned group, unsigned item) {
+    auto& catalog = static_cast<apptraverse::WindowCatalog&>(root);
+    proxy.Invoke(catalog.persisted.device_state.id(),
+        &apptraverse::CatalogUiState::ExecuteMenuCommand, group, item);
   };
   callbacks.close_desktop_window =
       [](ae::Obj& root, ae::Obj& closed_window,

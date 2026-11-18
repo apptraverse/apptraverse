@@ -53,8 +53,8 @@ gboolean Tick(gpointer data) {
     CheckCustomPalette(presenter.TopLevelWindow());
     CheckCustomPalette(gtk_widget_get_parent(presenter.ThemeMenuItem(0)));
     Check(catalog.persisted.list->rows.size() == 3, "cold USER retained native Add topology");
-    Check(catalog.persisted.locale->language_index() == 1, "cold USER retained Russian locale");
-    Check(std::string{gtk_menu_item_get_label(GTK_MENU_ITEM(presenter.ThemeMenuItem(0)))} == "Как в системе",
+    Check(catalog.persisted.locale->language_index() == 1, "cold LOCAL retained Russian locale");
+    Check(std::string{gtk_menu_item_get_label(GTK_MENU_ITEM(presenter.ThemeMenuItem(0)))} == "Из системы",
           "cold menu locale restored");
     std::cerr << "PASS: cold native menu, custom palette and separate LOCAL preference\n";
     gtk_window_close(GTK_WINDOW(presenter.TopLevelWindow()));
@@ -62,9 +62,14 @@ gboolean Tick(gpointer data) {
   }
   if (probe.stage == 0) {
     if (!gtk_widget_get_mapped(presenter.TopLevelWindow())) return G_SOURCE_CONTINUE;
-    Check(GTK_IS_MENU_BAR(presenter.PresentationMenu()), "visible native Settings menu");
+    Check(GTK_IS_MENU_BAR(presenter.PresentationMenu()), "visible native Theme/Language menu");
     Check(gtk_widget_get_allocated_height(presenter.PresentationMenu()) > 1, "menu has a native allocation");
     Check(catalog.persisted.list->rows.empty(), "fresh native catalog");
+    Check(!presenter.PresentsAppearanceContextMenu(), "Catalog has no duplicate appearance popup");
+    Check(!catalog.persisted.presenters.language_button_presenter->presentation_loaded,
+          "language content control is excluded by composition policy");
+    Check(gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(presenter.LanguageMenuItem(0))),
+          "published English menu check");
     probe.choice = 1;
     ++probe.stage;
   }
@@ -79,7 +84,7 @@ gboolean Tick(gpointer data) {
     if (device->appearance != Preference(probe.choice)) return G_SOURCE_CONTINUE;
     CheckRadio(presenter, probe.choice);
     auto* popup = gtk_widget_get_parent(presenter.ThemeMenuItem(0));
-    Check(GTK_IS_MENU(popup), "radio belongs to the native Settings popup");
+    Check(GTK_IS_MENU(popup), "radio belongs to the native Theme/Language popup");
     if (probe.choice == 1) probe.light_popup = Background(popup);
     if (probe.choice == 2) {
       probe.regular_dark = Background(presenter.TopLevelWindow());
@@ -125,15 +130,19 @@ gboolean Tick(gpointer data) {
       auto& add = static_cast<ui::linux::LinuxPushButtonPresenter&>(*catalog.persisted.presenters.add_button_presenter);
       gtk_button_clicked(GTK_BUTTON(add.ButtonWidget()));
     } else {
-      auto& language = static_cast<ui::linux::LinuxPushButtonPresenter&>(*catalog.persisted.presenters.language_button_presenter);
-      gtk_button_clicked(GTK_BUTTON(language.ButtonWidget()));
+      auto const before = catalog.persisted.locale->language_index();
+      gtk_menu_item_activate(GTK_MENU_ITEM(presenter.LanguageMenuItem(1)));
+      Check(catalog.persisted.locale->language_index() == before,
+            "language input does not mutate UI mirror before publication");
     }
     ++probe.stage;
   } else if (probe.stage == 7) {
     if (catalog.persisted.locale->language_index() != 1) return G_SOURCE_CONTINUE;
     CheckRadio(presenter, 3);
-    Check(std::string{gtk_menu_item_get_label(GTK_MENU_ITEM(presenter.ThemeMenuItem(3)))} == "Своя тёмная",
-          "native Settings choices follow Russian locale");
+    Check(gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(presenter.LanguageMenuItem(1))),
+          "published Russian menu check");
+    Check(std::string{gtk_menu_item_get_label(GTK_MENU_ITEM(presenter.ThemeMenuItem(3)))} == "Мягкая тёмная",
+          "native Theme/Language choices follow Russian locale");
     presenter.model_proxy->Invoke(catalog.persisted.main_window.id(), &ui::UiDesktopWindow::RequestFrame,
                                   20, 20, 600, 320);
     ++probe.stage;

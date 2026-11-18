@@ -31,6 +31,8 @@ class WindowCatalogNativeRuntime {
   void ConsumePublication(int kind);
   void FlushPendingBackgroundSaves();
   void MobileSwipe(int delta);
+  void PopulateMenu(JNIEnv* env, jobject menu);
+  void ExecuteMenuCommand(int native_item_id);
 
  private:
   void PublishMobilePages();

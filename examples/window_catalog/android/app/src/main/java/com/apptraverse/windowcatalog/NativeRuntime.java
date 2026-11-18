@@ -23,5 +23,9 @@ public final class NativeRuntime {
 
   public static native void nativeMobileSwipe(long handle, int delta);
 
+  public static native void nativePopulateMenu(long handle, android.view.Menu menu);
+
+  public static native void nativeExecuteMenuCommand(long handle, int nativeItemId);
+
   public static native void nativeDestroy(long handle);
 }

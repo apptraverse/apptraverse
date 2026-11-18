@@ -37,11 +37,7 @@ void CatalogUiState::ExecuteMenuCommand(unsigned group, unsigned index) {
   catalog->MaterializeCatalogStrings(item.value);
   menu->MaterializeLanguage(item.value);
   auto locale = catalog->persisted.locale;
-  if (locale->language_index() == item.value) return;
-  auto event = ui::SetUiLanguageIndexEvent::ptr::Create(ae::CreateWith{*domain});
-  event->SetObjectScope(locale->object_scope());
-  event->language_index = item.value;
-  locale->Commit(event);
+  locale->SubmitLanguageIndexFromUi(item.value);
 }
 
 APPTRAVERSE_REGISTER(CatalogUiState);

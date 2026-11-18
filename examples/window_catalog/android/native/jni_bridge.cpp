@@ -73,6 +73,14 @@ void NativeMobileSwipe(JNIEnv*, jclass, jlong handle, jint delta) {
   FromHandle(handle)->MobileSwipe(static_cast<int>(delta));
 }
 
+void NativePopulateMenu(JNIEnv* env, jclass, jlong handle, jobject menu) {
+  FromHandle(handle)->PopulateMenu(env, menu);
+}
+
+void NativeExecuteMenuCommand(JNIEnv*, jclass, jlong handle, jint native_item_id) {
+  FromHandle(handle)->ExecuteMenuCommand(native_item_id);
+}
+
 void NativeDestroy(JNIEnv*, jclass, jlong handle) { delete FromHandle(handle); }
 
 JNINativeMethod const kNativeMethods[] = {
@@ -87,6 +95,8 @@ JNINativeMethod const kNativeMethods[] = {
     {"nativeFlushPendingBackgroundSaves", "(J)V",
      reinterpret_cast<void*>(&NativeFlushPendingBackgroundSaves)},
     {"nativeMobileSwipe", "(JI)V", reinterpret_cast<void*>(&NativeMobileSwipe)},
+    {"nativePopulateMenu", "(JLandroid/view/Menu;)V", reinterpret_cast<void*>(&NativePopulateMenu)},
+    {"nativeExecuteMenuCommand", "(JI)V", reinterpret_cast<void*>(&NativeExecuteMenuCommand)},
     {"nativeDestroy", "(J)V", reinterpret_cast<void*>(&NativeDestroy)},
 };
 

@@ -36,7 +36,9 @@ class CatalogDesktopWindowPresenter
     // Native caption Close supplies this action; identify its content control
     // through the distilled prefab link, independently of model host mode.
     auto const& catalog_window = static_cast<CatalogWindow const&>(*window);
-    return child.obj_id != catalog_window.close_button_presenter.id();
+    return child.obj_id != catalog_window.close_button_presenter.id() &&
+        child.obj_id != catalog->persisted.presenters.language_button_presenter.id() &&
+        ui::macos::MacDesktopWindowPresenter::PresentsChildControl(child);
   }
 
   void OnLoad() override {

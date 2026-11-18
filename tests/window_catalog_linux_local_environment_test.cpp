@@ -25,10 +25,18 @@ struct Probe {
 };
 gboolean Tick(gpointer opaque) {
   auto& test = *static_cast<Probe*>(opaque);
-  Check(++test.ticks < 400, "GTK local settings settled within 20 seconds");
   auto& catalog = *test.catalog;
   auto& presenter = static_cast<ui::linux::LinuxDesktopWindowPresenter&>(*catalog.persisted.main_window->presenter);
   auto* device = presenter.LocalDeviceState();
+  if (++test.ticks >= 400) {
+    int width{}, height{}, minimum{}, natural{};
+    gtk_window_get_size(GTK_WINDOW(presenter.TopLevelWindow()), &width, &height);
+    gtk_widget_get_preferred_width(presenter.PresentationMenu(), &minimum, &natural);
+    std::cerr << "GTK settings timeout stage=" << test.stage << " client=" << width << 'x' << height
+        << " menu-min=" << minimum << " font=" << device->environment.message_font.height
+        << " motion=" << device->environment.reduced_motion << '\n';
+    Check(false, "GTK local settings settled within 20 seconds");
+  }
   if (test.transfer) {
     Check(device->has_environment, "transfer baseline observed before native presentation");
     if (!test.verified_outer && test.expected_outer_width > 0) {
@@ -96,7 +104,12 @@ gboolean Tick(gpointer opaque) {
         observation == device->windows.end() || observation->frame_dip.width != outer.width) return G_SOURCE_CONTINUE;
     int client_width{}, client_height{};
     gtk_window_get_size(GTK_WINDOW(presenter.TopLevelWindow()), &client_width, &client_height);
-    if (client_width != 220) return G_SOURCE_CONTINUE;
+    // Native chrome owns its minimum: two localized menu headings at Sans18
+    // may be wider than the requested tiny client. The solver still owns only
+    // the scroller viewport, and native observations must stay LOCAL.
+    int menu_minimum{}, menu_natural{};
+    gtk_widget_get_preferred_width(presenter.PresentationMenu(), &menu_minimum, &menu_natural);
+    if (client_width != std::max(220, menu_minimum)) return G_SOURCE_CONTINUE;
     Check(catalog.persisted.main_window->client_width() == test.semantic_width &&
         catalog.persisted.main_window->client_height() == test.semantic_height, "native pixels did not enter portable semantic frame");
     auto& button = static_cast<ui::linux::LinuxPushButtonPresenter&>(*catalog.persisted.presenters.add_button_presenter);

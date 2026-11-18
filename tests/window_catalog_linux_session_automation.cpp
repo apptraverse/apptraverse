@@ -6,6 +6,7 @@
 
 #include "window_catalog_linux_desktop_zorder.h"
 #include "window_catalog_model.h"
+#include "window_catalog_presenters_linux.h"
 
 #include "apptraverse/platform/linux/linux_desktop_window_stack.h"
 
@@ -53,10 +54,11 @@ ui::linux::LinuxPushButtonPresenter& LinuxDelete(WindowCatalog& catalog) {
       *catalog.persisted.presenters.delete_button_presenter.operator->());
 }
 
-ui::linux::LinuxPushButtonPresenter& LinuxLanguage(WindowCatalog& catalog) {
-  catalog.persisted.presenters.language_button_presenter.Load();
-  return static_cast<ui::linux::LinuxPushButtonPresenter&>(
-      *catalog.persisted.presenters.language_button_presenter.operator->());
+void ToggleLanguageNative(WindowCatalog& catalog) {
+  auto& presenter = static_cast<CatalogDesktopWindowPresenter&>(
+      *catalog.persisted.main_window->presenter);
+  int const next = catalog.persisted.locale->language_index() == 0 ? 1 : 0;
+  gtk_menu_item_activate(GTK_MENU_ITEM(presenter.LanguageMenuItem(next)));
 }
 
 ui::linux::LinuxDesktopWindowPresenter& LinuxMainWindow(WindowCatalog& catalog) {
@@ -822,7 +824,7 @@ void FinishCcSaveFrames(WindowCatalog& catalog) {
   }
   LogCatalogRawFrames(raw);
   LogMarker("WINDOW_CATALOG_LINUX_CHILD_CLOSE_FRAMES_MODEL_OK");
-  ClickButtonNative(LinuxLanguage(catalog));
+  ToggleLanguageNative(catalog);
   State().step = AutomationStep::CcAwaitLanguage;
 }
 
@@ -1225,14 +1227,14 @@ void LinuxWindowCatalogSessionAutomationHooks::OnAfterIncremental(
         if (LinuxChildForRow(catalog, 0) == nullptr) {
           return;
         }
-        ClickButtonNative(LinuxLanguage(catalog));
+        ToggleLanguageNative(catalog);
         State().step = AutomationStep::SaveAwaitLanguageRu;
         return;
       case AutomationStep::SaveAwaitLanguageRu:
         if (!LocaleIs(catalog, 1) || !AddLabelIs(catalog, "Добавить")) {
           return;
         }
-        ClickButtonNative(LinuxLanguage(catalog));
+        ToggleLanguageNative(catalog);
         State().step = AutomationStep::SaveAwaitLanguageEn;
         return;
       case AutomationStep::SaveAwaitLanguageEn:

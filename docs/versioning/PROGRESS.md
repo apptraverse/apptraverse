@@ -1,3 +1,20 @@
+## WindowCatalog shared native menu ports — 2026-11-18
+
+GTK and Android now consume the same distilled Theme and Language menu as
+Windows. The Apple Swift AppKit and SwiftUI hosts expose Language and follow
+system appearance. Apple builds and runtime verification belong to a separate
+task.
+
+Linux Debug native tests and three Android Debug instrumentation cases passed.
+Windows ↔ Android USER-only transfer passed in real load-only processes and
+kept device LOCAL preferences. Windows, Linux and Android x64 MinSizeRel builds
+passed native launch/restore or menu tests. The full Win32 Debug acceptance
+rerun stopped at the desktop foreground-window precondition. The menu model
+and Win32 native chrome tests passed.
+
+Sizes and evidence are in
+[platform menu validation](../validation/window-catalog-platform-menu-2026-11-18.md).
+
 ## Windows WindowCatalog language/theme menu — 2026-11-17
 
 Windows now has only native application Theme and Language groups. Settings/demo

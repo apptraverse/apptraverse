@@ -31,8 +31,8 @@ class CatalogMenuDefinition : public NodeFor<CatalogMenuDefinition> {
   template<class D> void Load(ae::Version<0>, D& d) { d(base_, groups); }
   template<class D> void Save(ae::Version<0>, D& d) const { d(base_, groups); }
 };
-// Windows opts into this LOCAL root at composition. Other platform supplies
-// remain unchanged until ported. Only language and existing appearance persist.
+// Menu-enabled adapters opt into this LOCAL root during supply composition.
+// Only language and existing appearance preferences persist here.
 class CatalogUiState : public NodeFor<CatalogUiState, ui::UiDeviceState> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::CatalogUiState", CatalogUiState, ui::UiDeviceState, 0)
  protected:

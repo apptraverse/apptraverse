@@ -12,6 +12,10 @@
 namespace apptraverse::ui::macos {
 
 struct MacApplicationBridgeCallbacks {
+  // Optional application composition; generic hosts do not invent a menu.
+  std::function<NSArray<ATMacMenuGroupState*>*(ae::Obj&)> menu_state;
+  std::function<void(ae::Obj&, ModelObjectProxy&, unsigned, unsigned)>
+      on_menu_command;
   ApplicationModelRuntime* runtime = nullptr;
   std::function<void(ae::Obj&, ModelObjectProxy&, std::function<void()>)>
       on_application_quit;
