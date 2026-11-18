@@ -212,7 +212,7 @@ void WinDesktopWindowPresenter::OnLoad() {
                     desktop->restore_client_height(), outer_w, outer_h);
   auto const title = ResolveTitleText();
   hwnd_ = CreateWindowExW(0, kDesktopWindowClass, title.c_str(),
-                          WindowStyleForClientFrame(),
+                          WindowStyleForClientFrame() | WS_CLIPCHILDREN,
                           desktop->HasExplicitPosition() ? desktop->x() : CW_USEDEFAULT,
                           desktop->HasExplicitPosition() ? desktop->y() : CW_USEDEFAULT, outer_w, outer_h, nullptr, nullptr,
                           instance, nullptr);
@@ -358,6 +358,22 @@ void WinDesktopWindowPresenter::ApplyChildAppearance(HWND child) {
   SendMessageW(child, WM_SETFONT, reinterpret_cast<WPARAM>(environment_->font()), TRUE);
   wchar_t class_name[32]{};
   GetClassNameW(child, class_name, 32);
+  if ((wcscmp(class_name, L"Edit") == 0 &&
+       (GetWindowLongPtrW(child, GWL_STYLE) & ES_MULTILINE)) ||
+      wcscmp(class_name, L"ListBox") == 0) {
+    // Use the native scrollbar palette when Windows supplies a dark variant.
+    // Keep the regular system theme in light and high-contrast modes.
+    HMODULE theme = LoadLibraryW(L"uxtheme.dll");
+    if (theme) {
+      using SetTheme = HRESULT(WINAPI*)(HWND, LPCWSTR, LPCWSTR);
+      auto set_theme = reinterpret_cast<SetTheme>(
+          GetProcAddress(theme, "SetWindowTheme"));
+      if (set_theme)
+        set_theme(child, environment_->dark() ? L"DarkMode_Explorer" : nullptr,
+                  nullptr);
+      FreeLibrary(theme);
+    }
+  }
   if (wcscmp(class_name, L"Button") == 0) {
     LONG_PTR style = GetWindowLongPtrW(child, GWL_STYLE);
     style = (style & ~BS_TYPEMASK) | (environment_->dark() ? BS_OWNERDRAW : BS_PUSHBUTTON);
@@ -618,24 +634,37 @@ void WinDesktopWindowPresenter::RefreshLayout() {
     return;
   }
   applying_layout_ = true;
+  auto update_scroll = [this](int bar, SCROLLINFO const& desired) {
+    SCROLLINFO current{sizeof(SCROLLINFO), SIF_RANGE | SIF_PAGE | SIF_POS};
+    if (GetScrollInfo(hwnd_, bar, &current) &&
+        current.nMin == desired.nMin && current.nMax == desired.nMax &&
+        current.nPage == desired.nPage && current.nPos == desired.nPos)
+      return;
+    SetScrollInfo(hwnd_, bar, &desired, TRUE);
+  };
   for (int pass = 0; pass < 2; ++pass) {
     auto const result = ComputeLocalLayout();
     RECT client{}; GetClientRect(hwnd_, &client);
     SCROLLINFO horizontal{sizeof(SCROLLINFO), SIF_RANGE | SIF_PAGE | SIF_POS};
     horizontal.nMax = std::max(0, static_cast<int>(std::ceil(result.content_width * LayoutScale())) - 1);
     horizontal.nPage = static_cast<UINT>(client.right); horizontal.nPos = scroll_x_;
-    SetScrollInfo(hwnd_, SB_HORZ, &horizontal, TRUE);
+    update_scroll(SB_HORZ, horizontal);
     SCROLLINFO vertical{sizeof(SCROLLINFO), SIF_RANGE | SIF_PAGE | SIF_POS};
     vertical.nMax = std::max(0, static_cast<int>(std::ceil(result.content_height * LayoutScale())) - 1);
     vertical.nPage = static_cast<UINT>(client.bottom); vertical.nPos = scroll_y_;
-    SetScrollInfo(hwnd_, SB_VERT, &vertical, TRUE);
+    update_scroll(SB_VERT, vertical);
     scroll_x_ = GetScrollPos(hwnd_, SB_HORZ); scroll_y_ = GetScrollPos(hwnd_, SB_VERT);
   }
   for (auto const& child : native_children_) {
     if((GetWindowLongPtrW(child.hwnd,GWL_STYLE)&WS_VISIBLE)==0)continue;
     auto const layout = ResolveChildLayout({0, 0, 1, 1, child.control_id});
+    int x = 0, y = 0, width = 0, height = 0;
+    ReadChildClientFrame(child.hwnd, x, y, width, height);
+    if (x == layout.x && y == layout.y && width == layout.width &&
+        height == layout.height) continue;
     if (!SetWindowPos(child.hwnd, nullptr, layout.x, layout.y, layout.width, layout.height,
-                      SWP_NOZORDER | SWP_NOACTIVATE)) FatalWin32("SetWindowPos constraint layout", GetLastError());
+                      SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS))
+      FatalWin32("SetWindowPos constraint layout", GetLastError());
   }
   applying_layout_ = false;
 }
