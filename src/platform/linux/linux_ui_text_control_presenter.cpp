@@ -1,6 +1,7 @@
 #include "apptraverse/platform/linux/linux_ui_text_control_presenter.h"
 #include <algorithm>
 #include "apptraverse/platform/linux/linux_ui_window_presenter.h"
+#include "apptraverse/platform/linux/linux_ui_client_mount.h"
 namespace apptraverse::ui::linux {
 void LinuxTextControlPresenter::OnChanged(GtkWidget*, gpointer p) {
   static_cast<LinuxTextControlPresenter*>(p)->Edited();
@@ -94,7 +95,7 @@ void LinuxTextControlPresenter::Sync() {
         gtk_text_buffer_select_range(b, &cursor, &anchor);
       }
       g_free(old);
-    } else
+    } else if (text != gtk_label_get_text(GTK_LABEL(input_)))
       gtk_label_set_text(GTK_LABEL(input_), text.c_str());
   }
   if (GTK_IS_ENTRY(input_))
@@ -108,9 +109,7 @@ void LinuxTextControlPresenter::Sync() {
     return;
   }
   auto r = window_presenter->ResolveChildLayout({0, 0, 1, 1, control_id});
-  gtk_fixed_move(GTK_FIXED(window_presenter->NativeChildParentHandle()),
-                 widget_, r.x, r.y);
-  gtk_widget_set_size_request(widget_, r.width, r.height);
+  SetClientMountChildFrameIfChanged(widget_, r.x, r.y, r.width, r.height);
   applying_ = false;
 }
 void LinuxTextControlPresenter::OnModelChanged() {

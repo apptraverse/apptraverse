@@ -4,6 +4,7 @@
 
 #include "apptraverse/platform/linux/linux_fatal.h"
 #include "apptraverse/platform/linux/linux_ui_window_presenter.h"
+#include "apptraverse/platform/linux/linux_ui_client_mount.h"
 #include "apptraverse/ui/ui_list_container.h"
 #include "apptraverse/ui/ui_localization_string.h"
 
@@ -93,12 +94,10 @@ void LinuxListContainerPresenter::SyncFromMirror() {
   ui::UiControlLayout const layout =
       window_presenter->ResolveChildLayout({layout_x, layout_y, layout_width,
                                             layout_height, control_id});
-  gtk_widget_set_size_request(list_box_, layout.width, layout.height);
-  auto* const parent = static_cast<GtkWidget*>(
-      window_presenter->NativeChildParentHandle());
-  gtk_fixed_move(GTK_FIXED(parent), list_box_, layout.x, layout.y);
+  SetClientMountChildFrameIfChanged(list_box_, layout.x, layout.y, layout.width, layout.height);
 
   std::vector<NativeRow> previous = std::move(native_rows_);
+  bool added_rows = false;
   native_rows_.clear();
   native_rows_.reserve(container->rows.size());
   for (UiListRow::ptr const& row : container->rows) {
@@ -110,6 +109,7 @@ void LinuxListContainerPresenter::SyncFromMirror() {
         [&](NativeRow const& native) { return native.row_id == row_id; });
     if (existing == previous.end()) {
       native_rows_.push_back(CreateNativeRow(row_id, label));
+      added_rows = true;
       continue;
     }
     NativeRow native = *existing;
@@ -141,6 +141,8 @@ void LinuxListContainerPresenter::SyncFromMirror() {
     g_object_unref(row);
   }
 
+  if (added_rows)
+    static_cast<LinuxDesktopWindowPresenter*>(window_presenter.operator->())->ApplyNativeAppearance(list_box_);
   if (notify_list_selection_change) {
     std::int32_t const desired = container->selection_index;
     GtkListBoxRow* const current = gtk_list_box_get_selected_row(box);

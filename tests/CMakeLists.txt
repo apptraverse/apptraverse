@@ -1680,6 +1680,19 @@ if(TARGET window_catalog_window_catalog_linux)
   add_test(NAME apptraverse_window_catalog_linux_local_environment_test COMMAND apptraverse_window_catalog_linux_local_environment_test)
   set_tests_properties(apptraverse_window_catalog_linux_local_environment_test PROPERTIES LABELS "linux;window_catalog;gui" TIMEOUT 60 RUN_SERIAL TRUE ENVIRONMENT "GDK_BACKEND=x11")
 
+  add_executable(apptraverse_window_catalog_linux_menu_add_test
+    window_catalog_linux_menu_add_test.cpp
+    ${CMAKE_SOURCE_DIR}/examples/window_catalog/common/window_catalog_lifecycle.cpp)
+  target_link_libraries(apptraverse_window_catalog_linux_menu_add_test PRIVATE window_catalog_window_catalog_linux)
+  target_compile_definitions(apptraverse_window_catalog_linux_menu_add_test PRIVATE APPTRAVERSE_WINDOW_CATALOG_USE_EMBEDDED_DISTILL)
+  target_include_directories(apptraverse_window_catalog_linux_menu_add_test PRIVATE ${APPTRAVERSE_WINDOW_CATALOG_EMBED_INCLUDE_DIR})
+  add_dependencies(apptraverse_window_catalog_linux_menu_add_test apptraverse_window_catalog_embedded_supply)
+  add_test(NAME apptraverse_window_catalog_linux_menu_add_test
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/linux_window_catalog_menu_add_smoke.py"
+      $<TARGET_FILE:apptraverse_window_catalog_linux_menu_add_test>)
+  set_tests_properties(apptraverse_window_catalog_linux_menu_add_test PROPERTIES
+    LABELS "linux;window_catalog;gui" TIMEOUT 90 RUN_SERIAL TRUE ENVIRONMENT "GDK_BACKEND=x11")
+
   set(_linux_catalog_fresh_args)
   set(_linux_catalog_acceptance_dependencies
     apptraverse_window_catalog_linux_acceptance_runner)

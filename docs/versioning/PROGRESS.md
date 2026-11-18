@@ -1,3 +1,38 @@
+## Linux WindowCatalog native Settings and input checkpoint — 2026-11-17
+
+Linux WindowCatalog now exposes the four native Settings radio choices (From
+system, Light, Dark and Custom dark), including Russian labels and themed
+attached popups. Commands pass through the model proxy and LOCAL Events; native
+checks follow publication. The custom slate palette reaches new windows, list
+rows and menu trees. Native menu height is measured outside the common solver's
+content viewport; initial/explicit client requests and LOCAL outer frames retain
+their distinct boundaries. Portable schemas and USER/LOCAL formats are unchanged.
+
+Shared GTK projection guards equal requested sizes and GtkFixed positions,
+retains unchanged CSS providers, avoids duplicate/per-child layout solves and
+deduplicates equal native frame observations. The native regression verifies
+all four menu actions without speculative mirror mutation, three Add actions,
+new-child palette, locale, exact content sizing, quiet allocation and a second
+process's LOCAL/menu restoration. The original Wayland process had no GDK input
+seat and pointer clicks never reached OnClicked; this host's Wayland input is
+NOT PASS. Explicit X11 accepts actual pointer/keyboard Add and F10 menu input.
+No application-specific backend override or product fallback was added.
+
+Final incremental Linux Debug CTest PASSes 4/4 in 54.86s, including the full
+historical Catalog lifecycle/geometry/z-order/cold scope. Same-final-library
+MinimalApp two-cycle and Surface native process smokes also PASS. The corrected
+historical geometry fixture accounts for actual native menu height; early
+private-WM diagnostic failures remain distinct from the final stable-WM run.
+The updated load-only app is open with the preserved profile, Custom dark,
+Russian locale, both rows and selection restored; the popup is dark/readable,
+CPU time remains idle and stderr is empty. The existing shared-chat native text
+consumer also PASSes keyboard/input/caret/remount/Enter/button, RAM restart and
+LOCAL cold restore against the final GTK sources, making seven distinct accepted
+native scopes. The AT-SPI bus was active; no reader certification is inferred.
+Full reader/hardware accessibility, Apple runtime, physical mixed-DPI matrices
+and Release packaging remain NOT RUN. [Implementation and evidence](../validation/window-catalog-linux-menu-input-2026-11-17.md),
+[focused 30-rule audit](../validation/linux-window-catalog-settings-input-audit-2026-11-17.md).
+
 ## Windows WindowCatalog appearance menu and quiet native projection — 2026-11-17
 
 The visible native Settings menu now provides From system, Light, Dark and

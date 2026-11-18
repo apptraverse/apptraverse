@@ -85,7 +85,7 @@ UiDeviceEnvironment ReadLinuxDeviceEnvironment() {
 
 void LinuxDesktopWindowPresenter::RegisterChildControl(GtkWidget* widget, std::uint32_t id) {
   native_children_.push_back({widget, id});
-  RefreshPresentationSettings();
+  ApplyNativeAppearance(widget);
   RefreshLayout();
 }
 void LinuxDesktopWindowPresenter::UnregisterChildControl(GtkWidget* widget) {
@@ -93,7 +93,6 @@ void LinuxDesktopWindowPresenter::UnregisterChildControl(GtkWidget* widget) {
 }
 bool LinuxDesktopWindowPresenter::NativeMeasurementsReady() const {
   auto* root = LayoutRoot();
-  if (!root) return true;
   auto ready = [&](auto&& self, UiLayoutNode const& node) -> bool {
     if (node.flow == UiLayoutFlow::kLeaf) return std::any_of(native_children_.begin(), native_children_.end(),
         [&](auto const& child) { return child.control_id == node.control_id; });
@@ -170,7 +169,7 @@ UiConstraintLayoutResult LinuxDesktopWindowPresenter::ComputeLocalLayout() const
 }
 UiControlLayout LinuxDesktopWindowPresenter::ResolveChildLayout(
     UiControlLayout requested) const {
-  if (!LayoutRoot() || !NativeMeasurementsReady()) return requested;
+  if (!NativeMeasurementsReady()) return requested;
   auto const result = ComputeLocalLayout();
   auto found = std::find_if(
       result.controls.begin(), result.controls.end(),
@@ -192,27 +191,32 @@ gboolean LinuxDesktopWindowPresenter::OnLayoutIdle(gpointer data) {
   return G_SOURCE_REMOVE;
 }
 void LinuxDesktopWindowPresenter::RefreshLayout() {
-  if (!window_ || applying_layout_ || !LayoutRoot()) return;
+  if (!window_ || applying_layout_) return;
   if (!NativeMeasurementsReady()) {
     if (!layout_idle_) layout_idle_ = g_idle_add(OnLayoutIdle, this);
     return;
   }
   applying_layout_ = true;
   auto const result = ComputeLocalLayout();
-  gtk_widget_set_size_request(
+  SetNativeSizeRequestIfChanged(
       client_mount_, static_cast<int>(std::ceil(result.content_width)),
       static_cast<int>(std::ceil(result.content_height)));
   for (auto const& child : native_children_) {
     if (!gtk_widget_get_visible(child.widget)) continue;
-    auto const rect = ResolveChildLayout({0, 0, 1, 1, child.control_id});
-    gtk_widget_set_size_request(child.widget, rect.width, rect.height);
-    gtk_fixed_move(GTK_FIXED(client_mount_), child.widget, rect.x, rect.y);
+    auto const rect = std::find_if(result.controls.begin(), result.controls.end(),
+        [&](auto const& r) { return r.control_id == child.control_id; });
+    if (rect == result.controls.end()) FatalLinux("required control absent from GTK layout");
+    SetClientMountChildFrameIfChanged(child.widget,
+        static_cast<int>(std::lround(rect->x)), static_cast<int>(std::lround(rect->y)),
+        std::max(1, static_cast<int>(std::lround(rect->width))),
+        std::max(1, static_cast<int>(std::lround(rect->height))));
   }
   applying_layout_ = false;
 }
 void LinuxDesktopWindowPresenter::OnSettingsChanged(GObject*, GParamSpec*,
                                                     gpointer data) {
   auto* self = static_cast<LinuxDesktopWindowPresenter*>(data);
+  self->applied_environment_.reset();
   self->ObserveNativeEnvironment(UiEnvironmentReason::kSystemNotification);
   self->RefreshPresentationSettings();
   self->RefreshLayout();
@@ -223,8 +227,12 @@ void LinuxDesktopWindowPresenter::OnMonitorsChanged(GdkScreen*, gpointer data) {
   self->ObserveNativeEnvironment(UiEnvironmentReason::kSystemNotification);
 }
 void LinuxDesktopWindowPresenter::RefreshPresentationSettings() {
-  auto* state = LocalDeviceState(); if (!state || !window_) return;
+  if (!window_) return;
+  auto* state = LocalDeviceState();
   auto const system = ReadLinuxDeviceEnvironment();
+  if (applied_appearance_ == state->appearance && applied_environment_ == system) return;
+  applied_appearance_ = state->appearance;
+  applied_environment_ = system;
   if (appearance_provider_) {
     auto remove = [&](auto&& self, GtkWidget* widget) -> void {
       gtk_style_context_remove_provider(gtk_widget_get_style_context(widget), GTK_STYLE_PROVIDER(appearance_provider_));
@@ -234,6 +242,11 @@ void LinuxDesktopWindowPresenter::RefreshPresentationSettings() {
         GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
         for (auto* p = children; p; p = p->next) self(self, GTK_WIDGET(p->data));
         g_list_free(children);
+      }
+      // GtkMenuItem's attached submenu is not an ordinary container child.
+      if (GTK_IS_MENU_ITEM(widget)) {
+        auto* submenu = gtk_menu_item_get_submenu(GTK_MENU_ITEM(widget));
+        if (submenu) self(self, submenu);
       }
     };
     remove(remove, window_);
@@ -249,26 +262,34 @@ void LinuxDesktopWindowPresenter::RefreshPresentationSettings() {
   if (!system.high_contrast && (preference.theme != UiThemeMode::kAuto || (dark && preference.soften_dark)))
     native_theme_provider_ = GTK_CSS_PROVIDER(g_object_ref(gtk_css_provider_get_named("Adwaita", dark ? "dark" : nullptr)));
   if (!system.high_contrast && dark && preference.soften_dark)
-    css += "\nwindow, button, list { background-color: #29323c; color: #e8edf2; } button:disabled { color: #a0a7ae; }";
+    css += "\nwindow, button, list, menu, menubar { background-color: #29323c; color: #e8edf2; } button:disabled { color: #a0a7ae; }";
   gtk_css_provider_load_from_data(appearance_provider_, css.c_str(), -1, nullptr);
+  ApplyNativeAppearance(window_);
+}
+void LinuxDesktopWindowPresenter::ApplyNativeAppearance(GtkWidget* subtree) {
   auto apply = [&](auto&& self, GtkWidget* widget) -> void {
     if (native_theme_provider_)
       gtk_style_context_add_provider(gtk_widget_get_style_context(widget), GTK_STYLE_PROVIDER(native_theme_provider_), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-    gtk_style_context_add_provider(gtk_widget_get_style_context(widget), GTK_STYLE_PROVIDER(appearance_provider_), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
+    if (appearance_provider_)
+      gtk_style_context_add_provider(gtk_widget_get_style_context(widget), GTK_STYLE_PROVIDER(appearance_provider_), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
     if (GTK_IS_CONTAINER(widget)) {
       GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
       for (auto* p = children; p; p = p->next) self(self, GTK_WIDGET(p->data));
       g_list_free(children);
     }
+    if (GTK_IS_MENU_ITEM(widget)) {
+      auto* submenu = gtk_menu_item_get_submenu(GTK_MENU_ITEM(widget));
+      if (submenu) self(self, submenu);
+    }
   };
-  apply(apply, window_);
+  apply(apply, subtree);
 }
 void LinuxDesktopWindowPresenter::ObserveNativeEnvironment(UiEnvironmentReason reason) {
-  auto* state = LocalDeviceState(); if (!state || !model_proxy || user_close_requested_) return;
+  auto* state = LocalDeviceState(); if (!model_proxy || user_close_requested_) return;
   model_proxy->Invoke(state->obj_id, &UiDeviceState::ObserveEnvironment, ReadLinuxDeviceEnvironment(), reason);
 }
 void LinuxDesktopWindowPresenter::ApplyLocalPlacement() {
-  auto* state = LocalDeviceState(); if (!state || !window_ || !mapped_) return;
+  auto* state = LocalDeviceState(); if (!window_ || !mapped_) return;
   auto* placement = state->PlacementFor(window.id());
   if (!placement || placement->revision == placement_revision_ || placement->resolution == UiMonitorResolution::kUnavailable) return;
   // A first placement synthesized from this native window's own observation
@@ -371,7 +392,7 @@ void LinuxDesktopWindowPresenter::HandleNativeFrameChanged() {
       (state & (GDK_WINDOW_STATE_MAXIMIZED | GDK_WINDOW_STATE_ICONIFIED |
                 GDK_WINDOW_STATE_FULLSCREEN)) == 0;
   auto* device = LocalDeviceState();
-  if (device && restore) {
+  if (restore) {
     auto* monitor = gdk_display_get_monitor_at_window(gtk_widget_get_display(window_), gtk_widget_get_window(window_));
     GdkRectangle area{}; gdk_monitor_get_workarea(monitor, &area);
     auto const scale = static_cast<unsigned>(gdk_window_get_scale_factor(gtk_widget_get_window(window_)));
@@ -381,8 +402,11 @@ void LinuxDesktopWindowPresenter::HandleNativeFrameChanged() {
     bool const user_change = have_frame_reference_ && frame_reference_ != native &&
         !environment_placement_pending_ && !local_placement_pending_;
     if (!device->PlacementFor(window.id())) native_initial_placement_observed_ = true;
-    model_proxy->Invoke(device->obj_id, &UiDeviceState::ObserveWindow,
-        observation, user_change ? UiEnvironmentReason::kUserWindowChange : UiEnvironmentReason::kSystemNotification);
+    if (!last_reported_window_ || *last_reported_window_ != observation || user_change) {
+      model_proxy->Invoke(device->obj_id, &UiDeviceState::ObserveWindow,
+          observation, user_change ? UiEnvironmentReason::kUserWindowChange : UiEnvironmentReason::kSystemNotification);
+      last_reported_window_ = observation;
+    }
     if (reached_placement) local_placement_pending_ = false;
     if (!local_placement_pending_) frame_reference_ = native;
     have_frame_reference_ = true;
@@ -431,7 +455,6 @@ void LinuxDesktopWindowPresenter::OnClientMountSizeAllocate(
   (void)allocation;
   auto* self = static_cast<LinuxDesktopWindowPresenter*>(user_data);
   self->HandleNativeFrameChanged();
-  self->RefreshLayout();
 }
 
 gboolean LinuxDesktopWindowPresenter::OnDeleteEvent(GtkWidget* widget,
@@ -463,9 +486,16 @@ void LinuxDesktopWindowPresenter::ApplyRequestedFrameFromMirror() {
   }
   applying_mirror_frame_ = true;
   gtk_window_resize(GTK_WINDOW(window_), mirror.client_width,
-                    mirror.client_height);
+                    mirror.client_height + NativeMenuHeight());
   gtk_window_move(GTK_WINDOW(window_), mirror.x, mirror.y);
   applying_mirror_frame_ = false;
+}
+
+int LinuxDesktopWindowPresenter::NativeMenuHeight() const {
+  if (!presentation_menu_) return 0;
+  int minimum{}, natural{};
+  gtk_widget_get_preferred_height(presentation_menu_, &minimum, &natural);
+  return natural;
 }
 
 void LinuxDesktopWindowPresenter::OnLoad() {
@@ -476,6 +506,9 @@ void LinuxDesktopWindowPresenter::OnLoad() {
   local_placement_pending_ = false;
   native_initial_placement_observed_ = false;
   have_frame_reference_ = false;
+  applied_appearance_.reset();
+  applied_environment_.reset();
+  last_reported_window_.reset();
 
   window_ = gtk_window_new(GTK_WINDOW_TOPLEVEL);
   if (window_ == nullptr) {
@@ -484,6 +517,7 @@ void LinuxDesktopWindowPresenter::OnLoad() {
   // Mapping several restored windows must not activate them in construction
   // order. The application presents the model-selected window after mapping.
   gtk_window_set_focus_on_map(GTK_WINDOW(window_), FALSE);
+  presentation_menu_ = CreatePresentationMenu();
   gtk_widget_add_events(window_, GDK_BUTTON_PRESS_MASK);
   g_signal_connect(window_, "button-press-event", G_CALLBACK((+[](GtkWidget*, GdkEventButton* event, gpointer data) -> gboolean {
     if (event->button != 3) return FALSE;
@@ -501,11 +535,15 @@ void LinuxDesktopWindowPresenter::OnLoad() {
       }), choice, +[](gpointer data, GClosure*) { delete static_cast<Choice*>(data); }, GConnectFlags(0));
       gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
     };
-    char const* labels[] = {"Auto", "Light", "Dark"};
-    for (int mode = 0; mode < 3; ++mode)
-      add(labels[mode], {static_cast<UiThemeMode>(mode), state->appearance.soften_dark}, static_cast<int>(state->appearance.theme) == mode);
-    add("Soften dark theme", {state->appearance.theme, !state->appearance.soften_dark}, state->appearance.soften_dark);
+    char const* labels[] = {"From system", "Light", "Dark", "Custom dark"};
+    UiAppearancePreferences const preferences[] = {{UiThemeMode::kAuto, false},
+        {UiThemeMode::kLight, false}, {UiThemeMode::kDark, false}, {UiThemeMode::kDark, true}};
+    int const selected = state->appearance.theme == UiThemeMode::kAuto ? 0 :
+        state->appearance.theme == UiThemeMode::kLight ? 1 : state->appearance.soften_dark ? 3 : 2;
+    for (int choice = 0; choice < 4; ++choice)
+      add(labels[choice], preferences[choice], selected == choice);
     g_signal_connect_swapped(menu, "selection-done", G_CALLBACK(gtk_widget_destroy), menu);
+    self->ApplyNativeAppearance(menu);
     gtk_widget_show_all(menu);
     gtk_menu_popup_at_pointer(GTK_MENU(menu), reinterpret_cast<GdkEvent*>(event));
     return TRUE;
@@ -527,17 +565,26 @@ void LinuxDesktopWindowPresenter::OnLoad() {
   scroller_ = gtk_scrolled_window_new(nullptr, nullptr);
   gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller_), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
   gtk_container_add(GTK_CONTAINER(scroller_), client_mount_);
-  gtk_container_add(GTK_CONTAINER(window_), scroller_);
+  if (presentation_menu_) {
+    auto* content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_box_pack_start(GTK_BOX(content), presentation_menu_, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(content), scroller_, TRUE, TRUE, 0);
+    gtk_container_add(GTK_CONTAINER(window_), content);
+  } else {
+    gtk_container_add(GTK_CONTAINER(window_), scroller_);
+  }
   settings_handler_ = g_signal_connect(gtk_settings_get_default(), "notify", G_CALLBACK(OnSettingsChanged), this);
   monitors_handler_ = g_signal_connect(gdk_screen_get_default(), "monitors-changed", G_CALLBACK(OnMonitorsChanged), this);
   size_allocate_handler_ =
       g_signal_connect(client_mount_, "size-allocate",
                        G_CALLBACK(OnClientMountSizeAllocate), this);
 
+  // Measure native chrome with the current application/OS font and palette.
+  RefreshPresentationSettings();
   applying_mirror_frame_ = true;
   gtk_window_set_default_size(GTK_WINDOW(window_),
                                desktop->restore_client_width(),
-                               desktop->restore_client_height());
+                               desktop->restore_client_height() + NativeMenuHeight());
   if (desktop->HasExplicitPosition()) {
     gtk_window_move(GTK_WINDOW(window_), desktop->x(), desktop->y());
     gtk_window_set_geometry_hints(GTK_WINDOW(window_), nullptr, nullptr,
@@ -545,7 +592,6 @@ void LinuxDesktopWindowPresenter::OnLoad() {
   }
   applying_mirror_frame_ = false;
   SyncTitleFromMirror();
-  RefreshPresentationSettings();
   ApplyLocalPlacement();
   gtk_widget_show_all(window_);
   RefreshLayout();
@@ -553,7 +599,9 @@ void LinuxDesktopWindowPresenter::OnLoad() {
 
 void LinuxDesktopWindowPresenter::SyncTitleFromMirror() {
   std::string const title_text = ResolveTitleText();
-  gtk_window_set_title(GTK_WINDOW(window_), title_text.c_str());
+  char const* current = gtk_window_get_title(GTK_WINDOW(window_));
+  if (!current || title_text != current)
+    gtk_window_set_title(GTK_WINDOW(window_), title_text.c_str());
 }
 
 void LinuxDesktopWindowPresenter::OnModelChanged() {
@@ -592,6 +640,11 @@ void LinuxDesktopWindowPresenter::OnUnload() {
   gtk_widget_destroy(window_);
   window_ = nullptr;
   client_mount_ = nullptr;
+  scroller_ = nullptr;
+  presentation_menu_ = nullptr;
+  applied_appearance_.reset();
+  applied_environment_.reset();
+  last_reported_window_.reset();
   mapped_ = false;
 }
 

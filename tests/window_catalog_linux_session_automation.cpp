@@ -217,7 +217,13 @@ void CloseMain(WindowCatalog& catalog) {
 }
 
 void MoveResizeNative(GtkWidget* widget, FrameExpect frame) {
-  gtk_window_resize(GTK_WINDOW(widget), frame.w, frame.h);
+  auto* presenter = static_cast<ui::linux::LinuxDesktopWindowPresenter*>(
+      g_object_get_data(G_OBJECT(widget), "apptraverse_presenter"));
+  auto* menu = presenter->PresentationMenu();
+  int const menu_height = menu ? gtk_widget_get_allocated_height(menu) : 0;
+  // FrameExpect retains application content dimensions; GTK takes the whole
+  // client surface, including native menu chrome outside the solver viewport.
+  gtk_window_resize(GTK_WINDOW(widget), frame.w, frame.h + menu_height);
   gtk_window_move(GTK_WINDOW(widget), frame.x, frame.y);
 }
 
@@ -270,7 +276,10 @@ FrameExpect LocalObservedFrame(CatalogWindow& window) {
   GdkRectangle outer{}; gdk_window_get_frame_extents(native, &outer);
   int const decoration_width = std::max(0, outer.width - gdk_window_get_width(native));
   int const decoration_height = std::max(0, outer.height - gdk_window_get_height(native));
-  return {area.x + f.x, area.y + f.y, f.width - decoration_width, f.height - decoration_height};
+  auto* menu = presenter.PresentationMenu();
+  int const menu_height = menu ? gtk_widget_get_allocated_height(menu) : 0;
+  return {area.x + f.x, area.y + f.y, f.width - decoration_width,
+          f.height - decoration_height - menu_height};
 }
 bool CatalogWindowMirrorFrame(CatalogWindow& window, FrameExpect expected) {
   return FrameMatchesExpect(LocalObservedFrame(window), expected);
@@ -386,10 +395,7 @@ bool CatalogDesktopZOrderMatchesNative(WindowCatalog& catalog) {
   }
   std::vector<std::uint32_t> const native =
       CaptureCatalogDesktopZOrderTopToBottom(catalog);
-  if (native.empty()) {
-    return false;
-  }
-  bool matches = catalog.persisted.window_order.size() == native.size();
+  bool matches = !native.empty() && catalog.persisted.window_order.size() == native.size();
   for (std::size_t i = 0; matches && i < native.size(); ++i) {
     matches = catalog.persisted.window_order[i].is_valid() &&
         catalog.persisted.window_order[i].id().id() == native[i];
@@ -401,6 +407,14 @@ bool CatalogDesktopZOrderMatchesNative(WindowCatalog& catalog) {
     std::cerr << " native";
     for (auto id : native) std::cerr << ' ' << id;
     std::cerr << '\n';
+    for (auto const& window : catalog.persisted.window_order) {
+      if (!window.is_loaded() || !window->presenter.is_loaded()) continue;
+      auto& presenter = static_cast<ui::linux::LinuxDesktopWindowPresenter&>(*window->presenter);
+      auto* widget = presenter.TopLevelWindow();
+      std::cerr << "WINDOW_CATALOG_LINUX_ORDER_WINDOW " << window.id().id()
+                << " realized=" << gtk_widget_get_realized(widget)
+                << " mapped=" << gtk_widget_get_mapped(widget) << '\n';
+    }
   }
   return matches;
 }
@@ -594,7 +608,7 @@ bool MirrorNear(CatalogWindow& window, FrameExpect expected) {
                          expected);
 }
 
-// Raw client-area origin in root coordinates and client size, independent of
+// Raw content-area origin in root coordinates and content size, independent of
 // the presenter's report conversion; compared across processes by the smoke.
 bool ReadRawClientFrame(ui::linux::LinuxDesktopWindowPresenter& presenter,
                         FrameExpect& out) {
@@ -603,6 +617,11 @@ bool ReadRawClientFrame(ui::linux::LinuxDesktopWindowPresenter& presenter,
     return false;
   }
   gdk_window_get_origin(gtk_widget_get_window(widget), &out.x, &out.y);
+  int content_x{}, content_y{};
+  if (!gtk_widget_translate_coordinates(presenter.ClientViewport(), widget, 0, 0,
+                                         &content_x, &content_y)) return false;
+  out.x += content_x;
+  out.y += content_y;
   GtkAllocation allocation{};
   gtk_widget_get_allocation(presenter.ClientViewport(), &allocation);
   out.w = allocation.width;
