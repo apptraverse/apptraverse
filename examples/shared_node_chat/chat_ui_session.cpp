@@ -14,7 +14,11 @@
 #include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/single_file_user_storage.h"
 #ifndef APPTRAVERSE_CHAT_UI_PRODUCER
-#  include "generated/chat_ui_supply.h"
+#  ifdef APPTRAVERSE_CHAT_UI_SUPPLY_HEADER
+#    include APPTRAVERSE_CHAT_UI_SUPPLY_HEADER
+#  else
+#    include "generated/chat_ui_supply.h"
+#  endif
 #endif
 namespace apptraverse::chat::gui {
 namespace {

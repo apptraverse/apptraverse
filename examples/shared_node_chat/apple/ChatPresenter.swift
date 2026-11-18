@@ -38,6 +38,7 @@ final class ChatPresenter: ObservableObject {
     var labels: [String] = []
     var width: CGFloat = 0, height: CGFloat = 0, minimumWidth: CGFloat = 0, minimumHeight: CGFloat = 0, gap: CGFloat = 0
     var x: CGFloat = 0, y: CGFloat = 0, restoreWidth: CGFloat = 0, restoreHeight: CGFloat = 0
+    var restoreOuter = false
     var hasExplicitPlacement = false
     var chromeChanged: (() -> Void)?
     private var applying = false
@@ -68,6 +69,12 @@ final class ChatPresenter: ObservableObject {
                      "Invalid native chat viewport")
         guard size.width >= 1 && size.height >= 1 else { return }
         bridge.resizeWidth(Int32(size.width), height: Int32(size.height))
+    }
+    func observeEnvironment() { bridge.observeEnvironment() }
+    func reportLocalWindow(_ monitor: String, frame: CGRect, scale: CGFloat, userChange: Bool) {
+        guard !controls.isEmpty, !stopped else { return }
+        bridge.reportLocalWindow(monitor, x: Int32(frame.minX), y: Int32(frame.minY),
+            width: Int32(frame.width), height: Int32(frame.height), dpi: Int32((96 * scale).rounded()), userChange: userChange)
     }
     func join() { bridge.join() }
     func reportFrame(_ frame: CGRect, updatesRestore: Bool) {
@@ -112,6 +119,7 @@ final class ChatPresenter: ObservableObject {
         restoreWidth = CGFloat((value["restoreWidth"] as! NSNumber).doubleValue)
         restoreHeight = CGFloat((value["restoreHeight"] as! NSNumber).doubleValue)
         hasExplicitPlacement = value["hasExplicitPlacement"] as! Bool
+        restoreOuter = value["restoreOuter"] as? Bool ?? false
         minimumWidth = CGFloat((value["minimumWidth"] as! NSNumber).doubleValue); minimumHeight = CGFloat((value["minimumHeight"] as! NSNumber).doubleValue)
         gap = CGFloat((value["gap"] as! NSNumber).doubleValue)
         applying = false; chromeChanged?()

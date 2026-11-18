@@ -1,3 +1,15 @@
+## macOS chat Release from current main — 2026-11-17
+
+Fetched main `6f37a363`; its original macOS Release built but failed LoadApplication
+at startup. The isolated Apple repair supplies native typed presenters for the
+current shared graph and uses SwiftUI App/Window lifecycle, native measurement
+and the common solver. Rebuilt Release and the exact supplied consumer graph
+test PASS; the repaired process stays alive without the startup fatal. Native
+visual inspection is NOT VERIFIED because the computer-use service failed.
+No new cloud/APNs, iOS or full LOCAL/mixed-DPI acceptance is claimed. All thirty
+Canon source dispositions are recorded, with rule 21 PARTIAL. No SDK/core edits,
+Windows build or main merge. [Evidence and limits](../validation/chat-apple-release-2026-11-17.md).
+
 ## Remaining non-Apple application UI migration — 2026-11-17 — source accepted; scoped native validation complete
 
 All nine remaining non-Apple GUI entrypoints (fourteen target variants) now use

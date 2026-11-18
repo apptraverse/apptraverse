@@ -4,6 +4,8 @@ NS_ASSUME_NONNULL_BEGIN
 @interface ATChatBridge : NSObject
 - (instancetype)initWithProfile:(NSString*)profile name:(NSString*)name host:(BOOL)host initialHost:(NSString*)initialHost loadOnly:(BOOL)loadOnly changed:(void (^)(void))changed;
 - (void)registerApplePushToken:(NSString*)token;
+- (void)observeEnvironment;
+- (void)reportLocalWindow:(NSString*)monitor x:(int)x y:(int)y width:(int)width height:(int)height dpi:(int)dpi userChange:(BOOL)userChange;
 - (BOOL)start;
 - (void)stop;
 - (void)checkpoint:(void (^)(BOOL))completion;
