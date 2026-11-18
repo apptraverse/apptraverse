@@ -247,7 +247,8 @@ public final class WindowCatalogInstrumentedTest {
     appearanceMenu();
     assertTrue(menuChecked("Soft dark"));
     back();
-    assertTrue("Appearance changes remain RAM-backed until lifecycle", userFiles().isEmpty());
+    // Theme recreation rebuilds native ActionBar/menu chrome and reaches onStop.
+    // Its ordinary lifecycle checkpoint is allowed before the explicit HOME.
     home();
     assertEquals(1, userFiles().size());
     assertTrue(new File(userFiles().get(0).getParentFile(), "local/user.bin").length() > 0);

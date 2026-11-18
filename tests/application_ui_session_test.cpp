@@ -421,6 +421,48 @@ void TestPresenterLifecycleCloseOpen() {
   CHECK(g_session_presenter_unload_total == 2);
 }
 
+void TestDetachedPublicationsAndRemount() {
+  for (bool initially_mounted : {false, true}) {
+    ModelFixture fixture;
+    ApplicationUiSession session(fixture.SerializeInitial(), nullptr,
+                                  fixture.model_proxy, nullptr, initially_mounted);
+    auto* root = &static_cast<UiSessionTestRoot&>(session.root());
+    auto* window = root->presented_window.operator->();
+    auto* presenter = &HeadlessOn(static_cast<SessionWindow&>(*window));
+    session.UnmountPresentation();
+    session.UnmountPresentation();
+    CHECK(!presenter->presentation_loaded);
+    CHECK(presenter->on_unload_count == (initially_mounted ? 1 : 0));
+    int const changed = presenter->on_model_changed_count;
+    auto event = UiSessionSetMarkerEvent::ptr::Create(ae::CreateWith{fixture.model_domain});
+    event->marker = 123;
+    fixture.model_root->Commit(std::move(event));
+    session.ApplyStructural(fixture.SerializeStructural());
+    CHECK(&session.root() == root);
+    CHECK(root->presented_window.operator->() == window);
+    CHECK(&HeadlessOn(static_cast<SessionWindow&>(*window)) == presenter);
+    CHECK(root->marker == 123);
+    CHECK(presenter->on_model_changed_count == changed);
+    CHECK(!presenter->presentation_loaded);
+    session.RemountPresentation();
+    CHECK(presenter->presentation_loaded);
+    CHECK(presenter->on_load_count == (initially_mounted ? 2 : 1));
+    session.UnmountPresentation();
+    auto close = UiSessionCloseWindowEvent::ptr::Create(ae::CreateWith{fixture.model_domain});
+    fixture.model_root->Commit(std::move(close));
+    session.ApplyStructural(fixture.SerializeStructural());
+    CHECK(!root->presented_window.is_loaded());
+    auto open = UiSessionOpenWindowEvent::ptr::Create(ae::CreateWith{fixture.model_domain});
+    fixture.model_root->Commit(std::move(open));
+    session.ApplyStructural(fixture.SerializeStructural());
+    CHECK(root->presented_window.is_loaded());
+    auto& reopened = HeadlessOn(static_cast<SessionWindow&>(*root->presented_window));
+    CHECK(!reopened.presentation_loaded && reopened.on_load_count == 0);
+    session.RemountPresentation();
+    CHECK(reopened.presentation_loaded && reopened.on_load_count == 1);
+  }
+}
+
 void TestDestructorUnloadsPresenters() {
   ModelFixture fixture;
   g_session_presenter_unload_total = 0;
@@ -501,6 +543,7 @@ int main() {
   apptraverse::test::TestStructuralUpdate();
   apptraverse::test::TestChildOnlyAndDuplicatePublication();
   apptraverse::test::TestPresenterLifecycleCloseOpen();
+  apptraverse::test::TestDetachedPublicationsAndRemount();
   apptraverse::test::TestDestructorUnloadsPresenters();
   apptraverse::test::TestModelProxyTargetsModelDomain();
   apptraverse::test::

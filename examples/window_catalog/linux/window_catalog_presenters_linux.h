@@ -46,12 +46,6 @@ class CatalogDesktopWindowPresenter
     SyncPresentationMenu();
   }
 
-  bool PresentsChildControl(Presenter const& child) const override {
-    return child.obj_id != catalog->persisted.presenters.language_button_presenter.id() &&
-        ui::linux::LinuxDesktopWindowPresenter::PresentsChildControl(child);
-  }
-  bool PresentsAppearanceContextMenu() const override { return false; }
-
   GtkWidget* CreatePresentationMenu() override {
     if (window.id() != catalog->persisted.main_window.id()) return nullptr;
     auto* bar = gtk_menu_bar_new();

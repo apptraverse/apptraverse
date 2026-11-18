@@ -1,6 +1,7 @@
 #include "window_catalog_graph_web.h"
 #include "window_catalog_presenters_web.h"
 #include "window_catalog_ids.h"
+#include "window_catalog_menu.h"
 #include "apptraverse/model_object_proxy.h"
 #include <emscripten/em_js.h>
 
@@ -40,6 +41,7 @@ namespace apptraverse {
 void EnsureWebWindowCatalogGraphRegistration() {
   EnsureCoreObjectRegistration();
   EnsureWindowCatalogModelRegistration();
+  EnsureCatalogMenuRegistration();
   ui::web::EnsureWebUiPresenterRegistration();
   (void)&example::surfaces::g_apptraverse_registrar_CatalogDesktopWindowPresenter;
   (void)&example::surfaces::g_apptraverse_registrar_WebCatalogListContainerPresenter;

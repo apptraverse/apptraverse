@@ -32,6 +32,11 @@ public final class AppTraverseAndroidUi {
 
   private AppTraverseAndroidUi() {}
 
+  /** Activity shells recreate native chrome when a published theme changes. */
+  public interface ActivityAppearanceHost {
+    void setPresentedAppearance(int mode, boolean soften);
+  }
+
   public static void setActivityTitle(Activity activity, String title) {
     activity.setTitle(title);
   }
@@ -515,7 +520,7 @@ public final class AppTraverseAndroidUi {
     for (Display display : displays) {
       Point size = new Point(); display.getRealSize(size);
       android.graphics.Rect work = new android.graphics.Rect(); display.getRectSize(work);
-      values.add("android-display:" + display.getDisplayId() + ":" + display.getName());
+      values.add(displayKey(display));
       values.add(Integer.toString(size.x)); values.add(Integer.toString(size.y));
       values.add(Integer.toString(work.width())); values.add(Integer.toString(work.height()));
       values.add(display.getDisplayId() == Display.DEFAULT_DISPLAY ? "1" : "0");
@@ -523,6 +528,14 @@ public final class AppTraverseAndroidUi {
       values.add(Integer.toString(Math.round(display.getRefreshRate())));
     }
     return values.toArray(new String[0]);
+  }
+
+  public static String windowDisplayKey(Activity activity) {
+    return displayKey(activity.getWindow().getDecorView().getDisplay());
+  }
+
+  private static String displayKey(Display display) {
+    return "android-display:" + display.getDisplayId() + ":" + display.getName();
   }
 
   public static void applyAppearance(FrameLayout client, int mode, boolean soften) {
@@ -533,6 +546,8 @@ public final class AppTraverseAndroidUi {
     Context theme = new ContextThemeWrapper(client.getContext(), dark ? android.R.style.Theme_Material : android.R.style.Theme_Material_Light);
     client.setBackgroundColor(dark && soften ? Color.rgb(32, 32, 32) : themeColor(theme, android.R.attr.colorBackground));
     applyTextAppearance(client, theme, dark && soften);
+    if (client.getContext() instanceof ActivityAppearanceHost)
+      ((ActivityAppearanceHost) client.getContext()).setPresentedAppearance(mode, soften);
   }
 
   private static void applyTextAppearance(ViewGroup group, Context theme, boolean soften) {

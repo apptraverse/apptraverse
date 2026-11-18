@@ -2,7 +2,6 @@
 
 #include <vector>
 
-#include "android_log.h"
 #include "android_jni_util.h"
 
 #include "apptraverse/noninteractive_crt.h"
@@ -72,6 +71,7 @@ void AndroidApplicationHost::SetPresentationRoot(JNIEnv* env, jobject activity,
       ui::android::FailJni(env, "presentation JavaVM");
     }
   }
+  if (ui_session_) ui_session_->UnmountPresentation();
   DeleteGlobalRef(presentation_host_.vm, presentation_host_.activity);
   DeleteGlobalRef(presentation_host_.vm, presentation_host_.content_root);
   presentation_host_.activity = ui::android::CheckedJni(env, "Activity reference", [&] { return env->NewGlobalRef(activity); });
@@ -82,6 +82,14 @@ void AndroidApplicationHost::SetPresentationRoot(JNIEnv* env, jobject activity,
   if (ui_session_) {
     ui_session_->RemountPresentation();
   }
+}
+
+void AndroidApplicationHost::ClearPresentationRoot(JNIEnv* env, jobject activity) {
+  // A delayed onDestroy from an obsolete Activity cannot detach its replacement.
+  if (!env->IsSameObject(presentation_host_.activity, activity)) return;
+  if (ui_session_) ui_session_->UnmountPresentation();
+  DeleteGlobalRef(presentation_host_.vm, presentation_host_.content_root);
+  DeleteGlobalRef(presentation_host_.vm, presentation_host_.activity);
 }
 
 void AndroidApplicationHost::EnqueueModelWork(ModelObjectProxy::ModelWork work) {
@@ -122,7 +130,6 @@ void AndroidApplicationHost::RunModelWorkerThread() {
   }
 
   model_thread_live_.store(false, std::memory_order_release);
-  LogInfo("MINIMAL_APP_ANDROID_MODEL_THREAD_EXIT");
 }
 
 void AndroidApplicationHost::StartModelThread() {
@@ -159,8 +166,9 @@ void AndroidApplicationHost::HandlePublicationOnMainThread(
     ApplicationPublicationKind kind) {
   if (kind == ApplicationPublicationKind::Initial) {
     std::vector<std::uint8_t> bytes = runtime_.TakePublishedCopyForUiApply();
-    ui_session_.emplace(bytes, presentation_host_.presenter_host(), model_proxy_);
-    if (callbacks_.after_initial) {
+    ui_session_.emplace(bytes, presentation_host_.presenter_host(), model_proxy_,
+                        nullptr, presentation_host_.content_root != nullptr);
+    if (presentation_host_.content_root && callbacks_.after_initial) {
       callbacks_.after_initial(ui_session_->root());
     }
     runtime_.NotifyPublicationConsumed();
@@ -172,7 +180,7 @@ void AndroidApplicationHost::HandlePublicationOnMainThread(
   }
   std::vector<std::uint8_t> bytes = runtime_.TakePublishedCopyForUiApply();
   ui_session_->ApplyStructural(bytes);
-  if (callbacks_.after_incremental) {
+  if (presentation_host_.content_root && callbacks_.after_incremental) {
     callbacks_.after_incremental(ui_session_->root());
   }
   runtime_.NotifyPublicationConsumed();

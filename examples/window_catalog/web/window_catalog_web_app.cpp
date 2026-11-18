@@ -13,6 +13,7 @@
 #include "window_catalog_graph_web.h"
 #include "window_catalog_ids.h"
 #include "window_catalog_model.h"
+#include "window_catalog_menu.h"
 #include "window_catalog_prepare.h"
 #include "window_catalog_web_persistence.h"
 
@@ -82,8 +83,8 @@ void FinishHostTeardownTrampoline(void* arg) {
 
 extern "C" {
 
-EMSCRIPTEN_KEEPALIVE void ApptraverseWindowCatalogAppearance(int theme, int soften) {
-  WebWindowCatalogApp::Instance().SetAppearance(theme, soften != 0);
+EMSCRIPTEN_KEEPALIVE void ApptraverseWindowCatalogMenuCommand(unsigned group, unsigned item) {
+  WebWindowCatalogApp::Instance().ExecuteMenuCommand(group, item);
 }
 
 EMSCRIPTEN_KEEPALIVE void ApptraverseWindowCatalogRequestShutdown() {
@@ -148,11 +149,13 @@ void WebWindowCatalogApp::Start(std::filesystem::path state_dir) {
       if (!LoadUserStorageFile(seed, seed_dir)) return 1;
       SeedClientLocalStorage(local_storage_, seed);
     }
+#ifndef NDEBUG
     if (!user_storage_.state.empty()) {
       EM_ASM({ console.log('WINDOW_CATALOG_LOADED_FROM_PROFILE'); });
     } else {
       EM_ASM({ console.log('WINDOW_CATALOG_LOADED_FROM_EMBEDDED_BACKING'); });
     }
+#endif
 #else
     EM_ASM({ console.log('WINDOW_CATALOG_DEBUG_FRESH_USER'); });
 #endif
@@ -162,6 +165,7 @@ void WebWindowCatalogApp::Start(std::filesystem::path state_dir) {
       catalog.persisted.device_state.Load();
       catalog.persisted.device_state->ObserveEnvironment(environment, ui::UiEnvironmentReason::kStartup);
       PrepareWindowCatalogForRun(catalog);
+      PrepareCatalogMenuForRun(catalog);
     };
     hooks.before_incremental = [](WindowCatalog& catalog) {
       catalog.pending_focus_window = {};
@@ -188,18 +192,21 @@ void WebWindowCatalogApp::Start(std::filesystem::path state_dir) {
            SerializeUserStorage(local_storage_, files[1].bytes);
   };
   callbacks.after_initial = [this](ae::Obj& root) {
-    EM_ASM({
-      AtCatalog.setStatus("");
-      console.log('WINDOW_CATALOG_INITIAL_RENDER_OK');
-    });
+    SetStatus("");
+#ifndef NDEBUG
+    EM_ASM({ console.log('WINDOW_CATALOG_INITIAL_RENDER_OK'); });
+#endif
     PublishMobilePages(root);
+    SetUiInputBlocked(false);
     ViewportChanged(g_last_viewport_w, g_last_viewport_h);
   };
   callbacks.after_incremental = [this](ae::Obj& root) { PublishMobilePages(root); };
   callbacks.set_ui_input_blocked = SetUiInputBlocked;
   callbacks.on_shutdown_stopping = [] {
-    SetStatus("Stopping…");
+    EM_ASM({ AtCatalog.setStatusKey(4); });
+#ifndef NDEBUG
     EM_ASM({ console.log('WINDOW_CATALOG_SHUTDOWN_STOPPING'); });
+#endif
   };
   callbacks.on_shutdown_succeeded = [] {
     emscripten_async_call(FinishHostTeardownTrampoline,
@@ -214,12 +221,12 @@ void WebWindowCatalogApp::Start(std::filesystem::path state_dir) {
   host_->StartWithPersistentStorage("/persistent");
 }
 
-void WebWindowCatalogApp::SetAppearance(int theme, bool soften) {
-  if (!host_ || !host_->ui_session() || theme < 0 || theme > 2 ||
+void WebWindowCatalogApp::ExecuteMenuCommand(unsigned group, unsigned item) {
+  if (!host_ || !host_->ui_session() ||
       host_->lifecycle() != web::WebApplicationHostLifecycle::kRunning) return;
   auto& catalog = static_cast<WindowCatalog&>(host_->ui_session()->root());
-  host_->model_proxy().Invoke(catalog.persisted.device_state.id(), &ui::UiDeviceState::SetAppearance,
-      ui::UiAppearancePreferences{static_cast<ui::UiThemeMode>(theme), soften});
+  host_->model_proxy().Invoke(catalog.persisted.device_state.id(),
+      &CatalogUiState::ExecuteMenuCommand, group, item);
 }
 
 void WebWindowCatalogApp::FinishTeardown(bool shutdown_succeeded) {
@@ -248,7 +255,7 @@ bool WebWindowCatalogApp::PersistForPageLifecycle() {
   }
   bool const saved = host_->PersistForPageLifecycle(
       (state_dir_ / "user.bin").generic_string());
-  if (!saved) SetStatus("Save failed");
+  if (!saved) EM_ASM({ AtCatalog.setStatusKey(7); });
   return saved;
 }
 
@@ -299,10 +306,29 @@ void WebWindowCatalogApp::ChildViewportChanged(unsigned window_id, int width, in
 void WebWindowCatalogApp::PublishMobilePages(ae::Obj& application_root) {
   auto& catalog = static_cast<WindowCatalog&>(application_root);
   auto const preferences = catalog.persisted.device_state->appearance;
-  EM_ASM({
-    document.getElementById('appearance-theme').value = String($0);
-    document.getElementById('appearance-soft').checked = !!$1;
-  }, static_cast<int>(preferences.theme), preferences.soften_dark);
+  auto const& state = static_cast<CatalogUiState const&>(*catalog.persisted.device_state);
+  int const language = catalog.persisted.locale->language_index();
+  using emscripten::val;
+  auto groups = val::array();
+  for (auto const& group : state.menu->groups) {
+    auto native_group = val::object();
+    native_group.set("label", group.label->Resolve(language));
+    auto items = val::array();
+    for (auto const& item : group.items) {
+      auto native_item = val::object();
+      native_item.set("label", item.label->Resolve(language));
+      native_item.set("selected", state.MenuItemSelected(item));
+      items.call<void>("push", native_item);
+    }
+    native_group.set("items", items);
+    groups.call<void>("push", native_group);
+  }
+  auto strings = val::array();
+  for (auto const& text : state.menu->shell_strings)
+    strings.call<void>("push", text->Resolve(language));
+  val::global("AtCatalog").call<void>("setMenus", groups, strings, language);
+  EM_ASM({ AtCatalog.setAppearance($0, !!$1); },
+      static_cast<int>(preferences.theme), preferences.soften_dark);
   std::vector<CatalogWindow::ptr> const ring = catalog.BuildWindowNavigationRing();
   std::string ids;
   for (std::size_t i = 0; i < ring.size(); ++i) {

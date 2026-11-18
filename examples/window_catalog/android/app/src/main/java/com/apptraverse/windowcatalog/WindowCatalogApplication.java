@@ -3,13 +3,10 @@ package com.apptraverse.windowcatalog;
 import android.app.Application;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Log;
 
 /** Owns the native runtime and forwards publication callbacks to the Activity. */
 public final class WindowCatalogApplication extends Application
     implements NativeUiBridge.Listener {
-
-  private static final String TAG = "AppTraverseWindowCatalog";
 
   private final Handler mainHandler = new Handler(Looper.getMainLooper());
   private final NativeUiBridge uiBridge = new NativeUiBridge();
@@ -17,6 +14,10 @@ public final class WindowCatalogApplication extends Application
   private long runtimeHandle;
   private boolean modelStarted;
   private MainActivity activity;
+  private int appearanceMode;
+
+  public int appearanceMode() { return appearanceMode; }
+  public void setAppearanceMode(int mode) { appearanceMode = mode; }
 
   @Override
   public void onCreate() {
@@ -40,6 +41,8 @@ public final class WindowCatalogApplication extends Application
   }
 
   public void clearActivity(MainActivity mainActivity) {
+    if (runtimeHandle != 0L)
+      NativeRuntime.nativeClearPresentationRoot(runtimeHandle, mainActivity);
     if (activity == mainActivity) {
       activity = null;
     }

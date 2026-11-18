@@ -70,6 +70,10 @@ void MinimalNativeRuntime::ApplyPagePresentation(ae::Obj& root) {
   env->DeleteLocalRef(cls);
 }
 
+void MinimalNativeRuntime::ClearPresentationRoot(JNIEnv* env, jobject activity) {
+  if (host_) host_->ClearPresentationRoot(env, activity);
+}
+
 void MinimalNativeRuntime::StartModelThread() { host_->StartModelThread(); }
 
 void MinimalNativeRuntime::ConsumePublication(int kind) {

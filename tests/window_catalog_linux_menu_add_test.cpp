@@ -65,9 +65,10 @@ gboolean Tick(gpointer data) {
     Check(GTK_IS_MENU_BAR(presenter.PresentationMenu()), "visible native Theme/Language menu");
     Check(gtk_widget_get_allocated_height(presenter.PresentationMenu()) > 1, "menu has a native allocation");
     Check(catalog.persisted.list->rows.empty(), "fresh native catalog");
-    Check(!presenter.PresentsAppearanceContextMenu(), "Catalog has no duplicate appearance popup");
-    Check(!catalog.persisted.presenters.language_button_presenter->presentation_loaded,
-          "language content control is excluded by composition policy");
+    Check(!catalog.persisted.texts.label_language.id().is_valid() &&
+          !catalog.persisted.presenters.language_button_presenter.id().is_valid() &&
+          !catalog.persisted.buttons.language_button.id().is_valid(),
+          "menu-only supply omits the language content control and presenter");
     Check(gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(presenter.LanguageMenuItem(0))),
           "published English menu check");
     probe.choice = 1;
@@ -155,8 +156,13 @@ gboolean Tick(gpointer data) {
     probe.settle_ticks = 0;
     ++probe.stage;
   } else if (probe.stage == 9) {
+    // A busy native loop may still be completing earlier resize/style work.
+    // Establish a quiet allocation boundary before measuring the no-op calls.
+    if (probe.allocations != probe.stable_allocations) {
+      probe.stable_allocations = probe.allocations;
+      probe.settle_ticks = 0;
+    }
     if (++probe.settle_ticks < 6) return G_SOURCE_CONTINUE;
-    probe.stable_allocations = probe.allocations;
     // Visits the same native boundary as an unrelated publication. No model
     // mutation or publication suppression is used to hide a resize cycle.
     for (int repeat = 0; repeat < 3; ++repeat) {
@@ -168,6 +174,12 @@ gboolean Tick(gpointer data) {
     ++probe.stage;
   } else if (probe.stage == 10) {
     if (++probe.settle_ticks < 6) return G_SOURCE_CONTINUE;
+    if (probe.allocations != probe.stable_allocations)
+      std::cerr << "GTK no-op allocations before=" << probe.stable_allocations
+          << " after=" << probe.allocations << " viewport="
+          << gtk_widget_get_allocated_width(presenter.ClientViewport()) << 'x'
+          << gtk_widget_get_allocated_height(presenter.ClientViewport())
+          << " environment=" << device->observation_revision << '\n';
     Check(probe.allocations == probe.stable_allocations, "unchanged presentation does not restart GTK allocation");
     CheckCustomPalette(presenter.TopLevelWindow());
     CheckRadio(presenter, 3);

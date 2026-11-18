@@ -40,13 +40,9 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain, CatalogThemeHandl
     state->catalog = {}; state->menu = {};
     return ui::UiDeviceState::ptr{state};
   };
-  // Author the menu-only Windows layout once, before distillation.
-  auto layout = DefaultWindowCatalogMainLayout();
-  std::erase_if(layout.children.at(1).children,
-      [](auto const& node) { return node.control_id == 5005; });
-  options.main_layout = std::move(layout);
+  options.language_button = false;
   auto catalog = BuildWindowCatalogGraph(domain, factory, std::move(options));
-  ComposeCatalogMenu(domain, *catalog, handling);
+  ComposeCatalogMenu(domain, *catalog, handling, false, true);
   return catalog;
 }
 

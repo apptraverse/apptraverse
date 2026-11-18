@@ -500,9 +500,10 @@ void TestRuntimeConstraintOverrideAndClear() {
   auto ui_layout = h.ui_catalog->persisted.main_window->layout;
   HWND const original_list = h.ControlHwnd(kListControlId);
   HWND const original_add = h.ControlHwnd(kAddControlId);
-  auto constraints = ui_layout->EffectiveRoot();
-  constraints.flow = ui::UiLayoutFlow::kVertical;
-  h.model_proxy.Invoke(ui_layout.id(), &ui::UiLayoutState::SetOverride, constraints);
+  auto const& menu = static_cast<CatalogUiState const&>(*h.ui_catalog->persisted.device_state).menu;
+  CHECK(menu->layout_items.size() == 4);
+  CHECK(menu->layout_items[2].label->Resolve(0) == "Layout: Vertical");
+  h.model_proxy.Invoke(h.ui_catalog->persisted.device_state.id(), &CatalogUiState::ExecuteLayoutCommand, 2u);
   CHECK(!model_layout->has_override);
   CHECK(!ui_layout->has_override);
   ExpectWideChrome(h.MainHwnd(), 900, 500);
@@ -512,7 +513,7 @@ void TestRuntimeConstraintOverrideAndClear() {
   ExpectTallChrome(h.MainHwnd(), 900, 500);
   CHECK(h.ControlHwnd(kListControlId) == original_list);
   CHECK(h.ControlHwnd(kAddControlId) == original_add);
-  h.model_proxy.Invoke(ui_layout.id(), &ui::UiLayoutState::ClearOverride);
+  h.model_proxy.Invoke(h.ui_catalog->persisted.device_state.id(), &CatalogUiState::ExecuteLayoutCommand, 3u);
   CHECK(model_layout->has_override);
   h.PumpModelAndApply();
   CHECK(!model_layout->has_override);
@@ -713,6 +714,8 @@ void TestLocalAppearancePreferences() {
   CHECK(std::wstring{translated} == L"&Тема");
   CHECK(second_local->appearance == UiAppearancePreferences{});
   CHECK(first.model_catalog->persisted.locale->language_index() == 1);
+  CHECK(static_cast<CatalogUiState const&>(*first.ui_catalog->persisted.device_state)
+      .menu->layout_items[2].label->Resolve(1) == "Раскладка: вертикально");
   CHECK(first.model_catalog->persisted.locale->object_scope().root_id == local.id());
   CHECK(second.model_catalog->Generation() == second_generation);
 }

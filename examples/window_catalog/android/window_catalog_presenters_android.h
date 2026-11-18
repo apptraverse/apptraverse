@@ -31,10 +31,6 @@ class CatalogDesktopWindowPresenter
     dnv(base_, catalog);
   }
 
-  bool PresentsChildControl(Presenter const& child) const override {
-    return child.obj_id != catalog->persisted.presenters.language_button_presenter.id() &&
-        ui::android::AndroidDesktopWindowPresenter::PresentsChildControl(child);
-  }
 };
 
 class AndroidCatalogListContainerPresenter

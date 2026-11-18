@@ -4,7 +4,8 @@
 #include "apptraverse/distill.h"
 
 namespace apptraverse {
-void ComposeCatalogMenu(ae::Domain& domain, WindowCatalog& catalog, CatalogThemeHandling theme) {
+void ComposeCatalogMenu(ae::Domain& domain, WindowCatalog& catalog, CatalogThemeHandling theme,
+                        bool web_shell, bool layout_context) {
   auto& state = static_cast<CatalogUiState&>(*catalog.persisted.device_state);
   ae::Domain::ObjectIdSequence ids{domain, ae::ObjId{2000}, ae::ObjId{9999}};
   state.catalog = WindowCatalog::ptr::MakeFromThis(&catalog);
@@ -30,6 +31,24 @@ void ComposeCatalogMenu(ae::Domain& domain, WindowCatalog& catalog, CatalogTheme
                     {text("Dark", "Тёмная"), CatalogMenuAction::kTheme, 2},
                     {text("Soft dark", "Мягкая тёмная"), CatalogMenuAction::kTheme, 3}};
     state.menu->groups.insert(state.menu->groups.begin(), std::move(themes));
+  }
+  if (layout_context) {
+    state.menu->layout_items = {
+      {text("Layout: Automatic", "Раскладка: автоматически"), CatalogMenuAction::kLayoutFlow, static_cast<int>(ui::UiLayoutFlow::kAdaptive)},
+      {text("Layout: Horizontal", "Раскладка: горизонтально"), CatalogMenuAction::kLayoutFlow, static_cast<int>(ui::UiLayoutFlow::kHorizontal)},
+      {text("Layout: Vertical", "Раскладка: вертикально"), CatalogMenuAction::kLayoutFlow, static_cast<int>(ui::UiLayoutFlow::kVertical)},
+      {text("Reset layout to application default", "Вернуть раскладку приложения"), CatalogMenuAction::kResetLayout, 0}};
+  }
+  if (web_shell) {
+    state.menu->shell_strings = {
+      text("Previous page", "Предыдущая страница"),
+      text("Next page", "Следующая страница"),
+      text("Close application", "Закрыть приложение"),
+      text("Page", "Страница"),
+      text("Stopping…", "Остановка…"),
+      text("Stopped", "Приложение остановлено"),
+      text("Stop failed", "Не удалось остановить приложение"),
+      text("Save failed", "Не удалось сохранить приложение")};
   }
   InitializeRuntimeNode(*state.menu, state);
   PrepareCatalogMenuForRun(catalog);

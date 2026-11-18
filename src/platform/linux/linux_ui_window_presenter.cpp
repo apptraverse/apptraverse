@@ -223,8 +223,15 @@ void LinuxDesktopWindowPresenter::OnSettingsChanged(GObject*, GParamSpec*,
 }
 void LinuxDesktopWindowPresenter::OnMonitorsChanged(GdkScreen*, gpointer data) {
   auto* self = static_cast<LinuxDesktopWindowPresenter*>(data);
-  self->environment_placement_pending_ = true;
-  self->ObserveNativeEnvironment(UiEnvironmentReason::kSystemNotification);
+  auto current = ReadLinuxDeviceEnvironment();
+  // Duplicate monitor notifications need no model publication to acknowledge.
+  if (self->LocalDeviceState()->environment != current)
+    self->pending_environment_revision_ = self->LocalDeviceState()->observation_revision;
+  else
+    self->pending_environment_revision_.reset();
+  if (self->model_proxy && !self->user_close_requested_)
+    self->model_proxy->Invoke(self->LocalDeviceState()->obj_id,
+        &UiDeviceState::ObserveEnvironment, current, UiEnvironmentReason::kSystemNotification);
 }
 void LinuxDesktopWindowPresenter::RefreshPresentationSettings() {
   if (!window_) return;
@@ -290,6 +297,11 @@ void LinuxDesktopWindowPresenter::ObserveNativeEnvironment(UiEnvironmentReason r
 }
 void LinuxDesktopWindowPresenter::ApplyLocalPlacement() {
   auto* state = LocalDeviceState(); if (!window_ || !mapped_) return;
+  // An accepted environment publication can keep this placement revision, or
+  // coalesce this observation with a newer settings snapshot. Its environment
+  // revision acknowledges both cases without waiting for exact snapshot data.
+  if (pending_environment_revision_ && state->observation_revision != *pending_environment_revision_)
+    pending_environment_revision_.reset();
   auto* placement = state->PlacementFor(window.id());
   if (!placement || placement->revision == placement_revision_ || placement->resolution == UiMonitorResolution::kUnavailable) return;
   // A first placement synthesized from this native window's own observation
@@ -330,7 +342,6 @@ void LinuxDesktopWindowPresenter::ApplyLocalPlacement() {
   // A no-op request may produce no configure signal at all.
   local_placement_pending_ = ReadNativeOuterFrame() != frame_reference_;
   have_frame_reference_ = true;
-  environment_placement_pending_ = false;
   placement_revision_ = placement->revision;
 }
 
@@ -400,7 +411,7 @@ void LinuxDesktopWindowPresenter::HandleNativeFrameChanged() {
         {native.x - area.x, native.y - area.y, native.width, native.height}};
     bool const reached_placement = local_placement_pending_ && frame_reference_ == native;
     bool const user_change = have_frame_reference_ && frame_reference_ != native &&
-        !environment_placement_pending_ && !local_placement_pending_;
+        !pending_environment_revision_ && !local_placement_pending_;
     if (!device->PlacementFor(window.id())) native_initial_placement_observed_ = true;
     if (!last_reported_window_ || *last_reported_window_ != observation || user_change) {
       model_proxy->Invoke(device->obj_id, &UiDeviceState::ObserveWindow,
@@ -505,6 +516,7 @@ void LinuxDesktopWindowPresenter::OnLoad() {
   placement_revision_ = 0;
   local_placement_pending_ = false;
   native_initial_placement_observed_ = false;
+  pending_environment_revision_.reset();
   have_frame_reference_ = false;
   applied_appearance_.reset();
   applied_environment_.reset();
@@ -518,37 +530,6 @@ void LinuxDesktopWindowPresenter::OnLoad() {
   // order. The application presents the model-selected window after mapping.
   gtk_window_set_focus_on_map(GTK_WINDOW(window_), FALSE);
   presentation_menu_ = CreatePresentationMenu();
-  gtk_widget_add_events(window_, GDK_BUTTON_PRESS_MASK);
-  g_signal_connect(window_, "button-press-event", G_CALLBACK((+[](GtkWidget*, GdkEventButton* event, gpointer data) -> gboolean {
-    if (event->button != 3) return FALSE;
-    auto* self = static_cast<LinuxDesktopWindowPresenter*>(data);
-    auto* state = self->LocalDeviceState();
-    if (!self->PresentsAppearanceContextMenu()) return FALSE;
-    auto* menu = gtk_menu_new();
-    struct Choice { LinuxDesktopWindowPresenter* presenter; UiAppearancePreferences preferences; };
-    auto add = [&](char const* text, UiAppearancePreferences preferences, bool active) {
-      auto* item = gtk_check_menu_item_new_with_label(text);
-      gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(item), active);
-      auto* choice = new Choice{self, preferences};
-      g_signal_connect_data(item, "activate", G_CALLBACK(+[](GtkMenuItem*, gpointer data) {
-        auto* c = static_cast<Choice*>(data);
-        c->presenter->model_proxy->Invoke(c->presenter->LocalDeviceState()->obj_id, &UiDeviceState::SetAppearance, c->preferences);
-      }), choice, +[](gpointer data, GClosure*) { delete static_cast<Choice*>(data); }, GConnectFlags(0));
-      gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
-    };
-    char const* labels[] = {"From system", "Light", "Dark", "Custom dark"};
-    UiAppearancePreferences const preferences[] = {{UiThemeMode::kAuto, false},
-        {UiThemeMode::kLight, false}, {UiThemeMode::kDark, false}, {UiThemeMode::kDark, true}};
-    int const selected = state->appearance.theme == UiThemeMode::kAuto ? 0 :
-        state->appearance.theme == UiThemeMode::kLight ? 1 : state->appearance.soften_dark ? 3 : 2;
-    for (int choice = 0; choice < 4; ++choice)
-      add(labels[choice], preferences[choice], selected == choice);
-    g_signal_connect_swapped(menu, "selection-done", G_CALLBACK(gtk_widget_destroy), menu);
-    self->ApplyNativeAppearance(menu);
-    gtk_widget_show_all(menu);
-    gtk_menu_popup_at_pointer(GTK_MENU(menu), reinterpret_cast<GdkEvent*>(event));
-    return TRUE;
-  })), this);
   g_object_set_data(G_OBJECT(window_), "apptraverse_presenter", this);
   delete_handler_ = g_signal_connect(window_, "delete-event",
                                      G_CALLBACK(OnDeleteEvent), this);

@@ -53,9 +53,15 @@ void NotifyAndroidWindowClientSizeFromJava(std::int64_t native_presenter,
   auto* local = presenter.LocalDeviceState();
   {
     auto environment = CaptureAndroidDeviceEnvironment(RequireUiThreadEnv(host), host.activity);
-    auto found = std::find_if(environment.monitors.begin(), environment.monitors.end(),
-        [](auto const& monitor) { return monitor.primary; });
-    std::string key = found == environment.monitors.end() ? std::string{} : found->key;
+    JNIEnv* env = RequireUiThreadEnv(host);
+    auto cls = CheckedJni(env, "display class", [&] { return env->FindClass("com/apptraverse/ui/android/AppTraverseAndroidUi"); });
+    auto method = CheckedJni(env, "window display method", [&] { return env->GetStaticMethodID(cls,
+        "windowDisplayKey", "(Landroid/app/Activity;)Ljava/lang/String;"); });
+    auto display_key = static_cast<jstring>(CheckedJni(env, "actual window display", [&] {
+      return env->CallStaticObjectMethod(cls, method, host.activity);
+    }));
+    std::string key = JstringToUtf8(env, display_key);
+    env->DeleteLocalRef(display_key); env->DeleteLocalRef(cls);
     // Android reports its client surface in local logical dp, matching layout units.
     UiWindowEnvironment observation{presenter.window.id(), key,
         static_cast<std::uint32_t>(density_dpi), static_cast<std::uint32_t>(density_dpi),

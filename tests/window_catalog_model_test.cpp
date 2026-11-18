@@ -23,6 +23,8 @@
 #include "apptraverse/ui/ui_window_presenter.h"
 
 #include "window_catalog_graph.h"
+#include "window_catalog_graph_builder.h"
+#include "window_catalog_presenters.h"
 #include "window_catalog_ids.h"
 #include "window_catalog_list_row_text.h"
 #include "window_catalog_localization.h"
@@ -42,6 +44,49 @@ namespace {
       std::exit(1);                                                          \
     }                                                                        \
   } while (false)
+
+// These model/base replay cases deliberately cover the common in-content
+// language-button composition, independently of Windows' menu-only supply.
+WindowCatalog::ptr BuildInContentCatalogGraph(ae::Domain& domain) {
+  WindowCatalogPresenterFactory factory;
+  factory.create_window = [](ae::Domain& d, ae::ObjId id, WindowCatalog::ptr const& catalog) {
+    auto presenter = example::surfaces::CatalogDesktopWindowPresenter::ptr::Create(ae::CreateWith{d}.with_id(id));
+    presenter->catalog = catalog;
+    return presenter;
+  };
+  factory.create_list = [](ae::Domain& d, ae::ObjId id, WindowCatalog::ptr const& catalog) {
+    auto presenter = example::surfaces::CatalogListContainerPresenter::ptr::Create(ae::CreateWith{d}.with_id(id));
+    presenter->catalog = catalog;
+    return presenter;
+  };
+  factory.create_button = [](ae::Domain& d, ae::ObjId id) {
+    return ui::windows::WinPushButtonPresenter::ptr::Create(id.is_valid()
+        ? ae::CreateWith{d}.with_id(id) : ae::CreateWith{d});
+  };
+  return apptraverse::BuildWindowCatalogGraph(domain, factory);
+}
+
+void TestWindowsMenuSupplyOmitsContentLanguageButton() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto catalog = apptraverse::BuildWindowCatalogGraph(domain);
+  CHECK(!catalog->persisted.buttons.language_button.id().is_valid());
+  CHECK(!catalog->persisted.texts.label_language.id().is_valid());
+  CHECK(!catalog->persisted.presenters.language_button_presenter.id().is_valid());
+  CHECK(!domain.Find(ae::ObjId{window_catalog_demo::ToObjId(window_catalog_demo::ObjId::LanguageButton)}));
+  CHECK(!domain.Find(ae::ObjId{window_catalog_demo::ToObjId(window_catalog_demo::ObjId::LanguageButtonPresenter)}));
+  ae::RamDomainStorage content_storage;
+  ae::Domain content_domain{content_storage};
+  auto content = BuildInContentCatalogGraph(content_domain);
+  CHECK(content->persisted.texts.label_language.id().is_valid());
+  if (catalog->persisted.texts.window_title_prefix.id() != content->persisted.texts.window_title_prefix.id())
+    std::cerr << "supply shared title IDs menu=" << catalog->persisted.texts.window_title_prefix.id().id()
+      << " content=" << content->persisted.texts.window_title_prefix.id().id() << '\n';
+  CHECK(catalog->persisted.texts.window_title_prefix.id() == content->persisted.texts.window_title_prefix.id());
+  CHECK(catalog->persisted.texts.label_close.id() == content->persisted.texts.label_close.id());
+  CHECK(catalog->persisted.texts.list_row_title_format.id() == content->persisted.texts.list_row_title_format.id());
+  CHECK(catalog->persisted.texts.list_row_title_closed_suffix.id() == content->persisted.texts.list_row_title_closed_suffix.id());
+}
 
 using DiskFileSnapshot = std::map<std::string, std::vector<std::uint8_t>>;
 
@@ -164,7 +209,7 @@ ui::UiDesktopWindowPresenter::ptr LoadCatalogWindowPresenter(
 void TestCatalogReflectionTopologyAndInitialPublication() {
   ae::RamDomainStorage model_storage;
   ae::Domain model_domain{model_storage};
-  auto catalog = BuildWindowCatalogGraph(model_domain);
+  auto catalog = BuildInContentCatalogGraph(model_domain);
   FinalizeDistilledGraph(*catalog);
   CHECK(catalog->persisted.window_prefab.is_valid());
   CHECK(!catalog->persisted.window_prefab.is_loaded());
@@ -268,7 +313,7 @@ void TestCatalogAddWindowViaPresentedWindowPrefab() {
   {
     DirectoryDomainStorage storage{dir};
     ae::Domain domain{storage};
-    auto catalog = BuildWindowCatalogGraph(domain);
+    auto catalog = BuildInContentCatalogGraph(domain);
     FinalizeDistilledGraph(*catalog);
     CHECK(catalog->persisted.window_prefab.is_valid());
     CHECK(!catalog->persisted.window_prefab.is_loaded());
@@ -392,7 +437,7 @@ void TestCatalogAddWindowViaPresentedWindowPrefab() {
 void TestCatalogHolderOpenCloseAndMonotonicNumbers() {
   ae::RamDomainStorage ram_storage;
   ae::Domain domain{ram_storage};
-  auto catalog = BuildWindowCatalogGraph(domain);
+  auto catalog = BuildInContentCatalogGraph(domain);
   FinalizeDistilledGraph(*catalog);
 
   catalog->AddWindow();
@@ -442,7 +487,7 @@ void TestCatalogHolderOpenCloseAndMonotonicNumbers() {
   {
     DirectoryDomainStorage persist_storage{dir};
     ae::Domain persist_domain{persist_storage};
-    auto persist_catalog = BuildWindowCatalogGraph(persist_domain);
+    auto persist_catalog = BuildInContentCatalogGraph(persist_domain);
     FinalizeDistilledGraph(*persist_catalog);
 
     persist_catalog->AddWindow();
@@ -520,7 +565,7 @@ std::string ReadInactiveUtf8(ui::UiLocalizationString& localized,
 void TestCatalogLocalizationUtf8Persisted() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
-  auto catalog = BuildWindowCatalogGraph(domain);
+  auto catalog = BuildInContentCatalogGraph(domain);
   FinalizeDistilledGraph(*catalog);
   catalog->AddWindow();
   catalog->AddWindow();
@@ -547,7 +592,7 @@ void TestCatalogLocalizationUtf8Persisted() {
   {
     DirectoryDomainStorage persist{dir};
     ae::Domain persist_domain{persist};
-    auto persist_catalog = BuildWindowCatalogGraph(persist_domain);
+    auto persist_catalog = BuildInContentCatalogGraph(persist_domain);
     FinalizeDistilledGraph(*persist_catalog);
     persist_catalog->AddWindow();
     persist_catalog->AddWindow();
@@ -588,7 +633,7 @@ void TestCatalogRuntimeSavePreservesOpenWindowLoadedState() {
   {
     DirectoryDomainStorage storage_a{dir};
     ae::Domain domain_a{storage_a};
-    auto bootstrap = BuildWindowCatalogGraph(domain_a);
+    auto bootstrap = BuildInContentCatalogGraph(domain_a);
     FinalizeDistilledGraph(*bootstrap);
     SaveDistilledRoot(*bootstrap);
     bootstrap.Reset();
@@ -729,7 +774,7 @@ void TestCatalogSaveAfterLanguageToggleAndChildClose() {
   {
     DirectoryDomainStorage storage{dir};
     ae::Domain domain{storage};
-    auto catalog = BuildWindowCatalogGraph(domain);
+    auto catalog = BuildInContentCatalogGraph(domain);
     FinalizeDistilledGraph(*catalog);
     catalog->AddWindow();
     catalog->AddWindow();
@@ -757,7 +802,7 @@ void TestCatalogSaveAfterLanguageToggleAndChildClose() {
 void TestOpenLoadedWindowSetsPendingFocusRequest() {
   ae::RamDomainStorage model_storage;
   ae::Domain model_domain{model_storage};
-  auto catalog = BuildWindowCatalogGraph(model_domain);
+  auto catalog = BuildInContentCatalogGraph(model_domain);
   FinalizeDistilledGraph(*catalog);
   catalog->AddWindow();
   WindowHolder* holder = AsHolder(catalog->persisted.list->rows[0]);
@@ -770,7 +815,7 @@ void TestOpenLoadedWindowSetsPendingFocusRequest() {
 void TestCatalogWindowFrameSurvivesCloseReload() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
-  auto catalog = BuildWindowCatalogGraph(domain);
+  auto catalog = BuildInContentCatalogGraph(domain);
   FinalizeDistilledGraph(*catalog);
   catalog->AddWindow();
   WindowHolder* holder = AsHolder(catalog->persisted.list->rows[0]);
@@ -792,7 +837,7 @@ void TestCatalogWindowFrameSurvivesCloseReload() {
   {
     DirectoryDomainStorage persist_storage{dir};
     ae::Domain persist_domain{persist_storage};
-    auto persist_catalog = BuildWindowCatalogGraph(persist_domain);
+    auto persist_catalog = BuildInContentCatalogGraph(persist_domain);
     FinalizeDistilledGraph(*persist_catalog);
     persist_catalog->AddWindow();
     WindowHolder* p_holder = AsHolder(persist_catalog->persisted.list->rows[0]);
@@ -922,7 +967,7 @@ void CheckLiveCatalogChromeLinks(WindowCatalog const& catalog,
 void TestWindowCatalogOpenCloseEventJournalPersistence() {
   ae::RamDomainStorage ram_storage;
   ae::Domain ram_domain{ram_storage};
-  auto catalog = BuildWindowCatalogGraph(ram_domain);
+  auto catalog = BuildInContentCatalogGraph(ram_domain);
   FinalizeDistilledGraph(*catalog);
   CheckDistilledCatalogBaseLinks(*catalog);
 
@@ -995,7 +1040,7 @@ void TestWindowCatalogOpenCloseEventJournalPersistence() {
   {
     DirectoryDomainStorage persist_storage{dir};
     ae::Domain persist_domain{persist_storage};
-    auto persist = BuildWindowCatalogGraph(persist_domain);
+    auto persist = BuildInContentCatalogGraph(persist_domain);
     FinalizeDistilledGraph(*persist);
     CheckDistilledCatalogBaseLinks(*persist);
     SaveDistilledRoot(*persist);
@@ -1403,7 +1448,7 @@ void TestWindowCatalogChromeButtonDistilledBaseReplay() {
 
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
-  auto catalog = BuildWindowCatalogGraph(domain);
+  auto catalog = BuildInContentCatalogGraph(domain);
   FinalizeDistilledGraph(*catalog);
 
   ae::ObjId const catalog_id = ToObjId(ObjId::Catalog);
@@ -1447,7 +1492,7 @@ void TestWindowCatalogChromeButtonDistilledBaseReplay() {
   {
     DirectoryDomainStorage persist_storage{dir};
     ae::Domain persist_domain{persist_storage};
-    auto persist = BuildWindowCatalogGraph(persist_domain);
+    auto persist = BuildInContentCatalogGraph(persist_domain);
     FinalizeDistilledGraph(*persist);
     ae::ObjId const persist_catalog_id = persist->obj_id;
     cold_add_expect = CaptureCatalogChromeButtonExpectations(
@@ -1506,7 +1551,7 @@ void TestWindowCatalogChromeButtonDistilledBaseReplay() {
 void TestManyHoldersClosedGraphsAbsentFromDomain() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
-  auto catalog = BuildWindowCatalogGraph(domain);
+  auto catalog = BuildInContentCatalogGraph(domain);
   FinalizeDistilledGraph(*catalog);
 
   for (int i = 0; i < 100; ++i) {
@@ -1534,7 +1579,7 @@ void TestCatalogPresentedWindowDistilledBaseReplay() {
 
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
-  auto catalog = BuildWindowCatalogGraph(domain);
+  auto catalog = BuildInContentCatalogGraph(domain);
   FinalizeDistilledGraph(*catalog);
 
   CatalogWindow& main =
@@ -1614,7 +1659,7 @@ void TestCatalogPresentedWindowGraph() {
 
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
-  auto catalog = BuildWindowCatalogGraph(domain);
+  auto catalog = BuildInContentCatalogGraph(domain);
   FinalizeDistilledGraph(*catalog);
 
   CHECK(MainWindowPresented(*catalog).presenter.is_valid());
@@ -1647,7 +1692,7 @@ void TestCatalogPresentedWindowGraph() {
   {
     DirectoryDomainStorage persist{dir};
     ae::Domain persist_domain{persist};
-    auto persist_catalog = BuildWindowCatalogGraph(persist_domain);
+    auto persist_catalog = BuildInContentCatalogGraph(persist_domain);
     FinalizeDistilledGraph(*persist_catalog);
     persist_catalog->AddWindow();
     WindowHolder* p_holder = AsHolder(persist_catalog->persisted.list->rows[0]);
@@ -1680,7 +1725,7 @@ void TestCatalogPresentedWindowGraph() {
   {
     DirectoryDomainStorage cold_storage{cold_dir};
     ae::Domain cold_domain{cold_storage};
-    auto saved = BuildWindowCatalogGraph(cold_domain);
+    auto saved = BuildInContentCatalogGraph(cold_domain);
     FinalizeDistilledGraph(*saved);
     saved->AddWindow();
     WindowHolder* saved_holder = AsHolder(saved->persisted.list->rows[0]);
@@ -1725,7 +1770,7 @@ void TestCatalogDesktopZOrderPersistence() {
   auto const dir = TestDir("apptraverse_window_catalog_window_order");
   DirectoryDomainStorage storage{dir};
   ae::Domain domain{storage};
-  auto catalog = BuildWindowCatalogGraph(domain);
+  auto catalog = BuildInContentCatalogGraph(domain);
   FinalizeDistilledGraph(*catalog);
 
   catalog->AddWindow();
@@ -1793,7 +1838,7 @@ void TestCatalogDesktopZOrderPersistence() {
 void TestCatalogRepeatedOpenKeepsPresenterIdentity() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
-  auto catalog = BuildWindowCatalogGraph(domain);
+  auto catalog = BuildInContentCatalogGraph(domain);
   FinalizeDistilledGraph(*catalog);
   catalog->AddWindow();
   WindowHolder* holder = AsHolder(catalog->persisted.list->rows[0]);
@@ -1808,7 +1853,7 @@ void TestCatalogRepeatedOpenKeepsPresenterIdentity() {
 void TestCatalogUnloadedSelectedPtrOpenDeleteAndApplyIndex() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
-  auto catalog = BuildWindowCatalogGraph(domain);
+  auto catalog = BuildInContentCatalogGraph(domain);
   FinalizeDistilledGraph(*catalog);
   catalog->AddWindow();
   catalog->AddWindow();
@@ -1844,7 +1889,7 @@ void TestCatalogUnloadedSelectedPtrOpenDeleteAndApplyIndex() {
 void TestCatalogDeleteUnloadedWindowDoesNotLoad() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
-  auto catalog = BuildWindowCatalogGraph(domain);
+  auto catalog = BuildInContentCatalogGraph(domain);
   FinalizeDistilledGraph(*catalog);
   catalog->AddWindow();
   WindowHolder* holder = AsHolder(catalog->persisted.list->rows[0]);
@@ -1933,7 +1978,7 @@ void TestPresentedWindowTitleUsesPresenterVirtualContract() {
   {
     DirectoryDomainStorage storage{dir};
     ae::Domain domain{storage};
-    auto catalog = BuildWindowCatalogGraph(domain);
+    auto catalog = BuildInContentCatalogGraph(domain);
     FinalizeDistilledGraph(*catalog);
     catalog->AddWindow();
     catalog->AddWindow();
@@ -1968,7 +2013,7 @@ void TestPresentedWindowTitleUsesPresenterVirtualContract() {
 void TestLiveReachableNodesCoverOpenCatalogWindow() {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
-  auto catalog = BuildWindowCatalogGraph(domain);
+  auto catalog = BuildInContentCatalogGraph(domain);
   FinalizeDistilledGraph(*catalog);
   catalog->AddWindow();
   WindowHolder* holder = AsHolder(catalog->persisted.list->rows[0]);
@@ -1996,6 +2041,7 @@ void TestLiveReachableNodesCoverOpenCatalogWindow() {
 int main() {
   apptraverse::EnableNoninteractiveCrt();
   apptraverse::EnsureWindowCatalogGraphRegistration();
+  apptraverse::test::TestWindowsMenuSupplyOmitsContentLanguageButton();
   apptraverse::test::TestCatalogPresentedWindowDistilledBaseReplay();
   apptraverse::test::TestCatalogPresentedWindowGraph();
   apptraverse::test::TestCatalogRepeatedOpenKeepsPresenterIdentity();

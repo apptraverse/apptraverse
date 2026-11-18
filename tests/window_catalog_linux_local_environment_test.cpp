@@ -93,6 +93,9 @@ gboolean Tick(gpointer opaque) {
     Check(device->has_environment, "OS baseline preceded initial publication");
     test.semantic_width = catalog.persisted.main_window->client_width();
     test.semantic_height = catalog.persisted.main_window->client_height();
+    // GDK can notify without changing the display set. Such a notification
+    // must not suppress the next user resize forever waiting for a revision.
+    g_signal_emit_by_name(gdk_screen_get_default(), "monitors-changed");
     gtk_window_resize(GTK_WINDOW(presenter.TopLevelWindow()), 220, 190);
     g_object_set(gtk_settings_get_default(), "gtk-font-name", "Sans 18", "gtk-enable-animations", FALSE,
         "gtk-application-prefer-dark-theme", TRUE, nullptr);
@@ -110,6 +113,9 @@ gboolean Tick(gpointer opaque) {
     int menu_minimum{}, menu_natural{};
     gtk_widget_get_preferred_width(presenter.PresentationMenu(), &menu_minimum, &menu_natural);
     if (client_width != std::max(220, menu_minimum)) return G_SOURCE_CONTINUE;
+    auto const* placement = device->PlacementFor(presenter.window.id());
+    if (!placement || placement->frame_dip.width != outer.width ||
+        placement->frame_dip.height != outer.height) return G_SOURCE_CONTINUE;
     Check(catalog.persisted.main_window->client_width() == test.semantic_width &&
         catalog.persisted.main_window->client_height() == test.semantic_height, "native pixels did not enter portable semantic frame");
     auto& button = static_cast<ui::linux::LinuxPushButtonPresenter&>(*catalog.persisted.presenters.add_button_presenter);

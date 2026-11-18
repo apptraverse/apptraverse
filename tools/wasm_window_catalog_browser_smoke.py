@@ -57,16 +57,20 @@ def load(page: Page, url: str) -> None:
     page.goto(url, wait_until='domcontentloaded', timeout=60000)
     expect(page.locator(ACTIVE)).to_have_count(1, timeout=60000)
     expect(control(page, 5002)).to_have_count(1)
+    expect(control(page, 5005)).to_have_count(0)
+    expect(page.get_by_role('combobox')).to_have_count(2)
     assert page.evaluate("crossOriginIsolated && typeof SharedArrayBuffer !== 'undefined'")
 
 
 def shutdown(page: Page):
     page.locator('#shutdown-button').click()
-    expect(page.locator('#status')).to_have_text('Stopped', timeout=60000)
+    expect(page.locator('#status')).to_have_text(re.compile(r'^(Stopped|Приложение остановлено)$'), timeout=60000)
     files = snapshot(page)
     assert files and all(f['path'].endswith('/user.bin') and f['size'] > 0 for f in files), files
     assert len({f['path'].rsplit('/', 1)[0] for f in files}) == len(files), files
     assert page.locator('.catalog-page').count() == 0
+    for menu in page.get_by_role('combobox').all():
+        expect(menu).to_be_disabled()
     return files
 
 
@@ -121,14 +125,17 @@ def acceptance(page: Page, fresh_url: str, load_url: str, screenshot: Path) -> N
     control(page, 5003).click()
     child_page(page)
     main_page(page)
-    control(page, 5005).click()
+    page.locator('#catalog-menu-1').select_option('1')
     expect(page.locator('#page-title')).to_have_text('Каталог окон')
     expect(control(page, 5002)).to_have_text('Добавить')
+    expect(page.get_by_role('combobox', name='Язык')).to_have_value('1')
+    expect(page.get_by_role('button', name='Следующая страница')).to_be_enabled()
+    expect(page.get_by_role('button', name='Закрыть приложение')).to_be_enabled()
     page.locator('#next-page').click()
     child_page(page, 'Окно 1')
     expect(page.locator(ACTIVE + ' button')).to_have_text('Закрыть')
     main_page(page)
-    control(page, 5005).click()
+    page.locator('#catalog-menu-1').select_option('0')
     expect(control(page, 5002)).to_have_text('Add')
     control(page, 5002).click()
     child_page(page, 'Window 2')
@@ -141,10 +148,15 @@ def acceptance(page: Page, fresh_url: str, load_url: str, screenshot: Path) -> N
     child_page(page, 'Window 2')
     expect(page.locator('.catalog-page')).to_have_count(2)
     assert snapshot(page) == before, 'UI actions/child Close wrote USER'
-    page.locator('#appearance-theme').select_option('2')
-    page.locator('#appearance-soft').check()
+    page.locator('#catalog-menu-0').select_option('0')
+    page.emulate_media(color_scheme='dark')
+    page.wait_for_function("() => [...document.querySelectorAll('.catalog-page')].every(el => el.dataset.apptraverseTheme === 'dark') && document.documentElement.style.colorScheme === 'dark' && getComputedStyle(document.querySelector('#catalog-menu-0')).colorScheme === 'dark'")
+    page.emulate_media(color_scheme='light')
+    page.wait_for_function("() => [...document.querySelectorAll('.catalog-page')].every(el => el.dataset.apptraverseTheme === 'light') && document.documentElement.style.colorScheme === 'light' && getComputedStyle(document.querySelector('#catalog-menu-0')).colorScheme === 'light'")
+    page.locator('#catalog-menu-0').select_option('3')
     page.wait_for_function("() => [...document.querySelectorAll('.catalog-page')].every(el => el.dataset.apptraverseTheme === 'soft-dark')")
     page.emulate_media(forced_colors='active')
+    page.wait_for_function("() => document.documentElement.style.getPropertyValue('--at-background') === 'Canvas'")
     page.wait_for_function("() => [...document.querySelectorAll('.catalog-page')].every(el => el.dataset.apptraverseTheme === 'system')")
     page.emulate_media(forced_colors='none')
     page.wait_for_function("() => [...document.querySelectorAll('.catalog-page')].every(el => el.dataset.apptraverseTheme === 'soft-dark')")
@@ -158,8 +170,7 @@ def acceptance(page: Page, fresh_url: str, load_url: str, screenshot: Path) -> N
 
     load(page, load_url)
     child_page(page, 'Window 2')
-    expect(page.locator('#appearance-theme')).to_have_value('2')
-    expect(page.locator('#appearance-soft')).to_be_checked()
+    expect(page.locator('#catalog-menu-0')).to_have_value('3')
     assert snapshot(page) == saved, 'startup rewrote USER'
     page.locator(ACTIVE + ' button').click()
     expect(page.locator(ROWS)).to_have_text(['Window 2 (Closed)'])
@@ -167,19 +178,28 @@ def acceptance(page: Page, fresh_url: str, load_url: str, screenshot: Path) -> N
     page.locator(ROWS).first.dblclick()
     child_page(page, 'Window 2')
     main_page(page)
-    control(page, 5005).click()
+    page.locator('#catalog-menu-1').select_option('1')
     expect(control(page, 5002)).to_have_text('Добавить')
     page.locator('#next-page').click()
     child_page(page, 'Окно 2')
     assert snapshot(page) == saved, 'locale/publications wrote USER'
     saved_ru = shutdown(page)
-    assert next(f['sha'] for f in saved_ru if '/local/' not in f['path']) != next(f['sha'] for f in saved if '/local/' not in f['path']), 'shutdown did not save changed language'
+    assert next(f['sha'] for f in saved_ru if '/local/' in f['path']) != next(f['sha'] for f in saved if '/local/' in f['path']), 'shutdown did not save changed LOCAL language'
 
     load(page, load_url)
     child_page(page, 'Окно 2')
     expect(page.locator(ACTIVE + ' button')).to_have_text('Закрыть')
     assert snapshot(page) == saved_ru
-    shutdown(page)
+    saved_ru_cold = shutdown(page)
+    load(page, load_url)
+    child_page(page, 'Окно 2')
+    # Change language without navigation or another portable Event: only LOCAL
+    # may change across this explicit lifecycle transaction.
+    page.locator('#catalog-menu-1').select_option('0')
+    child_page(page, 'Window 2')
+    saved_en = shutdown(page)
+    portable_sha = lambda files: next(f['sha'] for f in files if '/local/' not in f['path'])
+    assert portable_sha(saved_en) == portable_sha(saved_ru_cold), 'LOCAL language changed portable USER'
     prior_debug = snapshot(page)
     load(page, fresh_url)
     expect(page.locator(ROWS)).to_have_count(0)
@@ -216,7 +236,7 @@ def main() -> int:
             known_warning = 'error: Blocking on the main thread is very dangerous, see https://emscripten.org/docs/porting/pthreads.html#blocking-on-the-main-browser-thread'
             unexpected = [m for m in messages if m.startswith('error:') and m != known_warning]
             assert not unexpected, unexpected
-            print('PASS: Web WindowCatalog input, local layout/appearance, child Close, USER+LOCAL files, two cold restarts, fresh Debug')
+            print('PASS: Web WindowCatalog input, local layout/appearance, child Close, USER+LOCAL files, cold restarts, LOCAL-only language, fresh Debug')
             return 0
         except Exception as error:
             print('FAIL:', error)

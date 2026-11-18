@@ -47,11 +47,6 @@ class CatalogDesktopWindowPresenter
   static constexpr UINT kLanguageFirst = 5200;
 
   CatalogUiState const& UiState() const { return static_cast<CatalogUiState const&>(*LocalDeviceState()); }
-  bool PresentsChildControl(Presenter const& child) const override {
-    // Windows uses the application menu for language. The common action stays
-    // available to supplies whose platform presents it in content.
-    return child.obj_id != catalog->persisted.presenters.language_button_presenter.id() && NativeBase::PresentsChildControl(child);
-  }
   static UINT CommandId(CatalogMenuItem const& item) {
     return (item.action == CatalogMenuAction::kTheme ? kThemeFromSystem : kLanguageFirst) + item.value;
   }
@@ -96,26 +91,35 @@ class CatalogDesktopWindowPresenter
 
   bool ShowPresentationContextMenu(int x, int y) override {
     if (window.id() != catalog->persisted.main_window.id()) return false;
-    auto const& catalog_window = static_cast<CatalogWindow const&>(*window);
-    ui::UiLayoutNode const current = catalog_window.layout->EffectiveRoot();
+    auto const& items = UiState().menu->layout_items;
     HMENU const menu = CreatePopupMenu();
     if (menu == nullptr) apptraverse::FatalWin32("CreatePopupMenu layout", GetLastError());
-    AppendMenuW(menu, MF_STRING | (current.flow == ui::UiLayoutFlow::kAdaptive ? MF_CHECKED : 0), 1, L"Layout: Automatic");
-    AppendMenuW(menu, MF_STRING | (current.flow == ui::UiLayoutFlow::kHorizontal ? MF_CHECKED : 0), 2, L"Layout: Horizontal");
-    AppendMenuW(menu, MF_STRING | (current.flow == ui::UiLayoutFlow::kVertical ? MF_CHECKED : 0), 3, L"Layout: Vertical");
-    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(menu, MF_STRING, 4, L"Reset layout to application default");
+    int const language = locale->language_index();
+    for (unsigned index = 0; index < items.size(); ++index) {
+      auto const& item = items[index];
+      if (item.action == CatalogMenuAction::kResetLayout &&
+          !AppendMenuW(menu, MF_SEPARATOR, 0, nullptr))
+        apptraverse::FatalWin32("AppendMenuW layout separator", GetLastError());
+      if (!AppendMenuW(menu, MF_STRING | (UiState().MenuItemSelected(item) ? MF_CHECKED : 0),
+          index + 1, ui::windows::Utf8ToWide(item.label->Resolve(language)).c_str()))
+        apptraverse::FatalWin32("AppendMenuW layout item", GetLastError());
+    }
     if (x == -1 && y == -1) {
-      POINT location{12, 12}; ClientToScreen(hwnd(), &location); x = location.x; y = location.y;
+      POINT location{12, 12};
+      if (!ClientToScreen(hwnd(), &location))
+        apptraverse::FatalWin32("ClientToScreen layout popup", GetLastError());
+      x = location.x; y = location.y;
     }
+    // RETURNCMD returns zero both for cancellation and failure. LastError is
+    // cleared so a dismissed menu does not inherit an unrelated native error.
+    SetLastError(ERROR_SUCCESS);
     UINT const action = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, x, y, 0, hwnd(), nullptr);
-    DestroyMenu(menu);
-    if (action == 4) model_proxy->Invoke(catalog_window.layout.id(), &ui::UiLayoutState::ClearOverride);
-    else if (action >= 1 && action <= 3) {
-      ui::UiLayoutNode changed = current;
-      changed.flow = action == 1 ? ui::UiLayoutFlow::kAdaptive : action == 2 ? ui::UiLayoutFlow::kHorizontal : ui::UiLayoutFlow::kVertical;
-      model_proxy->Invoke(catalog_window.layout.id(), &ui::UiLayoutState::SetOverride, std::move(changed));
-    }
+    DWORD const error = GetLastError();
+    if (!DestroyMenu(menu)) apptraverse::FatalWin32("DestroyMenu layout", GetLastError());
+    if (action == 0 && error != ERROR_SUCCESS)
+      apptraverse::FatalWin32("TrackPopupMenu layout", error);
+    if (action != 0)
+      model_proxy->Invoke(catalog->persisted.device_state.id(), &CatalogUiState::ExecuteLayoutCommand, action - 1);
     return true;
   }
 

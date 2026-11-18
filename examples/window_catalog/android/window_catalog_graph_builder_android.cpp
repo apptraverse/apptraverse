@@ -36,15 +36,12 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
 
   WindowCatalogGraphOptions options;
   options.mobile_close_in_prefab = true;
+  options.language_button = false;
   options.create_device = [](ae::Domain& build_domain, ae::ObjId id) {
     auto state = CatalogUiState::ptr::Create(ae::CreateWith{build_domain}.with_id(id));
     state->catalog = {}; state->menu = {};
     return ui::UiDeviceState::ptr{state};
   };
-  auto layout = DefaultWindowCatalogMainLayout();
-  std::erase_if(layout.children.at(1).children,
-      [](auto const& node) { return node.control_id == 5005; });
-  options.main_layout = std::move(layout);
   auto catalog = BuildWindowCatalogGraph(domain, factory, std::move(options));
   ComposeCatalogMenu(domain, *catalog, CatalogThemeHandling::kAdapterAppliesTheme);
   return catalog;

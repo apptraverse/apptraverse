@@ -1,12 +1,12 @@
 # WindowCatalog: platform menus and system appearance
 
-Windows, Linux and Android expose the shared appearance and language choices.
+Windows, Linux, Android and Web expose the shared appearance and language choices.
 The macOS and iOS implementations expose Language through Swift and follow
-system appearance. Web remains a future consumer of the same menu definition.
+system appearance. Web consumes the same menu definition through labeled native DOM select controls.
 
 ## User interface
 
-Windows, GTK and Android WindowCatalog expose two application menu groups:
+Windows, GTK, Android and Web WindowCatalog expose two application menu groups:
 
 - Theme: From system, Light, Dark, Soft dark.
 - Language: English, Русский (language endonyms).
@@ -36,7 +36,7 @@ continues observing its own OS. Use matching supplies for the S0 profiles.
 Native input -> presenter/proxy -> CatalogUiState command -> model Event ->
 publication -> UI mirror -> native menu. The presentation layer maps the same
 labels, commands and selection to Win32 HMENU, GTK radio items, Android
-submenus, AppKit NSMenu or SwiftUI Menu. Menu choices and command behavior
+submenus, labeled DOM selects, AppKit NSMenu or SwiftUI Menu. Menu choices and command behavior
 belong to the model.
 Active language materialization releases inactive string slots; native handles
 and rendering caches are not serialized.
@@ -71,7 +71,7 @@ This change removes demo font/cue painting policy, not the existing dark palette
 | iOS / SwiftUI | Semantic colors follow system appearance. | Language only, in the SwiftUI toolbar. |
 | Android / Views | Existing adapter palette follows the OS in Auto and keeps native controls. Text uses the Android scaling path. | Theme + Language in the Activity options menu. |
 | Linux / GTK | GTK theme/style context and GtkSettings provide the system baseline. The adapter also supports explicit palettes. | Theme + Language in the GTK menu bar. |
-| Web / native DOM | Declare `color-scheme`; preserve browser forced colors and form rendering; adapt authored page surfaces with CSS system colors/media queries. | Native-following if all surfaces adapt declaratively; otherwise adapter-applied theme. Use DOM menus with semantics/keyboard behavior when ported. |
+| Web / native DOM | Declare `color-scheme`; preserve browser forced colors and form rendering; adapt authored page surfaces with CSS system colors/media queries. | Theme + Language through labeled native selects. Shell surfaces and window pages use adapter-applied theme, live media changes and forced-colors priority. |
 
 The Apple UI is written in Swift. The existing bridge supplies localized menu
 values and forwards command indices to the shared model. On macOS the desktop

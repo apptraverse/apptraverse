@@ -58,6 +58,10 @@ void NativeSetPresentationRoot(JNIEnv* env, jclass, jlong handle, jobject activi
   FromHandle(handle)->SetPresentationRoot(env, activity, content_root);
 }
 
+void NativeClearPresentationRoot(JNIEnv* env, jclass, jlong handle, jobject activity) {
+  FromHandle(handle)->ClearPresentationRoot(env, activity);
+}
+
 void NativeStartModel(JNIEnv*, jclass, jlong handle) {
   FromHandle(handle)->StartModelThread();
 }
@@ -206,6 +210,8 @@ JNINativeMethod const kNativeMethods[] = {
      reinterpret_cast<void*>(&NativeCreate)},
     {"nativeSetPresentationRoot", "(JLandroid/app/Activity;Landroid/view/ViewGroup;)V",
      reinterpret_cast<void*>(&NativeSetPresentationRoot)},
+    {"nativeClearPresentationRoot", "(JLandroid/app/Activity;)V",
+     reinterpret_cast<void*>(&NativeClearPresentationRoot)},
     {"nativeStartModel", "(J)V", reinterpret_cast<void*>(&NativeStartModel)},
     {"nativeConsumePublication", "(JI)V",
      reinterpret_cast<void*>(&NativeConsumePublication)},

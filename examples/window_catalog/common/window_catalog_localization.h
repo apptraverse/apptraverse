@@ -6,7 +6,7 @@
 namespace apptraverse {
 
 void InstallWindowCatalogLocalization(WindowCatalog& catalog,
-                                      ae::Domain& domain);
+                                      ae::Domain& domain, bool language_button = true);
 
 ui::UiLocalizationString::ptr CreateCatalogLocalizedString(
     ae::Domain& domain, Node& owner, char const* en, char const* ru);

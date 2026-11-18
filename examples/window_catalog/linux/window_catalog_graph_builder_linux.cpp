@@ -38,10 +38,7 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
     state->catalog = {}; state->menu = {};
     return ui::UiDeviceState::ptr{state};
   };
-  auto layout = DefaultWindowCatalogMainLayout();
-  std::erase_if(layout.children.at(1).children,
-      [](auto const& node) { return node.control_id == 5005; });
-  options.main_layout = std::move(layout);
+  options.language_button = false;
   auto catalog = BuildWindowCatalogGraph(domain, factory, std::move(options));
   ComposeCatalogMenu(domain, *catalog, CatalogThemeHandling::kAdapterAppliesTheme);
   return catalog;

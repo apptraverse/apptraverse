@@ -28,6 +28,7 @@ struct WindowCatalogPresenterFactory {
 
 struct WindowCatalogGraphOptions {
   bool mobile_close_in_prefab = true;
+  bool language_button = true;
   // Supply authoring input, shared by native/headless distillation. A new
   // compatible supply can replace this tree at the same definition identity.
   std::optional<ui::UiLayoutNode> main_layout;

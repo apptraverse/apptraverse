@@ -9,11 +9,11 @@
       height: 100%;
       margin: 0;
       font-family: system-ui, sans-serif;
-      color: CanvasText;
-      color-scheme: light dark;
-      background: Canvas;
+      color: var(--at-text, CanvasText);
+      background: var(--at-background, Canvas);
       overscroll-behavior: none;
     }
+    html { color-scheme: light dark; }
     #app {
       display: flex;
       flex-direction: column;
@@ -29,7 +29,7 @@
       gap: 8px;
       padding: 8px 12px;
       border-bottom: 1px solid #ccc;
-      background: Canvas;
+      background: var(--at-background, Canvas);
     }
     #page-title {
       flex: 1 1 auto;
@@ -113,28 +113,28 @@
       padding: 0;
       border: 1px solid #888;
       border-radius: 50%;
-      background: #ddd;
+      background: ButtonFace;
     }
     #page-dots button.dot-active { background: #2563eb; border-color: #2563eb; }
+    #application-menu { display: flex; flex-wrap: wrap; gap: 12px; padding: 4px 12px; }
+    #application-menu label { display: flex; align-items: center; gap: 6px; }
+    #application-menu select { font: inherit; min-height: 36px; }
     #status { padding: 4px 12px 8px; color: GrayText; min-height: 1.2em; font-size: 13px; }
   </style>
 </head>
 <body>
   <div id="app">
     <div id="pager-bar">
-      <button id="prev-page" type="button" aria-label="Previous page">&#9664;</button>
+      <button id="prev-page" disabled type="button" aria-label="Previous page">&#9664;</button>
       <div id="page-title">Loading…</div>
       <div id="page-indicator"></div>
-      <button id="next-page" type="button" aria-label="Next page">&#9654;</button>
-      <button id="shutdown-button" type="button">Close application</button>
+      <button id="next-page" disabled type="button" aria-label="Next page">&#9654;</button>
+      <button id="shutdown-button" disabled type="button">Close application</button>
     </div>
     <div id="catalog-mount"></div>
     <div id="page-dots"></div>
-    <div id="appearance-settings" style="padding: 4px 12px">
-      <label>Appearance <select id="appearance-theme" aria-label="Appearance"><option value="0">Auto</option><option value="1">Light</option><option value="2">Dark</option></select></label>
-      <label><input id="appearance-soft" type="checkbox"> Soften dark theme</label>
-    </div>
-    <div id="status"></div>
+    <div id="application-menu"></div>
+    <div id="status" role="status" aria-live="polite"></div>
   </div>
 
   <script>
@@ -142,17 +142,25 @@
     // model; this object only reflects the pager (ring ids + active id pushed
     // from native after each publication) and forwards user input to the
     // exported bridge functions (swipe, page click, viewport, shutdown).
-    function changeAppearance() {
-      var apply = Module['_ApptraverseWindowCatalogAppearance'];
-      if (apply) apply(Number(document.getElementById('appearance-theme').value), document.getElementById('appearance-soft').checked ? 1 : 0);
-    }
-    document.getElementById('appearance-theme').addEventListener('change', changeAppearance);
-    document.getElementById('appearance-soft').addEventListener('change', changeAppearance);
     var AtCatalog = (function() {
       var pageIds = [];
       var activeId = 0;
       var SWIPE_MIN_PX = 60;
       var reportViewport = function() {};
+      var shellStrings = [];
+      var inputBlocked = true;
+      var appearanceMode = 0, softenDark = false;
+      var media = [];
+
+      function applyAppearance() {
+        var forced = matchMedia('(forced-colors: active)').matches;
+        var dark = appearanceMode === 2 || (appearanceMode === 0 && matchMedia('(prefers-color-scheme: dark)').matches);
+        var root = document.documentElement;
+        root.style.colorScheme = forced ? 'light dark' : dark ? 'dark' : 'light';
+        root.style.setProperty('--at-background', dark && softenDark && !forced ? '#29323c' : 'Canvas');
+        root.style.setProperty('--at-text', dark && softenDark && !forced ? '#e8edf2' : 'CanvasText');
+        root.style.color = 'var(--at-text, CanvasText)';
+      }
 
       function el(id) { return document.getElementById(id); }
       function mount() { return el('catalog-mount'); }
@@ -177,8 +185,8 @@
         el('page-indicator').textContent =
             pageIds.length ? (index + 1) + ' / ' + pageIds.length : '';
         var multi = pageIds.length > 1;
-        el('prev-page').disabled = !multi;
-        el('next-page').disabled = !multi;
+        el('prev-page').disabled = inputBlocked || !multi;
+        el('next-page').disabled = inputBlocked || !multi;
 
         var dots = el('page-dots');
         dots.textContent = '';
@@ -186,7 +194,9 @@
           pageIds.forEach(function(id, n) {
             var dot = document.createElement('button');
             dot.type = 'button';
-            dot.setAttribute('aria-label', 'Page ' + (n + 1));
+            dot.setAttribute('aria-label', shellStrings[3] + ' ' + (n + 1));
+            dot.disabled = inputBlocked;
+            if (id === activeId) dot.setAttribute('aria-current', 'page');
             if (id === activeId) { dot.className = 'dot-active'; }
             dot.addEventListener('click', function() { showPage(id); });
             dots.appendChild(dot);
@@ -195,35 +205,40 @@
       }
 
       function showPage(id) {
+        if (inputBlocked) return;
         if (id === activeId) { return; }
         var fn = bridge('ApptraverseWindowCatalogMobilePageShown');
         if (fn) { fn(id >>> 0); }
       }
 
       function swipe(delta) {
+        if (inputBlocked) return;
         var fn = bridge('ApptraverseWindowCatalogMobileSwipe');
         if (fn && pageIds.length > 1) { fn(delta); }
       }
 
       function shutdown() {
+        if (inputBlocked) return;
         var fn = bridge('ApptraverseWindowCatalogRequestShutdown');
         if (fn) { fn(); }
       }
 
       function installInput() {
-        var lifecycleSaved = false;
+        media = ['(prefers-color-scheme: dark)', '(forced-colors: active)'].map(function(q) {
+          var m = matchMedia(q); m.addEventListener('change', applyAppearance); return m;
+        });
+        applyAppearance();
         function persistHiddenPage() {
-          if (lifecycleSaved) return;
+          // Each accepted lifecycle event must drain the current model. A
+          // previous hidden capture cannot cover commands accepted afterward.
           var fn = bridge('ApptraverseWindowCatalogPageHidden');
-          if (fn) lifecycleSaved = fn() !== 0;
+          if (fn) fn();
         }
         document.addEventListener('visibilitychange', function() {
           if (document.visibilityState === 'hidden') persistHiddenPage();
-          else lifecycleSaved = false;
         });
-        // Fallback for navigation/close and pages returning from bfcache.
+        // Navigation/close can follow an earlier hidden capture.
         window.addEventListener('pagehide', persistHiddenPage);
-        window.addEventListener('pageshow', function() { lifecycleSaved = false; });
         el('prev-page').addEventListener('click', function() { swipe(-1); });
         el('next-page').addEventListener('click', function() { swipe(1); });
         el('shutdown-button').addEventListener('click', shutdown);
@@ -251,7 +266,7 @@
 
         // Keyboard paging for desktop browsers.
         document.addEventListener('keydown', function(ev) {
-          if (ev.target && /^(INPUT|TEXTAREA)$/.test(ev.target.tagName)) { return; }
+          if (ev.target && /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(ev.target.tagName)) { return; }
           if (ev.key === 'ArrowLeft') { swipe(-1); }
           if (ev.key === 'ArrowRight') { swipe(1); }
         });
@@ -279,6 +294,45 @@
       }
 
       return {
+        setMenus: function(groups, strings, language) {
+          shellStrings = strings;
+          document.documentElement.lang = language === 1 ? 'ru' : 'en';
+          el('prev-page').setAttribute('aria-label', strings[0]);
+          el('next-page').setAttribute('aria-label', strings[1]);
+          el('shutdown-button').textContent = strings[2];
+          var menu = el('application-menu');
+          // Preserve focus and the browser's native popup across publications.
+          while (menu.children.length > groups.length) menu.lastChild.remove();
+          groups.forEach(function(group, groupIndex) {
+            var label = menu.children[groupIndex];
+            if (!label) {
+              label = document.createElement('label');
+              label.appendChild(document.createElement('span'));
+              var select = document.createElement('select');
+              select.id = 'catalog-menu-' + groupIndex;
+              select.addEventListener('change', function() {
+                var command = bridge('ApptraverseWindowCatalogMenuCommand');
+                if (command && !inputBlocked) command(groupIndex, select.selectedIndex);
+              });
+              label.appendChild(select); menu.appendChild(label);
+            }
+            label.firstChild.textContent = group.label.replace(/&/g, '');
+            var select = label.lastChild;
+            select.disabled = inputBlocked;
+            while (select.options.length > group.items.length) select.remove(select.options.length - 1);
+            group.items.forEach(function(item, itemIndex) {
+              if (!select.options[itemIndex]) select.add(document.createElement('option'));
+              var option = select.options[itemIndex];
+              option.value = String(itemIndex);
+              option.textContent = item.label.replace(/&/g, '');
+              option.selected = item.selected;
+            });
+          });
+        },
+        setAppearance: function(mode, soften) {
+          appearanceMode = mode; softenDark = soften; applyAppearance();
+        },
+        setStatusKey: function(index) { el('status').textContent = shellStrings[index]; },
         setPages: function(csv, active) {
           pageIds = csv ? csv.split(',').map(Number) : [];
           var changed = activeId !== (active >>> 0);
@@ -288,14 +342,21 @@
         },
         setStatus: function(text) { el('status').textContent = text; },
         setInputBlocked: function(blocked) {
+          inputBlocked = blocked;
           mount().inert = blocked;
+          el('application-menu').inert = blocked;
+          el('page-dots').inert = blocked;
+          el('application-menu').querySelectorAll('select').forEach(function(select) { select.disabled = blocked; });
+          el('page-dots').querySelectorAll('button').forEach(function(dot) { dot.disabled = blocked; });
           ['prev-page', 'next-page', 'shutdown-button'].forEach(function(id) {
             el(id).disabled = blocked ||
                 (id !== 'shutdown-button' && pageIds.length <= 1);
           });
         },
         shutdownDone: function(ok) {
-          el('status').textContent = ok ? 'Stopped' : 'Stop failed';
+          media.forEach(function(m) { m.removeEventListener('change', applyAppearance); });
+          media = [];
+          el('status').textContent = shellStrings[ok ? 5 : 6];
         },
         installInput: installInput
       };
@@ -315,7 +376,6 @@
         }
       }],
       onRuntimeInitialized: function() {
-        console.log('WINDOW_CATALOG_WASM_READY crossOriginIsolated=' + crossOriginIsolated);
         AtCatalog.installInput();
       }
     };

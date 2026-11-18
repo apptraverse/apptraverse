@@ -129,6 +129,15 @@ void TestInitialPlacement(ae::Domain& domain) {
   CHECK(centered->x() == -920 && centered->y() == 210);
   CHECK(!centered->TakeFrameRequestPendingPublication());
 
+  auto replayed_center = UiDesktopWindow::ptr::Create(ae::CreateWith{domain});
+  replayed_center->BootstrapFrame(0, 0, 640, 480, UiDesktopWindow::InitialPlacement::Centered);
+  InitializeRuntimeNode(*replayed_center);
+  auto report = ReportUiDesktopScreenEvent::ptr::Create(ae::CreateWith{domain});
+  report->x = -1200; report->y = 0; report->width = 1200; report->height = 900;
+  replayed_center->Apply(*report);
+  CHECK(replayed_center->x() == -920 && replayed_center->y() == 210);
+  CHECK(!replayed_center->TakeFrameRequestPendingPublication());
+
 }
 
 }  // namespace

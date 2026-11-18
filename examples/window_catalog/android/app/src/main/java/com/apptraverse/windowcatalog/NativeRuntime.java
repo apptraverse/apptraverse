@@ -15,6 +15,7 @@ public final class NativeRuntime {
       long handle, android.app.Activity activity, android.view.ViewGroup contentRoot);
 
   public static native void nativeStartModel(long handle);
+  public static native void nativeClearPresentationRoot(long handle, android.app.Activity activity);
 
   public static native void nativeConsumePublication(long handle, int kind);
 

@@ -16,17 +16,18 @@ void PrepareWindowCatalogForRun(WindowCatalog& catalog) {
   chrome_presenters.add_button_presenter.Load();
   chrome_presenters.open_button_presenter.Load();
   chrome_presenters.delete_button_presenter.Load();
-  chrome_presenters.language_button_presenter.Load();
+  if (chrome_presenters.language_button_presenter.id().is_valid())
+    chrome_presenters.language_button_presenter.Load();
   auto& chrome_buttons = catalog.persisted.buttons;
   chrome_buttons.add_button.Load();
   chrome_buttons.open_button.Load();
   chrome_buttons.delete_button.Load();
-  chrome_buttons.language_button.Load();
+  if (chrome_buttons.language_button.id().is_valid()) chrome_buttons.language_button.Load();
   auto& localized_texts = catalog.persisted.texts;
   localized_texts.label_add.Load();
   localized_texts.label_open.Load();
   localized_texts.label_delete.Load();
-  localized_texts.label_language.Load();
+  if (localized_texts.label_language.id().is_valid()) localized_texts.label_language.Load();
   localized_texts.window_title_prefix.Load();
   localized_texts.list_row_title_format.Load();
   localized_texts.list_row_title_closed_suffix.Load();

@@ -38,6 +38,16 @@ Normal **Debug** starts each process with fresh USER and never loads the previou
 USER. Its profile is `files/<stateSubdir>/debug-run-<id>/user/user.bin` when the
 Activity first goes into the background. Recreating the Activity in the same
 process keeps the live model and remounts its presenters.
+`onDestroy` releases the owning Activity's native mounts, JNI global references
+and native settings/display/accessibility listeners. The Application keeps the
+model worker and mirror; publications continue to apply while detached. A later
+Activity remounts that mirror. An obsolete Activity cannot detach its replacement.
+
+The published appearance also selects the Activity's native Material theme.
+Switching between effective light and dark recreates the Activity so the standard
+ActionBar and options menu receive the same native theme as the content. That
+recreation reaches the ordinary `onStop` checkpoint boundary. System mode follows
+the OS configuration; LOCAL continues to record the actual OS baseline separately.
 
 **debugLoadOnly** keeps Debug assertions and symbols but reads/writes
 `files/<stateSubdir>/user.bin`. Use it for interactive close/reopen demonstrations

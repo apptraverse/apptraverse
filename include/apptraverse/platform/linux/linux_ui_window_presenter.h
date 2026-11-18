@@ -51,7 +51,6 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
   GtkWidget* TopLevelWindow() const { return window_; }
   GtkWidget* PresentationMenu() const { return presentation_menu_; }
   virtual GtkWidget* CreatePresentationMenu() { return nullptr; }
-  virtual bool PresentsAppearanceContextMenu() const { return true; }
 
   void ReportNativeClientFrame();
 
@@ -126,7 +125,7 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
   UiDisplayRect frame_reference_{};
   bool local_placement_pending_{false};
   bool native_initial_placement_observed_{false};
-  bool environment_placement_pending_{false};
+  std::optional<std::uint64_t> pending_environment_revision_;
 };
 
 }  // namespace apptraverse::ui::linux

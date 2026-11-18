@@ -168,10 +168,14 @@ LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
     presenter->interactive_move_active_ = true;
   }
   if (msg == WM_EXITSIZEMOVE) {
-    if (!presenter->applying_native_frame_) {
+    presenter->interactive_move_active_ = false;
+    if (presenter->pending_requested_frame_) {
+      auto const requested = *presenter->pending_requested_frame_;
+      presenter->pending_requested_frame_.reset();
+      presenter->ApplyRequestedNativeFrame(requested);
+    } else if (!presenter->applying_native_frame_) {
       presenter->HandleNativeFrameChanged(true);
     }
-    presenter->interactive_move_active_ = false;
     presenter->ReportEnvironmentFromNative(UiEnvironmentReason::kUserWindowChange);
   }
   if (msg == WM_WINDOWPOSCHANGED && !presenter->applying_native_frame_ &&
@@ -276,10 +280,18 @@ WinDesktopWindowPresenter::ReadNativeClientFrame() const {
 }
 
 void WinDesktopWindowPresenter::ApplyRequestedFrameFromMirror() {
-  if (interactive_move_active_ || hwnd_ == nullptr) {
+  if (hwnd_ == nullptr) return;
+  ClientFrame const mirror = ReadMirrorClientFrame();
+  if (interactive_move_active_) {
+    // Publication intent is consumed once. Retain its target across the native
+    // modal drag, including later unrelated mirror publications.
+    pending_requested_frame_ = mirror;
     return;
   }
-  ClientFrame const mirror = ReadMirrorClientFrame();
+  ApplyRequestedNativeFrame(mirror);
+}
+
+void WinDesktopWindowPresenter::ApplyRequestedNativeFrame(ClientFrame mirror) {
   ClientFrame const native = ReadNativeClientFrame();
   if (FramesEqual(mirror, native)) {
     return;
@@ -345,6 +357,8 @@ void WinDesktopWindowPresenter::OnUnload() {
   last_reported_environment_.reset();
   last_reported_window_.reset();
   applied_placement_revision_ = 0;
+  interactive_move_active_ = false;
+  pending_requested_frame_.reset();
 }
 
 WinDesktopWindowPresenter* WinDesktopWindowPresenter::FromNativeWindow(HWND window) {

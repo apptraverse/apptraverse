@@ -7,7 +7,7 @@ namespace apptraverse {
 // Supply-authoring policy of a backend, not a user preference. Native-following
 // adapters (e.g. AppKit) omit the theme menu entirely. No simulated OS settings.
 enum class CatalogThemeHandling : std::uint8_t { kNativeFollowsSystem, kAdapterAppliesTheme };
-enum class CatalogMenuAction : std::uint8_t { kLanguage, kTheme };
+enum class CatalogMenuAction : std::uint8_t { kLanguage, kTheme, kLayoutFlow, kResetLayout };
 struct CatalogMenuItem {
   ui::UiLocalizationString::ptr label;
   CatalogMenuAction action;
@@ -26,10 +26,12 @@ class CatalogMenuDefinition : public NodeFor<CatalogMenuDefinition> {
  public:
   explicit CatalogMenuDefinition(ae::ObjProp p) : NodeFor{p} {}
   std::vector<CatalogMenuGroup> groups;
+  std::vector<CatalogMenuItem> layout_items;
+  std::vector<ui::UiLocalizationString::ptr> shell_strings;
   void MaterializeLanguage(int language);
-  AE_OBJECT_REFLECT(AE_MMBR(groups))
-  template<class D> void Load(ae::Version<0>, D& d) { d(base_, groups); }
-  template<class D> void Save(ae::Version<0>, D& d) const { d(base_, groups); }
+  AE_OBJECT_REFLECT(AE_MMBR(groups), AE_MMBR(layout_items), AE_MMBR(shell_strings))
+  template<class D> void Load(ae::Version<0>, D& d) { d(base_, groups, layout_items, shell_strings); }
+  template<class D> void Save(ae::Version<0>, D& d) const { d(base_, groups, layout_items, shell_strings); }
 };
 // Menu-enabled adapters opt into this LOCAL root during supply composition.
 // Only language and existing appearance preferences persist here.
@@ -48,11 +50,13 @@ class CatalogUiState : public NodeFor<CatalogUiState, ui::UiDeviceState> {
     ids.insert(catalog.id()); ids.insert(menu.id());
   }
   void ExecuteMenuCommand(unsigned group, unsigned item);
+  void ExecuteLayoutCommand(unsigned item);
   bool MenuItemSelected(CatalogMenuItem const& item) const;
 };
 
 WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain&, CatalogThemeHandling);
-void ComposeCatalogMenu(ae::Domain&, WindowCatalog&, CatalogThemeHandling);
+void ComposeCatalogMenu(ae::Domain&, WindowCatalog&, CatalogThemeHandling,
+                        bool web_shell = false, bool layout_context = false);
 void PrepareCatalogMenuForRun(WindowCatalog&);
 void EnsureCatalogMenuRegistration();
 

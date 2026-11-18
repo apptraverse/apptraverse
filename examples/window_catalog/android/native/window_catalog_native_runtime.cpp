@@ -7,7 +7,6 @@
 #include "window_catalog_menu.h"
 
 #include "android_jni_util.h"
-#include "android_log.h"
 
 #include "apptraverse/platform/android/android_ui_window_presenter.h"
 #include "apptraverse/ui/ui_presented_window.h"
@@ -89,7 +88,6 @@ void WindowCatalogNativeRuntime::SetPresentationRoot(JNIEnv* env,
     callbacks.after_initial = [this](ae::Obj& root) {
       SyncMobilePagerChrome(CatalogRoot(root));
       PublishMobilePages();
-      apptraverse::android::LogInfo("WINDOW_CATALOG_INITIAL_RENDER_OK");
     };
     callbacks.after_incremental = [this](ae::Obj& root) {
       SyncMobilePagerChrome(CatalogRoot(root));
@@ -108,6 +106,10 @@ void WindowCatalogNativeRuntime::SetPresentationRoot(JNIEnv* env,
     SyncMobilePagerChrome(CatalogRoot(host_->ui_session()->root()));
     PublishMobilePages();
   }
+}
+
+void WindowCatalogNativeRuntime::ClearPresentationRoot(JNIEnv* env, jobject activity) {
+  if (host_) host_->ClearPresentationRoot(env, activity);
 }
 
 void WindowCatalogNativeRuntime::StartModelThread() {

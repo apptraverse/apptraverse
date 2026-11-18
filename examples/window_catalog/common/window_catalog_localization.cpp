@@ -52,7 +52,7 @@ ui::UiLocalizationString::ptr MakeCatalogLocalizedString(ae::Domain& domain,
 }  // namespace
 
 void InstallWindowCatalogLocalization(WindowCatalog& catalog,
-                                      ae::Domain& domain) {
+                                      ae::Domain& domain, bool language_button) {
   catalog.persisted.locale =
       ui::UiLocaleSettings::ptr::Create(ae::CreateWith{domain}.with_id(
           window_catalog_demo::ToObjId(window_catalog_demo::ObjId::Locale)));
@@ -65,8 +65,13 @@ void InstallWindowCatalogLocalization(WindowCatalog& catalog,
       CreateCatalogLocalizedString(domain, catalog, "Open", "Открыть");
   catalog.persisted.texts.label_delete =
       CreateCatalogLocalizedString(domain, catalog, "Delete", "Удалить");
-  catalog.persisted.texts.label_language =
-      CreateCatalogLocalizedString(domain, catalog, "RU", "EN");
+  if (language_button) {
+    // Optional resources have a separate producer cursor. Omitting the content
+    // button never shifts any shared localized resource on another backend.
+    ae::Domain::ObjectIdSequence language_ids{domain, ae::ObjId{1800}, ae::ObjId{1809}};
+    catalog.persisted.texts.label_language =
+        CreateCatalogLocalizedString(domain, catalog, "RU", "EN");
+  }
   catalog.persisted.texts.window_title_prefix =
       CreateCatalogLocalizedString(domain, catalog, "Window ", "Окно ");
   catalog.persisted.texts.label_close =

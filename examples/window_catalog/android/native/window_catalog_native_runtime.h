@@ -27,6 +27,7 @@ class WindowCatalogNativeRuntime {
   ~WindowCatalogNativeRuntime();
 
   void SetPresentationRoot(JNIEnv* env, jobject activity, jobject content_root);
+  void ClearPresentationRoot(JNIEnv* env, jobject activity);
   void StartModelThread();
   void ConsumePublication(int kind);
   void FlushPendingBackgroundSaves();
