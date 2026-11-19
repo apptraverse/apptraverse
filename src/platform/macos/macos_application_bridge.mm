@@ -147,7 +147,15 @@ class MacNativeViews final
 
 @implementation ATMacMenuItemState
 - (instancetype)initWithTitle:(NSString*)title selected:(BOOL)selected {
-  if ((self = [super init])) { _title = title; _selected = selected; }
+  return [self initWithTitle:title selected:selected startsSection:NO];
+}
+- (instancetype)initWithTitle:(NSString*)title selected:(BOOL)selected
+                startsSection:(BOOL)startsSection {
+  if ((self = [super init])) {
+    _title = title;
+    _selected = selected;
+    _startsSection = startsSection;
+  }
   return self;
 }
 @end
@@ -343,6 +351,9 @@ class MacNativeViews final
   if (_callbacks.menu_state) {
     [self.delegate bridge:self syncMenu:_callbacks.menu_state(_uiSession->root())];
   }
+  if (_callbacks.context_menu_state) {
+    [self.delegate bridge:self syncContextMenu:_callbacks.context_menu_state(_uiSession->root())];
+  }
   for (auto& [token, native] : _windows) {
     [self applyLocalPlacement:token];
   }
@@ -401,6 +412,12 @@ class MacNativeViews final
   if (_stopping || !_uiSession || !_callbacks.on_menu_command) return;
   _callbacks.on_menu_command(_uiSession->root(), *_proxy,
       static_cast<unsigned>(group), static_cast<unsigned>(item));
+}
+
+- (void)executeContextMenuItem:(NSUInteger)item {
+  if (_stopping || !_uiSession || !_callbacks.on_context_menu_command) return;
+  _callbacks.on_context_menu_command(_uiSession->root(), *_proxy,
+      static_cast<unsigned>(item));
 }
 
 - (void)clickButton:(uint64_t)token {

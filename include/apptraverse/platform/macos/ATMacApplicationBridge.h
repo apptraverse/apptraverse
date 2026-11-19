@@ -14,7 +14,10 @@ typedef NS_ENUM(NSInteger, ATMacPublicationKind) {
 @interface ATMacMenuItemState : NSObject
 @property(nonatomic, readonly) NSString* title;
 @property(nonatomic, readonly, getter=isSelected) BOOL selected;
+@property(nonatomic, readonly) BOOL startsSection;
 - (instancetype)initWithTitle:(NSString*)title selected:(BOOL)selected;
+- (instancetype)initWithTitle:(NSString*)title selected:(BOOL)selected
+                startsSection:(BOOL)startsSection;
 @end
 
 @interface ATMacMenuGroupState : NSObject
@@ -53,6 +56,8 @@ typedef NS_ENUM(NSInteger, ATMacPublicationKind) {
 @optional
 - (void)bridge:(ATMacApplicationBridge*)bridge
     syncMenu:(NSArray<ATMacMenuGroupState*>*)groups;
+- (void)bridge:(ATMacApplicationBridge*)bridge
+    syncContextMenu:(NSArray<ATMacMenuItemState*>*)items;
 @required
 @end
 
@@ -96,6 +101,7 @@ typedef NS_ENUM(NSInteger, ATMacPublicationKind) {
 - (ATMacListState*)listState:(uint64_t)token;
 - (void)clickButton:(uint64_t)token;
 - (void)executeMenuGroup:(NSUInteger)group item:(NSUInteger)item;
+- (void)executeContextMenuItem:(NSUInteger)item;
 - (void)selectListRow:(NSInteger)row token:(uint64_t)token;
 - (void)activateListRow:(NSInteger)row token:(uint64_t)token;
 - (void)bindNativeWindow:(id)window token:(uint64_t)token;

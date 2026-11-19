@@ -151,6 +151,28 @@ private final class CatalogScenario {
                 return frames.frame(forControl: buttonID).minX > frames.frame(forControl: listID).maxX
             }
             captureLayout(window, "wide")
+            await wait("main window receives the Windows layout commands") {
+                self.host.contextMenuItems.map(\.title) == [
+                    "Layout: Automatic", "Layout: Horizontal", "Layout: Vertical",
+                    "Reset layout to application default"
+                ] && self.host.contextMenuItems.last?.startsSection == true
+            }
+            host.executeContextMenu(item: 2)
+            await wait("Vertical layout stacks controls even in a wide window") {
+                let frames = solved()
+                return self.host.contextMenuItems[2].isSelected
+                    && frames.frame(forControl: buttonID).minY > frames.frame(forControl: listID).maxY
+            }
+            host.executeContextMenu(item: 1)
+            await wait("Horizontal layout puts controls beside the list") {
+                let frames = solved()
+                return self.host.contextMenuItems[1].isSelected
+                    && frames.frame(forControl: buttonID).minX > frames.frame(forControl: listID).maxX
+            }
+            host.executeContextMenu(item: 3)
+            await wait("Reset layout restores the adaptive application default") {
+                self.host.contextMenuItems[0].isSelected
+            }
             window.setContentSize(CGSize(width: 310, height: 570))
             await wait("tall native resize reflows controls below the list") {
                 guard self.main?.clientSize?.width == 310 && self.main?.clientSize == window.contentLayoutRect.size else { return false }
@@ -217,6 +239,7 @@ private final class CatalogScenario {
                     && self.child(2)?.title == "Окно 2"
                     && self.list?.rows.allSatisfy { $0.text.hasPrefix("Окно ") } == true
                     && self.host.menuGroups.last?.items.last?.isSelected == true
+                    && self.host.contextMenuItems.first?.title == "Раскладка: автоматически"
             }
             close(child(1)!)
             await wait("closing a localized child retains its identity") {

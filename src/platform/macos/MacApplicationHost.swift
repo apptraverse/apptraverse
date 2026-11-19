@@ -133,8 +133,30 @@ private struct MacButtonControl: View {
     }
 }
 
+private struct MacWindowContextMenu: View {
+    let host: MacApplicationHost
+    let isPrimary: Bool
+
+    var body: some View {
+        if isPrimary {
+            ForEach(host.contextMenuItems.indices, id: \.self) { index in
+                let item = host.contextMenuItems[index]
+                if item.startsSection {
+                    Divider()
+                    Button(item.title) { host.executeContextMenu(item: index) }
+                } else {
+                    Toggle(item.title, isOn: Binding(get: { item.isSelected }, set: { _ in
+                        host.executeContextMenu(item: index)
+                    }))
+                }
+            }
+        }
+    }
+}
+
 private struct MacListControl: View {
     @ObservedObject var adapter: MacListAdapter
+    let windowMenu: MacWindowContextMenu
 
     var body: some View {
         List(selection: adapter.selection) {
@@ -147,7 +169,7 @@ private struct MacListControl: View {
                     .accessibilityAction(named: Text("Open")) { adapter.activate(row.id) }
             }
         }
-        .contextMenu(forSelectionType: UInt64.self, menu: { _ in EmptyView() }) { selection in
+        .contextMenu(forSelectionType: UInt64.self, menu: { _ in windowMenu }) { selection in
             if let identity = selection.first { adapter.activate(identity) }
         }
         .listStyle(.plain)
@@ -158,6 +180,7 @@ private struct MacListControl: View {
 }
 
 private struct MacWindowContent: View {
+    let host: MacApplicationHost
     let adapter: MacWindowAdapter
     let snapshot: MacWindowSnapshot
     @Environment(\.colorSchemeContrast) private var contrast
@@ -172,15 +195,18 @@ private struct MacWindowContent: View {
     }
 
     var body: some View {
+        let windowMenu = MacWindowContextMenu(host: host, isPrimary: snapshot.state.isPrimary)
         GeometryReader { geometry in
             ScrollView([.horizontal, .vertical]) {
                 if geometry.size.width >= 1, geometry.size.height >= 1 {
                     AppleConstraintLayout(definition: snapshot.state.layout, viewport: geometry.size) {
                         ForEach(snapshot.buttons) { MacButtonControl(adapter: $0) }
-                        ForEach(snapshot.lists) { MacListControl(adapter: $0) }
+                        ForEach(snapshot.lists) { MacListControl(adapter: $0, windowMenu: windowMenu) }
                     }
                 }
             }
+            .contentShape(Rectangle())
+            .contextMenu { windowMenu }
             .onAppear { adapter.observeViewport(geometry.size) }
             .onChange(of: geometry.size) { adapter.observeViewport($0) }
         }
@@ -193,10 +219,13 @@ private struct MacWindowContent: View {
 }
 
 private struct MacWindowPresentation: View {
+    let host: MacApplicationHost
     @ObservedObject var adapter: MacWindowAdapter
 
     var body: some View {
-        if let snapshot = adapter.snapshot { MacWindowContent(adapter: adapter, snapshot: snapshot) }
+        if let snapshot = adapter.snapshot {
+            MacWindowContent(host: host, adapter: adapter, snapshot: snapshot)
+        }
         else { ProgressView() }
     }
 }
@@ -209,7 +238,7 @@ private struct MacWindowScene: View {
     var body: some View {
         Group {
             if let adapter = host.window(for: sceneID) {
-                MacWindowPresentation(adapter: adapter)
+                MacWindowPresentation(host: host, adapter: adapter)
             } else {
                 ProgressView()
             }
@@ -281,6 +310,7 @@ public final class MacApplicationHost: NSObject, ObservableObject, ATMacApplicat
     private(set) var bridge: ATMacApplicationBridge?
     @Published private(set) var windows: [UInt64: MacWindowAdapter] = [:]
     @Published private(set) var menuGroups: [ATMacMenuGroupState] = []
+    @Published private(set) var contextMenuItems: [ATMacMenuItemState] = []
     private(set) var buttons: [UInt64: MacButtonAdapter] = [:]
     private(set) var lists: [UInt64: MacListAdapter] = [:]
     let nativeWindows = MacNativeWindows()
@@ -373,6 +403,11 @@ public final class MacApplicationHost: NSObject, ObservableObject, ATMacApplicat
         guard !terminating, menuGroups.indices.contains(group),
               menuGroups[group].items.indices.contains(item) else { return }
         bridge?.executeMenuGroup(UInt(group), item: UInt(item))
+    }
+
+    func executeContextMenu(item: Int) {
+        guard !terminating, contextMenuItems.indices.contains(item) else { return }
+        bridge?.executeContextMenuItem(UInt(item))
     }
 
     private func present(_ id: UUID, activate: Bool) {
@@ -483,6 +518,10 @@ public final class MacApplicationHost: NSObject, ObservableObject, ATMacApplicat
 
     public func bridge(_ bridge: ATMacApplicationBridge, syncMenu groups: [ATMacMenuGroupState]) {
         menuGroups = groups
+    }
+
+    public func bridge(_ bridge: ATMacApplicationBridge, syncContextMenu items: [ATMacMenuItemState]) {
+        contextMenuItems = items
     }
 
     public func bridgeDidFinishPublication(_ bridge: ATMacApplicationBridge) {

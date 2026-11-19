@@ -116,6 +116,26 @@ ATMacApplicationBridge* ATCreateWindowCatalogApplicationBridge(
     proxy.Invoke(catalog.persisted.device_state.id(),
         &apptraverse::CatalogUiState::ExecuteMenuCommand, group, item);
   };
+  callbacks.context_menu_state = [](ae::Obj& root) -> NSArray<ATMacMenuItemState*>* {
+    auto& catalog = static_cast<apptraverse::WindowCatalog&>(root);
+    auto& state = static_cast<apptraverse::CatalogUiState&>(
+        *catalog.persisted.device_state);
+    int const language = catalog.persisted.locale->language_index();
+    NSMutableArray<ATMacMenuItemState*>* items = [NSMutableArray array];
+    for (auto const& item : state.menu->layout_items) {
+      [items addObject:[[ATMacMenuItemState alloc]
+          initWithTitle:CatalogMenuText(item.label->Resolve(language))
+          selected:state.MenuItemSelected(item)
+          startsSection:item.action == apptraverse::CatalogMenuAction::kResetLayout]];
+    }
+    return [items copy];
+  };
+  callbacks.on_context_menu_command = [](ae::Obj& root,
+      apptraverse::ModelObjectProxy& proxy, unsigned item) {
+    auto& catalog = static_cast<apptraverse::WindowCatalog&>(root);
+    proxy.Invoke(catalog.persisted.device_state.id(),
+        &apptraverse::CatalogUiState::ExecuteLayoutCommand, item);
+  };
   callbacks.close_desktop_window =
       [](ae::Obj& root, ae::Obj& closed_window,
                     apptraverse::ModelObjectProxy& proxy,
