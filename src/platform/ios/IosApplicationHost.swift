@@ -155,15 +155,22 @@ private struct IosWindowView: View {
     let viewport: CGSize
     @Environment(\.colorSchemeContrast) private var contrast
 
+    private func controls(_ snapshot: IosWindowSnapshot) -> some View {
+        AppleConstraintLayout(definition: snapshot.state.layout, viewport: viewport) {
+            ForEach(snapshot.buttons) { IosButtonControl(adapter: $0) }
+            ForEach(snapshot.lists) { IosListControl(adapter: $0) }
+        }
+    }
+
     var body: some View {
         if let snapshot = scene.snapshot, viewport.width >= 1, viewport.height >= 1 {
-            ScrollView([.horizontal, .vertical]) {
-                AppleConstraintLayout(definition: snapshot.state.layout, viewport: viewport) {
-                    ForEach(snapshot.buttons) { IosButtonControl(adapter: $0) }
-                    ForEach(snapshot.lists) { IosListControl(adapter: $0) }
+            ViewThatFits {
+                controls(snapshot)
+                ScrollView([.horizontal, .vertical]) {
+                    controls(snapshot)
                 }
+                .scrollBounceBehavior(.basedOnSize)
             }
-            .scrollBounceBehavior(.basedOnSize)
             .background(snapshot.state.softenDark && contrast != .increased ?
                         Color(white: 0.18) : Color.clear)
         }
@@ -292,6 +299,17 @@ public struct IosApplicationRootView: View {
             reducedMotion: reducedMotion, voiceOver: voiceOver)
     }
 
+    private func navigateSwipe(_ translation: CGSize) {
+        let horizontal = abs(translation.width)
+        let vertical = abs(translation.height)
+        if horizontal > 60 && horizontal > vertical * 2 {
+            host.swipe(translation.width < 0 ? 1 : -1)
+        } else if translation.height < -60 && vertical > horizontal * 2,
+                  let main = host.mainScene, host.activeToken != main.id {
+            host.selectPage(main.id)
+        }
+    }
+
     public var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -304,17 +322,13 @@ public struct IosApplicationRootView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .contentShape(Rectangle())
                     .onChange(of: geometry.size, initial: true) { host.reportViewport(geometry.size) }
-                    .simultaneousGesture(DragGesture(minimumDistance: 40).onEnded { value in
-                        if abs(value.translation.width) > 60 &&
-                            abs(value.translation.width) > abs(value.translation.height) * 2 {
-                            host.swipe(value.translation.width < 0 ? 1 : -1)
-                        }
-                    })
                 }
                 if host.pageTokens.count > 1 { IosPagePicker(host: host) }
             }
+            .contentShape(Rectangle())
+            .simultaneousGesture(DragGesture(minimumDistance: 40, coordinateSpace: .global)
+                .onEnded { navigateSwipe($0.translation) })
             .navigationTitle(host.activeScene?.title ?? "")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
