@@ -289,7 +289,7 @@ private struct IosSettingsView: View {
 
 public struct IosApplicationRootView: View {
     @ObservedObject public var host: IosApplicationHost
-    @State private var showsSettings = false
+    @AppStorage("apptraverse.ios.showsSettings") private var showsSettings = false
     @Environment(\.scenePhase) private var phase
     @Environment(\.displayScale) private var displayScale
     @Environment(\.colorScheme) private var scheme
@@ -302,6 +302,11 @@ public struct IosApplicationRootView: View {
 
     private var preferredScheme: ColorScheme? {
         colorSchemePreference(for: host.activeScene?.snapshot?.state, contrast: contrast)
+    }
+
+    private var settingsPresentation: Binding<Bool> {
+        Binding(get: { showsSettings && !host.menuGroups.isEmpty },
+                set: { showsSettings = $0 })
     }
 
     private var settings: IosSystemSettings {
@@ -356,7 +361,7 @@ public struct IosApplicationRootView: View {
                 }
             }
         }
-        .sheet(isPresented: $showsSettings) {
+        .sheet(isPresented: settingsPresentation) {
             IosSettingsView(host: host)
         }
         .preferredColorScheme(preferredScheme)

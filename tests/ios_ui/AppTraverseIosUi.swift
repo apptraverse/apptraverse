@@ -50,6 +50,31 @@ final class AppTraverseIosUi: XCTestCase {
             }, object: nil)
             XCTAssertEqual(XCTWaiter.wait(for: [applied], timeout: 8), .completed, theme)
         }
+        app.buttons["settings-done"].tap()
+    }
+
+    func testSettingsRestoresAfterProcessRestart() {
+        let app = XCUIApplication(bundleIdentifier: "org.apptraverse.WindowCatalog.ios")
+        app.launch()
+        let done = app.buttons["settings-done"]
+        if !done.exists {
+            assertPage("Window Catalog", in: app)
+            app.buttons["catalog-settings"].tap()
+        }
+        assertPage("Settings", in: app)
+
+        app.terminate()
+        app.launch()
+        assertPage("Settings", in: app)
+        XCTAssertTrue(app.staticTexts["Theme"].exists)
+
+        done.tap()
+        assertPage("Window Catalog", in: app)
+        app.terminate()
+        app.launch()
+        assertPage("Window Catalog", in: app)
+        XCTAssertTrue(app.buttons["catalog-settings"].isHittable)
+        XCTAssertFalse(done.exists)
     }
 
     func testWindowCatalogPagesAndRotation() {
