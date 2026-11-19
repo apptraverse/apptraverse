@@ -128,6 +128,13 @@ def runtime_only_violations(report, map_text, portable_window_catalog=False):
     if not portable_window_catalog:
         forbidden_objects += ('window_catalog_mobile_events_registration.cpp.obj',
                               'window_catalog_close_button.cpp.obj')
+    else:
+        # Windows Catalog uses native menu language actions and no text controls.
+        # Other applications and platform consumers retain these implementations.
+        forbidden_objects += ('win_ui_text_control_presenter.cpp.obj',
+                              'ui_text_control.cpp.obj',
+                              'window_catalog_action_registration.cpp.obj',
+                              'window_catalog_language_button.cpp.obj')
     for obj in forbidden_objects:
         if obj in map_text:
             errors.append('Unexpected linked object: ' + obj)
@@ -140,6 +147,11 @@ def runtime_only_violations(report, map_text, portable_window_catalog=False):
     for cls in ('UiListRowPresenter', 'WinWindowPresenter'):
         if 'g_apptraverse_registrar_' + cls + '@' in map_text:
             errors.append('Unused concrete factory: ' + cls)
+    if portable_window_catalog:
+        for cls in ('WinTextControlPresenter', 'UiTextControl',
+                    'CatalogLanguageButton'):
+            if cls + '@' in map_text:
+                errors.append('Unused catalog implementation symbol: ' + cls)
     # Portable catalog USER includes the Close graph and common window-order history
     # even when the consumer displays desktop windows. These are runtime schema,
     # not distillation. Other applications retain their narrower contract.

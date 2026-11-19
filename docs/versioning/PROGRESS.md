@@ -18,6 +18,14 @@ its original frame. Native regressions also cover entering fullscreen from
 monitor-sized normal bounds and keeping focused controls visible below the
 fixed toolbar.
 
+The broader Windows Catalog review consolidated the layout link while retaining
+the S0 archive shape, narrowed native registration, checked desktop order capture,
+and localized the loading caption from the restored LOCAL language. Tests opened a
+previous S0 profile in the new build and reopened a newly created window in the
+previous build. The rebuilt MinSizeRel map excludes the unused Catalog language
+button and text controls. Details are in the
+[Windows validation record](../validation/window-catalog-windows-monitors-fullscreen-2026-11-19.md#broader-windows-canon-corrections).
+
 ## Shared Chat Windows Catalog presentation — 2026-11-18
 
 Windows Shared Chat now uses the common WindowCatalog system appearance baseline

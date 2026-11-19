@@ -280,10 +280,10 @@ void TestChildLayoutSupplyOwnershipAcrossReplay() {
   auto const definition_id = definition->obj_id;
   catalog->AddWindow();
   auto first = AsHolder(catalog->persisted.list->rows[0])->window;
-  CHECK(first->layout->definition.Load().get() == definition.get());
-  bool const layout_replayed = first->layout->TryReplayFromBase();
+  CHECK(first->layout_state->definition.Load().get() == definition.get());
+  bool const layout_replayed = first->layout_state->TryReplayFromBase();
   CHECK(layout_replayed);
-  CHECK(first->layout->definition.Load().get() == definition.get());
+  CHECK(first->layout_state->definition.Load().get() == definition.get());
   // The list is a separate Node: rewind its history before the catalog replays
   // AddWindow, as in the existing catalog/list composed replay contract.
   bool const list_replayed = catalog->persisted.list->TryReplayFromBase();
@@ -294,8 +294,8 @@ void TestChildLayoutSupplyOwnershipAcrossReplay() {
   CHECK(catalog->persisted.child_layout_definition.Load().get() == definition.get());
   catalog->AddWindow();
   auto second = AsHolder(catalog->persisted.list->rows[1])->window;
-  CHECK(second->layout.id() != first->layout.id());
-  CHECK(second->layout->definition.Load().get() == definition.get());
+  CHECK(second->layout_state.id() != first->layout_state.id());
+  CHECK(second->layout_state->definition.Load().get() == definition.get());
   SaveWindowCatalogPersistentSnapshot(*catalog);
   ae::Domain cold_domain{storage};
   auto cold = LoadApplication<WindowCatalog>(cold_domain, catalog.id());
@@ -305,7 +305,61 @@ void TestChildLayoutSupplyOwnershipAcrossReplay() {
   CHECK(cold_definition->domain == &cold_domain);
   cold->AddWindow();
   auto third = AsHolder(cold->persisted.list->rows.back())->window;
-  CHECK(third->layout->definition.Load().get() == cold_definition.get());
+  CHECK(third->layout_state->definition.Load().get() == cold_definition.get());
+}
+
+void TestSingleCanonicalWindowLayoutPreservesS0Wire() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto catalog = BuildHeadlessWindowCatalogGraph(domain);
+  FinalizeDistilledGraph(*catalog);
+  PrepareWindowCatalogForRun(*catalog);
+  catalog->AddWindow();
+  auto child = AsHolder(catalog->persisted.list->rows.back())->window;
+
+  auto expect_single_edge = [](CatalogWindow& window) {
+    CHECK(&window.layout == &window.layout_state);
+    unsigned layout_edges = 0;
+    ForEachGraphEdgeObjPtrOn(window, [&](auto const& edge) {
+      if (edge.id() == window.layout_state.id()) ++layout_edges;
+    });
+    CHECK(layout_edges == 1);
+  };
+  expect_single_edge(*catalog->persisted.main_window);
+  expect_single_edge(*child);
+  SaveWindowCatalogPersistentSnapshot(*catalog);
+
+  // Independently write the original CatalogWindow S0 field sequence with
+  // native archives. Existing platform readers still require its final slot.
+  auto expect_legacy_bytes = [&](CatalogWindow& window) {
+    ae::RamDomainStorage legacy;
+    ae::DomainQuery const query{window.obj_id, CatalogWindow::kClassId, 0};
+    auto writer = legacy.Store(query);
+    ae::DomainGraph graph{window.domain};
+    auto archive = ae::seri::BinaryArchive{ae::DomainBuffer{
+        .id = window.obj_id, .domain_graph = &graph, .writer = writer.get()}};
+    ae::SaveVisitor save{archive};
+    auto dnv = ae::VersionNodeVisitor{save};
+    ui::UiLayoutState::ptr legacy_layout = window.layout_state;
+    dnv(window.base_, window.close_button, window.close_button_presenter,
+        legacy_layout);
+    CHECK(save.res);
+    auto const committed = writer->Commit();
+    CHECK(committed);
+    writer.reset();
+    CHECK(legacy.state.at(window.obj_id)->at(CatalogWindow::kClassId).at(0) ==
+          storage.state.at(window.obj_id)->at(CatalogWindow::kClassId).at(0));
+  };
+  expect_legacy_bytes(*catalog->persisted.main_window);
+  expect_legacy_bytes(*child);
+
+  ae::Domain cold_domain{storage};
+  auto cold = LoadApplication<WindowCatalog>(cold_domain, catalog.id());
+  PrepareWindowCatalogForRun(*cold);
+  expect_single_edge(*cold->persisted.main_window);
+  auto cold_child = AsHolder(cold->persisted.list->rows.back())->window;
+  expect_single_edge(*cold_child);
+  CHECK(cold_child->layout_state.id() == child->layout_state.id());
 }
 
 void TestWindowNavigationLoadsLazyListAndSkipsClosedWindows() {
@@ -1757,6 +1811,7 @@ int main() {
   apptraverse::test::TestNativeActivationRoutesThroughModelQueue();
   apptraverse::test::TestIndependentSuppliesHaveStableIdentitiesAndBytes();
   apptraverse::test::TestChildLayoutSupplyOwnershipAcrossReplay();
+  apptraverse::test::TestSingleCanonicalWindowLayoutPreservesS0Wire();
   apptraverse::test::TestAddedHolderReplayPreservesInitialLinks();
   apptraverse::test::TestWindowNavigationLoadsLazyListAndSkipsClosedWindows();
   apptraverse::test::TestQueuedCatalogActionsKeepRowIdentity();

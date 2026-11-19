@@ -72,6 +72,10 @@ void ComposeCatalogMenu(ae::Domain& domain, WindowCatalog& catalog, CatalogTheme
         .max_width = -1, .max_height = -1, .grow = 0,
         .padding = 8, .gap = 0, .alignment = ui::UiLayoutAlignment::kEnd,
         .children = {action}};
+    // A separate producer cursor preserves every existing supply identity,
+    // including the menu's historical base allocated below.
+    ae::Domain::ObjectIdSequence loading_ids{domain, ae::ObjId{9800}, ae::ObjId{9899}};
+    state.menu->shell_strings = {text("Loading catalog", "Загрузка каталога")};
   }
   InitializeRuntimeNode(*state.menu, state);
   PrepareCatalogMenuForRun(catalog);

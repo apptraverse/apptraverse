@@ -23,6 +23,7 @@
 #include "apptraverse/ui/ui_window_presenter.h"
 
 #include "window_catalog_graph.h"
+#include "window_catalog_actions.h"
 #include "window_catalog_graph_builder.h"
 #include "window_catalog_presenters.h"
 #include "window_catalog_ids.h"
@@ -2083,6 +2084,8 @@ void TestLiveReachableNodesCoverOpenCatalogWindow() {
 int main() {
   apptraverse::EnableNoninteractiveCrt();
   apptraverse::EnsureWindowCatalogGraphRegistration();
+  // This fixture also authors and replays the optional in-content action.
+  apptraverse::example::surfaces::EnsureCatalogActionRegistration();
   apptraverse::test::TestWindowsMenuSupplyOmitsContentLanguageButton();
   apptraverse::test::TestCatalogPresentedWindowDistilledBaseReplay();
   apptraverse::test::TestCatalogPresentedWindowGraph();

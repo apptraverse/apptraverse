@@ -45,9 +45,9 @@ namespace apptraverse {
 void EnsureWindowCatalogGraphRegistration() {
   // The single Windows application entry point: all transitive schema anchors.
   EnsureCoreObjectRegistration();
-  EnsureWindowCatalogDesktopModelRegistration();
+  EnsureWindowCatalogNativeMenuModelRegistration();
   EnsureCatalogMenuRegistration();
-  ui::windows::EnsureWinControlPresenterRegistration();
+  ui::windows::EnsureWinWindowControlPresenterRegistration();
   (void)&example::surfaces::g_apptraverse_registrar_CatalogListContainerPresenter;
   (void)&example::surfaces::g_apptraverse_registrar_CatalogDesktopWindowPresenter;
 }

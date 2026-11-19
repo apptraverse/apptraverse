@@ -4,6 +4,11 @@
 
 namespace apptraverse {
 
+void EnsureWindowCatalogDesktopModelRegistration() {
+  EnsureWindowCatalogNativeMenuModelRegistration();
+  example::surfaces::EnsureCatalogActionRegistration();
+}
+
 void EnsureWindowCatalogModelRegistration() {
   EnsureWindowCatalogDesktopModelRegistration();
 }

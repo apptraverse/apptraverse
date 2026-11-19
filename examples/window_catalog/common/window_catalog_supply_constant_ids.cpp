@@ -35,7 +35,7 @@ std::vector<ae::ObjId> CollectWindowCatalogSupplyConstantIds(
     WindowCatalog const& catalog) {
   std::vector<ae::ObjId> ids;
   catalog.persisted.main_window.Load();
-  ids.push_back(catalog.persisted.main_window->layout->definition.id());
+  ids.push_back(catalog.persisted.main_window->layout_state->definition.id());
   ids.push_back(catalog.persisted.child_layout_definition.id());
   auto const& texts = catalog.persisted.texts;
   AppendLocalizationRef(texts.label_add, ids);

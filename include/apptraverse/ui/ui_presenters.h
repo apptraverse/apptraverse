@@ -120,6 +120,8 @@ class UiListContainerPresenter : public Presenter {
 };
 
 // Window, push button and native list controls. Native lists have no per-row presenter.
+void EnsureUiWindowControlRegistration();
+// All controls, including standalone text controls.
 void EnsureUiControlRegistration();
 // Full library schema, including standalone row presenters.
 void EnsureUiPresenterRegistration();

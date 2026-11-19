@@ -8,6 +8,7 @@
 
 #include <functional>
 #include <optional>
+#include <string>
 
 #include "aether-objects/obj/obj.h"
 
@@ -32,6 +33,11 @@ struct WinApplicationLoadingOptions {
   int height;
 };
 
+struct WinApplicationLoadingText {
+  std::wstring title;
+  std::wstring message;
+};
+
 struct WinApplicationHostCallbacks {
   using RunModel = std::function<void(ApplicationPublishedCallback)>;
 
@@ -44,6 +50,10 @@ struct WinApplicationHostCallbacks {
   std::function<void(ae::Obj& application_root)> after_incremental;
   std::function<void(ae::Obj& application_root)> after_initial;
   UiPresentersPrepareHook prepare_ui_presenters;
+  // Optional application-owned text, resolved from the initial UI mirror after
+  // model preparation restored LOCAL and before native presenters are mounted.
+  std::function<WinApplicationLoadingText(ae::Obj& application_root)>
+      resolve_loading_text;
 };
 
 class WinApplicationHost {

@@ -70,7 +70,7 @@ bool CatalogUiState::MenuItemSelected(CatalogMenuItem const& item) const {
   if (item.action == CatalogMenuAction::kLanguage)
     return catalog->persisted.locale->language_index() == item.value;
   if (item.action == CatalogMenuAction::kLayoutFlow)
-    return static_cast<int>(catalog->persisted.main_window->layout->EffectiveRoot().flow) == item.value;
+    return static_cast<int>(catalog->persisted.main_window->layout_state->EffectiveRoot().flow) == item.value;
   if (item.action == CatalogMenuAction::kResetLayout) return false;
   int const selected = appearance.theme == ui::UiThemeMode::kAuto ? 0 :
       appearance.theme == ui::UiThemeMode::kLight ? 1 : appearance.soften_dark ? 3 : 2;
@@ -96,7 +96,7 @@ void CatalogUiState::ExecuteMenuCommand(unsigned group, unsigned index) {
 void CatalogUiState::ExecuteLayoutCommand(unsigned index) {
   if (index >= menu->layout_items.size()) return;
   auto const item = menu->layout_items[index];
-  auto layout = catalog->persisted.main_window->layout;
+  auto layout = catalog->persisted.main_window->layout_state;
   if (item.action == CatalogMenuAction::kResetLayout) {
     layout->ClearOverride();
   } else if (item.action == CatalogMenuAction::kLayoutFlow) {

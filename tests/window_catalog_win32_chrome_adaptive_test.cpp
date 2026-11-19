@@ -463,7 +463,7 @@ void TestLocalResizeDoesNotDependOnModelPump() {
   Harness h;
   h.PumpModelAndApply();
   auto const viewport = h.model_catalog->persisted.main_client_viewport;
-  auto const layout_generation = h.model_catalog->persisted.main_window->layout->Generation();
+  auto const layout_generation = h.model_catalog->persisted.main_window->layout_state->Generation();
   auto const window_generation = h.model_catalog->persisted.main_window->Generation();
   auto const restore_width = h.model_catalog->persisted.main_window->restore_client_width();
   auto const restore_height = h.model_catalog->persisted.main_window->restore_client_height();
@@ -477,7 +477,7 @@ void TestLocalResizeDoesNotDependOnModelPump() {
   ExpectTallChrome(h.MainHwnd(), 500, 900);
   CHECK(h.model_catalog->persisted.main_client_viewport.width == viewport.width);
   CHECK(h.model_catalog->persisted.main_client_viewport.height == viewport.height);
-  CHECK(h.model_catalog->persisted.main_window->layout->Generation() == layout_generation);
+  CHECK(h.model_catalog->persisted.main_window->layout_state->Generation() == layout_generation);
   CHECK(add_presenter.layout_x == original[0]);
   CHECK(add_presenter.layout_y == original[1]);
   CHECK(add_presenter.layout_width == original[2]);
@@ -499,8 +499,14 @@ void TestRuntimeConstraintOverrideAndClear() {
   Harness h;
   h.ResizeClient(900, 500, false);
   ExpectWideChrome(h.MainHwnd(), 900, 500);
-  auto model_layout = h.model_catalog->persisted.main_window->layout;
-  auto ui_layout = h.ui_catalog->persisted.main_window->layout;
+  auto model_layout = h.model_catalog->persisted.main_window->layout_state;
+  auto ui_layout = h.ui_catalog->persisted.main_window->layout_state;
+  CHECK(&h.model_catalog->persisted.main_window->layout ==
+        &h.model_catalog->persisted.main_window->layout_state);
+  CHECK(&h.ui_catalog->persisted.main_window->layout ==
+        &h.ui_catalog->persisted.main_window->layout_state);
+  CHECK(model_layout.id() == ui_layout.id());
+  CHECK(model_layout.Load().get() != ui_layout.Load().get());
   HWND const original_list = h.ControlHwnd(kListControlId);
   HWND const original_add = h.ControlHwnd(kAddControlId);
   auto const& menu = static_cast<CatalogUiState const&>(*h.ui_catalog->persisted.device_state).menu;
@@ -531,7 +537,7 @@ void TestSystemSettingsNotificationsStayLocal() {
   h.ResizeClient(900, 500, false);
   h.PumpModelAndApply();
   auto const model_generation = h.model_catalog->Generation();
-  auto const layout_generation = h.model_catalog->persisted.main_window->layout->Generation();
+  auto const layout_generation = h.model_catalog->persisted.main_window->layout_state->Generation();
   auto const window_generation = h.model_catalog->persisted.main_window->Generation();
   auto const restore_width = h.model_catalog->persisted.main_window->restore_client_width();
   auto const restore_height = h.model_catalog->persisted.main_window->restore_client_height();
@@ -542,7 +548,7 @@ void TestSystemSettingsNotificationsStayLocal() {
   SendMessageW(h.MainHwnd(), WM_SYSCOLORCHANGE, 0, 0);
   DispatchPendingWin32Messages();
   CHECK(h.model_catalog->Generation() == model_generation);
-  CHECK(h.model_catalog->persisted.main_window->layout->Generation() == layout_generation);
+  CHECK(h.model_catalog->persisted.main_window->layout_state->Generation() == layout_generation);
   CHECK(h.model_work.size() == pending_count);
   CHECK(h.main_presenter->LayoutScale() > 0);
   CHECK(h.main_presenter->TextScale() > 0);
@@ -588,7 +594,7 @@ void TestFiniteLayoutMaximumDoesNotRepeatedlyRedrawScrollbars() {
   h.PumpModelAndApply();
   double const scale = h.main_presenter->LayoutScale();
   h.ResizeClient(static_cast<int>(900 * scale), static_cast<int>(600 * scale), false);
-  auto layout = h.ui_catalog->persisted.main_window->layout;
+  auto layout = h.ui_catalog->persisted.main_window->layout_state;
   auto changed = layout->EffectiveRoot();
   changed.max_width = 600;
   changed.max_height = 400;

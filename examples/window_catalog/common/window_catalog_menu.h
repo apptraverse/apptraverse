@@ -46,6 +46,8 @@ class CatalogWindowDisplayMenuDefinition
   explicit CatalogWindowDisplayMenuDefinition(ae::ObjProp p) : NodeFor{p} {}
   std::vector<CatalogMenuItem> fullscreen_items;  // enter, exit
   ui::UiLayoutNode fullscreen_toolbar;
+  // Windows shell strings are authored after the existing display resources.
+  ui::UiLocalizationString const& LoadingText() const { return *shell_strings[0]; }
   AE_OBJECT_REFLECT(AE_MMBR(fullscreen_items), AE_MMBR(fullscreen_toolbar))
   template<class D> void Load(ae::Version<0>, D& d) { d(base_, fullscreen_items, fullscreen_toolbar); }
   template<class D> void Save(ae::Version<0>, D& d) const { d(base_, fullscreen_items, fullscreen_toolbar); }

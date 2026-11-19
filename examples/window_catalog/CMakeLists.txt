@@ -121,6 +121,8 @@ add_library(window_catalog_window_catalog_common STATIC
   common/window_catalog_core_registration.cpp
   common/window_catalog_events_registration.cpp
   common/window_catalog_actions.cpp
+  common/window_catalog_action_registration.cpp
+  common/window_catalog_language_button.cpp
   common/window_catalog_close_button.cpp
   common/window_catalog_graph_builder.cpp
   common/window_catalog_prepare.cpp

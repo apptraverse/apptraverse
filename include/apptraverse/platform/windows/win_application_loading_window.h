@@ -23,6 +23,8 @@ class WinApplicationLoadingWindow {
       delete;
 
   void Close();
+  // Paint immediately so startup text is visible before presenter mounting.
+  void SetText(std::wstring title, std::wstring message);
 
   [[nodiscard]] bool is_open() const;
   [[nodiscard]] HWND hwnd() const;

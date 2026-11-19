@@ -124,6 +124,9 @@ class CatalogLanguageButton : public ui::UiPushButton {
   void HandlePushButtonClicked() override;
 };
 
+// Window actions shared by native-menu and in-content consumers.
+void EnsureCatalogWindowActionRegistration();
+// Full action schema, including the in-content language button.
 void EnsureCatalogActionRegistration();
 
 // UI thread (Windows/Linux presenters): the platform already reports the main

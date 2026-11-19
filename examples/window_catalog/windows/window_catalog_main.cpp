@@ -19,6 +19,7 @@
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/platform/windows/win_application_host.h"
+#include "apptraverse/platform/windows/win32_fatal.h"
 #include "apptraverse/platform/windows/win_ui_presenters.h"
 #include "apptraverse/ui/ui_presented_window.h"
 #include "apptraverse/ui/ui_window_presenter.h"
@@ -26,6 +27,7 @@
 #include "window_catalog_lifecycle.h"
 #include "window_catalog_graph.h"
 #include "window_catalog_model.h"
+#include "window_catalog_menu.h"
 #include "window_catalog_main_native_frame_queue.h"
 #include "window_catalog_main_native_frame_wiring.h"
 #if defined(APPTRAVERSE_WINDOW_CATALOG_DEBUG_BOOTSTRAP)
@@ -100,7 +102,7 @@ std::vector<std::uint32_t> CaptureCatalogDesktopZOrderTopToBottom(
   Ctx ctx{&hwnd_map, {} };
   std::vector<std::uint32_t> ordered;
   ctx.out = &ordered;
-  EnumWindows(
+  BOOL const enumerated = EnumWindows(
       [](HWND hwnd, LPARAM lparam) -> BOOL {
         auto* c = reinterpret_cast<Ctx*>(lparam);
         auto const it = c->map->find(hwnd);
@@ -111,6 +113,9 @@ std::vector<std::uint32_t> CaptureCatalogDesktopZOrderTopToBottom(
         return TRUE;
       },
       reinterpret_cast<LPARAM>(&ctx));
+  if (enumerated == 0) {
+    apptraverse::FatalWin32("EnumWindows catalog z-order capture", GetLastError());
+  }
   return ordered;
 }
 
@@ -284,8 +289,19 @@ int main(int argc, char** argv) {
     WireWindowCatalogMainNativeFrameQueue(ui_root,
                                           session.main_native_frame_queue);
   };
+  callbacks.resolve_loading_text = [](ae::Obj& ui_root) {
+    auto const& catalog = static_cast<apptraverse::WindowCatalog const&>(ui_root);
+    auto const& state = static_cast<apptraverse::CatalogUiState const&>(
+        *catalog.persisted.device_state);
+    auto text = apptraverse::ui::windows::Utf8ToWide(
+        state.DisplayMenu().LoadingText().Resolve(
+            catalog.persisted.locale->language_index()));
+    return apptraverse::windows::WinApplicationLoadingText{text, text};
+  };
   apptraverse::windows::WinApplicationLoadingOptions loading{
-      L"AppTraverseWindowCatalogLoading", L"Loading catalog", L"Loading catalog",
+      // Locale is known only after the model loads LOCAL. Keep this initial
+      // shell neutral, then synchronously paint model-resolved startup text.
+      L"AppTraverseWindowCatalogLoading", L"AppTraverse", L"",
       200, 200, 320, 120};
 
   apptraverse::windows::WinApplicationHost host(session.runtime, loading,

@@ -1,5 +1,7 @@
 #include "apptraverse/platform/windows/win_application_loading_window.h"
 
+#include <utility>
+
 #include "apptraverse/platform/windows/win32_fatal.h"
 #include "apptraverse/platform/windows/win_ui_environment.h"
 
@@ -48,6 +50,18 @@ void WinApplicationLoadingWindow::Close() {
     FatalWin32("DestroyWindow WinApplicationLoadingWindow", GetLastError());
   }
   hwnd_ = nullptr;
+}
+
+void WinApplicationLoadingWindow::SetText(std::wstring title,
+                                         std::wstring message) {
+  paint_text_ = std::move(message);
+  if (SetWindowTextW(hwnd_, title.c_str()) == 0) {
+    FatalWin32("SetWindowTextW loading window", GetLastError());
+  }
+  if (RedrawWindow(hwnd_, nullptr, nullptr,
+                   RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW) == 0) {
+    FatalWin32("RedrawWindow loading window", GetLastError());
+  }
 }
 
 bool WinApplicationLoadingWindow::is_open() const { return hwnd_ != nullptr; }

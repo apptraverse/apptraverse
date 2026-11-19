@@ -156,6 +156,7 @@ add_library(apptraverse STATIC
   src/ui/ui_layout_state.cpp
   src/ui/ui_device_state.cpp
   src/ui/ui_registration.cpp
+  src/ui/ui_control_registration.cpp
   src/ui/ui_list_row_presenter_registration.cpp
 )
 target_include_directories(apptraverse PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -232,6 +233,7 @@ if(WIN32)
     src/platform/windows/win_ui_push_button_presenter.cpp
     src/platform/windows/win_ui_presenters.cpp
     src/platform/windows/win_ui_registration.cpp
+    src/platform/windows/win_ui_control_registration.cpp
     src/platform/windows/win_window_registration.cpp
     src/platform/windows/win_application_message_host.cpp
     src/platform/windows/win_application_loading_window.cpp

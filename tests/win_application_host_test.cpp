@@ -14,6 +14,7 @@
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/platform/windows/win_application_host.h"
+#include "apptraverse/platform/windows/win_ui_utf8.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_desktop_window.h"
 #include "apptraverse/ui/ui_presented_window_composition.h"
@@ -163,7 +164,7 @@ void BuildModelGraph(ae::Domain& domain, HostTestRoot::ptr& root) {
   InitializeRuntimeNode(*root->presented_window, *root);
 }
 
-void TestHostPublicationLifecycle() {
+void TestHostPublicationLifecycle(bool localized_loading = false) {
   g_host_presenter_unload_total = 0;
   EnsureObjectRegistration();
   ui::EnsureUiPresenterRegistration();
@@ -185,6 +186,8 @@ void TestHostPublicationLifecycle() {
   std::atomic<bool> after_incremental_ran{false};
   std::atomic<std::int32_t> ui_value{-1};
   ae::Domain* ui_domain_ptr{nullptr};
+  bool loading_resolved = false;
+  bool presenters_prepared = false;
 
   windows::WinApplicationHostCallbacks callbacks;
   callbacks.run_model = [&](ApplicationPublishedCallback on_published) {
@@ -198,6 +201,33 @@ void TestHostPublicationLifecycle() {
     });
   };
   callbacks.request_stop = [&] { runtime.RequestStop(); };
+  if (localized_loading) {
+    callbacks.resolve_loading_text = [&](ae::Obj& application_root) {
+      auto& ui_root = static_cast<HostTestRoot&>(application_root);
+      CHECK(ui_root.domain != &model_domain);
+      CHECK(!ui_root.presented_window->presenter->presentation_loaded);
+      CHECK(!presenters_prepared);
+      auto const& presenter = *ui_root.presented_window->presenter;
+      std::wstring const text = ui::windows::Utf8ToWide(
+          presenter.title->Resolve(presenter.locale->language_index()));
+      loading_resolved = true;
+      return windows::WinApplicationLoadingText{text, text};
+    };
+    callbacks.prepare_ui_presenters = [&](ae::Obj& application_root) {
+      if (presenters_prepared) return;
+      CHECK(loading_resolved);
+      auto& ui_root = static_cast<HostTestRoot&>(application_root);
+      CHECK(!ui_root.presented_window->presenter->presentation_loaded);
+      HWND const hwnd = FindWindowW(kHostTestLoadingClass, nullptr);
+      CHECK(hwnd != nullptr);
+      wchar_t title[128]{};
+      CHECK(GetWindowTextW(hwnd, title, static_cast<int>(std::size(title))) > 0);
+      CHECK(std::wstring{title} == L"EN");
+      // SetText paints synchronously, before this mounting hook is entered.
+      CHECK(GetUpdateRect(hwnd, nullptr, FALSE) == 0);
+      presenters_prepared = true;
+    };
+  }
   callbacks.on_desktop_window_close = [](ae::Obj&, ae::Obj&,
                                          ModelObjectProxy&) {};
   callbacks.take_incremental_sidecar = [&] { sidecar_ran = true; };
@@ -234,6 +264,8 @@ void TestHostPublicationLifecycle() {
   CHECK(ui_domain_ptr != &model_domain);
   CHECK(after_incremental_ran.load());
   CHECK(g_host_presenter_unload_total == 1);
+  CHECK(loading_resolved == localized_loading);
+  CHECK(presenters_prepared == localized_loading);
 }
 
 void TestHostDestructorReleasesLoadingClass() {
@@ -288,6 +320,7 @@ void TestHostDestructorReleasesLoadingClass() {
 int main() {
   apptraverse::EnableNoninteractiveCrt();
   apptraverse::test::TestHostPublicationLifecycle();
+  apptraverse::test::TestHostPublicationLifecycle(true);
   apptraverse::test::TestHostDestructorReleasesLoadingClass();
   std::cout << "win_application_host_test OK\n";
   return 0;

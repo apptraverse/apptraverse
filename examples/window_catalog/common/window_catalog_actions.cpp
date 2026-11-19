@@ -27,18 +27,9 @@ void CatalogDeleteButton::HandlePushButtonClicked() {
   LoadedCatalog(catalog).DeleteSelected();
 }
 
-void CatalogLanguageButton::HandlePushButtonClicked() {
-  WindowCatalog& cat = LoadedCatalog(catalog);
-  cat.persisted.locale.Load();
-  int const next = 1 - cat.persisted.locale->language_index();
-  cat.MaterializeCatalogStrings(next);
-  cat.persisted.locale->SubmitLanguageIndexFromUi(next);
-}
-
 APPTRAVERSE_REGISTER(CatalogAddButton);
 APPTRAVERSE_REGISTER(CatalogOpenButton);
 APPTRAVERSE_REGISTER(CatalogDeleteButton);
-APPTRAVERSE_REGISTER(CatalogLanguageButton);
 
 void ReportCatalogMainViewportFromMirror(WindowCatalog& mirror_catalog,
                                          ModelObjectProxy* model_proxy) {
@@ -64,11 +55,10 @@ void ReportCatalogMainViewportFromMirror(WindowCatalog& mirror_catalog,
                       height, 160);
 }
 
-void EnsureCatalogActionRegistration() {
+void EnsureCatalogWindowActionRegistration() {
   (void)&g_apptraverse_registrar_CatalogAddButton;
   (void)&g_apptraverse_registrar_CatalogOpenButton;
   (void)&g_apptraverse_registrar_CatalogDeleteButton;
-  (void)&g_apptraverse_registrar_CatalogLanguageButton;
 }
 
 }  // namespace apptraverse::example::surfaces

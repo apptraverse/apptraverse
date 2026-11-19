@@ -6,8 +6,8 @@ namespace apptraverse {
 void TouchWindowCatalogCoreRegistration();
 void TouchWindowCatalogEventsRegistration();
 
-void EnsureWindowCatalogDesktopModelRegistration() {
-  example::surfaces::EnsureCatalogActionRegistration();
+void EnsureWindowCatalogNativeMenuModelRegistration() {
+  example::surfaces::EnsureCatalogWindowActionRegistration();
   TouchWindowCatalogCoreRegistration();
   TouchWindowCatalogEventsRegistration();
   example::surfaces::EnsureCatalogCloseButtonRegistration();

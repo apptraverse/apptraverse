@@ -37,7 +37,13 @@ WinApplicationHost::~WinApplicationHost() = default;
 void WinApplicationHost::OnInitialPublished() {
   std::vector<std::uint8_t> bytes = runtime_.TakePublishedCopyForUiApply();
   ui_session_.emplace(bytes, &presentation_host_, model_proxy_,
-                      callbacks_.prepare_ui_presenters);
+                      callbacks_.prepare_ui_presenters,
+                      !callbacks_.resolve_loading_text);
+  if (callbacks_.resolve_loading_text) {
+    auto text = callbacks_.resolve_loading_text(ui_session_->root());
+    loading_.SetText(std::move(text.title), std::move(text.message));
+    ui_session_->RemountPresentation();
+  }
   if (callbacks_.after_initial) {
     callbacks_.after_initial(ui_session_->root());
   }

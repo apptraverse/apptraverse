@@ -63,6 +63,19 @@ void TestPaintHandled() {
   PumpPendingMessages();
 }
 
+void TestLocalizedTextPaintsImmediately() {
+  windows::WinApplicationLoadingWindow loading(kTestClassName, L"AppTraverse",
+                                             L"", 100, 100, 320, 120);
+  // Keep this independent of the source file's encoding.
+  std::wstring const text = L"\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430 \u043a\u0430\u0442\u0430\u043b\u043e\u0433\u0430";
+  loading.SetText(text, text);
+  wchar_t title[128]{};
+  CHECK(GetWindowTextW(loading.hwnd(), title,
+                       static_cast<int>(std::size(title))) > 0);
+  CHECK(std::wstring{title} == text);
+  CHECK(GetUpdateRect(loading.hwnd(), nullptr, FALSE) == 0);
+}
+
 void TestWmCloseDoesNotDestroy() {
   windows::WinApplicationLoadingWindow loading(kTestClassName, kTestTitle,
                                              kTestMessage, 100, 100, 280, 100);
@@ -117,6 +130,7 @@ int main() {
   apptraverse::test::TestCreatesVisibleTopLevelWindow();
   apptraverse::test::TestClassNameAndTitle();
   apptraverse::test::TestPaintHandled();
+  apptraverse::test::TestLocalizedTextPaintsImmediately();
   apptraverse::test::TestWmCloseDoesNotDestroy();
   apptraverse::test::TestCloseAndRepeatClose();
   apptraverse::test::TestDestructorClosesWindow();

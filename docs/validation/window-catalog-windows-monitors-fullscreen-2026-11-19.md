@@ -77,3 +77,31 @@ Three regressions failed before their respective fixes:
 - Three separate load-only processes exercised a destination profile with 3 → 2 → 3 child windows. After enabling fullscreen on the third child, each import replaced only `user.bin`; the destination's `local/user.bin` remained byte-identical at each copy. The third window disappeared with the smaller USER, returned fullscreen with the larger USER, and exited to the original normal rectangle within two pixels. This used an isolated copy of the Windows native transfer fixture.
 
 Actual Windows 7, physical display disconnection, Narrator speech and MinSizeRel were outside this follow-up run.
+
+## Broader Windows Canon corrections
+
+- Catalog graph traversal and layout commands now use the inherited
+  `UiPresentedWindow::layout_state` edge. Existing source consumers can read the
+  same edge through `CatalogWindow::layout`. The native S0 archive still writes
+  the existing trailing reference as a projection of that edge. The headless
+  test verifies the single reflected edge and compares the serialized layer
+  bytes with the original S0 field sequence. Separate Windows processes verified
+  that the new consumer reads a previous three-child USER/LOCAL profile and the
+  previous consumer can read a fourth window created by the new consumer.
+- Windows Catalog uses the window, list, button and menu registrations it needs.
+  Existing aggregate entry points retain optional components for their
+  consumers. The MinSizeRel PE and link map passed the tightened runtime policy,
+  including exclusion of the text control classes and the separate Catalog
+  language button. On this cache, the executable went from 911,360 to 885,248
+  bytes.
+- The Windows loading shell initially displays the product name. It reads its
+  localized caption and message from the first published mirror and paints them
+  before mounting native presenters. Host and loading-window tests passed.
+  Actual Debug load-only and MinSizeRel cold launches with Russian LOCAL displayed
+  the Russian startup caption and opened the Russian main window.
+- Desktop order capture checks the native enumeration result before submitting
+  the order to the model. Eleven Windows Debug tests passed in the selected
+  suite, including the full model and adaptive chrome tests. The twelfth, native
+  acceptance, passed in a separate run after the parallel run could not find an
+  exposed title-bar point for its focus setup. The enumeration failure branch was
+  reviewed in source.

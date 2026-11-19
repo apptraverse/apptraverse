@@ -63,14 +63,17 @@ class CatalogWindow : public NodeFor<CatalogWindow, ui::UiDesktopWindow> {
 
   explicit CatalogWindow(ae::ObjProp prop) : NodeFor{prop} {}
 
-  AE_OBJECT_REFLECT(AE_MMBR(close_button), AE_MMBR(close_button_presenter),
-                    AE_MMBR(layout))
+  AE_OBJECT_REFLECT(AE_MMBR(close_button), AE_MMBR(close_button_presenter))
 
   template <typename Dnv>
 
   void Load(ae::Version<0>, Dnv& dnv) {
 
-    dnv(base_, close_button, close_button_presenter, layout);
+    // Existing portable S0 readers expect a trailing layout reference. Consume
+    // that wire slot without creating a second canonical edge: the inherited
+    // UiPresentedWindow layer owns layout_state.
+    ui::UiLayoutState::ptr s0_layout_projection;
+    dnv(base_, close_button, close_button_presenter, s0_layout_projection);
 
   }
 
@@ -78,7 +81,9 @@ class CatalogWindow : public NodeFor<CatalogWindow, ui::UiDesktopWindow> {
 
   void Save(ae::Version<0>, Dnv& dnv) const {
 
-    dnv(base_, close_button, close_button_presenter, layout);
+    // Preserve the portable S0 byte shape for independently built platforms.
+    // This is a wire projection of the inherited edge, never separate state.
+    dnv(base_, close_button, close_button_presenter, layout_state);
 
   }
 
@@ -86,7 +91,9 @@ class CatalogWindow : public NodeFor<CatalogWindow, ui::UiDesktopWindow> {
   ae::ObjPtr<example::surfaces::CatalogCloseButton> close_button;
 
   ui::UiPushButtonPresenter::ptr close_button_presenter;
-  ui::UiLayoutState::ptr layout;
+  // Source compatibility for existing platform exporters. Rebinding is only
+  // possible through the canonical UiPresentedWindow::layout_state member.
+  ui::UiLayoutState::ptr const& layout{layout_state};
 
   using UiDesktopWindow::Apply;
   void Apply(SetCatalogChildViewportEvent const& event);
@@ -643,6 +650,8 @@ void AssignInitialCatalogWindowBounds(CatalogWindow& window,
 void EnsureWindowCatalogModelRegistration();
 // Common model schema used by all native and paged presentations.
 void EnsureWindowCatalogDesktopModelRegistration();
+// Native-menu consumers omit the separate in-content language action.
+void EnsureWindowCatalogNativeMenuModelRegistration();
 
 }  // namespace apptraverse
 

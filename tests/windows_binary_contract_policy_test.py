@@ -23,7 +23,20 @@ def main():
                       '?FinalizeDistilledGraph@apptraverse@@',
                       '?g_apptraverse_registrar_WinWindowPresenter@apptraverse@@'):
         assert runtime_only_violations(report, portable_map + '\n' + forbidden, True)
+    for obj, cls in (
+            ('win_ui_text_control_presenter.cpp.obj', 'WinTextControlPresenter'),
+            ('ui_text_control.cpp.obj', 'UiTextControl'),
+            ('window_catalog_language_button.cpp.obj', 'CatalogLanguageButton')):
+        for forbidden in (obj, '?g_apptraverse_registrar_' + cls + '@apptraverse@@',
+                          '?OnLoad@' + cls + '@apptraverse@@'):
+            violations = runtime_only_violations(
+                report, portable_map + '\n' + forbidden, True)
+            assert len(violations) == 1, (forbidden, violations)
+            # These implementations remain available to independent consumers.
+            assert runtime_only_violations(report, forbidden) == []
     assert runtime_only_violations({'imports': ['VCRUNTIME140.dll']}, portable_map, True)
+    assert runtime_only_violations(report, portable_map +
+        '\nwindow_catalog_action_registration.cpp.obj', True)
     print('WINDOWS_BINARY_CONTRACT_POLICY ok')
 
 
