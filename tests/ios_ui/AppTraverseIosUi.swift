@@ -19,6 +19,13 @@ final class AppTraverseIosUi: XCTestCase {
         let app = XCUIApplication(bundleIdentifier: "org.apptraverse.WindowCatalog.ios")
         app.launch()
         assertPage("Window Catalog", in: app)
+        let settings = app.buttons["catalog-settings"]
+        settings.tap()
+        assertPage("Settings", in: app)
+        XCTAssertTrue(app.staticTexts["Theme"].exists)
+        XCTAssertTrue(app.staticTexts["Language"].exists)
+        app.buttons["settings-done"].tap()
+        assertPage("Window Catalog", in: app)
         let add = app.buttons["Add"]
         XCTAssertTrue(add.isHittable)
         let portraitFrame = add.frame
@@ -31,6 +38,7 @@ final class AppTraverseIosUi: XCTestCase {
 
         add.tap()
         assertPage("Window 1", in: app)
+        XCTAssertFalse(settings.exists)
         app.buttons["mobile-page-0"].tap()
         assertPage("Window Catalog", in: app)
         add.tap()

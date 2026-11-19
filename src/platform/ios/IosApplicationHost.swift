@@ -224,8 +224,49 @@ struct IosSystemSettings: Equatable {
     }
 }
 
+private struct IosSettingsView: View {
+    @ObservedObject var host: IosApplicationHost
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                ForEach(Array(host.menuGroups.enumerated()), id: \.offset) { groupIndex, group in
+                    Section(group.title.replacingOccurrences(of: "&", with: "")) {
+                        ForEach(Array(group.items.enumerated()), id: \.offset) { itemIndex, item in
+                            Button {
+                                host.executeMenu(group: groupIndex, item: itemIndex)
+                            } label: {
+                                HStack {
+                                    Text(item.title)
+                                    Spacer()
+                                    if item.isSelected {
+                                        Image(systemName: "checkmark")
+                                            .accessibilityHidden(true)
+                                    }
+                                }
+                            }
+                            .foregroundStyle(Color.primary)
+                            .accessibilityAddTraits(item.isSelected ? .isSelected : [])
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                        .accessibilityIdentifier("settings-done")
+                }
+            }
+        }
+    }
+}
+
 public struct IosApplicationRootView: View {
     @ObservedObject public var host: IosApplicationHost
+    @State private var showsSettings = false
     @Environment(\.scenePhase) private var phase
     @Environment(\.displayScale) private var displayScale
     @Environment(\.colorScheme) private var scheme
@@ -277,19 +318,21 @@ public struct IosApplicationRootView: View {
             .navigationTitle(host.activeScene?.title ?? "")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    ForEach(Array(host.menuGroups.enumerated()), id: \.offset) { groupIndex, group in
-                        Menu(group.title.replacingOccurrences(of: "&", with: "")) {
-                            ForEach(Array(group.items.enumerated()), id: \.offset) { itemIndex, item in
-                                Toggle(item.title, isOn: Binding(get: { item.isSelected }, set: { _ in
-                                    host.executeMenu(group: groupIndex, item: itemIndex)
-                                }))
-                            }
+                if let main = host.mainScene, host.activeToken == main.id, !host.menuGroups.isEmpty {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            showsSettings = true
+                        } label: {
+                            Label("Settings", systemImage: "gearshape")
+                                .labelStyle(.iconOnly)
                         }
-                        .accessibilityIdentifier("catalog-menu-\(groupIndex)")
+                        .accessibilityIdentifier("catalog-settings")
                     }
                 }
             }
+        }
+        .sheet(isPresented: $showsSettings) {
+            IosSettingsView(host: host)
         }
         .preferredColorScheme(preferredScheme)
         .onChange(of: settings, initial: true) {
