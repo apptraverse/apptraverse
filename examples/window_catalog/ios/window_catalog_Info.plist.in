@@ -10,6 +10,7 @@
   <string>${MACOSX_BUNDLE_BUNDLE_NAME}</string>
   <key>CFBundleDisplayName</key>
   <string>${MACOSX_BUNDLE_BUNDLE_NAME}</string>
+  ${WINDOW_CATALOG_IOS_ICON_PLIST}
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>

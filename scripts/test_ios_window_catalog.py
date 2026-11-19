@@ -6,6 +6,7 @@ import json
 import pathlib
 import shutil
 import subprocess
+import sys
 import time
 
 
@@ -97,34 +98,49 @@ def main():
         ("debug", "org.apptraverse.WindowCatalog.ios.acceptance.debug"),
         ("load_only", "org.apptraverse.WindowCatalog.ios.acceptance.loadonly"),
     ]
-    for kind, bundle in definitions:
-        app = apps / f"apptraverse_ios_window_catalog_acceptance_{kind}.app"
-        print(f"Installing {bundle}", flush=True)
-        run("xcrun", "simctl", "install", options.device, str(app), timeout=300)
-        phases = (False,) if kind == "debug" else (False, True)
-        for cold in phases:
-            label = kind + ("-cold" if cold else "-seed")
-            print(f"Running {label}", flush=True)
-            arguments = ["xcrun", "simctl", "launch", "--console", options.device,
-                         bundle, "--run-id", stamp]
-            if cold:
-                arguments.append("--cold")
-            with (evidence / f"{label}.log").open("w") as output:
-                run(*arguments, stdout=output, stderr=subprocess.STDOUT, timeout=300)
-            container = pathlib.Path(run(
-                "xcrun", "simctl", "get_app_container", options.device, bundle, "data",
-                capture_output=True, timeout=60).stdout.strip())
-            source = container / "Documents/WindowCatalogAcceptance" / stamp
-            result = json.loads((source / ("result-cold.json" if cold else "result-seed.json")).read_text())
-            if result["status"] != "PASS":
-                raise RuntimeError(f"{label} failed: {result}")
-            target = evidence / kind
-            target.mkdir(exist_ok=True)
-            for file in source.iterdir():
-                if file.is_file():
-                    shutil.copy2(file, target / file.name)
-            print(f"PASS {label}: {result['checkpoints']} checkpoints", flush=True)
-    check_os_background(options.device, evidence, stamp)
+    installed = []
+    try:
+        for kind, bundle in definitions:
+            app = apps / f"apptraverse_ios_window_catalog_acceptance_{kind}.app"
+            print(f"Installing {bundle}", flush=True)
+            run("xcrun", "simctl", "install", options.device, str(app), timeout=300)
+            installed.append(bundle)
+            phases = (False,) if kind == "debug" else (False, True)
+            for cold in phases:
+                label = kind + ("-cold" if cold else "-seed")
+                print(f"Running {label}", flush=True)
+                arguments = ["xcrun", "simctl", "launch", "--console", options.device,
+                             bundle, "--run-id", stamp]
+                if cold:
+                    arguments.append("--cold")
+                with (evidence / f"{label}.log").open("w") as output:
+                    run(*arguments, stdout=output, stderr=subprocess.STDOUT, timeout=300)
+                container = pathlib.Path(run(
+                    "xcrun", "simctl", "get_app_container", options.device, bundle, "data",
+                    capture_output=True, timeout=60).stdout.strip())
+                source = container / "Documents/WindowCatalogAcceptance" / stamp
+                result = json.loads((source / ("result-cold.json" if cold else "result-seed.json")).read_text())
+                if result["status"] != "PASS":
+                    raise RuntimeError(f"{label} failed: {result}")
+                target = evidence / kind
+                target.mkdir(exist_ok=True)
+                for file in source.iterdir():
+                    if file.is_file():
+                        shutil.copy2(file, target / file.name)
+                print(f"PASS {label}: {result['checkpoints']} checkpoints", flush=True)
+        check_os_background(options.device, evidence, stamp)
+    finally:
+        cleanup_errors = []
+        for bundle in reversed(installed):
+            try:
+                run("xcrun", "simctl", "uninstall", options.device, bundle, timeout=120)
+            except (subprocess.SubprocessError, OSError) as error:
+                cleanup_errors.append(str(error))
+        if cleanup_errors:
+            message = "Simulator test-app cleanup failed: " + "; ".join(cleanup_errors)
+            if sys.exc_info()[0] is None:
+                raise RuntimeError(message)
+            print(message, file=sys.stderr)
     print(f"iOS simulator acceptance PASS. Evidence: {evidence}", flush=True)
 
 

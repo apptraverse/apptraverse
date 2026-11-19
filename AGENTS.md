@@ -6,6 +6,10 @@ Use SwiftUI for Apple UI, including content, lists, layout, and commands.
 WindowCatalog and MinimalApp may use AppKit at the native-window boundary for
 desktop operations SwiftUI cannot provide, including close on macOS 13.
 
+Copy iOS test evidence out of the simulator, then uninstall AppTraverse
+acceptance apps and XCTest runner bundles after every test run, including failed
+runs. Keep the installed product apps available for manual use.
+
 ## Completed non-Apple layout / LOCAL contract — 2026-11-17
 
 The user authorized and implemented the common layout and LOCAL model on Windows,

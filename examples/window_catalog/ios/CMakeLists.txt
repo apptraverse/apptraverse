@@ -192,7 +192,20 @@ add_executable(ios_window_catalog_demo MACOSX_BUNDLE window_catalog_link.mm)
 add_executable(ios_window_catalog_demo_load_only MACOSX_BUNDLE window_catalog_link.mm)
 target_link_libraries(ios_window_catalog_demo PRIVATE window_catalog_ios_composition)
 target_link_libraries(ios_window_catalog_demo_load_only PRIVATE window_catalog_ios_composition_load_only)
+set(WINDOW_CATALOG_IOS_ICON_PLIST [=[
+<key>CFBundleIcons</key>
+<dict>
+  <key>CFBundlePrimaryIcon</key>
+  <dict>
+    <key>CFBundleIconFiles</key>
+    <array><string>AppIcon60</string></array>
+  </dict>
+</dict>
+]=])
+set(_catalog_ios_icons AppIcon60@2x.png AppIcon60@3x.png)
+set_source_files_properties(${_catalog_ios_icons} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 foreach(_app ios_window_catalog_demo ios_window_catalog_demo_load_only)
+  target_sources(${_app} PRIVATE ${_catalog_ios_icons})
   target_link_libraries(${_app} PRIVATE window_catalog_ios_entry apptraverse_ui_ios)
   target_compile_options(${_app} PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fno-rtti>)
   set_target_properties(${_app} PROPERTIES
