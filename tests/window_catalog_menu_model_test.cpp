@@ -20,6 +20,7 @@ int main() {
     TestFullscreenModelAndPublication(compact);
     TestFullscreenColdAndPlatformSeed(false, compact);
     TestFullscreenColdAndPlatformSeed(true, compact);
+    TestUserImportPreservesDormantLocalWindowState(compact);
   }
   for (auto handling : {CatalogThemeHandling::kAdapterAppliesTheme, CatalogThemeHandling::kNativeFollowsSystem}) {
     ae::RamDomainStorage storage;

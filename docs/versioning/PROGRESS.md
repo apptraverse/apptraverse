@@ -12,6 +12,12 @@ language and display settings across both imports and subsequent cold launches.
 The [validation record](../validation/window-catalog-windows-monitors-fullscreen-2026-11-19.md)
 contains the executed Windows and transfer scenarios.
 
+The Windows Canon follow-up verified a 3 → 2 → 3 USER import in separate
+Windows processes. The returning window reopened fullscreen and exited to
+its original frame. Native regressions also cover entering fullscreen from
+monitor-sized normal bounds and keeping focused controls visible below the
+fixed toolbar.
+
 ## Shared Chat Windows Catalog presentation — 2026-11-18
 
 Windows Shared Chat now uses the common WindowCatalog system appearance baseline

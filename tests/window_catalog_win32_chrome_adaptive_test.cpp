@@ -886,6 +886,26 @@ void TestFullscreenNativePresentation() {
   CHECK(std::wstring{caption} == L"На весь экран (F11)");
 }
 
+void TestKeyboardFocusStaysBelowFixedFullscreenAction() {
+  Harness h;
+  h.PumpModelAndApply();
+  h.ResizeClient(300, 180, false);
+  HWND const action = h.ControlHwnd(ui::windows::WinDesktopWindowPresenter::kFullscreenActionId);
+  HWND const list = h.ControlHwnd(kListControlId);
+  SetForegroundWindow(h.MainHwnd());
+  SetActiveWindow(h.MainHwnd());
+  SetFocus(action);
+  SendMessageW(h.MainHwnd(), WM_VSCROLL, SB_BOTTOM, 0);
+  auto const scrolled = ReadChildInParentClient(list);
+  auto const toolbar = ReadChildInParentClient(action);
+  CHECK(scrolled.y < toolbar.y + toolbar.height);
+  SetFocus(list);
+  CHECK(GetFocus() == list);
+  DispatchPendingWin32Messages();
+  auto const focused = ReadChildInParentClient(list);
+  CHECK(focused.y >= toolbar.y + toolbar.height);
+}
+
 void TestFullscreenMonitorLossAndReturn() {
   using namespace ui;
   using namespace ui::windows;
@@ -963,6 +983,7 @@ int main() {
   apptraverse::EnsureWindowCatalogGraphRegistration();
   apptraverse::test::TestFirstPublicationCarriesResolutionAfterNativeObservation();
   apptraverse::test::TestFullscreenNativePresentation();
+  apptraverse::test::TestKeyboardFocusStaysBelowFixedFullscreenAction();
   apptraverse::test::TestFullscreenMonitorLossAndReturn();
   apptraverse::test::TestPrepareBindsQueueBeforeNativeOnLoad();
   apptraverse::test::TestBurstResizeWithoutPerStepPump();

@@ -131,7 +131,7 @@ LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
     presenter->ScrollContent(msg == WM_VSCROLL ? SB_VERT : SB_HORZ, wparam);
     return 0;
   }
-  if (msg == WM_MOUSEWHEEL && presenter->LayoutRoot() != nullptr) {
+  if (msg == WM_MOUSEWHEEL) {
     presenter->wheel_delta_ += GET_WHEEL_DELTA_WPARAM(wparam);
     int const steps = presenter->wheel_delta_ / WHEEL_DELTA;
     presenter->wheel_delta_ %= WHEEL_DELTA;
@@ -264,7 +264,7 @@ void WinDesktopWindowPresenter::SyncFullscreenAction() {
   if (fullscreen_action_) SetNativeWindowTextIfChanged(fullscreen_action_, ResolveFullscreenActionText());
 }
 
-void WinDesktopWindowPresenter::RefreshFullscreenBounds() {
+void WinDesktopWindowPresenter::RefreshFullscreenBounds(bool frame_changed) {
   if (!hwnd_ || !fullscreen_ || changing_fullscreen_) return;
   HMONITOR monitor = MonitorFromWindow(hwnd_, MONITOR_DEFAULTTONEAREST);
   auto const* local = LocalDeviceState();
@@ -282,7 +282,9 @@ void WinDesktopWindowPresenter::RefreshFullscreenBounds() {
   RECT current{};
   if (!GetWindowRect(hwnd_, &current)) FatalWin32("GetWindowRect fullscreen", GetLastError());
   auto const& bounds = info.rcMonitor;
-  if (EqualRect(&current, &bounds)) return;
+  // SetWindowLongPtr does not recalculate the nonclient area. Fullscreen entry
+  // must apply the changed styles even when its outer bounds already match.
+  if (EqualRect(&current, &bounds) && !frame_changed) return;
   bool const prior = applying_native_frame_;
   applying_native_frame_ = true;
   if (!SetWindowPos(hwnd_, nullptr, bounds.left, bounds.top,
@@ -314,7 +316,7 @@ void WinDesktopWindowPresenter::SetPresentationFullscreen(bool fullscreen) {
     set_style(GWL_EXSTYLE, windowed_ex_style_ & ~(WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE));
     fullscreen_ = true;
     changing_fullscreen_ = false;
-    RefreshFullscreenBounds();
+    RefreshFullscreenBounds(true);
   } else {
     fullscreen_ = false;
     set_style(GWL_STYLE, windowed_style_ & ~(WS_MAXIMIZE | WS_MINIMIZE));
@@ -479,7 +481,7 @@ bool WinDesktopWindowPresenter::RouteChildCommand(std::uint32_t command_id,
 void WinDesktopWindowPresenter::OnModelChanged() {
   ApplyLocalPlacement();
   auto const* local = LocalDeviceState();
-  if (local && local->appearance != applied_appearance_) RefreshPresentationSettings();
+  if (local->appearance != applied_appearance_) RefreshPresentationSettings();
   SyncFullscreenAction();
   RefreshLayout();
   SetNativeWindowTextIfChanged(hwnd_, ResolveTitleText());
@@ -944,10 +946,20 @@ void WinDesktopWindowPresenter::ScrollContent(int bar, WPARAM command) {
 }
 void WinDesktopWindowPresenter::EnsureFocusedControlVisible() {
   HWND const focused = GetFocus();
-  if (!focused || focused == fullscreen_action_ || GetParent(focused) != hwnd_ || LayoutRoot() == nullptr) return;
+  if (!focused || focused == fullscreen_action_ || GetParent(focused) != hwnd_) return;
   int x, y, width, height; ReadChildClientFrame(focused, x, y, width, height);
   RECT client{}; GetClientRect(hwnd_, &client);
-  if (y < 0) scroll_y_ += y;
+  int content_top = 0;
+  if (fullscreen_action_) {
+    int action_x, action_y, action_width, action_height;
+    ReadChildClientFrame(fullscreen_action_, action_x, action_y, action_width, action_height);
+    content_top = action_y + action_height;
+  }
+  // The fixed action covers the top of the scrolled content. Oversized
+  // controls keep their leading edge visible instead of bottom-aligning it
+  // behind that action when the remaining viewport is smaller than the control.
+  if (y < content_top || height > client.bottom - content_top)
+    scroll_y_ += y - content_top;
   else if (y + height > client.bottom) scroll_y_ += y + height - client.bottom;
   if (x < 0) scroll_x_ += x;
   else if (x + width > client.right) scroll_x_ += x + width - client.right;

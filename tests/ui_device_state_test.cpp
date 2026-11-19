@@ -78,6 +78,10 @@ void TestObservationEventsAndReplay() {
   state->ObserveEnvironment(current, UiEnvironmentReason::kSystemNotification);
   CHECK(state->Generation() == generation);
   state->ObserveWindow({ae::ObjId{2}, "display-a", 144, 144}, UiEnvironmentReason::kStartup);
+  auto const& first_window = *static_cast<UiWindowEnvironmentChangedEvent const*>(
+      &*state->journal.back().event);
+  CHECK(!first_window.had_previous);
+  CHECK(first_window.previous == UiWindowEnvironment{});
   state->ObserveWindow({ae::ObjId{3}, "display-b", 96, 96}, UiEnvironmentReason::kStartup);
   state->ObserveWindow({ae::ObjId{2}, "display-b", 96, 96}, UiEnvironmentReason::kSystemNotification);
   CHECK(state->windows.size() == 2);
@@ -260,7 +264,8 @@ void TestThreeMonitorPreferenceAndDeletionColdRestore() {
       auto generation = state->Generation();
       state->ObserveWindow({second, "display-b", 96, 96, preferred}, UiEnvironmentReason::kUserWindowChange);
       CHECK(state->Generation() == generation);
-      CHECK(state->WindowStateIds() == std::set<ae::ObjId>{first});
+      CHECK(state->windows.size() == 1 && state->windows.front().window_id == first);
+      CHECK(state->placements.size() == 1 && state->placements.front().window_id == first);
       CHECK(state->TryReplayFromBase());
       CHECK(!state->PlacementFor(second));
       CHECK(state->PlacementFor(first)->preferred_monitor == "display-c");

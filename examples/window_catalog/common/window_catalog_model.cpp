@@ -646,11 +646,10 @@ void WindowCatalog::EnableLocalWindowLifecycle() {
   std::set<ae::ObjId> live{persisted.main_window.id()};
   for (auto const& row : persisted.list->rows)
     live.insert(static_cast<WindowHolder const&>(*row).window.id());
-  auto& local = *persisted.device_state;
-  auto const remembered = local.WindowStateIds();
-  local.SetWindowObservationTargets(live);
-  for (auto const id : remembered)
-    if (!live.contains(id)) local.ForgetWindow(id);
+  // A portable USER import can temporarily omit windows that this device
+  // remembers. Keep their LOCAL preferences until an explicit local Delete;
+  // only native callbacks are filtered by the current portable membership.
+  persisted.device_state->SetWindowObservationTargets(std::move(live));
 }
 void WindowCatalog::UserCloseWindow(ae::ObjId window_obj_id) {
   WindowHolder* holder = FindHolderForWindow(window_obj_id);

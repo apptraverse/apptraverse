@@ -8,6 +8,7 @@
 #include "apptraverse/distill.h"
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/overlay_domain_storage.h"
+#include "apptraverse/single_file_user_storage.h"
 
 namespace {
 WindowCatalog::ptr BuildMenuModel(ae::Domain& domain, bool display) {
@@ -125,7 +126,9 @@ void TestFullscreenModelAndPublication(bool compact) {
   auto const deleted_generation = state.Generation();
   drain();
   CHECK(state.Generation() == deleted_generation);
-  CHECK(!state.WindowStateIds().contains(child_id));
+  CHECK(!state.PlacementFor(child_id));
+  CHECK(std::none_of(state.windows.begin(), state.windows.end(),
+      [&](auto const& window) { return window.window_id == child_id; }));
 }
 struct MenuSupply {
   ae::RamDomainStorage data;
@@ -223,5 +226,114 @@ void TestFullscreenColdAndPlatformSeed(bool source_display, bool compact) {
   auto const own_local = seeded.state;
   SeedClientLocalStorage(seeded, local);
   CHECK(seeded.state == own_local);
+}
+
+void TestUserImportPreservesDormantLocalWindowState(bool compact) {
+  MenuSupply supply{true};
+  ae::RamDomainStorage user, local, three_children, two_children;
+  ae::ObjId dormant;
+  ui::UiDisplayRect const normal_frame{41, 53, 640, 480};
+  ui::UiDeviceEnvironment environment;
+  environment.monitors = {
+      {"display-a", {0, 0, 1920, 1080}, {0, 0, 1920, 1040}, true, 0, 60},
+      {"display-b", {1920, 0, 1920, 1080}, {1920, 0, 1920, 1040}, false, 0, 60}};
+  auto snapshot = [](ae::RamDomainStorage const& source, ae::RamDomainStorage& destination) {
+    std::vector<std::uint8_t> bytes;
+    CHECK(SerializeUserStorage(source, bytes));
+    CHECK(DeserializeUserStorage(destination, bytes));
+  };
+  {
+    ClientLocalDomainStorage routed{user, local, supply.data, CollectClientLocalRoots(supply.data)};
+    OverlayDomainStorage overlay{routed, supply.data, supply.constants};
+    ae::Domain domain{overlay};
+    auto catalog = LoadApplication<WindowCatalog>(domain, supply.root);
+    PrepareWindowCatalogForRun(*catalog); PrepareCatalogMenuForRun(*catalog);
+    auto& state = static_cast<CatalogUiState&>(*catalog->persisted.device_state);
+    state.SetImmediateEventCompaction(compact);
+    catalog->EnableLocalWindowLifecycle();
+    for (int i = 0; i < 3; ++i) catalog->AddWindow();
+    auto holder = WindowHolder::ptr::MakeFromThis(
+        static_cast<WindowHolder*>(&*catalog->persisted.list->rows.back()));
+    dormant = holder->window.id();
+    SaveWindowCatalogPersistentSnapshot(*catalog);
+    snapshot(user, three_children);
+    // Produce a smaller portable USER on the same identities. The receiving
+    // device keeps its own LOCAL snapshot, independently of this deletion.
+    catalog->SelectHolder(holder);
+    catalog->DeleteSelected();
+    SaveWindowCatalogPersistentSnapshot(*catalog);
+    snapshot(user, two_children);
+  }
+  // A different device already has its own placement/fullscreen preferences.
+  ae::RamDomainStorage destination_local;
+  {
+    ClientLocalDomainStorage routed{three_children, destination_local, supply.data,
+                                   CollectClientLocalRoots(supply.data)};
+    OverlayDomainStorage overlay{routed, supply.data, supply.constants};
+    ae::Domain domain{overlay};
+    auto catalog = LoadApplication<WindowCatalog>(domain, supply.root);
+    PrepareWindowCatalogForRun(*catalog); PrepareCatalogMenuForRun(*catalog);
+    auto& state = static_cast<CatalogUiState&>(*catalog->persisted.device_state);
+    state.SetImmediateEventCompaction(compact);
+    catalog->EnableLocalWindowLifecycle();
+    state.ObserveEnvironment(environment, ui::UiEnvironmentReason::kStartup);
+    state.ObserveWindow({dormant, "display-b", 144, 144, normal_frame},
+                        ui::UiEnvironmentReason::kStartup);
+    state.RequestWindowFullscreenFromUi(dormant, true);
+    SaveWindowCatalogPersistentSnapshot(*catalog);
+  }
+  // Import 3 -> 2 -> 3 children, with a second cold launch of the smaller
+  // graph. Absence from USER must not be interpreted as a local Delete.
+  int launch = 0;
+  for (int children : {2, 2, 3}) {
+    auto& imported = children == 2 ? two_children : three_children;
+    ClientLocalDomainStorage routed{imported, destination_local, supply.data,
+                                   CollectClientLocalRoots(supply.data)};
+    OverlayDomainStorage overlay{routed, supply.data, supply.constants};
+    ae::Domain domain{overlay};
+    auto catalog = LoadApplication<WindowCatalog>(domain, supply.root);
+    PrepareWindowCatalogForRun(*catalog); PrepareCatalogMenuForRun(*catalog);
+    auto& state = static_cast<CatalogUiState&>(*catalog->persisted.device_state);
+    state.SetImmediateEventCompaction(compact);
+    auto const generation = state.Generation();
+    CHECK(state.PlacementFor(dormant));
+    auto const placement_revision = state.PlacementFor(dormant)->revision;
+    catalog->EnableLocalWindowLifecycle();
+    CHECK(state.Generation() == generation);
+    state.ObserveEnvironment(environment, ui::UiEnvironmentReason::kStartup);
+    if (launch < 2) {
+      CHECK(state.Generation() == generation);
+      CHECK(state.PlacementFor(dormant)->revision == placement_revision);
+    }
+    CHECK(catalog->persisted.list->rows.size() == static_cast<std::size_t>(children));
+    CHECK(state.IsWindowFullscreen(dormant));
+    CHECK(state.PlacementFor(dormant));
+    CHECK(state.PlacementFor(dormant)->preferred_monitor == "display-b");
+    CHECK(state.PlacementFor(dormant)->frame_dip == normal_frame);
+    if (children == 2) {
+      state.ObserveWindow({dormant, "late-display", 96, 96, {0, 0, 100, 100}},
+                          ui::UiEnvironmentReason::kUserWindowChange);
+      state.RequestWindowFullscreenFromUi(dormant, false);
+      CHECK(state.Generation() == generation);
+      if (launch == 1) {
+        auto missing = environment;
+        missing.monitors.pop_back();
+        state.ObserveEnvironment(missing, ui::UiEnvironmentReason::kSystemNotification);
+        CHECK(state.PlacementFor(dormant)->resolution == ui::UiMonitorResolution::kMissing);
+        CHECK(state.PlacementFor(dormant)->resolved_monitor == "display-a");
+        CHECK(state.PlacementFor(dormant)->preferred_monitor == "display-b");
+      }
+    } else {
+      CHECK(state.PlacementFor(dormant)->resolution == ui::UiMonitorResolution::kFound);
+      CHECK(state.PlacementFor(dormant)->resolved_monitor == "display-b");
+      state.RequestWindowFullscreenFromUi(dormant, false);
+      CHECK(!state.IsWindowFullscreen(dormant));
+      state.ObserveWindow({dormant, "display-a", 96, 96, normal_frame},
+                          ui::UiEnvironmentReason::kUserWindowChange);
+      CHECK(state.PlacementFor(dormant)->preferred_monitor == "display-a");
+    }
+    SaveWindowCatalogPersistentSnapshot(*catalog);
+    ++launch;
+  }
 }
 }  // namespace

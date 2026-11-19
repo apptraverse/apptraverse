@@ -355,6 +355,39 @@ void TestResizeStaleEcho() {
   CHECK(ch == 520);
 }
 
+void TestFullscreenRecalculatesAnAlreadyMonitorSizedFrame() {
+  Harness h;
+  HWND const hwnd = h.presenter->hwnd();
+  MONITORINFO monitor{sizeof(monitor)};
+  CHECK(GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &monitor));
+  auto const& bounds = monitor.rcMonitor;
+  CHECK(SetWindowPos(hwnd, nullptr, bounds.left, bounds.top,
+      bounds.right - bounds.left, bounds.bottom - bounds.top,
+      SWP_NOZORDER | SWP_NOACTIVATE));
+  RECT original_client{};
+  CHECK(GetClientRect(hwnd, &original_client));
+  POINT original_origin{};
+  CHECK(ClientToScreen(hwnd, &original_origin));
+  CHECK(original_origin.y > bounds.top);
+
+  // Style changes require SWP_FRAMECHANGED even when the outer bounds already
+  // cover the monitor. Without it the old caption/border still clips content.
+  h.presenter->SetPresentationFullscreen(true);
+  POINT origin{};
+  CHECK(ClientToScreen(hwnd, &origin));
+  CHECK(origin.x == bounds.left && origin.y == bounds.top);
+  RECT client{};
+  CHECK(GetClientRect(hwnd, &client));
+  CHECK(client.right == bounds.right - bounds.left);
+  CHECK(client.bottom == bounds.bottom - bounds.top);
+
+  h.presenter->SetPresentationFullscreen(false);
+  CHECK(ClientToScreen(hwnd, &origin));
+  CHECK(origin.x == original_origin.x && origin.y == original_origin.y);
+  CHECK(GetClientRect(hwnd, &client));
+  CHECK(EqualRect(&client, &original_client));
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
@@ -370,6 +403,7 @@ int main() {
   apptraverse::test::TestProgrammaticMoveWhileNativePending();
   apptraverse::test::TestPublishedRequestSurvivesInteractiveDrag();
   apptraverse::test::TestResizeStaleEcho();
+  apptraverse::test::TestFullscreenRecalculatesAnAlreadyMonitorSizedFrame();
   std::cout << "presenter_win_desktop_frame_sync_test OK\n";
   return 0;
 }

@@ -63,7 +63,7 @@ void UiDeviceState::ObserveWindow(UiWindowEnvironment current, UiEnvironmentReas
   if (old != windows.end() && *old == current && !(update_preference && preference_changed)) return;
   auto event = UiWindowEnvironmentChangedEvent::ptr::Create(ae::CreateWith{*domain});
   event->had_previous = old != windows.end();
-  if (event->had_previous) event->previous = *old;
+  event->previous = event->had_previous ? *old : UiWindowEnvironment{};
   event->current = std::move(current);
   event->reason = reason;
   event->update_preference = update_preference;

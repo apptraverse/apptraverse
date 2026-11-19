@@ -100,7 +100,7 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
   virtual void ExitFullscreenFromUi() {}
   void SetPresentationFullscreen(bool fullscreen);
   bool IsPresentationFullscreen() const { return fullscreen_; }
-  void RefreshFullscreenBounds();
+  void RefreshFullscreenBounds(bool frame_changed = false);
   bool HandlePresentationShortcut(MSG const& message);
 
   // Runtime presentation only: constraints come from the UI mirror, while

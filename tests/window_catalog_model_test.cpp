@@ -1915,8 +1915,14 @@ void TestWindowsLocalWindowLifecycle() {
   ae::ObjId const stale{900001};
   local.ObserveWindow({stale, "old-display", 96, 96, {20, 30, 640, 480}}, ui::UiEnvironmentReason::kStartup);
   local.ObserveWindow({window_id, "display-b", 144, 144, {40, 50, 640, 480}}, ui::UiEnvironmentReason::kStartup);
+  auto const before_lifecycle = local.Generation();
   catalog->EnableLocalWindowLifecycle();
-  CHECK(!local.PlacementFor(stale));
+  CHECK(local.Generation() == before_lifecycle);
+  CHECK(local.PlacementFor(stale)); // USER absence keeps dormant LOCAL preferences.
+  local.ObserveWindow({stale, "late-display", 96, 96, {0, 0, 100, 100}},
+                      ui::UiEnvironmentReason::kUserWindowChange);
+  CHECK(local.Generation() == before_lifecycle);
+  CHECK(local.PlacementFor(stale)->preferred_monitor == "old-display");
   CHECK(local.PlacementFor(window_id));
   catalog->CloseHolderWindow(*holder);
   CHECK(!domain.Find(window_id));
@@ -1925,7 +1931,8 @@ void TestWindowsLocalWindowLifecycle() {
   catalog->DeleteSelected();
   CHECK(!domain.Find(window_id)); // Delete does not activate a lazy window.
   CHECK(!local.PlacementFor(window_id));
-  CHECK(!local.WindowStateIds().contains(window_id));
+  CHECK(std::none_of(local.windows.begin(), local.windows.end(),
+      [&](auto const& window) { return window.window_id == window_id; }));
   auto const generation = local.Generation();
   // Native callbacks queued before Delete cannot recreate local state.
   local.ObserveWindow({window_id, "display-b", 144, 144, {90, 90, 640, 480}}, ui::UiEnvironmentReason::kUserWindowChange);

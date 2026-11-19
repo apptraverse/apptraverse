@@ -49,3 +49,31 @@ GPT-6 Astra ultra reviewed the Windows delta against §25 of the [architecture C
 | 18–22 | Immediate folding and replay, Close/unload/Delete, active-language labels, model resolution of placement, independent model and native tests. |
 | 23–27 | Current S0, native failure handling, Windows-only capability selection, runtime-only OS resources, incremental Windows Debug builds. |
 | 28–30 | Existing network scope, explicit distinction between runtime and source evidence, feature-branch delivery under the standing main publication instruction. |
+
+## Follow-up review of the implementation at `20c37583`
+
+GPT-6 Astra ultra reviewed all 30 rules in Canon §25 against the WindowCatalog Windows monitor/fullscreen change, its common model and the corresponding presenter contracts. GPT-6.1 Sol high implemented the corrections. The following are source dispositions for that scope.
+
+| Rules | Source disposition |
+|---|---|
+| 1–4 | The Windows presenter consumes the layout and device links supplied by composition. Native readiness and stale input retain their lifecycle checks. The first window observation explicitly assigns the previous-value field serialized by its Event. |
+| 5–8 | Commands use the model proxy. The model authors LOCAL state, the UI mirror publishes the result to native chrome, and the common template and registration boundaries are preserved. |
+| 9–13 | Debug fresh and load-only policies, immutable embedded supply, independent RAM stores, native serialization and lifecycle-boundary persistence remain in place. |
+| 14–18 | Native handles belong to the live presenter. Identity, supply constants, unloaded child references and Event folding/replay retain their existing contracts. |
+| 19–22 | Windows now filters late observations using current USER membership. Explicit Delete removes a window’s LOCAL records. Importing a smaller USER leaves the destination’s records available if the same identity returns. Active language and placement resolution continue through the model. Model and native tests cover distinct boundaries. |
+| 23–26 | The fixes use the existing S0 schema, native Win32 controls, error handling and compiler policy. The HWND’s nonclient frame is recalculated on fullscreen entry even when the outer rectangle already matches the monitor. |
+| 27–30 | Verification uses existing incremental Debug configurations. The changes introduce no network dependency. Execution evidence below has its own scope; publication follows the standing main instruction. |
+
+Three regressions failed before their respective fixes:
+
+- Starting with a smaller imported USER advanced the LOCAL generation and removed the absent window's records. The model test exercises 3 → 2 → 2 (cold restart) → 3 using serialized USER snapshots, both with immediate folding and with retained journal events. It also checks stale native input, monitor loss during absence and monitor return.
+- A window sized exactly to the monitor retained its old client origin on fullscreen entry. The native frame test checks the client origin and extent on entry and after exit.
+- Giving keyboard focus to a scrolled list in a 300 × 180 client placed its top behind the fixed fullscreen action. The presenter now scrolls the focused control into the visible content below the action. The native test measures both control rectangles.
+
+### Executed Windows Debug checks
+
+- All 11 selected CTest targets passed with the v143 Debug build. They cover native frame synchronization/publication, two-monitor placement, constraints, layout state, device Events, WindowCatalog native acceptance and adaptive chrome, menu model, message host and command routing.
+- The full WindowCatalog model executable and the native interactive-drag executable passed separately.
+- Three separate load-only processes exercised a destination profile with 3 → 2 → 3 child windows. After enabling fullscreen on the third child, each import replaced only `user.bin`; the destination's `local/user.bin` remained byte-identical at each copy. The third window disappeared with the smaller USER, returned fullscreen with the larger USER, and exited to the original normal rectangle within two pixels. This used an isolated copy of the Windows native transfer fixture.
+
+Actual Windows 7, physical display disconnection, Narrator speech and MinSizeRel were outside this follow-up run.
