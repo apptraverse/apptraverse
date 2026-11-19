@@ -231,11 +231,24 @@ struct IosSystemSettings: Equatable {
     }
 }
 
+private func colorSchemePreference(for state: ATIosWindowState?,
+                                   contrast: ColorSchemeContrast) -> ColorScheme? {
+    guard contrast != .increased else { return nil }
+    switch state?.theme {
+    case 1: return .light
+    case 2: return .dark
+    default: return nil
+    }
+}
+
 private struct IosSettingsView: View {
     @ObservedObject var host: IosApplicationHost
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
+        let state = host.mainScene?.snapshot?.state
+        let softDark = state?.softenDark == true && contrast != .increased
         NavigationStack {
             Form {
                 ForEach(Array(host.menuGroups.enumerated()), id: \.offset) { groupIndex, group in
@@ -259,6 +272,8 @@ private struct IosSettingsView: View {
                     }
                 }
             }
+            .scrollContentBackground(softDark ? .hidden : .automatic)
+            .background(softDark ? Color(white: 0.18) : Color.clear)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -268,6 +283,7 @@ private struct IosSettingsView: View {
                 }
             }
         }
+        .preferredColorScheme(colorSchemePreference(for: state, contrast: contrast))
     }
 }
 
@@ -285,12 +301,7 @@ public struct IosApplicationRootView: View {
     public init(host: IosApplicationHost) { self.host = host }
 
     private var preferredScheme: ColorScheme? {
-        guard contrast != .increased else { return nil }
-        switch host.activeScene?.snapshot?.state.theme {
-        case 1: return .light
-        case 2: return .dark
-        default: return nil
-        }
+        colorSchemePreference(for: host.activeScene?.snapshot?.state, contrast: contrast)
     }
 
     private var settings: IosSystemSettings {

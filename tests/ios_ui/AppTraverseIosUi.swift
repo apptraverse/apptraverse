@@ -1,3 +1,4 @@
+import ImageIO
 import XCTest
 
 final class AppTraverseIosUi: XCTestCase {
@@ -13,6 +14,42 @@ final class AppTraverseIosUi: XCTestCase {
     private func row(_ label: String, in app: XCUIApplication) -> XCUIElement {
         app.descendants(matching: .any).matching(NSPredicate(
             format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "row-", label)).firstMatch
+    }
+
+    private func brightness(of element: XCUIElement) -> Double? {
+        let png = element.screenshot().pngRepresentation
+        guard let source = CGImageSourceCreateWithData(png as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+              let sample = image.cropping(to: CGRect(x: image.width / 8, y: image.height / 2,
+                                                    width: 1, height: 1)) else { return nil }
+        var pixel = [UInt8](repeating: 0, count: 4)
+        return pixel.withUnsafeMutableBytes { bytes in
+            guard let context = CGContext(data: bytes.baseAddress, width: 1, height: 1,
+                                          bitsPerComponent: 8, bytesPerRow: 4,
+                                          space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+            context.draw(sample, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            return (0..<3).map { Double(bytes[$0]) }.reduce(0, +) / 765
+        }
+    }
+
+    func testSettingsThemeAppliesWhileOpen() throws {
+        let app = XCUIApplication(bundleIdentifier: "org.apptraverse.WindowCatalog.ios")
+        app.launch()
+        assertPage("Window Catalog", in: app)
+        app.buttons["catalog-settings"].tap()
+        assertPage("Settings", in: app)
+
+        let bar = app.navigationBars["Settings"]
+        let systemIsDark = try XCTUnwrap(brightness(of: bar)) < 0.5
+        for (theme, isDark) in [("Light", false), ("Dark", true), ("From system", systemIsDark)] {
+            app.buttons[theme].tap()
+            let applied = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                guard bar.exists, let brightness = self.brightness(of: bar) else { return false }
+                return isDark ? brightness < 0.3 : brightness > 0.7
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [applied], timeout: 8), .completed, theme)
+        }
     }
 
     func testWindowCatalogPagesAndRotation() {
