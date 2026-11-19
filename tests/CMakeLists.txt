@@ -1417,6 +1417,14 @@ if(WIN32)
     NAME apptraverse_presenter_win_desktop_frame_publication_e2e_test
     COMMAND apptraverse_presenter_win_desktop_frame_publication_e2e_test
   )
+  add_executable(apptraverse_presenter_win_monitor_placement_e2e_test
+    presenter_win_monitor_placement_e2e_test.cpp)
+  target_link_libraries(apptraverse_presenter_win_monitor_placement_e2e_test PRIVATE
+    apptraverse apptraverse_ui_windows)
+  add_test(NAME apptraverse_presenter_win_monitor_placement_e2e_test
+    COMMAND apptraverse_presenter_win_monitor_placement_e2e_test)
+  set_tests_properties(apptraverse_presenter_win_monitor_placement_e2e_test PROPERTIES
+    RUN_SERIAL TRUE SKIP_RETURN_CODE 77)
 endif()
 
 add_executable(apptraverse_presenter_platform_persist_save

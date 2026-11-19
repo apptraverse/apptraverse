@@ -1903,6 +1903,41 @@ void TestCatalogDeleteUnloadedWindowDoesNotLoad() {
   CHECK(catalog->persisted.list->rows.empty());
 }
 
+void TestWindowsLocalWindowLifecycle() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto catalog = BuildInContentCatalogGraph(domain);
+  FinalizeDistilledGraph(*catalog);
+  catalog->AddWindow();
+  auto* holder = AsHolder(catalog->persisted.list->rows[0]);
+  auto const window_id = holder->window.id();
+  auto& local = *catalog->persisted.device_state;
+  ae::ObjId const stale{900001};
+  local.ObserveWindow({stale, "old-display", 96, 96, {20, 30, 640, 480}}, ui::UiEnvironmentReason::kStartup);
+  local.ObserveWindow({window_id, "display-b", 144, 144, {40, 50, 640, 480}}, ui::UiEnvironmentReason::kStartup);
+  catalog->EnableLocalWindowLifecycle();
+  CHECK(!local.PlacementFor(stale));
+  CHECK(local.PlacementFor(window_id));
+  catalog->CloseHolderWindow(*holder);
+  CHECK(!domain.Find(window_id));
+  CHECK(local.PlacementFor(window_id)); // Close retains restore preference.
+  catalog->SelectHolder(WindowHolder::ptr::MakeFromThis(holder));
+  catalog->DeleteSelected();
+  CHECK(!domain.Find(window_id)); // Delete does not activate a lazy window.
+  CHECK(!local.PlacementFor(window_id));
+  CHECK(!local.WindowStateIds().contains(window_id));
+  auto const generation = local.Generation();
+  // Native callbacks queued before Delete cannot recreate local state.
+  local.ObserveWindow({window_id, "display-b", 144, 144, {90, 90, 640, 480}}, ui::UiEnvironmentReason::kUserWindowChange);
+  CHECK(local.Generation() == generation);
+  CHECK(local.TryReplayFromBase());
+  CHECK(!local.PlacementFor(window_id));
+  catalog->AddWindow();
+  auto const new_id = AsHolder(catalog->persisted.list->rows[0])->window.id();
+  local.ObserveWindow({new_id, "display-a", 96, 96, {10, 10, 640, 480}}, ui::UiEnvironmentReason::kStartup);
+  CHECK(local.PlacementFor(new_id));
+}
+
 ui::UiWindowPresenter& LoadedWindowPresenter(
     ui::UiPresentedWindow& presented_window) {
   auto loaded = presented_window.presenter.Load();
@@ -2047,6 +2082,7 @@ int main() {
   apptraverse::test::TestCatalogRepeatedOpenKeepsPresenterIdentity();
   apptraverse::test::TestCatalogUnloadedSelectedPtrOpenDeleteAndApplyIndex();
   apptraverse::test::TestCatalogDeleteUnloadedWindowDoesNotLoad();
+  apptraverse::test::TestWindowsLocalWindowLifecycle();
   apptraverse::test::TestCatalogReflectionTopologyAndInitialPublication();
   apptraverse::test::TestCatalogAddWindowViaPresentedWindowPrefab();
   apptraverse::test::TestCatalogDesktopZOrderPersistence();

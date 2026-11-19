@@ -605,6 +605,8 @@ void WindowCatalog::AddWindow() {
   auto add = AddWindowCatalogEntryEvent::ptr::Create(ae::CreateWith{domain});
   add->holder = holder;
   Commit(std::move(add));
+  if (local_window_lifecycle_enabled)
+    persisted.device_state->AllowWindowObservation(holder->window.id());
   SelectHolder(holder);
   OpenHolderWindow(*holder);
 }
@@ -633,9 +635,22 @@ void WindowCatalog::DeleteSelected() {
       ae::CreateWith{*domain});
   remove->holder = target;
   Commit(std::move(remove));
+  if (local_window_lifecycle_enabled)
+    persisted.device_state->ForgetWindow(target->window.id());
   if (target->window.is_loaded()) {
     ui::UnloadPresentedWindow(target->window);
   }
+}
+void WindowCatalog::EnableLocalWindowLifecycle() {
+  local_window_lifecycle_enabled = true;
+  std::set<ae::ObjId> live{persisted.main_window.id()};
+  for (auto const& row : persisted.list->rows)
+    live.insert(static_cast<WindowHolder const&>(*row).window.id());
+  auto& local = *persisted.device_state;
+  auto const remembered = local.WindowStateIds();
+  local.SetWindowObservationTargets(live);
+  for (auto const id : remembered)
+    if (!live.contains(id)) local.ForgetWindow(id);
 }
 void WindowCatalog::UserCloseWindow(ae::ObjId window_obj_id) {
   WindowHolder* holder = FindHolderForWindow(window_obj_id);

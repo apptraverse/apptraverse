@@ -70,9 +70,11 @@ USER/BACKING. Штатное сохранение записывает `<profile
 ## Разрешение размещения через Events
 
 Для каждого окна отдельно сохраняются предпочитаемый и фактически выбранный
-экран. Ключ Windows — PnP monitor device-interface path, возвращаемый
-`EnumDisplayDevicesW(..., EDD_GET_DEVICE_INTERFACE_NAME)`. Если виртуальный/RDP
-экран не предоставляет его, используется явно обозначенный `gdi:` endpoint key.
+экран. Windows сопоставляет GDI-имя с активной целью `QueryDisplayConfig` и
+читает её PnP-путь `monitorDevicePath` через `DisplayConfigGetDeviceInfo`.
+Для драйверов без такого пути адаптер ищет активный монитор через
+`EnumDisplayDevicesW(..., EDD_GET_DEVICE_INTERFACE_NAME)`. Для виртуального
+или RDP-экрана без PnP-пути используется ключ с префиксом `gdi:`.
 Это локальная identity подключения, не глобальный серийный номер: замена драйвера,
 порта или установки может дать другой ключ. Смена DISPLAY1/DISPLAY2 сама по себе
 не отменяет привязку при наличии PnP interface path.
@@ -90,6 +92,11 @@ USER/BACKING. Штатное сохранение записывает `<profile
 Автоматический fallback сохраняет первоначальное предпочтение. Законченное
 пользовательское перемещение (`WM_EXITSIZEMOVE`) или явный model frame request
 обновляет предпочтение; служебные `WM_WINDOWPOSCHANGED` сообщают только факты.
+Если во время отсутствия экрана B пользователь завершил перенос окна на C,
+возврат B сохраняет окно на C. Это предпочтение принадлежит конкретному окну.
+Закрытие дочернего окна сохраняет его размещение до следующего открытия.
+Команда удаления в Windows WindowCatalog удаляет локальные данные окна по его
+`ObjId`. Отложенное сообщение от прежнего HWND больше не может их воссоздать.
 
 Размер и положение сохраняются в DIPs относительно рабочей области, без
 глобального offset прежнего desktop. Презентер применяет опубликованный выбор,
@@ -99,6 +106,19 @@ layout engine/scrollbars. Наблюдение получившейся геом
 и не превращает применение запроса в новое пользовательское перемещение.
 Наблюдения iconic/zoomed frames не перетирают нормальное размещение;
 сохранение maximized-состояния остаётся ранее отложенной отдельной возможностью.
+
+### Полноэкранное окно Windows WindowCatalog
+
+Поставка Windows задаёт двуязычную кнопку в правом верхнем углу клиентской
+области. В обычном режиме над ней остаётся системный заголовок. Кнопка и F11
+переключают режим, Esc возвращает окно в обычное представление. На полном
+экране кнопка выхода остаётся видимой при прокрутке содержимого.
+
+Включённый режим хранится по `ObjId` окна в `CatalogUiState` через LOCAL Event.
+Windows применяет публикацию к HWND и использует полные границы выбранного
+монитора. Фактический монитор и DPI продолжают обновляться. Для выхода и
+восстановления модель хранит геометрию обычного окна относительно рабочей
+области. Стили HWND и `WINDOWPLACEMENT` действуют в текущем сеансе.
 
 ## Геометрия desktop и логических поверхностей
 
@@ -151,6 +171,8 @@ Win7 путь использует User32/GDI/SPI; новые DPI/WinRT API за
 
 Документация API:
 [EnumDisplayDevices](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-enumdisplaydevicesw),
+[QueryDisplayConfig](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-querydisplayconfig),
+[путь активной цели](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-displayconfig_target_device_name),
 [EnumDisplayMonitors](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-enumdisplaymonitors),
 [WM_DISPLAYCHANGE](https://learn.microsoft.com/en-us/windows/win32/gdi/wm-displaychange),
 [WM_DPICHANGED](https://learn.microsoft.com/en-us/windows/win32/hidpi/wm-dpichanged).

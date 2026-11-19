@@ -65,6 +65,10 @@ std::vector<ae::ObjId> CollectWindowCatalogSupplyConstantIds(
     }
     for (auto const& item : state.menu->layout_items) AppendLocalizationRef(item.label, ids);
     for (auto const& text : state.menu->shell_strings) AppendLocalizationRef(text, ids);
+    if (state.menu->GetClassId() == CatalogWindowDisplayMenuDefinition::kClassId) {
+      for (auto const& item : state.DisplayMenu().fullscreen_items)
+        AppendLocalizationRef(item.label, ids);
+    }
   }
   return ids;
 }

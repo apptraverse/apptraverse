@@ -220,6 +220,7 @@ int main(int argc, char** argv) {
     // the first publication and before any application window is created.
     apptraverse::ui::windows::WinUiEnvironment reader{nullptr};
     session.prepare_local_state = [snapshot = reader.snapshot()](apptraverse::WindowCatalog& catalog) {
+      catalog.EnableLocalWindowLifecycle();
       catalog.persisted.device_state->ObserveEnvironment(
           snapshot, apptraverse::ui::UiEnvironmentReason::kStartup);
       apptraverse::PrepareCatalogMenuForRun(catalog);

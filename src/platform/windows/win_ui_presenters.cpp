@@ -98,6 +98,12 @@ LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
       static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam)))) return 0;
   if (msg == WM_SIZE) {
     presenter->RefreshLayout();
+    if (wparam == SIZE_RESTORED && !presenter->applying_native_frame_ &&
+        !presenter->applying_settings_) presenter->ApplyLocalPlacement();
+  }
+  if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) {
+    MSG key{hwnd, msg, wparam, lparam};
+    if (presenter->HandlePresentationShortcut(key)) return 0;
   }
   if (msg == kWinPresentationSettingsChanged) {
     // A queued notification may outlive a closed HWND. Its environment token
@@ -113,8 +119,11 @@ LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
   }
   if (msg == 0x02E0) {  // WM_DPICHANGED, optional on Windows newer than Win7.
     auto const* rect = reinterpret_cast<RECT const*>(lparam);
-    if (rect != nullptr && !presenter->applying_local_placement_) SetWindowPos(hwnd, nullptr, rect->left, rect->top,
-        rect->right - rect->left, rect->bottom - rect->top, SWP_NOZORDER | SWP_NOACTIVATE);
+    if (presenter->fullscreen_) presenter->RefreshFullscreenBounds();
+    else if (rect != nullptr && !presenter->applying_local_placement_ &&
+        !SetWindowPos(hwnd, nullptr, rect->left, rect->top,
+            rect->right - rect->left, rect->bottom - rect->top, SWP_NOZORDER | SWP_NOACTIVATE))
+      FatalWin32("SetWindowPos WM_DPICHANGED", GetLastError());
     presenter->RefreshPresentationSettings();
     return 0;
   }
@@ -155,6 +164,11 @@ LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
   }
   if (msg == WM_COMMAND) {
     HWND const child = reinterpret_cast<HWND>(lparam);
+    if (child == presenter->fullscreen_action_ && child != nullptr &&
+        LOWORD(wparam) == kFullscreenActionId && HIWORD(wparam) == BN_CLICKED) {
+      presenter->ToggleFullscreenFromUi();
+      return 0;
+    }
     if (child == nullptr && presenter->OnCommand(
         static_cast<std::uint32_t>(LOWORD(wparam)),
         static_cast<std::uint16_t>(HIWORD(wparam)))) return 0;
@@ -166,17 +180,31 @@ LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
   }
   if (msg == WM_ENTERSIZEMOVE) {
     presenter->interactive_move_active_ = true;
+    if (presenter->environment_)
+      presenter->interactive_start_window_ = presenter->environment_->WindowSnapshot(presenter->window.id());
   }
   if (msg == WM_EXITSIZEMOVE) {
+    bool user_changed_frame = false;
+    if (presenter->interactive_start_window_ && presenter->environment_) {
+      auto const current = presenter->environment_->WindowSnapshot(presenter->window.id());
+      auto const& start = *presenter->interactive_start_window_;
+      user_changed_frame = current.monitor_key != start.monitor_key || current.frame_dip != start.frame_dip;
+    }
     presenter->interactive_move_active_ = false;
+    presenter->interactive_start_window_.reset();
     if (presenter->pending_requested_frame_) {
       auto const requested = *presenter->pending_requested_frame_;
       presenter->pending_requested_frame_.reset();
       presenter->ApplyRequestedNativeFrame(requested);
     } else if (!presenter->applying_native_frame_) {
-      presenter->HandleNativeFrameChanged(true);
+      // End of a modal loop is not itself a move. A title-bar press or an Esc
+      // cancellation on a fallback display must retain the absent preference.
+      presenter->HandleNativeFrameChanged(user_changed_frame);
     }
-    presenter->ReportEnvironmentFromNative(UiEnvironmentReason::kUserWindowChange);
+    // A no-motion/cancel exit may produce no new observation/publication. Apply
+    // any topology revision deferred by the modal loop now; a real user move
+    // or explicit RequestFrame is protected by pending_user_placement_.
+    presenter->ApplyLocalPlacement();
   }
   if (msg == WM_WINDOWPOSCHANGED && !presenter->applying_native_frame_ &&
       !presenter->applying_layout_ && !presenter->applying_settings_) {
@@ -213,6 +241,109 @@ std::wstring WinDesktopWindowPresenter::ResolveTitleText() const {
   return Utf8ToWide(ResolvePresentedWindowTitle(locale->language_index()));
 }
 
+bool WinDesktopWindowPresenter::HandlePresentationShortcut(MSG const& message) {
+  if (!HasFullscreenAction() ||
+      (message.message != WM_KEYDOWN && message.message != WM_SYSKEYDOWN)) return false;
+  // Unmodified F11 and fullscreen Escape belong to this native window. Leave
+  // system/menu accelerators and editor keys with their ordinary recipients.
+  if (GetKeyState(VK_MENU) < 0 || GetKeyState(VK_CONTROL) < 0 || GetKeyState(VK_SHIFT) < 0)
+    return false;
+  bool const repeated = (message.lParam & (static_cast<LPARAM>(1) << 30)) != 0;
+  if (message.wParam == VK_F11) {
+    if (!repeated) ToggleFullscreenFromUi();
+    return true;
+  }
+  if (message.wParam == VK_ESCAPE && fullscreen_) {
+    if (!repeated) ExitFullscreenFromUi();
+    return true;
+  }
+  return false;
+}
+
+void WinDesktopWindowPresenter::SyncFullscreenAction() {
+  if (fullscreen_action_) SetNativeWindowTextIfChanged(fullscreen_action_, ResolveFullscreenActionText());
+}
+
+void WinDesktopWindowPresenter::RefreshFullscreenBounds() {
+  if (!hwnd_ || !fullscreen_ || changing_fullscreen_) return;
+  HMONITOR monitor = MonitorFromWindow(hwnd_, MONITOR_DEFAULTTONEAREST);
+  auto const* local = LocalDeviceState();
+  if (auto const* placement = local->PlacementFor(window.id())) {
+    auto const found = std::find_if(local->environment.monitors.begin(), local->environment.monitors.end(),
+        [&](auto const& item) { return item.key == placement->resolved_monitor; });
+    if (found != local->environment.monitors.end()) {
+      auto const& work = found->work_area;
+      RECT const target{work.x, work.y, work.x + work.width, work.y + work.height};
+      monitor = MonitorFromRect(&target, MONITOR_DEFAULTTONEAREST);
+    }
+  }
+  MONITORINFO info{sizeof(info)};
+  if (!GetMonitorInfoW(monitor, &info)) FatalWin32("GetMonitorInfoW fullscreen", GetLastError());
+  RECT current{};
+  if (!GetWindowRect(hwnd_, &current)) FatalWin32("GetWindowRect fullscreen", GetLastError());
+  auto const& bounds = info.rcMonitor;
+  if (EqualRect(&current, &bounds)) return;
+  bool const prior = applying_native_frame_;
+  applying_native_frame_ = true;
+  if (!SetWindowPos(hwnd_, nullptr, bounds.left, bounds.top,
+      bounds.right - bounds.left, bounds.bottom - bounds.top,
+      SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED))
+    FatalWin32("SetWindowPos fullscreen", GetLastError());
+  applying_native_frame_ = prior;
+  ReportEnvironmentFromNative();
+}
+
+void WinDesktopWindowPresenter::SetPresentationFullscreen(bool fullscreen) {
+  if (!hwnd_ || fullscreen == fullscreen_) return;
+  changing_fullscreen_ = true;
+  bool const prior = applying_native_frame_;
+  applying_native_frame_ = true;
+  auto set_style = [&](int index, LONG_PTR style) {
+    SetLastError(ERROR_SUCCESS);
+    if (SetWindowLongPtrW(hwnd_, index, style) == 0 && GetLastError() != ERROR_SUCCESS)
+      FatalWin32("SetWindowLongPtrW fullscreen style", GetLastError());
+  };
+  if (fullscreen) {
+    windowed_placement_.length = sizeof(windowed_placement_);
+    if (!GetWindowPlacement(hwnd_, &windowed_placement_))
+      FatalWin32("GetWindowPlacement fullscreen", GetLastError());
+    windowed_style_ = GetWindowLongPtrW(hwnd_, GWL_STYLE);
+    windowed_ex_style_ = GetWindowLongPtrW(hwnd_, GWL_EXSTYLE);
+    if (IsZoomed(hwnd_) || IsIconic(hwnd_)) ShowWindow(hwnd_, SW_RESTORE);
+    set_style(GWL_STYLE, (windowed_style_ & ~(WS_OVERLAPPEDWINDOW | WS_MAXIMIZE | WS_MINIMIZE)) | WS_POPUP);
+    set_style(GWL_EXSTYLE, windowed_ex_style_ & ~(WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE));
+    fullscreen_ = true;
+    changing_fullscreen_ = false;
+    RefreshFullscreenBounds();
+  } else {
+    fullscreen_ = false;
+    set_style(GWL_STYLE, windowed_style_ & ~(WS_MAXIMIZE | WS_MINIMIZE));
+    set_style(GWL_EXSTYLE, windowed_ex_style_);
+    WINDOWPLACEMENT restore = windowed_placement_;
+    bool const maximized = restore.showCmd == SW_SHOWMAXIMIZED;
+    restore.showCmd = SW_SHOWNORMAL;
+    if (!SetWindowPlacement(hwnd_, &restore)) FatalWin32("SetWindowPlacement fullscreen restore", GetLastError());
+    if (!SetWindowPos(hwnd_, nullptr, 0, 0, 0, 0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED))
+      FatalWin32("SetWindowPos fullscreen restore", GetLastError());
+    // A topology change can publish a new normal placement while fullscreen.
+    // Apply that before restoring maximization, leaving the saved frame intact
+    // when its published placement has not changed.
+    ApplyLocalPlacement();
+    if (pending_requested_frame_) {
+      auto const requested = *pending_requested_frame_;
+      pending_requested_frame_.reset();
+      ApplyRequestedNativeFrame(requested);
+    }
+    if (maximized) ShowWindow(hwnd_, SW_MAXIMIZE);
+    else if (windowed_placement_.showCmd == SW_SHOWMINIMIZED) ShowWindow(hwnd_, SW_MINIMIZE);
+    changing_fullscreen_ = false;
+  }
+  applying_native_frame_ = prior;
+  SyncFullscreenAction();
+  RefreshPresentationSettings();
+}
+
 void WinDesktopWindowPresenter::OnLoad() {
   EnsureWinProcessDpiAwareness();
   auto const desktop = desktop_window();
@@ -243,6 +374,15 @@ void WinDesktopWindowPresenter::OnLoad() {
     FatalWin32("CreateWindowExW Ui desktop window", GetLastError());
   }
   SetUserData(hwnd_, this);
+  if (HasFullscreenAction()) {
+    fullscreen_action_ = CreateWindowExW(0, L"BUTTON", L"",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON | BS_MULTILINE | BS_NOTIFY,
+        0, 0, 1, 1, hwnd_, reinterpret_cast<HMENU>(static_cast<UINT_PTR>(kFullscreenActionId)),
+        instance, nullptr);
+    if (!fullscreen_action_) FatalWin32("CreateWindowExW fullscreen action", GetLastError());
+    native_children_.push_back({fullscreen_action_, kFullscreenActionId});
+    SyncFullscreenAction();
+  }
   ApplyLocalPlacement();
   if (!LocalDeviceState()->PlacementFor(window.id())) KeepInCurrentWorkArea();
   RefreshPresentationSettings();
@@ -282,7 +422,7 @@ WinDesktopWindowPresenter::ReadNativeClientFrame() const {
 void WinDesktopWindowPresenter::ApplyRequestedFrameFromMirror() {
   if (hwnd_ == nullptr) return;
   ClientFrame const mirror = ReadMirrorClientFrame();
-  if (interactive_move_active_) {
+  if (interactive_move_active_ || fullscreen_) {
     // Publication intent is consumed once. Retain its target across the native
     // modal drag, including later unrelated mirror publications.
     pending_requested_frame_ = mirror;
@@ -292,8 +432,11 @@ void WinDesktopWindowPresenter::ApplyRequestedFrameFromMirror() {
 }
 
 void WinDesktopWindowPresenter::ApplyRequestedNativeFrame(ClientFrame mirror) {
+  pending_user_placement_.reset();
   ClientFrame const native = ReadNativeClientFrame();
   if (FramesEqual(mirror, native)) {
+    // An explicit model request also adopts an already matching native frame.
+    ReportEnvironmentFromNative(UiEnvironmentReason::kUserWindowChange);
     return;
   }
   applying_native_frame_ = true;
@@ -311,7 +454,7 @@ void WinDesktopWindowPresenter::ApplyRequestedNativeFrame(ClientFrame mirror) {
 
 void WinDesktopWindowPresenter::HandleNativeFrameChanged(
     bool updates_restore_geometry) {
-  if (applying_native_frame_ || applying_layout_ || applying_settings_) {
+  if (applying_native_frame_ || applying_layout_ || applying_settings_ || changing_fullscreen_) {
     return;
   }
   if (hwnd_ == nullptr) return;
@@ -337,6 +480,7 @@ void WinDesktopWindowPresenter::OnModelChanged() {
   ApplyLocalPlacement();
   auto const* local = LocalDeviceState();
   if (local && local->appearance != applied_appearance_) RefreshPresentationSettings();
+  SyncFullscreenAction();
   RefreshLayout();
   SetNativeWindowTextIfChanged(hwnd_, ResolveTitleText());
 }
@@ -356,9 +500,14 @@ void WinDesktopWindowPresenter::OnUnload() {
   environment_.reset();
   last_reported_environment_.reset();
   last_reported_window_.reset();
+  pending_user_placement_.reset();
+  interactive_start_window_.reset();
   applied_placement_revision_ = 0;
   interactive_move_active_ = false;
   pending_requested_frame_.reset();
+  fullscreen_ = false;
+  changing_fullscreen_ = false;
+  fullscreen_action_ = nullptr;
 }
 
 WinDesktopWindowPresenter* WinDesktopWindowPresenter::FromNativeWindow(HWND window) {
@@ -386,29 +535,43 @@ COLORREF WinDesktopWindowPresenter::BackgroundColor() const {
 
 void WinDesktopWindowPresenter::ApplyChildAppearance(HWND child) {
   if (!environment_) return;
-  SendMessageW(child, WM_SETFONT, reinterpret_cast<WPARAM>(environment_->font()), TRUE);
+  if (reinterpret_cast<HFONT>(SendMessageW(child, WM_GETFONT, 0, 0)) != environment_->font())
+    SendMessageW(child, WM_SETFONT, reinterpret_cast<WPARAM>(environment_->font()), TRUE);
   wchar_t class_name[32]{};
   GetClassNameW(child, class_name, 32);
   if ((wcscmp(class_name, L"Edit") == 0 &&
        (GetWindowLongPtrW(child, GWL_STYLE) & ES_MULTILINE)) ||
       wcscmp(class_name, L"ListBox") == 0) {
-    HMODULE theme = LoadLibraryW(L"uxtheme.dll");
-    if (theme) {
+    auto entry = std::find_if(native_children_.begin(), native_children_.end(),
+        [child](auto const& item) { return item.hwnd == child; });
+    bool const dark = environment_->dark();
+    if (entry->applied_dark_theme != dark) {
       using SetTheme = HRESULT(WINAPI*)(HWND, LPCWSTR, LPCWSTR);
-      auto set_theme = reinterpret_cast<SetTheme>(
-          GetProcAddress(theme, "SetWindowTheme"));
-      if (set_theme)
-        set_theme(child, environment_->dark() ? L"DarkMode_Explorer" : nullptr,
-                  nullptr);
-      FreeLibrary(theme);
+      // Resolve once from System32. Optional themed-scrollbar support stays
+      // compatible with Win7; a bare DLL-name search must never load app-local
+      // code, and unrelated publications do not keep resetting native themes.
+      struct ThemeApi {
+        HMODULE module{LoadWinSystemModule(L"uxtheme.dll")};
+        SetTheme set_theme{module ? reinterpret_cast<SetTheme>(GetProcAddress(module, "SetWindowTheme")) : nullptr};
+        ~ThemeApi() { if (module) FreeLibrary(module); }
+      };
+      static ThemeApi const theme;
+      if (theme.set_theme) theme.set_theme(child, dark ? L"DarkMode_Explorer" : nullptr, nullptr);
+      entry->applied_dark_theme = dark;
     }
   }
   if (wcscmp(class_name, L"Button") == 0) {
-    LONG_PTR style = GetWindowLongPtrW(child, GWL_STYLE);
-    style = (style & ~BS_TYPEMASK) | (environment_->dark() ? BS_OWNERDRAW : BS_PUSHBUTTON);
-    SetWindowLongPtrW(child, GWL_STYLE, style | BS_MULTILINE | BS_NOTIFY | WS_TABSTOP);
-    SetWindowPos(child, nullptr, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    LONG_PTR const prior = GetWindowLongPtrW(child, GWL_STYLE);
+    LONG_PTR const style = (prior & ~BS_TYPEMASK) |
+        (environment_->dark() ? BS_OWNERDRAW : BS_PUSHBUTTON) | BS_MULTILINE | BS_NOTIFY | WS_TABSTOP;
+    if (style != prior) {
+      SetLastError(ERROR_SUCCESS);
+      if (!SetWindowLongPtrW(child, GWL_STYLE, style) && GetLastError() != ERROR_SUCCESS)
+        FatalWin32("SetWindowLongPtrW button appearance", GetLastError());
+      if (!SetWindowPos(child, nullptr, 0, 0, 0, 0,
+          SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED))
+        FatalWin32("SetWindowPos button appearance", GetLastError());
+    }
   }
   InvalidateRect(child, nullptr, TRUE);
 }
@@ -440,8 +603,16 @@ void WinDesktopWindowPresenter::ReportEnvironmentFromNative(UiEnvironmentReason 
     model_proxy->Invoke(local->obj_id, &UiDeviceState::ObserveEnvironment, current, reason);
     last_reported_environment_ = current;
   }
-  if (IsIconic(hwnd_) || IsZoomed(hwnd_)) return;
+  if (IsIconic(hwnd_)) return;
+  // Fullscreen/maximized still report actual monitor/DPI/frame facts, but never
+  // request to replace the saved normal-window preference.
+  if (IsPresentationFullscreen() || IsZoomed(hwnd_)) {
+    if (!last_reported_window_ && !local->PlacementFor(window.id())) return;
+    window_reason = UiEnvironmentReason::kSystemNotification;
+  }
   auto const window_environment = environment_->WindowSnapshot(window.id());
+  if (window_reason == UiEnvironmentReason::kUserWindowChange)
+    pending_user_placement_ = window_environment;
   if (!last_reported_window_ || *last_reported_window_ != window_environment ||
       window_reason == UiEnvironmentReason::kUserWindowChange) {
     auto const reason = last_reported_window_ ? window_reason : UiEnvironmentReason::kStartup;
@@ -453,7 +624,20 @@ void WinDesktopWindowPresenter::ReportEnvironmentFromNative(UiEnvironmentReason 
 void WinDesktopWindowPresenter::ApplyLocalPlacement() {
   auto const* local = LocalDeviceState();
   if (!hwnd_ || applying_local_placement_) return;
+  if (IsPresentationFullscreen()) {
+    RefreshFullscreenBounds();
+    return;
+  }
+  // A queued topology publication must not move an HWND inside the native
+  // modal drag, or overwrite its final preference before the model acknowledges
+  // that user input. Do not consume the revision while it is deferred.
+  if (interactive_move_active_ || IsIconic(hwnd_)) return;
   auto const* placement = local->PlacementFor(window.id());
+  if (pending_user_placement_) {
+    if (!placement || placement->preferred_monitor != pending_user_placement_->monitor_key ||
+        placement->frame_dip != pending_user_placement_->frame_dip) return;
+    pending_user_placement_.reset();
+  }
   if (!placement || placement->revision == applied_placement_revision_) return;
   if (applied_placement_revision_ == 0 && placement->revision == 1 && last_reported_window_ &&
       placement->resolved_monitor == last_reported_window_->monitor_key &&
@@ -472,7 +656,12 @@ void WinDesktopWindowPresenter::ApplyLocalPlacement() {
   applying_local_placement_ = true;
   bool const prior_native = applying_native_frame_;
   applying_native_frame_ = true;
-  if (GetWinWindowMonitorKey(hwnd_) != monitor->key) {
+  bool const maximized = IsZoomed(hwnd_) != FALSE;
+  // Move the normal restore frame using the same preferred DIPs, then retain
+  // the native show state on the selected display. SetWindowPos alone on a
+  // zoomed HWND can leave its maximize bounds on the old display.
+  if (maximized) ShowWindow(hwnd_, SW_RESTORE);
+  if (!environment_ || environment_->WindowSnapshot(window.id()).monitor_key != monitor->key) {
     // Fit the staging frame entirely inside the selected monitor before asking
     // the HWND for its DPI. A large source frame must not retain another monitor.
     if (!SetWindowPos(hwnd_, nullptr, work.x, work.y,
@@ -493,6 +682,7 @@ void WinDesktopWindowPresenter::ApplyLocalPlacement() {
       FatalWin32("SetWindowPos local placement", GetLastError());
   }
   applied_placement_revision_ = placement->revision;
+  if (maximized) ShowWindow(hwnd_, SW_MAXIMIZE);
   applying_native_frame_ = prior_native;
   applying_local_placement_ = false;
   if (environment_) {
@@ -599,7 +789,34 @@ UiConstraintLayoutResult WinDesktopWindowPresenter::ComputeLocalLayout() const {
         longest_word / scale + 24, (full.bottom - full.top) / scale + 12,
         (full.right - full.left) / scale + 24, (full.bottom - full.top) / scale + 12});
   }
-  auto result = ComputeUiConstraintLayout(*root, client.right / scale, client.bottom / scale, measurements);
+  // The caption-adjacent action is a fixed native toolbar. Its description is
+  // supplied by the application and both toolbar/content use the one portable
+  // solver. Scroll only content, keeping fullscreen exit reachable at any size.
+  UiConstraintLayoutResult toolbar;
+  double toolbar_height = 0;
+  if (fullscreen_action_) {
+    auto remeasure_toolbar = [&](std::uint32_t id, double width) {
+      auto measured = *std::find_if(measurements.begin(), measurements.end(),
+          [id](auto const& value) { return value.control_id == id; });
+      int const length = GetWindowTextLengthW(fullscreen_action_);
+      std::wstring text(static_cast<std::size_t>(length) + 1, L'\0');
+      GetWindowTextW(fullscreen_action_, text.data(), length + 1);
+      RECT wrapped{0, 0, std::max(1, static_cast<int>(std::floor((width - 24) * scale))), 0};
+      DrawTextW(dc, text.c_str(), length, &wrapped, DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
+      measured.min_height = std::max(measured.min_height, (wrapped.bottom - wrapped.top) / scale + 12);
+      measured.preferred_height = std::max(measured.preferred_height, measured.min_height);
+      return measured;
+    };
+    toolbar = ComputeUiConstraintLayout(*FullscreenActionLayout(), client.right / scale, 0, measurements,
+        remeasure_toolbar);
+    if (!toolbar.valid) FatalWin32(toolbar.error.c_str(), ERROR_INVALID_DATA);
+    toolbar_height = toolbar.content_height;
+  }
+  auto solve_content = [&] {
+    return ComputeUiConstraintLayout(*root, client.right / scale,
+        std::max(0.0, client.bottom / scale - toolbar_height), measurements);
+  };
+  auto result = solve_content();
   // Width-dependent text wrapping is measured with the actual native font.
   // Monotonic height refinement avoids oscillation between alternative layouts.
   for (int pass = 0; pass < 3; ++pass) {
@@ -631,10 +848,13 @@ UiConstraintLayoutResult WinDesktopWindowPresenter::ComputeLocalLayout() const {
       }
     }
     if (!changed) break;
-    result = ComputeUiConstraintLayout(*root, client.right / scale, client.bottom / scale, measurements);
+    result = solve_content();
   }
   SelectObject(dc, previous); ReleaseDC(hwnd_, dc);
   if (!result.valid) FatalWin32(result.error.c_str(), ERROR_INVALID_DATA);
+  for (auto& rect : result.controls) rect.y += toolbar_height;
+  result.content_height += toolbar_height;
+  result.controls.insert(result.controls.end(), toolbar.controls.begin(), toolbar.controls.end());
   return result;
 }
 
@@ -654,7 +874,8 @@ UiControlLayout WinDesktopWindowPresenter::ResolveChildLayout(UiControlLayout re
   int const top = static_cast<int>(std::lround(found->y * scale));
   int const right = static_cast<int>(std::lround((found->x + found->width) * scale));
   int const bottom = static_cast<int>(std::lround((found->y + found->height) * scale));
-  return {left - scroll_x_, top - scroll_y_, std::max(1, right - left),
+  bool const toolbar = requested.control_id == kFullscreenActionId && fullscreen_action_;
+  return {left - (toolbar ? 0 : scroll_x_), top - (toolbar ? 0 : scroll_y_), std::max(1, right - left),
           std::max(1, bottom - top), requested.control_id};
 }
 
@@ -694,9 +915,14 @@ void WinDesktopWindowPresenter::RefreshLayout() {
     int const top = static_cast<int>(std::lround(found->y * scale));
     int const right = static_cast<int>(std::lround((found->x + found->width) * scale));
     int const bottom = static_cast<int>(std::lround((found->y + found->height) * scale));
-    SetNativeChildFrameIfChanged(child.hwnd, left - scroll_x_, top - scroll_y_,
+    bool const toolbar = child.hwnd == fullscreen_action_;
+    SetNativeChildFrameIfChanged(child.hwnd, left - (toolbar ? 0 : scroll_x_), top - (toolbar ? 0 : scroll_y_),
                                 std::max(1, right - left), std::max(1, bottom - top));
   }
+  if (fullscreen_action_ && GetTopWindow(hwnd_) != fullscreen_action_ &&
+      !SetWindowPos(fullscreen_action_, HWND_TOP, 0, 0, 0, 0,
+      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE))
+    FatalWin32("SetWindowPos fixed fullscreen action", GetLastError());
   applying_layout_ = false;
 }
 void WinDesktopWindowPresenter::ScrollContent(int bar, WPARAM command) {
@@ -718,7 +944,7 @@ void WinDesktopWindowPresenter::ScrollContent(int bar, WPARAM command) {
 }
 void WinDesktopWindowPresenter::EnsureFocusedControlVisible() {
   HWND const focused = GetFocus();
-  if (!focused || GetParent(focused) != hwnd_ || LayoutRoot() == nullptr) return;
+  if (!focused || focused == fullscreen_action_ || GetParent(focused) != hwnd_ || LayoutRoot() == nullptr) return;
   int x, y, width, height; ReadChildClientFrame(focused, x, y, width, height);
   RECT client{}; GetClientRect(hwnd_, &client);
   if (y < 0) scroll_y_ += y;

@@ -21,6 +21,7 @@ APPTRAVERSE_REGISTER(UiDeviceState);
 APPTRAVERSE_REGISTER(UiDeviceEnvironmentChangedEvent);
 APPTRAVERSE_REGISTER(UiWindowEnvironmentChangedEvent);
 APPTRAVERSE_REGISTER(UiWindowMonitorResolvedEvent);
+APPTRAVERSE_REGISTER(ForgetUiWindowEnvironmentEvent);
 APPTRAVERSE_REGISTER(SetUiAppearancePreferencesEvent);
 APPTRAVERSE_REGISTER(UiLayoutDefinition);
 APPTRAVERSE_REGISTER(UiLayoutState);

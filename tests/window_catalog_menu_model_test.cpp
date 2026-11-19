@@ -7,6 +7,7 @@
 #include "apptraverse/platform/windows/win_ui_environment.h"
 using namespace apptraverse;
 #define CHECK(condition) do { if (!(condition)) { std::cerr << "CHECK failed: " #condition << " line " << __LINE__ << '\n'; std::exit(1); } } while(false)
+#include "window_catalog_fullscreen_model_cases.h"
 int main() {
   using namespace ui::windows;
   WinUiPalette const hc{RGB(0,0,0), RGB(255,255,0), RGB(0,0,0), RGB(200,200,200), RGB(255,255,255), false, true};
@@ -15,6 +16,11 @@ int main() {
        ui::UiAppearancePreferences{ui::UiThemeMode::kDark,false}, ui::UiAppearancePreferences{ui::UiThemeMode::kDark,true}})
     CHECK(ResolveWinUiPalette(hc, light, theme) == hc);
   EnsureWindowCatalogGraphRegistration();
+  for (bool compact : {false, true}) {
+    TestFullscreenModelAndPublication(compact);
+    TestFullscreenColdAndPlatformSeed(false, compact);
+    TestFullscreenColdAndPlatformSeed(true, compact);
+  }
   for (auto handling : {CatalogThemeHandling::kAdapterAppliesTheme, CatalogThemeHandling::kNativeFollowsSystem}) {
     ae::RamDomainStorage storage;
     ae::Domain domain{storage};

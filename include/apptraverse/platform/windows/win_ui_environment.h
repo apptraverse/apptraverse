@@ -3,6 +3,7 @@
 
 #include <windows.h>
 #include <memory>
+#include <map>
 #include "apptraverse/ui/ui_device_state.h"
 
 namespace apptraverse::ui::windows {
@@ -11,6 +12,8 @@ namespace apptraverse::ui::windows {
 void EnsureWinProcessDpiAwareness();
 UINT GetWinWindowDpi(HWND window);
 std::string GetWinWindowMonitorKey(HWND window);
+// Load optional Windows components from System32, never the working directory.
+HMODULE LoadWinSystemModule(wchar_t const* name);
 
 inline constexpr UINT kWinPresentationSettingsChanged = WM_APP + 0x310;
 struct WinUiPalette {
@@ -50,6 +53,7 @@ class WinUiEnvironment {
   std::unique_ptr<ModernSettings> modern_;
   HWND window_;
   UiDeviceEnvironment snapshot_;
+  std::map<std::wstring, std::string> monitor_keys_;
   HFONT font_{nullptr};
   HBRUSH background_brush_{nullptr};
   double scale_{1.0};

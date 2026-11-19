@@ -98,6 +98,8 @@ constexpr std::uint32_t kAddControlId = 5002;
 constexpr std::uint32_t kOpenControlId = 5003;
 constexpr std::uint32_t kDeleteControlId = 5004;
 constexpr std::uint32_t kLanguageControlId = 5005;
+constexpr std::uint32_t kCloseControlId = 5006;
+constexpr std::uint32_t kFullscreenControlId = ui::windows::WinDesktopWindowPresenter::kFullscreenActionId;
 
 std::filesystem::path ExeDir() {
   wchar_t path[MAX_PATH]{};
@@ -145,6 +147,7 @@ void ApplyCatalogFrame(HWND hwnd, int x, int y, int client_width,
   int outer_height = 0;
   apptraverse::ui::windows::ClientSizeToOuter(client_width, client_height,
                                               outer_width, outer_height, GetMenu(hwnd) != nullptr);
+  SendMessageW(hwnd, WM_ENTERSIZEMOVE, 0, 0);
   CHECK(SetWindowPos(hwnd, nullptr, x, y, outer_width, outer_height,
                      SWP_NOZORDER | SWP_NOACTIVATE) != 0);
   SendMessageW(hwnd, WM_EXITSIZEMOVE, 0, 0);
@@ -277,6 +280,29 @@ std::vector<HWND> TopLevelWindowsForPid(DWORD pid) {
   return out;
 }
 
+bool FindExposedCaptionPoint(HWND window, POINT& point) {
+  RECT frame{};
+  if (!GetWindowRect(window, &frame)) return false;
+  // Match the DPI-aware app's physical coordinates and ask the actual native
+  // window which exposed pixels are caption. Avoid buttons, resize borders,
+  // covered pixels and gaps between monitors on a mixed-DPI desktop.
+  int const width = frame.right - frame.left;
+  int const height = std::min(256, static_cast<int>((frame.bottom - frame.top) / 2));
+  for (int y = frame.top + 2; y < frame.top + height; y += 3) {
+    for (int fraction : {4, 3, 5, 2, 6, 1, 7}) {
+      POINT const candidate{frame.left + width * fraction / 8, y};
+      if (!MonitorFromPoint(candidate, MONITOR_DEFAULTTONULL)) continue;
+      HWND const hit = WindowFromPoint(candidate);
+      if (!hit || GetAncestor(hit, GA_ROOT) != window) continue;
+      if (SendMessageW(window, WM_NCHITTEST, 0,
+          MAKELPARAM(candidate.x, candidate.y)) != HTCAPTION) continue;
+      point = candidate;
+      return true;
+    }
+  }
+  return false;
+}
+
 void ActivateTestWindow(HWND parent) {
   SetForegroundWindow(parent);
   if (GetForegroundWindow() != parent) {
@@ -287,12 +313,17 @@ void ActivateTestWindow(HWND parent) {
     // test window before issuing the user-equivalent click.
     CHECK(SetWindowPos(parent, HWND_TOP, 0, 0, 0, 0,
         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE));
-    RECT frame{};
-    CHECK(GetWindowRect(parent, &frame));
-    auto const x = frame.left + (frame.right - frame.left) / 2;
-    auto const y = frame.top + GetSystemMetrics(SM_CYFRAME) +
-                   GetSystemMetrics(SM_CYCAPTION) / 2;
-    CHECK(SetCursorPos(x, y));
+    POINT caption{};
+    CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
+      return FindExposedCaptionPoint(parent, caption);
+    }));
+    CHECK(SetCursorPos(caption.x, caption.y));
+    POINT cursor{};
+    CHECK(GetCursorPos(&cursor));
+    CHECK(cursor.x == caption.x && cursor.y == caption.y);
+    CHECK(GetAncestor(WindowFromPoint(cursor), GA_ROOT) == parent);
+    CHECK(SendMessageW(parent, WM_NCHITTEST, 0,
+        MAKELPARAM(cursor.x, cursor.y)) == HTCAPTION);
     INPUT click[2]{};
     click[0].type = click[1].type = INPUT_MOUSE;
     click[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
@@ -347,7 +378,13 @@ HWND FindTopLevelWithTitle(DWORD pid, std::wstring const& needle) {
 
 void WaitChromeReady(HWND main) {
   CHECK(WaitUntil(std::chrono::seconds{20},
-                  [&] { return CountChildClass(main, L"Button") == 3; }));
+                  [&] {
+    HWND const fullscreen = GetDlgItem(main, kFullscreenControlId);
+    return CountChildClass(main, L"Button") == 4 && fullscreen &&
+           IsWindowVisible(fullscreen) && IsWindowEnabled(fullscreen) &&
+           (GetWindowLongPtrW(fullscreen, GWL_STYLE) & WS_TABSTOP) != 0 &&
+           !GetWindowTextHwnd(fullscreen).empty();
+  }));
 }
 
 void EnsureCatalogMainWindow(DWORD pid, HWND& main) {
@@ -410,6 +447,8 @@ void ExpectChrome(HWND main, wchar_t const* add, wchar_t const* open,
     return GetControlText(main, kAddControlId) == add &&
            GetControlText(main, kOpenControlId) == open &&
            GetControlText(main, kDeleteControlId) == remove &&
+           GetControlText(main, kFullscreenControlId) ==
+               (std::wstring{language} == L"RU" ? L"Enter fullscreen (F11)" : L"На весь экран (F11)") &&
            GetDlgItem(main, kLanguageControlId) == nullptr &&
            (GetMenuState(GetSubMenu(GetMenu(main), 1),
                example::surfaces::CatalogDesktopWindowPresenter::kLanguageFirst + (std::wstring{language} == L"RU" ? 0 : 1),
@@ -1650,6 +1689,7 @@ struct DemoProfileSnapshot {
   ui::UiAppearancePreferences appearance;
   int language{};
   std::size_t rows{};
+  std::size_t fullscreen_windows{};
 };
 DemoProfileSnapshot ReadDemoProfile(std::filesystem::path const& profile, bool include_local) {
   ae::RamDomainStorage portable, local, backing;
@@ -1671,7 +1711,8 @@ DemoProfileSnapshot ReadDemoProfile(std::filesystem::path const& profile, bool i
     CHECK(local.Load({state.obj_id, CatalogUiState::kClassId, 0}).result == ae::DomainLoadResult::kLoaded);
   }
   CHECK(state.journal.empty() && catalog->persisted.locale->journal.empty());
-  return {state.appearance, catalog->persisted.locale->language_index(), catalog->persisted.list->rows.size()};
+  return {state.appearance, catalog->persisted.locale->language_index(),
+      catalog->persisted.list->rows.size(), state.fullscreen_windows.size()};
 }
 void RunMenuLocalPersistenceAcceptance() {
   using CatalogPresenter = example::surfaces::CatalogDesktopWindowPresenter;
@@ -1711,6 +1752,224 @@ void RunMenuLocalPersistenceAcceptance() {
     HWND main = WaitCatalogMainWindow(transferred.pi.dwProcessId, std::chrono::seconds{30});
     CHECK(main); WaitChromeReady(main); ExpectChromeEn(main); ExpectListRows(main, {L"Window 1"});
     CloseProcessGracefully(main, transferred.pi); transferred.Release();
+  }
+}
+
+bool IsFullscreenOnMonitor(HWND window) {
+  if ((GetWindowLongPtrW(window, GWL_STYLE) & WS_CAPTION) != 0) return false;
+  RECT frame{};
+  MONITORINFO monitor{sizeof(monitor)};
+  return GetWindowRect(window, &frame) &&
+      GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor) &&
+      EqualRect(&frame, &monitor.rcMonitor);
+}
+
+void WaitFullscreenState(HWND window, bool fullscreen) {
+  CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
+    auto const action = GetDlgItem(window, kFullscreenControlId);
+    return action && IsWindowVisible(action) && IsWindowEnabled(action) &&
+        GetWindowTextHwnd(action) == (fullscreen ? L"Exit fullscreen (Esc)" : L"Enter fullscreen (F11)") &&
+        IsFullscreenOnMonitor(window) == fullscreen &&
+        (fullscreen || (GetWindowLongPtrW(window, GWL_STYLE) & WS_CAPTION) == WS_CAPTION);
+  }));
+}
+
+void ClickFullscreenAction(HWND window) {
+  HWND const button = GetDlgItem(window, kFullscreenControlId);
+  CHECK(button && IsWindowVisible(button) && IsWindowEnabled(button));
+  SendMessageW(window, WM_COMMAND, MAKEWPARAM(kFullscreenControlId, BN_CLICKED),
+      reinterpret_cast<LPARAM>(button));
+}
+
+void ExpectTabCycle(HWND window, std::set<int> const& expected) {
+  std::set<int> observed;
+  HWND const first = GetNextDlgTabItem(window, nullptr, FALSE);
+  CHECK(first);
+  HWND next = first;
+  do {
+    CHECK(IsWindowVisible(next) && IsWindowEnabled(next));
+    CHECK(observed.insert(GetDlgCtrlID(next)).second);
+    next = GetNextDlgTabItem(window, next, FALSE);
+    CHECK(next);
+  } while (next != first);
+  CHECK(observed == expected);
+}
+
+void RunFullscreenRestartPersistenceAcceptance() {
+  auto const profile = FreshStateDir("window_catalog_fullscreen_cold");
+  auto const transfer = FreshStateDir("window_catalog_fullscreen_user_only");
+  auto const load_only = DemoExe("win32_window_catalog_demo_load_only.exe");
+  CatalogFrame normal_main, normal_child;
+  {
+    ActiveDemoProcess process{StartDemo(load_only, profile)};
+    HWND const main = WaitCatalogMainWindow(process.pi.dwProcessId, std::chrono::seconds{30});
+    CHECK(main); WaitChromeReady(main); ExpectChromeEn(main);
+    ClickControl(main, kAddControlId);
+    HWND child = nullptr;
+    CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
+      child = FindTopLevelWithTitle(process.pi.dwProcessId, L"Window 1");
+      return child && GetDlgItem(child, kFullscreenControlId) &&
+          CountChildClass(child, L"Button") == 1;
+    }));
+    CHECK(GetDlgItem(child, kCloseControlId) == nullptr);
+    CHECK((GetWindowLongPtrW(child, GWL_STYLE) & WS_SYSMENU) != 0);
+    CHECK(GetMenuState(GetSystemMenu(child, FALSE), SC_CLOSE, MF_BYCOMMAND) != static_cast<UINT>(-1));
+    CHECK(GetControlText(child, kFullscreenControlId) == L"Enter fullscreen (F11)");
+    CHECK(WaitUntil(std::chrono::seconds{5}, [&] {
+      return ControlEnabled(main, kOpenControlId) && ControlEnabled(main, kDeleteControlId);
+    }));
+    ExpectTabCycle(main, {kListControlId, kAddControlId, kOpenControlId,
+                          kDeleteControlId, kFullscreenControlId});
+    ExpectTabCycle(child, {kFullscreenControlId});
+    ApplyCatalogFrame(main, 100, 80, 720, 480);
+    ApplyCatalogFrame(child, 180, 140, 560, 360);
+    normal_main = ReadCatalogFrame(main); normal_child = ReadCatalogFrame(child);
+    ClickFullscreenAction(main); WaitFullscreenState(main, true);
+    ClickFullscreenAction(child); WaitFullscreenState(child, true);
+    using CatalogPresenter = example::surfaces::CatalogDesktopWindowPresenter;
+    SendMessageW(main, WM_COMMAND, MAKEWPARAM(CatalogPresenter::kLanguageFirst + 1, 0), 0);
+    CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
+      return GetControlText(main, kFullscreenControlId) == L"Выйти из полноэкранного режима (Esc)" &&
+          GetControlText(child, kFullscreenControlId) == L"Выйти из полноэкранного режима (Esc)";
+    }));
+    SendMessageW(main, WM_COMMAND, MAKEWPARAM(CatalogPresenter::kLanguageFirst, 0), 0);
+    WaitFullscreenState(main, true); WaitFullscreenState(child, true);
+    CHECK(TopLevelWindowsForPid(process.pi.dwProcessId).size() == 2);
+    // Main shutdown preserves each still-open child's fullscreen choice.
+    CloseProcessGracefully(main, process.pi); process.Release();
+  }
+  CHECK(ReadDemoProfile(profile, true).fullscreen_windows == 2);
+  CHECK(std::filesystem::copy_file(profile / "user.bin", transfer / "user.bin"));
+  CHECK(ReadDemoProfile(transfer, false).fullscreen_windows == 0);
+  {
+    ActiveDemoProcess process{StartDemo(load_only, transfer)};
+    HWND const main = WaitCatalogMainWindow(process.pi.dwProcessId, std::chrono::seconds{30});
+    CHECK(main); WaitChromeReady(main);
+    HWND child = nullptr;
+    CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
+      child = FindTopLevelWithTitle(process.pi.dwProcessId, L"Window 1");
+      return child && GetDlgItem(child, kFullscreenControlId);
+    }));
+    WaitFullscreenState(main, false); WaitFullscreenState(child, false);
+    ExpectListRows(main, {L"Window 1"});
+    CloseProcessGracefully(main, process.pi); process.Release();
+  }
+  {
+    ActiveDemoProcess process{StartDemo(load_only, profile)};
+    HWND const main = WaitCatalogMainWindow(process.pi.dwProcessId, std::chrono::seconds{30});
+    CHECK(main); WaitChromeReady(main);
+    HWND child = nullptr;
+    CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
+      child = FindTopLevelWithTitle(process.pi.dwProcessId, L"Window 1");
+      return child && GetDlgItem(child, kFullscreenControlId);
+    }));
+    WaitFullscreenState(main, true); WaitFullscreenState(child, true);
+    CHECK(GetMenu(main) && GetMenuItemCount(GetMenu(main)) == 2);
+    CHECK(GetMenuItemCount(GetSubMenu(GetMenu(main), 0)) == 4);
+    CHECK(GetMenuItemCount(GetSubMenu(GetMenu(main), 1)) == 2);
+    ExpectTabCycle(child, {kFullscreenControlId});
+    ClickFullscreenAction(child); WaitFullscreenState(child, false);
+    ClickFullscreenAction(main); WaitFullscreenState(main, false);
+    CHECK(GetMenu(main));
+    CHECK((GetWindowLongPtrW(child, GWL_STYLE) & WS_SYSMENU) != 0);
+    CHECK(GetMenuState(GetSystemMenu(child, FALSE), SC_CLOSE, MF_BYCOMMAND) != static_cast<UINT>(-1));
+    bool const restored_frames = WaitUntil(std::chrono::seconds{10}, [&] {
+      return FramesNearEqual(ReadCatalogFrame(main), normal_main) &&
+          FramesNearEqual(ReadCatalogFrame(child), normal_child);
+    });
+    if (!restored_frames) {
+      auto print_frame = [](char const* label, CatalogFrame frame) {
+        std::cerr << label << " x=" << frame.x << " y=" << frame.y
+            << " client=" << frame.client_width << 'x' << frame.client_height << '\n';
+      };
+      print_frame("normal_main_expected", normal_main);
+      print_frame("normal_main_actual", ReadCatalogFrame(main));
+      print_frame("normal_child_expected", normal_child);
+      print_frame("normal_child_actual", ReadCatalogFrame(child));
+    }
+    CHECK(restored_frames);
+    ExpectChromeEn(main);
+    CloseProcessGracefully(main, process.pi); process.Release();
+  }
+  CHECK(ReadDemoProfile(profile, true).fullscreen_windows == 0);
+  {
+    ActiveDemoProcess process{StartDemo(load_only, profile)};
+    HWND const main = WaitCatalogMainWindow(process.pi.dwProcessId, std::chrono::seconds{30});
+    CHECK(main); WaitChromeReady(main);
+    HWND child = nullptr;
+    CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
+      child = FindTopLevelWithTitle(process.pi.dwProcessId, L"Window 1");
+      return child && GetDlgItem(child, kFullscreenControlId);
+    }));
+    WaitFullscreenState(main, false); WaitFullscreenState(child, false);
+    CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
+      return FramesNearEqual(ReadCatalogFrame(main), normal_main) &&
+          FramesNearEqual(ReadCatalogFrame(child), normal_child);
+    }));
+    CloseProcessGracefully(main, process.pi); process.Release();
+  }
+  CHECK(ReadDemoProfile(profile, true).fullscreen_windows == 0);
+}
+
+void ExportNativeTransferLineage(std::filesystem::path const& output) {
+  auto const profile = FreshStateDir("window_catalog_native_transfer_lineage");
+  auto const executable = DemoExe("win32_window_catalog_demo_load_only.exe");
+  std::vector<std::pair<ae::ObjId, ae::ObjId>> previous_rows;
+  for (int desired : {2, 3, 4}) {
+    {
+      ActiveDemoProcess process{StartDemo(executable, profile)};
+      HWND const main = WaitCatalogMainWindow(process.pi.dwProcessId, std::chrono::seconds{30});
+      CHECK(main); WaitChromeReady(main);
+      HWND const list = GetDlgItem(main, kListControlId);
+      int const initial = static_cast<int>(SendMessageW(list, LB_GETCOUNT, 0, 0));
+      CHECK(initial == (desired == 2 ? 0 : desired - 1));
+      for (int row = initial; row < desired; ++row) {
+        HWND const add = GetDlgItem(main, kAddControlId);
+        CHECK(add && IsWindowVisible(add) && IsWindowEnabled(add));
+        SendMessageW(main, WM_COMMAND, MAKEWPARAM(kAddControlId, BN_CLICKED),
+            reinterpret_cast<LPARAM>(add));
+        CHECK(WaitUntil(std::chrono::seconds{10}, [&] {
+          return SendMessageW(list, LB_GETCOUNT, 0, 0) == row + 1 &&
+              TopLevelWindowsForPid(process.pi.dwProcessId).size() == static_cast<std::size_t>(row + 2);
+        }));
+      }
+      HWND const first = FindTopLevelWithTitle(process.pi.dwProcessId, L"Window 1");
+      CHECK(first);
+      if (desired == 2) {
+        ClickFullscreenAction(main); WaitFullscreenState(main, true);
+        ClickFullscreenAction(first); WaitFullscreenState(first, true);
+      } else {
+        WaitFullscreenState(main, true); WaitFullscreenState(first, true);
+      }
+      CloseProcessGracefully(main, process.pi); process.Release();
+    }
+    auto const snapshot = output / std::to_string(desired);
+    std::filesystem::create_directories(snapshot / "local");
+    CHECK(std::filesystem::copy_file(profile / "user.bin", snapshot / "user.bin",
+        std::filesystem::copy_options::overwrite_existing));
+    CHECK(std::filesystem::copy_file(profile / "local" / "user.bin", snapshot / "local" / "user.bin",
+        std::filesystem::copy_options::overwrite_existing));
+    CHECK(ReadDemoProfile(snapshot, true).fullscreen_windows == 2);
+    ae::RamDomainStorage user, local, backing;
+    CHECK(LoadUserStorageFile(user, snapshot));
+    CHECK(LoadUserStorageFile(local, snapshot / "local"));
+    InstallEmbeddedDistilledBacking(backing, WindowCatalogEmbeddedGraph());
+    ClientLocalDomainStorage routed{user, local, backing, CollectClientLocalRoots(backing)};
+    OverlayDomainStorage overlay{routed, backing, EmbeddedSupplyConstantIdSet(WindowCatalogEmbeddedGraph())};
+    ae::Domain domain{overlay};
+    auto catalog = LoadApplication<WindowCatalog>(domain, CatalogRootObjId());
+    std::vector<std::pair<ae::ObjId, ae::ObjId>> rows;
+    for (auto const& row : catalog->persisted.list->rows) {
+      auto const& holder = static_cast<WindowHolder const&>(*row);
+      rows.emplace_back(holder.obj_id, holder.window.id());
+      std::cout << "snapshot=" << desired << " number=" << holder.window_number
+          << " holder=" << holder.obj_id.id() << " window=" << holder.window.id().id() << '\n';
+    }
+    CHECK(rows.size() == static_cast<std::size_t>(desired));
+    CHECK(std::equal(previous_rows.begin(), previous_rows.end(), rows.begin()));
+    previous_rows = std::move(rows);
+    std::cout << "snapshot=" << desired << " main=" << catalog->persisted.main_window.id().id()
+        << " fullscreen=2 profile=" << snapshot.string() << std::endl;
   }
 }
 
@@ -1767,6 +2026,7 @@ void RunAcceptanceAndRequiredMainWindowNegatives() {
   RunDeleteAndColdReloadAcceptance();
   RunLanguageAndFocusAcceptance();
   RunMenuLocalPersistenceAcceptance();
+  RunFullscreenRestartPersistenceAcceptance();
   auto const load_only = DemoExe("win32_window_catalog_demo_load_only.exe");
   RunRequiredMainWindowNegativeTests(good_state, load_only);
   RunRequiredListLocaleNegativeTests(good_state, load_only);
@@ -1781,7 +2041,18 @@ void RunAcceptanceAndRequiredMainWindowNegatives() {
 }  // namespace apptraverse::test
 
 int main(int argc, char** argv) {
+  apptraverse::ui::windows::EnsureWinProcessDpiAwareness();
   apptraverse::EnsureWindowCatalogGraphRegistration();
+  if (argc == 3 && std::strcmp(argv[1], "--export-transfer-lineage") == 0) {
+    apptraverse::test::ExportNativeTransferLineage(argv[2]);
+    std::cout << "window_catalog native 2/3/4 transfer lineage OK\n";
+    return 0;
+  }
+  if (argc == 2 && std::strcmp(argv[1], "--fullscreen-cold-only") == 0) {
+    apptraverse::test::RunFullscreenRestartPersistenceAcceptance();
+    std::cout << "window_catalog fullscreen cold/main/child/USER-only OK\n";
+    return 0;
+  }
   if (argc >= 4 && std::strcmp(argv[1], "--user-only-load-probe") == 0) {
     ae::RamDomainStorage user;
     auto const user_profile = argv[3];

@@ -52,6 +52,7 @@ void UiDeviceState::ObserveEnvironment(UiDeviceEnvironment current, UiEnvironmen
       kEnvironmentResolution | kEnvironmentWorkArea)) != 0);
 }
 void UiDeviceState::ObserveWindow(UiWindowEnvironment current, UiEnvironmentReason reason) {
+  if (!AcceptsWindowObservation(current.window_id)) return;
   auto old = std::find_if(windows.begin(), windows.end(), [&](auto const& item) {
     return item.window_id == current.window_id;
   });
@@ -105,6 +106,26 @@ void UiDeviceState::SetAppearance(UiAppearancePreferences preferences) {
   auto event = SetUiAppearancePreferencesEvent::ptr::Create(ae::CreateWith{*domain});
   event->preferences = preferences;
   CommitLocal(event);
+}
+void UiDeviceState::ForgetWindow(ae::ObjId window_id) {
+  if (window_observation_targets_) window_observation_targets_->erase(window_id);
+  // This Event also gives derived LOCAL state one deletion boundary, even when
+  // this window has no native geometry yet (for example fullscreen before Show).
+  auto event = ForgetUiWindowEnvironmentEvent::ptr::Create(ae::CreateWith{*domain});
+  event->window_id = window_id;
+  CommitLocal(event);
+}
+std::set<ae::ObjId> UiDeviceState::WindowStateIds() const {
+  std::set<ae::ObjId> ids;
+  for (auto const& item : windows) ids.insert(item.window_id);
+  for (auto const& item : placements) ids.insert(item.window_id);
+  return ids;
+}
+void UiDeviceState::Apply(ForgetUiWindowEnvironmentEvent const& event) {
+  std::erase_if(windows, [&](auto const& item) { return item.window_id == event.window_id; });
+  std::erase_if(placements, [&](auto const& item) { return item.window_id == event.window_id; });
+  ForgetWindowState(event.window_id);
+  NoteMaterializedChange();
 }
 void UiDeviceState::Apply(UiDeviceEnvironmentChangedEvent const& event) {
   environment = event.current;

@@ -18,10 +18,11 @@ class NativeLocalWindowRoot : public NodeFor<NativeLocalWindowRoot> {
  protected: NativeLocalWindowRoot() = default;
  public:
   explicit NativeLocalWindowRoot(ae::ObjProp prop) : NodeFor{prop} {}
-  AE_OBJECT_REFLECT(AE_MMBR(window))
-  template<class D> void Load(ae::Version<0>, D& d) { d(base_, window); }
-  template<class D> void Save(ae::Version<0>, D& d) const { d(base_, window); }
+  AE_OBJECT_REFLECT(AE_MMBR(window), AE_MMBR(second_window))
+  template<class D> void Load(ae::Version<0>, D& d) { d(base_, window, second_window); }
+  template<class D> void Save(ae::Version<0>, D& d) const { d(base_, window, second_window); }
   ui::UiDesktopWindow::ptr window;
+  ui::UiDesktopWindow::ptr second_window;
 };
 APPTRAVERSE_REGISTER(NativeLocalWindowRoot);
 struct NativeLocalWindowHarness {
@@ -32,7 +33,7 @@ struct NativeLocalWindowHarness {
   ModelObjectProxy proxy{[this](auto work) { pending.push_back(std::move(work)); }};
   std::unique_ptr<ApplicationUiSession> session;
   ui::windows::WinDesktopWindowPresenter* presenter{};
-  NativeLocalWindowHarness() {
+  explicit NativeLocalWindowHarness(bool two_windows = false) {
     EnsureCoreObjectRegistration(); ui::windows::EnsureWinUiPresenterRegistration();
     (void)&g_apptraverse_registrar_NativeLocalWindowRoot;
     model = NativeLocalWindowRoot::ptr::Create(ae::CreateWith{domain});
@@ -42,6 +43,16 @@ struct NativeLocalWindowHarness {
     auto native = ui::windows::WinDesktopWindowPresenter::ptr::Create(ae::CreateWith{domain});
     native->window = model->window; model->window->presenter = native;
     BuildEmptyWindowTitle(*native);
+    if (two_windows) {
+      model->second_window = ui::UiDesktopWindow::ptr::Create(ae::CreateWith{domain});
+      model->second_window->BootstrapFrame(200, 200, 400, 300, ui::UiDesktopWindow::InitialPlacement::Explicit);
+      BuildWindowPresentationServices(*model->second_window);
+      model->second_window->device_state = model->window->device_state;
+      auto second = ui::windows::WinDesktopWindowPresenter::ptr::Create(ae::CreateWith{domain});
+      second->window = model->second_window; model->second_window->presenter = second;
+      BuildEmptyWindowTitle(*second);
+      InitializeRuntimeNode(*model->second_window);
+    }
     InitializeRuntimeNode(*model->window); InitializeRuntimeNode(*model);
     ui::windows::EnsureWinProcessDpiAwareness();
     ui::windows::WinUiEnvironment reader{nullptr};

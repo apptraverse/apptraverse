@@ -1,4 +1,5 @@
 #include "win_ui_command_routing_test_nodes.h"
+#include "window_title_fixture.h"
 
 #include <cstdio>
 #include <deque>
@@ -109,6 +110,12 @@ CommandRoutingButtonRoot::ptr BuildCommandRoutingButtonGraph(
   root->presented_window = ui::UiDesktopWindow::ptr::Create(
       ae::CreateWith{domain}.with_id(kButtonWindowId));
   root->presented_window->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
+  BuildWindowPresentationServices(*root->presented_window);
+  root->presented_window->layout_state->definition->root.padding = 8;
+  root->presented_window->layout_state->definition->root.alignment = ui::UiLayoutAlignment::kStart;
+  root->presented_window->layout_state->definition->root.children = {
+      ui::UiLayoutNode{.control_id = kRoutingButtonControlId,
+          .min_width = 100, .min_height = 26, .preferred_width = 100, .preferred_height = 26}};
   root->window_presenter =
       ui::windows::WinDesktopWindowPresenter::ptr::Create(
           ae::CreateWith{domain}.with_id(kButtonDesktopPresenterId));
@@ -165,6 +172,13 @@ CommandRoutingListRoot::ptr BuildCommandRoutingListGraph(ae::Domain& domain) {
   root->presented_window = ui::UiDesktopWindow::ptr::Create(
       ae::CreateWith{domain}.with_id(kListWindowId));
   root->presented_window->BootstrapFrame(100, 100, 800, 600, apptraverse::ui::UiDesktopWindow::InitialPlacement::Explicit);
+  BuildWindowPresentationServices(*root->presented_window);
+  root->presented_window->layout_state->definition->root.padding = 8;
+  root->presented_window->layout_state->definition->root.alignment = ui::UiLayoutAlignment::kStart;
+  root->presented_window->layout_state->definition->root.children = {
+      ui::UiLayoutNode{.control_id = kRoutingListControlId,
+          .min_width = 200, .min_height = 120, .preferred_width = 200, .preferred_height = 120,
+          .max_width = 200, .max_height = 120}};
   root->window_presenter =
       ui::windows::WinDesktopWindowPresenter::ptr::Create(
           ae::CreateWith{domain}.with_id(kListDesktopPresenterId));

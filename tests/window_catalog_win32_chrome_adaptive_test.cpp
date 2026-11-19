@@ -4,6 +4,7 @@ int main() { return 0; }
 
 #include <cstdlib>
 #include <array>
+#include <algorithm>
 #include <string>
 #include <deque>
 #include <iostream>
@@ -155,8 +156,10 @@ ClientRect ReadChildInParentClient(HWND child) {
   CHECK(parent != nullptr);
   POINT top_left{rect.left, rect.top};
   POINT bottom_right{rect.right, rect.bottom};
-  CHECK(MapWindowPoints(HWND_DESKTOP, parent, &top_left, 1) != 0);
-  CHECK(MapWindowPoints(HWND_DESKTOP, parent, &bottom_right, 1) != 0);
+  // MapWindowPoints returns the translation delta, so zero can mean success
+  // for a borderless parent at the desktop origin. Use the BOOL conversion API.
+  CHECK(ScreenToClient(parent, &top_left));
+  CHECK(ScreenToClient(parent, &bottom_right));
   out.x = top_left.x;
   out.y = top_left.y;
   out.width = bottom_right.x - top_left.x;
@@ -796,12 +799,171 @@ void TestFirstPublicationCarriesResolutionAfterNativeObservation() {
   CHECK(frame.left >= monitor->work_area.x);
 }
 
+void TestFullscreenNativePresentation() {
+  Harness h;
+  h.PumpModelAndApply();
+  h.model_proxy.Invoke(h.model_catalog.id(), &WindowCatalog::AddWindow);
+  h.PumpModelAndApply();
+  h.PumpModelAndApply();
+  auto& state = static_cast<CatalogUiState&>(*h.model_catalog->persisted.device_state);
+  auto& holder = static_cast<WindowHolder&>(*h.ui_catalog->persisted.list->rows.front());
+  auto& child = static_cast<ui::windows::WinDesktopWindowPresenter&>(*holder.window->presenter);
+  std::array<ui::windows::WinDesktopWindowPresenter*, 2> const windows{h.main_presenter, &child};
+  for (auto* presenter : windows) {
+    HWND const native = presenter->hwnd();
+    HWND const action = GetDlgItem(native, presenter->kFullscreenActionId);
+    CHECK(action && IsWindowEnabled(action) && IsWindowVisible(action));
+    // A real click can activate the target and legitimately publish window
+    // order. Establish that separate input before measuring fullscreen itself.
+    SetForegroundWindow(native);
+    SetActiveWindow(native);
+    SetFocus(action);
+    DispatchPendingWin32Messages();
+    h.PumpModelAndApply(); h.PumpModelAndApply();
+    auto const normal_preference = *state.PlacementFor(presenter->window.id());
+    WINDOWPLACEMENT original{sizeof(original)};
+    CHECK(GetWindowPlacement(native, &original));
+    LONG_PTR const style = GetWindowLongPtrW(native, GWL_STYLE);
+    auto const user_generation = h.model_catalog->Generation();
+    SendMessageW(action, BM_CLICK, 0, 0);
+    CHECK(!state.IsWindowFullscreen(presenter->window.id()));
+    CHECK(!presenter->IsPresentationFullscreen());
+    h.PumpModelAndApply();
+    h.PumpModelAndApply();
+    CHECK(state.IsWindowFullscreen(presenter->window.id()));
+    CHECK(presenter->IsPresentationFullscreen());
+    CHECK((GetWindowLongPtrW(native, GWL_STYLE) & WS_CAPTION) == 0);
+    RECT full{}; CHECK(GetWindowRect(native, &full));
+    MONITORINFO monitor{sizeof(monitor)};
+    CHECK(GetMonitorInfoW(MonitorFromWindow(native, MONITOR_DEFAULTTONEAREST), &monitor));
+    CHECK(EqualRect(&full, &monitor.rcMonitor));
+    auto const* preserved = state.PlacementFor(presenter->window.id());
+    CHECK(preserved->frame_dip == normal_preference.frame_dip);
+    CHECK(preserved->preferred_monitor == normal_preference.preferred_monitor);
+    CHECK(h.model_catalog->Generation() == user_generation);
+    // Scroll the content while the visible exit action remains fixed.
+    auto const button_before = ReadChildInParentClient(action);
+    SendMessageW(native, WM_VSCROLL, SB_BOTTOM, 0);
+    auto const button_after = ReadChildInParentClient(action);
+    CHECK(button_before.x == button_after.x && button_before.y == button_after.y);
+    CHECK(IsWindowVisible(action));
+    MSG escape{action, WM_KEYDOWN, VK_ESCAPE, 0};
+    CHECK(presenter->HandlePresentationShortcut(escape));
+    CHECK(presenter->IsPresentationFullscreen());
+    h.PumpModelAndApply();
+    h.PumpModelAndApply();
+    CHECK(!presenter->IsPresentationFullscreen());
+    CHECK(!state.IsWindowFullscreen(presenter->window.id()));
+    CHECK((GetWindowLongPtrW(native, GWL_STYLE) & WS_OVERLAPPEDWINDOW) == (style & WS_OVERLAPPEDWINDOW));
+    WINDOWPLACEMENT restored{sizeof(restored)};
+    CHECK(GetWindowPlacement(native, &restored));
+    CHECK(EqualRect(&restored.rcNormalPosition, &original.rcNormalPosition));
+    CHECK(!presenter->HandlePresentationShortcut(escape));
+    // Auto-repeat F11 is consumed without issuing another toggle; the next
+    // ordinary keydown works from a focused native child as well.
+    MSG f11{action, WM_KEYDOWN, VK_F11, static_cast<LPARAM>(1) << 30};
+    auto const pending = h.model_work.size();
+    CHECK(presenter->HandlePresentationShortcut(f11));
+    CHECK(h.model_work.size() == pending);
+    ShowWindow(native, SW_MAXIMIZE);
+    f11.lParam = 0;
+    CHECK(presenter->HandlePresentationShortcut(f11));
+    h.PumpModelAndApply();
+    CHECK(presenter->IsPresentationFullscreen());
+    CHECK(!IsZoomed(native));
+    CHECK(presenter->HandlePresentationShortcut(escape));
+    h.PumpModelAndApply();
+    CHECK(IsZoomed(native));
+    ShowWindow(native, SW_RESTORE);
+    h.PumpModelAndApply();
+  }
+  // A supplied translation becomes the standard native accessible name.
+  SendMessageW(h.MainHwnd(), WM_COMMAND,
+      MAKEWPARAM(example::surfaces::CatalogDesktopWindowPresenter::kLanguageFirst + 1, 0), 0);
+  h.PumpModelAndApply();
+  wchar_t caption[128]{};
+  CHECK(GetWindowTextW(h.ControlHwnd(ui::windows::WinDesktopWindowPresenter::kFullscreenActionId), caption, 128));
+  CHECK(std::wstring{caption} == L"На весь экран (F11)");
+}
+
+void TestFullscreenMonitorLossAndReturn() {
+  using namespace ui;
+  using namespace ui::windows;
+  Harness h;
+  h.PumpModelAndApply();
+  WinUiEnvironment reader{h.MainHwnd()};
+  auto const actual = reader.snapshot();
+  if (actual.monitors.size() < 2) {
+    std::cout << "fullscreen topology scope SKIP: two real monitors required\n";
+    return;
+  }
+  auto primary = std::find_if(actual.monitors.begin(), actual.monitors.end(),
+                             [](auto const& m) { return m.primary; });
+  auto preferred = std::find_if(actual.monitors.begin(), actual.monitors.end(),
+                               [](auto const& m) { return !m.primary; });
+  CHECK(primary != actual.monitors.end() && preferred != actual.monitors.end());
+  HWND const native = h.MainHwnd();
+  SendMessageW(native, WM_ENTERSIZEMOVE, 0, 0);
+  CHECK(SetWindowPos(native, nullptr, preferred->work_area.x + 60,
+      preferred->work_area.y + 70, 700, 500, SWP_NOZORDER | SWP_NOACTIVATE));
+  SendMessageW(native, WM_EXITSIZEMOVE, 0, 0);
+  h.PumpModelAndApply(); h.PumpModelAndApply();
+  auto& state = static_cast<CatalogUiState&>(*h.model_catalog->persisted.device_state);
+  auto const normal = *state.PlacementFor(h.main_window_id);
+  CHECK(normal.preferred_monitor == preferred->key);
+  auto missing = actual;
+  std::erase_if(missing.monitors, [&](auto const& m) { return m.key == preferred->key; });
+  auto const check_fullscreen = [&](std::string const& key) {
+    CHECK(h.main_presenter->IsPresentationFullscreen());
+    CHECK(GetWinWindowMonitorKey(native) == key);
+    RECT frame{}; CHECK(GetWindowRect(native, &frame));
+    MONITORINFO info{sizeof(info)};
+    CHECK(GetMonitorInfoW(MonitorFromWindow(native, MONITOR_DEFAULTTONEAREST), &info));
+    CHECK(EqualRect(&frame, &info.rcMonitor));
+    auto observed = std::find_if(state.windows.begin(), state.windows.end(),
+        [&](auto const& window) { return window.window_id == h.main_window_id; });
+    CHECK(observed != state.windows.end());
+    CHECK(observed->monitor_key == key);
+    CHECK(observed->dpi_x == GetWinWindowDpi(native));
+    auto const* placement = state.PlacementFor(h.main_window_id);
+    CHECK(placement->preferred_monitor == normal.preferred_monitor);
+    CHECK(placement->resolved_monitor == key);
+    CHECK(placement->frame_dip == normal.frame_dip);
+  };
+  HWND const action = GetDlgItem(native, WinDesktopWindowPresenter::kFullscreenActionId);
+  SendMessageW(action, BM_CLICK, 0, 0);
+  h.PumpModelAndApply(); h.PumpModelAndApply();
+  check_fullscreen(preferred->key);
+  // Only the model's observed topology changes; physical outputs stay enabled.
+  state.ObserveEnvironment(missing, UiEnvironmentReason::kSystemNotification);
+  h.PumpModelAndApply(); h.PumpModelAndApply();
+  check_fullscreen(primary->key);
+  state.ObserveEnvironment(actual, UiEnvironmentReason::kSystemNotification);
+  h.PumpModelAndApply(); h.PumpModelAndApply();
+  check_fullscreen(preferred->key);
+  state.ObserveEnvironment(missing, UiEnvironmentReason::kSystemNotification);
+  h.PumpModelAndApply(); h.PumpModelAndApply();
+  check_fullscreen(primary->key);
+  SendMessageW(action, BM_CLICK, 0, 0);
+  h.PumpModelAndApply(); h.PumpModelAndApply();
+  CHECK(!h.main_presenter->IsPresentationFullscreen());
+  CHECK(GetWinWindowMonitorKey(native) == primary->key);
+  CHECK(state.PlacementFor(h.main_window_id)->resolution == UiMonitorResolution::kMissing);
+  CHECK(state.PlacementFor(h.main_window_id)->frame_dip == normal.frame_dip);
+  state.ObserveEnvironment(actual, UiEnvironmentReason::kSystemNotification);
+  h.PumpModelAndApply(); h.PumpModelAndApply();
+  CHECK(GetWinWindowMonitorKey(native) == preferred->key);
+  CHECK(state.PlacementFor(h.main_window_id)->frame_dip == normal.frame_dip);
+}
+
 }  // namespace
 }  // namespace apptraverse::test
 
 int main() {
   apptraverse::EnsureWindowCatalogGraphRegistration();
   apptraverse::test::TestFirstPublicationCarriesResolutionAfterNativeObservation();
+  apptraverse::test::TestFullscreenNativePresentation();
+  apptraverse::test::TestFullscreenMonitorLossAndReturn();
   apptraverse::test::TestPrepareBindsQueueBeforeNativeOnLoad();
   apptraverse::test::TestBurstResizeWithoutPerStepPump();
   apptraverse::test::TestNativeAdaptiveChromeResizePath();

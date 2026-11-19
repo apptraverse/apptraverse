@@ -76,6 +76,9 @@ void ApplyFrame(HWND hwnd, int x, int y, int cw, int ch) {
   int outer_w = 0;
   int outer_h = 0;
   apptraverse::ui::windows::ClientSizeToOuter(cw, ch, outer_w, outer_h);
+  // Model the complete native modal user interaction, including its initial
+  // actual frame; a standalone EXIT cannot distinguish a move from cancel.
+  SendMessageW(hwnd, WM_ENTERSIZEMOVE, 0, 0);
   CHECK(SetWindowPos(hwnd, nullptr, x, y, outer_w, outer_h,
                      SWP_NOZORDER | SWP_NOACTIVATE) != 0);
   SendMessageW(hwnd, WM_EXITSIZEMOVE, 0, 0);

@@ -14,6 +14,7 @@
 #include "apptraverse/node.h"
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/platform/windows/win_ui_frame.h"
+#include "apptraverse/platform/windows/win_ui_environment.h"
 #include "apptraverse/platform/windows/win_ui_utf8.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_desktop_window.h"
@@ -113,8 +114,8 @@ void MoveHwndClientFrame(HWND hwnd, std::int32_t x, std::int32_t y,
   int outer_w = 0;
   int outer_h = 0;
   ui::windows::ClientSizeToOuter(client_width, client_height, outer_w, outer_h);
-  // Restore geometry is committed when an interactive move ends. A bare
-  // programmatic SetWindowPos only reports the live client size.
+  // Native geometry is device-local; the accepted interactive boundary updates
+  // its preferred placement without rewriting portable USER window geometry.
   SendMessageW(hwnd, WM_ENTERSIZEMOVE, 0, 0);
   CHECK(SetWindowPos(hwnd, nullptr, x, y, outer_w, outer_h,
                      SWP_NOZORDER | SWP_NOACTIVATE) != 0);
@@ -166,6 +167,13 @@ void TestPushButtonNativeClickViaProxyAndPublication() {
 
   std::int32_t const frame_x_before = model_window->x();
   std::int32_t const frame_y_before = model_window->y();
+  auto const model_generation = model_window->Generation();
+  auto& local = *model_window->device_state;
+  local.SetImmediateEventCompaction(false); // inspect this typed observation
+  auto const local_generation = local.Generation();
+  auto const local_window_events = CountJournalEventsWithClass(
+      local, UiWindowEnvironmentChangedEvent::kClassId);
+  auto const local_frame_before = model_window->device_state->PlacementFor(model_window->obj_id)->frame_dip;
   std::size_t const native_frame_events_before = CountJournalEventsWithClass(
       *model_window, ReportUiDesktopWindowFrameFromNativeEvent::kClassId);
 
@@ -179,10 +187,20 @@ void TestPushButtonNativeClickViaProxyAndPublication() {
   CHECK(!deferred.empty());
 
   PumpModelWork(deferred, model_domain);
-  CHECK(model_window->x() == frame_x_before + 40);
-  CHECK(model_window->y() == frame_y_before + 30);
+  CHECK(model_window->x() == frame_x_before);
+  CHECK(model_window->y() == frame_y_before);
+  CHECK(model_window->Generation() == model_generation);
+  CHECK(local.Generation() > local_generation);
+  CHECK(CountJournalEventsWithClass(local, UiWindowEnvironmentChangedEvent::kClassId) >
+        local_window_events);
+  WinUiEnvironment actual{desktop->hwnd()};
+  auto const snapshot = actual.WindowSnapshot(model_window->obj_id);
+  auto const* placement = model_window->device_state->PlacementFor(model_window->obj_id);
+  CHECK(placement->frame_dip == snapshot.frame_dip);
+  CHECK(placement->frame_dip != local_frame_before);
+  CHECK(placement->preferred_monitor == snapshot.monitor_key);
   CHECK(CountJournalEventsWithClass(
-            *model_window, ReportUiDesktopWindowFrameFromNativeEvent::kClassId) >
+            *model_window, ReportUiDesktopWindowFrameFromNativeEvent::kClassId) ==
         native_frame_events_before);
   CHECK(ui_root.presented_window->x() == frame_x_before);
   CHECK(ui_root.presented_window->y() == frame_y_before);
@@ -190,6 +208,7 @@ void TestPushButtonNativeClickViaProxyAndPublication() {
   ui_session.ApplyStructural(SerializeStructuralRoot(*model_root));
   CHECK(ui_root.presented_window->x() == model_window->x());
   CHECK(ui_root.presented_window->y() == model_window->y());
+  CHECK(ui_root.presented_window->device_state->PlacementFor(model_window->obj_id)->frame_dip == snapshot.frame_dip);
 
   PumpModelWorkAndApplyStructural(deferred, model_domain, *model_root,
                                   ui_session);

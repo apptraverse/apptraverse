@@ -89,6 +89,20 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
 
   HWND hwnd() const { return hwnd_; }
 
+  // Fullscreen is a published application choice; all native placement/style
+  // bookkeeping remains runtime-only. The standard system caption is retained
+  // in windowed mode, including its DWM and accessibility behavior.
+  static constexpr std::uint32_t kFullscreenActionId = 5300;
+  virtual bool HasFullscreenAction() const { return false; }
+  virtual std::wstring ResolveFullscreenActionText() const { return {}; }
+  virtual UiLayoutNode const* FullscreenActionLayout() const { return nullptr; }
+  virtual void ToggleFullscreenFromUi() {}
+  virtual void ExitFullscreenFromUi() {}
+  void SetPresentationFullscreen(bool fullscreen);
+  bool IsPresentationFullscreen() const { return fullscreen_; }
+  void RefreshFullscreenBounds();
+  bool HandlePresentationShortcut(MSG const& message);
+
   // Runtime presentation only: constraints come from the UI mirror, while
   // measurements, DPI, focus and actual rectangles stay local to this window.
   bool NativeCaptionProvidesClose() const override { return true; }
@@ -147,6 +161,7 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
   struct NativeChild {
     HWND hwnd;
     std::uint32_t control_id;
+    std::optional<bool> applied_dark_theme;
   };
   void ReportEnvironmentFromNative(UiEnvironmentReason reason = UiEnvironmentReason::kSystemNotification);
   void ApplyLocalPlacement();
@@ -154,6 +169,7 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
   bool NativeMeasurementsReady() const;
   UiConstraintLayoutResult ComputeLocalLayout() const;
   void ApplyChildAppearance(HWND child);
+  void SyncFullscreenAction();
   void ScrollContent(int bar, WPARAM command);
   void EnsureFocusedControlVisible();
   bool PaintOwnerButton(DRAWITEMSTRUCT const& item);
@@ -162,6 +178,8 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
   std::shared_ptr<WinUiEnvironment> environment_;
   std::optional<UiDeviceEnvironment> last_reported_environment_;
   std::optional<UiWindowEnvironment> last_reported_window_;
+  std::optional<UiWindowEnvironment> pending_user_placement_;
+  std::optional<UiWindowEnvironment> interactive_start_window_;
   UiAppearancePreferences applied_appearance_;
   std::uint64_t applied_placement_revision_{};
   bool applying_local_placement_{};
@@ -175,6 +193,12 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
   bool applying_native_frame_;
 
   bool interactive_move_active_;
+  bool fullscreen_{false};
+  bool changing_fullscreen_{false};
+  WINDOWPLACEMENT windowed_placement_{sizeof(WINDOWPLACEMENT)};
+  LONG_PTR windowed_style_{};
+  LONG_PTR windowed_ex_style_{};
+  HWND fullscreen_action_{};
   std::optional<ClientFrame> pending_requested_frame_;
 
   std::int32_t last_native_client_width_{-1};

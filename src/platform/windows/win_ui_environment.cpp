@@ -17,12 +17,53 @@ HMODULE LoadSystemModule(wchar_t const* name) {
   if (length == 0 || length >= MAX_PATH) return nullptr;
   return LoadLibraryW((std::wstring(directory) + L"\\" + name).c_str());
 }
-std::string MonitorKey(wchar_t const* display) {
+using MonitorKeys = std::map<std::wstring, std::string>;
+MonitorKeys ReadActiveMonitorKeys() {
+  // A GDI source can retain inactive monitor children at index zero after a
+  // dock/hotplug. Resolve the active source -> target path instead. These CCD
+  // APIs and monitorDevicePath are available on the minimum Windows 7 target.
+  UINT32 path_count{}, mode_count{};
+  LONG result = GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &path_count, &mode_count);
+  std::vector<DISPLAYCONFIG_PATH_INFO> paths;
+  std::vector<DISPLAYCONFIG_MODE_INFO> modes;
+  while (result == ERROR_SUCCESS) {
+    paths.resize(path_count); modes.resize(mode_count);
+    result = QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &path_count, paths.data(),
+                               &mode_count, modes.data(), nullptr);
+    if (result != ERROR_INSUFFICIENT_BUFFER) break;
+    // The topology changed between sizing and reading; sample the current one.
+    result = GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &path_count, &mode_count);
+  }
+  MonitorKeys active_keys;
+  if (result == ERROR_SUCCESS) for (UINT32 index = 0; index < path_count; ++index) {
+    auto const& path = paths[index];
+    DISPLAYCONFIG_SOURCE_DEVICE_NAME source{};
+    source.header = {DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME, sizeof(source),
+                     path.sourceInfo.adapterId, path.sourceInfo.id};
+    if (DisplayConfigGetDeviceInfo(&source.header) != ERROR_SUCCESS) continue;
+    DISPLAYCONFIG_TARGET_DEVICE_NAME target{};
+    target.header = {DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME, sizeof(target),
+                     path.targetInfo.adapterId, path.targetInfo.id};
+    if (DisplayConfigGetDeviceInfo(&target.header) == ERROR_SUCCESS && target.monitorDevicePath[0]) {
+      auto const key = WideToUtf8(target.monitorDevicePath);
+      auto [it, inserted] = active_keys.emplace(source.viewGdiDeviceName, key);
+      // Mirrored targets share one logical GDI monitor; choose deterministically.
+      if (!inserted && key < it->second) it->second = key;
+    }
+  }
+  return active_keys;
+}
+std::string MonitorKey(wchar_t const* display, MonitorKeys const& keys) {
+  auto const active = keys.find(display);
+  if (active != keys.end()) return active->second;
+  // Drivers/remote sessions without CCD may still expose an active PnP child.
   DISPLAY_DEVICEW device{}; device.cb = sizeof(device);
-  // DeviceID is a monitor device-interface path on Vista and later. Unlike
-  // DISPLAY1/2 it identifies the local PnP endpoint across display reordering.
-  if (EnumDisplayDevicesW(display, 0, &device, EDD_GET_DEVICE_INTERFACE_NAME) && device.DeviceID[0])
-    return WideToUtf8(device.DeviceID);
+  for (DWORD index = 0; EnumDisplayDevicesW(display, index, &device,
+                                           EDD_GET_DEVICE_INTERFACE_NAME); ++index) {
+    if ((device.StateFlags & DISPLAY_DEVICE_ACTIVE) && device.DeviceID[0])
+      return WideToUtf8(device.DeviceID);
+    device = {}; device.cb = sizeof(device);
+  }
   // Remote/virtual displays need not expose a PnP monitor interface.
   return "gdi:" + WideToUtf8(display);
 }
@@ -43,6 +84,7 @@ UINT WindowDpi(HWND window) {
 }  // namespace
 
 UINT GetWinWindowDpi(HWND window) { return WindowDpi(window); }
+HMODULE LoadWinSystemModule(wchar_t const* name) { return LoadSystemModule(name); }
 WinUiPalette ResolveWinUiPalette(WinUiPalette system, WinUiPalette light,
                                   UiAppearancePreferences preferences) {
   if (system.high_contrast) return system;
@@ -60,7 +102,7 @@ std::string GetWinWindowMonitorKey(HWND window) {
   MONITORINFOEXW info{}; info.cbSize = sizeof(info);
   if (!GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &info))
     FatalWin32("GetMonitorInfoW monitor identity", GetLastError());
-  return MonitorKey(info.szDevice);
+  return MonitorKey(info.szDevice, ReadActiveMonitorKeys());
 }
 
 void EnsureWinProcessDpiAwareness() {
@@ -227,17 +269,20 @@ void WinUiEnvironment::Refresh(UiAppearancePreferences preferences) {
   if (SystemParametersInfoW(SPI_GETSCREENREADER, 0, &enabled, 0))
     snapshot_.supported_settings |= kSystemScreenReaderHint;
   snapshot_.screen_reader_hint = enabled != FALSE;
+  monitor_keys_ = ReadActiveMonitorKeys();
   snapshot_.monitors.clear();
   if (!EnumDisplayMonitors(nullptr, nullptr,
       [](HMONITOR monitor, HDC, LPRECT, LPARAM context) -> BOOL {
-        auto& monitors = *reinterpret_cast<std::vector<UiMonitorEnvironment>*>(context);
+        auto& reader = *reinterpret_cast<WinUiEnvironment*>(context);
+        auto& monitors = reader.snapshot_.monitors;
         MONITORINFOEXW info{}; info.cbSize = sizeof(info);
         if (!GetMonitorInfoW(monitor, &info)) FatalWin32("GetMonitorInfoW environment", GetLastError());
         auto rect = [](RECT const& value) -> UiDisplayRect {
           return {value.left, value.top, value.right - value.left, value.bottom - value.top};
         };
         UiMonitorEnvironment item;
-        item.key = MonitorKey(info.szDevice);
+        item.key = MonitorKey(info.szDevice, reader.monitor_keys_);
+        reader.monitor_keys_[info.szDevice] = item.key;
         item.bounds = rect(info.rcMonitor);
         item.work_area = rect(info.rcWork);
         item.primary = (info.dwFlags & MONITORINFOF_PRIMARY) != 0;
@@ -248,7 +293,7 @@ void WinUiEnvironment::Refresh(UiAppearancePreferences preferences) {
         }
         monitors.push_back(std::move(item));
         return TRUE;
-      }, reinterpret_cast<LPARAM>(&snapshot_.monitors)))
+      }, reinterpret_cast<LPARAM>(this)))
     FatalWin32("EnumDisplayMonitors environment", GetLastError());
   NormalizeUiDeviceEnvironment(snapshot_);
   // The pure resolver preserves the native High Contrast palette verbatim.
@@ -312,7 +357,12 @@ UiWindowEnvironment WinUiEnvironment::WindowSnapshot(ae::ObjId window_id) const 
   auto const dpi = WindowDpi(window_);
   RECT frame{};
   if (!GetWindowRect(window_, &frame)) FatalWin32("GetWindowRect environment", GetLastError());
-  return {window_id, MonitorKey(info.szDevice), dpi, dpi,
+  auto const key = monitor_keys_.find(info.szDevice);
+  // If Windows moves an HWND before its topology notification, sample the
+  // active child only. The full CCD topology is sampled on Refresh, never drag.
+  auto const monitor_key = key == monitor_keys_.end()
+      ? MonitorKey(info.szDevice, monitor_keys_) : key->second;
+  return {window_id, monitor_key, dpi, dpi,
       {MulDiv(frame.left - info.rcWork.left, 96, dpi),
        MulDiv(frame.top - info.rcWork.top, 96, dpi),
        MulDiv(frame.right - frame.left, 96, dpi), MulDiv(frame.bottom - frame.top, 96, dpi)}};

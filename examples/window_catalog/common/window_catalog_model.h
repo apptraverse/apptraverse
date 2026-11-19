@@ -374,6 +374,9 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   void OpenHolderByIdFromUi(ae::ObjId holder_id);
 
   void DeleteSelected();
+  // Windows composition opts into reconciling LOCAL against the current USER
+  // identities. Other adapters retain their existing lifecycle behavior.
+  void EnableLocalWindowLifecycle();
 
   void NotifyChildCloseButtonFromUi(std::uint32_t window_obj_id);
 
@@ -406,6 +409,7 @@ class WindowCatalog : public NodeFor<WindowCatalog> {
   // Model-thread one-shot focus request (runtime-only); copied to UI on publish.
 
   CatalogWindow::ptr pending_focus_window;
+  bool local_window_lifecycle_enabled{false};  // model runtime only
 
 };
 

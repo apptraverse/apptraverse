@@ -218,12 +218,79 @@ void TestQueuedObservationAfterMonitorLoss() {
   Save(*state);
   CHECK(portable.state.empty());
 }
+void TestThreeMonitorPreferenceAndDeletionColdRestore() {
+  for (bool compact : {false, true}) {
+    ae::RamDomainStorage supply, portable, local;
+    Supply(supply);
+    auto const roots = CollectClientLocalRoots(supply);
+    ae::ObjId const first{81}, second{82};
+    UiDeviceEnvironment three = Environment();
+    three.monitors.push_back({"display-b", {1920, 0, 1280, 720}, {1920, 0, 1280, 680}, false, 0, 60});
+    three.monitors.push_back({"display-c", {-1280, 0, 1280, 720}, {-1280, 0, 1280, 680}, false, 0, 60});
+    UiDisplayRect const preferred{80, 90, 900, 700};
+    {
+      ClientLocalDomainStorage routed{portable, local, supply, roots};
+      OverlayDomainStorage overlay{routed, supply}; ae::Domain domain{overlay};
+      auto state = LoadApplication<UiDeviceState>(domain, kLocal);
+      state->SetImmediateEventCompaction(compact);
+      state->SetWindowObservationTargets({first, second});
+      state->ObserveEnvironment(three, UiEnvironmentReason::kStartup);
+      state->ObserveWindow({first, "display-b", 144, 144, preferred}, UiEnvironmentReason::kStartup);
+      state->ObserveWindow({second, "display-c", 96, 96, {10, 20, 500, 300}}, UiEnvironmentReason::kStartup);
+      auto missing = three; missing.monitors.erase(missing.monitors.begin() + 1);
+      state->ObserveEnvironment(missing, UiEnvironmentReason::kSystemNotification);
+      CHECK(state->PlacementFor(first)->resolved_monitor == "display-a");
+      CHECK(state->PlacementFor(second)->resolved_monitor == "display-c");
+      // System clamping on a smaller fallback is factual, not a new preference.
+      state->ObserveWindow({first, "display-a", 96, 96, {0, 0, 640, 480}}, UiEnvironmentReason::kSystemNotification);
+      CHECK(state->PlacementFor(first)->frame_dip == preferred);
+      state->ObserveEnvironment(three, UiEnvironmentReason::kSystemNotification);
+      CHECK(state->PlacementFor(first)->resolved_monitor == "display-b");
+      CHECK(state->PlacementFor(first)->frame_dip == preferred);
+      state->ObserveEnvironment(missing, UiEnvironmentReason::kSystemNotification);
+      // The user chooses a third display while the old preference is missing.
+      UiDisplayRect const override_frame{30, 40, 650, 450};
+      state->ObserveWindow({first, "display-c", 120, 120, override_frame}, UiEnvironmentReason::kUserWindowChange);
+      state->ObserveEnvironment(three, UiEnvironmentReason::kSystemNotification);
+      CHECK(state->PlacementFor(first)->preferred_monitor == "display-c");
+      CHECK(state->PlacementFor(first)->resolved_monitor == "display-c");
+      CHECK(state->PlacementFor(first)->frame_dip == override_frame);
+      state->ForgetWindow(second);
+      CHECK(!state->PlacementFor(second));
+      auto generation = state->Generation();
+      state->ObserveWindow({second, "display-b", 96, 96, preferred}, UiEnvironmentReason::kUserWindowChange);
+      CHECK(state->Generation() == generation);
+      CHECK(state->WindowStateIds() == std::set<ae::ObjId>{first});
+      CHECK(state->TryReplayFromBase());
+      CHECK(!state->PlacementFor(second));
+      CHECK(state->PlacementFor(first)->preferred_monitor == "display-c");
+      Save(*state);
+    }
+    {
+      ClientLocalDomainStorage routed{portable, local, supply, roots};
+      OverlayDomainStorage overlay{routed, supply}; ae::Domain domain{overlay};
+      auto state = LoadApplication<UiDeviceState>(domain, kLocal);
+      state->SetWindowObservationTargets({first});
+      auto startup = three; startup.monitors.pop_back();
+      state->ObserveEnvironment(startup, UiEnvironmentReason::kStartup);
+      CHECK(state->PlacementFor(first)->resolution == UiMonitorResolution::kMissing);
+      CHECK(state->PlacementFor(first)->resolved_monitor == "display-a");
+      CHECK(state->PlacementFor(first)->preferred_monitor == "display-c");
+      CHECK(!state->PlacementFor(second));
+      state->ObserveEnvironment(three, UiEnvironmentReason::kSystemNotification);
+      CHECK(state->PlacementFor(first)->resolved_monitor == "display-c");
+      CHECK(state->PlacementFor(first)->frame_dip == (UiDisplayRect{30, 40, 650, 450}));
+    }
+    CHECK(portable.state.empty());
+  }
+}
 
 }
 int main() {
   EnsureCoreObjectRegistration();
   EnsureUiControlRegistration();
   TestQueuedObservationAfterMonitorLoss();
+  TestThreeMonitorPreferenceAndDeletionColdRestore();
   TestObservationEventsAndReplay();
   TestColdStartupAndTransfer();
   TestMonitorLossAndReturnWithImmediateCompaction();

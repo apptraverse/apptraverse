@@ -1,6 +1,8 @@
 #pragma once
 
 #include <string>
+#include <optional>
+#include <set>
 #include <vector>
 #include "apptraverse/client_local_state.h"
 #include "apptraverse/event_for.h"
@@ -96,6 +98,7 @@ class UiDeviceEnvironmentChangedEvent;
 class UiWindowEnvironmentChangedEvent;
 class SetUiAppearancePreferencesEvent;
 class UiWindowMonitorResolvedEvent;
+class ForgetUiWindowEnvironmentEvent;
 
 class UiDeviceState : public NodeFor<UiDeviceState, ClientLocalState> {
   APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::UiDeviceState",
@@ -140,13 +143,42 @@ class UiDeviceState : public NodeFor<UiDeviceState, ClientLocalState> {
   void ObserveEnvironment(UiDeviceEnvironment current, UiEnvironmentReason reason);
   void ObserveWindow(UiWindowEnvironment current, UiEnvironmentReason reason);
   void SetAppearance(UiAppearancePreferences preferences);
+  // Optional model-owner lifecycle policy. It is runtime-only: restoring/importing
+  // the owner's live identities determines which late native reports survive.
+  void SetWindowObservationTargets(std::set<ae::ObjId> targets) {
+    window_observation_targets_ = std::move(targets);
+  }
+  void AllowWindowObservation(ae::ObjId window_id) {
+    if (window_observation_targets_) window_observation_targets_->insert(window_id);
+  }
+  void ForgetWindow(ae::ObjId window_id);
+  virtual std::set<ae::ObjId> WindowStateIds() const;
   void Apply(UiDeviceEnvironmentChangedEvent const&);
   void Apply(UiWindowEnvironmentChangedEvent const&);
   void Apply(SetUiAppearancePreferencesEvent const&);
   void Apply(UiWindowMonitorResolvedEvent const&);
+  void Apply(ForgetUiWindowEnvironmentEvent const&);
   UiWindowPlacement const* PlacementFor(ae::ObjId window_id) const;
+ protected:
+  bool AcceptsWindowObservation(ae::ObjId window_id) const {
+    return !window_observation_targets_ || window_observation_targets_->contains(window_id);
+  }
+  virtual void ForgetWindowState(ae::ObjId) {}
  private:
+  std::optional<std::set<ae::ObjId>> window_observation_targets_;
   void ResolveWindowMonitors(UiEnvironmentReason reason, bool layout_changed);
+};
+
+class ForgetUiWindowEnvironmentEvent
+    : public EventFor<UiDeviceState, ForgetUiWindowEnvironmentEvent> {
+  APPTRAVERSE_NAMED_OBJECT("apptraverse::ui::ForgetUiWindowEnvironmentEvent",
+                          ForgetUiWindowEnvironmentEvent, Event, 0)
+ protected:
+  ForgetUiWindowEnvironmentEvent() = default;
+ public:
+  explicit ForgetUiWindowEnvironmentEvent(ae::ObjProp prop) : EventFor{prop} {}
+  AE_OBJECT_REFLECT(AE_MMBR(window_id))
+  ae::ObjId window_id;
 };
 
 class UiDeviceEnvironmentChangedEvent

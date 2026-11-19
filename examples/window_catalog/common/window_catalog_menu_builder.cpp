@@ -5,13 +5,16 @@
 
 namespace apptraverse {
 void ComposeCatalogMenu(ae::Domain& domain, WindowCatalog& catalog, CatalogThemeHandling theme,
-                        bool web_shell, bool layout_context) {
+                        bool web_shell, bool layout_context, bool windows_display) {
   auto& state = static_cast<CatalogUiState&>(*catalog.persisted.device_state);
   ae::Domain::ObjectIdSequence ids{domain, ae::ObjId{2000}, ae::ObjId{9999}};
   state.catalog = WindowCatalog::ptr::MakeFromThis(&catalog);
   catalog.persisted.locale->SetObjectScope(state.object_scope());
   catalog.persisted.locale->base->SetObjectScope(state.object_scope());
-  state.menu = CatalogMenuDefinition::ptr::Create(ae::CreateWith{domain});
+  state.fullscreen_windows.clear();
+  state.menu = windows_display
+      ? CatalogMenuDefinition::ptr{CatalogWindowDisplayMenuDefinition::ptr::Create(ae::CreateWith{domain})}
+      : CatalogMenuDefinition::ptr::Create(ae::CreateWith{domain});
   auto scope = state.object_scope(); scope.is_constant = true;
   state.menu->SetObjectScope(scope);
   auto text = [&](char const* en, char const* ru) {
@@ -49,6 +52,26 @@ void ComposeCatalogMenu(ae::Domain& domain, WindowCatalog& catalog, CatalogTheme
       text("Stopped", "Приложение остановлено"),
       text("Stop failed", "Не удалось остановить приложение"),
       text("Save failed", "Не удалось сохранить приложение")};
+  }
+  if (windows_display) {
+    auto& display = static_cast<CatalogWindowDisplayMenuDefinition&>(*state.menu);
+    display.fullscreen_items = {
+      {text("Enter fullscreen (F11)", "На весь экран (F11)"), CatalogMenuAction::kFullscreen, 1},
+      {text("Exit fullscreen (Esc)", "Выйти из полноэкранного режима (Esc)"), CatalogMenuAction::kFullscreen, 0}};
+    ui::UiLayoutNode action{
+        .control_id = 5300, .flow = ui::UiLayoutFlow::kLeaf,
+        .min_width = 0, .min_height = 28,
+        .preferred_width = 0, .preferred_height = 0,
+        .max_width = -1, .max_height = -1, .grow = 0,
+        .padding = 0, .gap = 0, .alignment = ui::UiLayoutAlignment::kCenter,
+        .children = {}};
+    display.fullscreen_toolbar = {
+        .control_id = 0, .flow = ui::UiLayoutFlow::kVertical,
+        .min_width = 0, .min_height = 0,
+        .preferred_width = 0, .preferred_height = 0,
+        .max_width = -1, .max_height = -1, .grow = 0,
+        .padding = 8, .gap = 0, .alignment = ui::UiLayoutAlignment::kEnd,
+        .children = {action}};
   }
   InitializeRuntimeNode(*state.menu, state);
   PrepareCatalogMenuForRun(catalog);

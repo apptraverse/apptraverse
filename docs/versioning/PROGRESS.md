@@ -1,3 +1,17 @@
+## Windows WindowCatalog monitor placement and fullscreen
+
+Windows catalog windows keep monitor preferences, current monitor observations
+and normal frames in LOCAL. The native fullscreen button and keyboard commands
+use the same model and publication path as other catalog commands. Native
+process tests passed for exit from cold-restored fullscreen and another cold
+launch with the original normal frames of both the main and child windows.
+Android emulator imports from the same three-child baseline passed with two
+and four children from Windows USER. The emulator kept its own LOCAL theme,
+language and display settings across both imports and subsequent cold launches.
+
+The [validation record](../validation/window-catalog-windows-monitors-fullscreen-2026-11-19.md)
+contains the executed Windows and transfer scenarios.
+
 ## Shared Chat Windows Catalog presentation — 2026-11-18
 
 Windows Shared Chat now uses the common WindowCatalog system appearance baseline

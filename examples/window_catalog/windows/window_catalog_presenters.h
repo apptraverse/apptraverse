@@ -47,6 +47,21 @@ class CatalogDesktopWindowPresenter
   static constexpr UINT kLanguageFirst = 5200;
 
   CatalogUiState const& UiState() const { return static_cast<CatalogUiState const&>(*LocalDeviceState()); }
+  bool HasFullscreenAction() const override { return true; }
+  ui::UiLayoutNode const* FullscreenActionLayout() const override {
+    return &UiState().DisplayMenu().fullscreen_toolbar;
+  }
+  std::wstring ResolveFullscreenActionText() const override {
+    auto const& item = UiState().DisplayMenu().fullscreen_items[
+        UiState().IsWindowFullscreen(window.id()) ? 1 : 0];
+    return ui::windows::Utf8ToWide(item.label->Resolve(locale->language_index()));
+  }
+  void ToggleFullscreenFromUi() override {
+    model_proxy->Invoke(UiState().obj_id, &CatalogUiState::ToggleWindowFullscreenFromUi, window.id());
+  }
+  void ExitFullscreenFromUi() override {
+    model_proxy->Invoke(UiState().obj_id, &CatalogUiState::RequestWindowFullscreenFromUi, window.id(), false);
+  }
   static UINT CommandId(CatalogMenuItem const& item) {
     return (item.action == CatalogMenuAction::kTheme ? kThemeFromSystem : kLanguageFirst) + item.value;
   }
@@ -69,11 +84,15 @@ class CatalogDesktopWindowPresenter
   }
   void OnLoad() override {
     NativeBase::OnLoad();
+    SetPresentationFullscreen(UiState().IsWindowFullscreen(window.id()));
     applied_menu_language_ = -1;
     applied_menu_appearance_.reset();
     SyncPresentationMenu();
   }
   void OnModelChanged() override {
+    // Exit restores the cached windowed placement before base presentation
+    // consumes a topology-driven normal placement revision.
+    SetPresentationFullscreen(UiState().IsWindowFullscreen(window.id()));
     NativeBase::OnModelChanged();
     SyncPresentationMenu();
   }

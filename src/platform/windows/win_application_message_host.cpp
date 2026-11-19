@@ -1,4 +1,5 @@
 #include "apptraverse/platform/windows/win_application_message_host.h"
+#include "apptraverse/platform/windows/win_ui_presenters.h"
 
 #include "apptraverse/platform/windows/win32_fatal.h"
 
@@ -112,6 +113,11 @@ void WinApplicationMessageHost::PumpUntilModelDone(Callback on_quit) {
       // Preserve standard dialog-style Tab/Shift+Tab and button activation for
       // ordinary top-level native windows; no model round trip for focus.
       HWND const root = msg.hwnd ? GetAncestor(msg.hwnd, GA_ROOT) : nullptr;
+      if (root != nullptr && (msg.message == WM_KEYDOWN || msg.message == WM_SYSKEYDOWN) &&
+          (msg.wParam == VK_F11 || msg.wParam == VK_ESCAPE)) {
+        auto* desktop = ui::windows::WinDesktopWindowPresenter::FromNativeWindow(root);
+        if (desktop && desktop->HandlePresentationShortcut(msg)) continue;
+      }
       if (msg.message == WM_KEYDOWN && msg.wParam == VK_RETURN && msg.hwnd != nullptr) {
         wchar_t class_name[32]{}; GetClassNameW(msg.hwnd, class_name, 32);
         if (wcscmp(class_name, L"Button") == 0 && GetFocus() == msg.hwnd &&
