@@ -1,7 +1,8 @@
 ## System DNS for Æther consumers — 2026-11-20
 
 `AE_DNS_BACKEND` selects `AE_DNS_NONE`, `AE_DNS_CARES`, or the default
-`AE_DNS_SYSTEM` in the pinned SDK integration. Browser builds delegate DNS
+`AE_DNS_SYSTEM`. AppTraverse pins Æther C++ SDK commit `925c5b71`,
+which contains the resolver implementation. Browser builds delegate DNS
 to their WebSocket implementation. Windows discovers the asynchronous
 Winsock functions at runtime and uses a background resolver when the
 functions are unavailable. Apple uses DNS-SD. Linux and Android use
