@@ -1,3 +1,18 @@
+## Linux WindowCatalog fullscreen monitor restore — 2026-11-19
+
+GTK keeps the connector name when the window system provides one. The native
+presenter samples the actual output before fullscreen commands. A monitor-only
+move can update LOCAL while preserving the normal restore geometry. Automatic
+fallback retains the preferred monitor. The existing USER and LOCAL schemas
+are unchanged.
+
+On WSLg Wayland with two outputs, the Debug probe selected `rdp-2` through the
+model proxy. GTK entered fullscreen there and restored the same output and
+normal frame after a cold restart. The focused Wayland display suite and
+all five selected CTests under X11/Openbox passed. MinSizeRel built with the
+same embedded supply bytes. Physical disconnect/reconnect and manual moves
+between outputs were not exercised.
+
 ## Windows SharedNode chat — 2026-11-19
 
 The chat accepts `--lang system|en|ru` and

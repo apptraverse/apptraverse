@@ -23,10 +23,6 @@ std::string MonitorKey(GdkMonitor* monitor) {
   for (int i = 0; i < gdk_display_get_n_monitors(display); ++i) {
     if (gdk_display_get_monitor(display, i) != monitor) continue;
     gchar* plug = gdk_screen_get_monitor_plug_name(screen, i);
-#ifdef GDK_WINDOWING_WAYLAND
-    // GTK's deprecated plug-name API is not a Wayland connector identity.
-    if (GDK_IS_WAYLAND_DISPLAY(display)) { g_free(plug); plug = nullptr; }
-#endif
     std::string key = plug ? plug : "";
     g_free(plug);
     if (!key.empty()) return key;
@@ -39,7 +35,7 @@ std::string MonitorKey(GdkMonitor* monitor) {
     unsigned matches = 0;
     for (int index = 0; index < gdk_display_get_n_monitors(display); ++index)
       if (description(gdk_display_get_monitor(display, index)) == key) ++matches;
-    // GTK 3 Wayland exposes no connector identifier. A unique hardware
+    // Older compositors may supply no connector name. A unique hardware
     // description survives enumeration changes; identical/unknown monitors
     // require an index fallback and cannot promise stable endpoint identity.
     if (matches > 1) key += ":index:" + std::to_string(i);
@@ -336,6 +332,7 @@ void LinuxDesktopWindowPresenter::SetPresentationFullscreen(bool fullscreen) {
       windowed_placement_revision_ = placement ? placement->revision : 0;
     }
     presentation_fullscreen_ = fullscreen;
+    automatic_monitor_target_.reset();
     fullscreen_transition_ = true;
     fullscreen_placement_revision_ = 0;
     if (!fullscreen) { placement_revision_ = 0; restoring_fullscreen_ = true; }
@@ -365,10 +362,12 @@ void LinuxDesktopWindowPresenter::ApplyNativeFullscreen() {
     for (int index = 0; index < gdk_display_get_n_monitors(display); ++index)
       if (MonitorKey(gdk_display_get_monitor(display, index)) == placement->resolved_monitor) target = index;
   }
-  if (target >= 0)
+  if (target >= 0) {
+    automatic_monitor_target_ = placement->resolved_monitor;
     gtk_window_fullscreen_on_monitor(GTK_WINDOW(window_), gdk_display_get_default_screen(display), target);
-  else
+  } else {
     gtk_window_fullscreen(GTK_WINDOW(window_));
+  }
   fullscreen_placement_revision_ = revision;
 }
 gboolean LinuxDesktopWindowPresenter::OnWindowState(GtkWidget*, GdkEventWindowState* event, gpointer data) {
@@ -489,6 +488,9 @@ void LinuxDesktopWindowPresenter::ApplyLocalPlacement() {
       (gdk_window_get_state(gtk_widget_get_window(window_)) & GDK_WINDOW_STATE_FULLSCREEN)) return;
   auto* placement = state->PlacementFor(window.id());
   if (!placement || placement->revision == placement_revision_ || placement->resolution == UiMonitorResolution::kUnavailable) return;
+  // Only a backend that can move normal windows has an output acknowledgement
+  // to await here. Wayland chooses normal-window output itself.
+  if (NativeGlobalPositionAvailable()) automatic_monitor_target_ = placement->resolved_monitor;
   // A first placement synthesized from this native window's own observation
   // is already applied. Its publication may arrive after a newer user resize.
   // Seeded placements and later monitor-resolution revisions still apply.
@@ -597,15 +599,23 @@ void LinuxDesktopWindowPresenter::HandleNativeFrameChanged() {
   GdkWindowState const state =
       gdk_window_get_state(gtk_widget_get_window(window_));
   auto* device = LocalDeviceState();
+  auto const* placement = device->PlacementFor(window.id());
   bool const restore =
-      (!presentation_fullscreen_ || !device->PlacementFor(window.id())) &&
-      (!fullscreen_transition_ || (presentation_fullscreen_ && !device->PlacementFor(window.id()))) &&
+      (!presentation_fullscreen_ || !placement) &&
+      (!fullscreen_transition_ || (presentation_fullscreen_ && !placement)) &&
       (state & (GDK_WINDOW_STATE_MAXIMIZED | GDK_WINDOW_STATE_ICONIFIED |
                 GDK_WINDOW_STATE_FULLSCREEN)) == 0;
-  if (restore || (!fullscreen_transition_ && presentation_fullscreen_ && device->PlacementFor(window.id()))) {
+  if (restore || (!fullscreen_transition_ && presentation_fullscreen_ && placement)) {
     // Configure/size signals can precede the accepted topology publication.
     // Re-enumerate before attributing a relocation to the user.
     auto const current = ReadLinuxDeviceEnvironment();
+    if (native_monitor_reference_ && std::none_of(current.monitors.begin(), current.monitors.end(),
+        [&](auto const& monitor) { return monitor.key == *native_monitor_reference_; })) {
+      // The first valid native sample after its output disappears is automatic
+      // fallback, including a compositor that reports the relocation late.
+      native_monitor_reference_.reset();
+      normal_client_reference_.reset();
+    }
     if (current.monitors != device->environment.monitors) {
       OnMonitorsChanged(nullptr, this);
       RefreshLayout();
@@ -636,7 +646,6 @@ void LinuxDesktopWindowPresenter::HandleNativeFrameChanged() {
     if (!NativeGlobalPositionAvailable()) {
       // Wayland does not publish global window positions. Retain the authored
       // monitor-relative position while observing the compositor's real size.
-      auto const* placement = device->PlacementFor(window.id());
       observation.frame_dip.x = placement ? placement->frame_dip.x : 0;
       observation.frame_dip.y = placement ? placement->frame_dip.y : 0;
     }
@@ -651,14 +660,37 @@ void LinuxDesktopWindowPresenter::HandleNativeFrameChanged() {
         (NativeGlobalPositionAvailable() ? frame_reference_ != native :
             normal_client_reference_->client_width != client.client_width ||
             normal_client_reference_->client_height != client.client_height);
-    bool const user_change = restore && !pending_environment_revision_ &&
-        (requested_reached || (!local_placement_pending_ && native_user_delta));
-    if (restore && !device->PlacementFor(window.id())) native_initial_placement_observed_ = true;
+    // Wayland can move a window between same-scale outputs without changing
+    // its client size or publishing global coordinates. Compare actual native
+    // observations, never actual output against the saved preference: the
+    // compositor is allowed to choose a different output at startup.
+    bool const automatic_monitor = automatic_monitor_target_ && *automatic_monitor_target_ == key;
+    bool const automatic_relocation = automatic_monitor && native_monitor_reference_ && *native_monitor_reference_ != key;
+    bool const monitor_delta = native_monitor_reference_ && *native_monitor_reference_ != key && !automatic_monitor;
+    // A pending Wayland resize cannot account for an output change: normal
+    // windows have no native position request there. Keep that independent
+    // user intent even while the compositor has not acknowledged the size.
+    bool const monitor_user_change = monitor_delta &&
+        (!restore || !NativeGlobalPositionAvailable() || !local_placement_pending_);
+    bool const user_change = !pending_environment_revision_ &&
+        (monitor_user_change || (restore &&
+            (requested_reached || (!local_placement_pending_ && !automatic_relocation && native_user_delta))));
+    if (user_change && placement &&
+        (!restore || (local_placement_pending_ && !reached_placement && !requested_reached)))
+      // A monitor-only observation must retain the normal restore frame while
+      // fullscreen or while a normal resize still has transient native bounds.
+      observation.frame_dip = placement->frame_dip;
+    if (restore && !placement) native_initial_placement_observed_ = true;
     if (!last_reported_window_ || *last_reported_window_ != observation || user_change) {
       model_proxy->Invoke(device->obj_id, &UiDeviceState::ObserveWindow,
           observation, user_change ? UiEnvironmentReason::kUserWindowChange : UiEnvironmentReason::kSystemNotification);
       last_reported_window_ = observation;
     }
+    native_monitor_reference_ = key;
+    // A topology/fullscreen request may reach its output after the topology
+    // publication and size acknowledgement. Consume that delayed relocation as
+    // system input, preserving a missing preferred monitor across fallback.
+    if (automatic_monitor || user_change) automatic_monitor_target_.reset();
     if (restore) {
       if (requested_reached || user_change) requested_native_frame_.reset();
       if (reached_placement) { local_placement_pending_ = false; restoring_fullscreen_ = false; pending_restore_client_.reset(); }
@@ -794,6 +826,8 @@ void LinuxDesktopWindowPresenter::OnLoad() {
   pending_requested_frame_.reset();
   requested_native_frame_.reset();
   normal_client_reference_.reset();
+  native_monitor_reference_.reset();
+  automatic_monitor_target_.reset();
   windowed_client_.reset();
   pending_restore_client_.reset();
   windowed_placement_revision_ = 0;

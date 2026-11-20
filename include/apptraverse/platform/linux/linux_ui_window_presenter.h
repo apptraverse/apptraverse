@@ -157,6 +157,8 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
   bool native_initial_placement_observed_{false};
   std::optional<std::uint64_t> pending_environment_revision_;
   std::optional<ClientFrame> normal_client_reference_;
+  std::optional<std::string> native_monitor_reference_;
+  std::optional<std::string> automatic_monitor_target_;
   std::optional<ClientFrame> windowed_client_;
   std::optional<ClientFrame> pending_restore_client_;
   std::uint64_t windowed_placement_revision_{0};

@@ -1,7 +1,9 @@
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <string>
 #include <string_view>
 #include <gtk/gtk.h>
 #ifdef GDK_WINDOWING_WAYLAND
@@ -20,12 +22,13 @@ void Check(bool value, char const* why) {
 using CatalogPresenter = example::surfaces::CatalogDesktopWindowPresenter;
 struct Probe {
   WindowCatalog* catalog{};
-  bool restore{}, display_only{};
+  bool restore{}, display_only{}, monitor_output{};
   int stage{}, ticks{}, choice{}, allocations{}, stable_allocations{}, settle_ticks{};
   GtkWidget* first_window{};
   GdkRGBA regular_dark{}, light_popup{};
   ui::UiDisplayRect normal_frame{};
   ae::ObjId fullscreen_child;
+  std::string monitor_key;
 };
 ui::UiAppearancePreferences Preference(int choice) {
   return {choice == 0 ? ui::UiThemeMode::kAuto : choice == 1 ? ui::UiThemeMode::kLight : ui::UiThemeMode::kDark,
@@ -55,6 +58,72 @@ void Key(CatalogPresenter& presenter, guint key) {
   g_signal_emit_by_name(presenter.TopLevelWindow(), "key-press-event", &event, &handled);
   Check(handled, "native window handled fullscreen key");
 }
+// Optional real multi-output acceptance. Run the two-process smoke driver with
+// --monitor-output on a desktop with two monitors (including Wayland).
+gboolean TickMonitorOutput(Probe& probe, CatalogPresenter& presenter) {
+  if (!gtk_widget_get_mapped(presenter.TopLevelWindow())) return G_SOURCE_CONTINUE;
+  auto* device = presenter.LocalDeviceState();
+  auto* display = gtk_widget_get_display(presenter.TopLevelWindow());
+  auto* screen = gdk_display_get_default_screen(display);
+  Check(gdk_display_get_n_monitors(display) >= 2, "monitor acceptance requires two actual GDK outputs");
+  auto* primary = gdk_display_get_primary_monitor(display);
+  int const target = !primary || primary == gdk_display_get_monitor(display, 0) ? 1 : 0;
+  if (probe.monitor_key.empty()) {
+    for (int index = 0; index < gdk_display_get_n_monitors(display); ++index) {
+      gchar* plug = gdk_screen_get_monitor_plug_name(screen, index);
+      Check(plug && *plug, "multi-output desktop supplies native connector names");
+      auto found = std::find_if(device->environment.monitors.begin(), device->environment.monitors.end(),
+          [&](auto const& monitor) { return monitor.key == plug; });
+      Check(found != device->environment.monitors.end(), "LOCAL output key retains the GDK connector name");
+      if (index == target) probe.monitor_key = plug;
+      g_free(plug);
+    }
+    for (std::size_t index = 1; index < device->environment.monitors.size(); ++index)
+      Check(device->environment.monitors[index - 1].key != device->environment.monitors[index].key,
+            "separate GDK outputs keep distinct LOCAL identities");
+    std::cerr << "monitor acceptance target=" << target << " connector=" << probe.monitor_key
+        << " native-primary=" << (primary ? "provided" : "index-0-fallback") << '\n';
+  }
+  auto const* placement = device->PlacementFor(presenter.window.id());
+  if (!placement) return G_SOURCE_CONTINUE;
+  if (probe.stage == 0) {
+    probe.normal_frame = placement->frame_dip;
+    if (probe.restore) {
+      Check(placement->preferred_monitor == probe.monitor_key, "cold LOCAL retained the non-primary connector preference");
+      Check(static_cast<CatalogUiState&>(*device).IsWindowFullscreen(presenter.window.id()),
+            "cold LOCAL retained fullscreen mode");
+      probe.stage = 2;
+    } else {
+      auto const before = placement->preferred_monitor;
+      presenter.model_proxy->Invoke(device->obj_id, &ui::UiDeviceState::ObserveWindow,
+          ui::UiWindowEnvironment{presenter.window.id(), probe.monitor_key, 96, 96, probe.normal_frame},
+          ui::UiEnvironmentReason::kUserWindowChange);
+      Check(device->PlacementFor(presenter.window.id())->preferred_monitor == before,
+            "monitor intent waits for model publication");
+      probe.stage = 1;
+    }
+    return G_SOURCE_CONTINUE;
+  }
+  if (probe.stage == 1) {
+    if (placement->preferred_monitor != probe.monitor_key) return G_SOURCE_CONTINUE;
+    Key(presenter, GDK_KEY_F11);
+    probe.stage = 2;
+    return G_SOURCE_CONTINUE;
+  }
+  if (!NativeFullscreen(presenter) ||
+      gdk_display_get_monitor_at_window(display, gtk_widget_get_window(presenter.TopLevelWindow())) !=
+          gdk_display_get_monitor(display, target)) return G_SOURCE_CONTINUE;
+  Check(placement->preferred_monitor == probe.monitor_key && placement->resolved_monitor == probe.monitor_key,
+        "native fullscreen used the persisted non-primary connector");
+  Check(placement->frame_dip == probe.normal_frame, "monitor fullscreen preserves the normal restore frame");
+  if (++probe.settle_ticks < 6) return G_SOURCE_CONTINUE;
+  std::cerr << "PASS: " << (probe.restore ? "cold" : "proxy-selected")
+      << " native fullscreen connector=" << probe.monitor_key << " normal="
+      << probe.normal_frame.width << 'x' << probe.normal_frame.height << '\n';
+  gtk_window_close(GTK_WINDOW(presenter.TopLevelWindow()));
+  return G_SOURCE_REMOVE;
+}
+
 gboolean Tick(gpointer data) {
   auto& probe = *static_cast<Probe*>(data);
   ++probe.ticks;
@@ -66,8 +135,18 @@ gboolean Tick(gpointer data) {
         << gtk_widget_get_allocated_width(presenter.ClientViewport()) << 'x'
         << gtk_widget_get_allocated_height(presenter.ClientViewport())
         << " fullscreen=" << NativeFullscreen(presenter) << " restore=" << probe.restore << '\n';
+    if (probe.monitor_output) {
+      auto* display = gtk_widget_get_display(presenter.TopLevelWindow());
+      auto* actual = gdk_display_get_monitor_at_window(display, gtk_widget_get_window(presenter.TopLevelWindow()));
+      auto const* placement = device->PlacementFor(presenter.window.id());
+      for (int index = 0; index < gdk_display_get_n_monitors(display); ++index)
+        if (gdk_display_get_monitor(display, index) == actual) std::cerr << "actual-native-output=" << index << '\n';
+      std::cerr << "expected-connector=" << probe.monitor_key << " preferred=" << (placement ? placement->preferred_monitor : "")
+          << " resolved=" << (placement ? placement->resolved_monitor : "") << '\n';
+    }
     Check(false, "native menu/Add completed within 30 seconds");
   }
+  if (probe.monitor_output) return TickMonitorOutput(probe, presenter);
   if (probe.restore) {
     if (!gtk_widget_get_mapped(presenter.TopLevelWindow())) return G_SOURCE_CONTINUE;
     Check(device->appearance == Preference(3), "native LOCAL restored custom dark in a cold process");
@@ -343,6 +422,7 @@ int main(int argc, char** argv) {
     std::string_view const argument{argv[index]};
     if (argument == "--restore") probe.restore = true;
     else if (argument == "--display-only") probe.display_only = true;
+    else if (argument == "--monitor-output") probe.monitor_output = true;
     else Check(false, "known GTK acceptance argument");
   }
   auto callbacks = app.MakeHostCallbacks();

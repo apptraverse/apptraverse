@@ -71,9 +71,13 @@ class CatalogDesktopWindowPresenter
         UiState().IsWindowFullscreen(window.id()) ? 1 : 0].label->Resolve(locale->language_index());
   }
   void ToggleFullscreenFromUi() override {
+    // Same-size Wayland output moves need not emit a configure event. Queue
+    // their native observation before the fullscreen intent on the same proxy.
+    ReportNativeClientFrame();
     model_proxy->Invoke(UiState().obj_id, &CatalogUiState::ToggleWindowFullscreenFromUi, window.id());
   }
   void ExitFullscreenFromUi() override {
+    ReportNativeClientFrame();
     model_proxy->Invoke(UiState().obj_id, &CatalogUiState::RequestWindowFullscreenFromUi, window.id(), false);
   }
   bool ShowPresentationContextMenu(GdkEvent* event) override {
