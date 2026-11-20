@@ -8,6 +8,6 @@ import tempfile
 with tempfile.TemporaryDirectory(prefix="apptraverse-gtk-menu-add-") as directory:
     profile = pathlib.Path(directory)
     for suffix in ([], ["--restore"]):
-        result = subprocess.run([sys.argv[1], str(profile), *suffix], timeout=40)
+        result = subprocess.run([sys.argv[1], str(profile), *sys.argv[2:], *suffix], timeout=40)
         if result.returncode:
             sys.exit(result.returncode)

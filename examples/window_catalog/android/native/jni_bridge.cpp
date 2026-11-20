@@ -83,6 +83,9 @@ void NativePopulateMenu(JNIEnv* env, jclass, jlong handle, jobject menu) {
 void NativeExecuteMenuCommand(JNIEnv*, jclass, jlong handle, jint native_item_id) {
   FromHandle(handle)->ExecuteMenuCommand(native_item_id);
 }
+void NativeExitFullscreen(JNIEnv*, jclass, jlong handle) {
+  FromHandle(handle)->ExitFullscreen();
+}
 
 void NativeDestroy(JNIEnv*, jclass, jlong handle) { delete FromHandle(handle); }
 
@@ -102,6 +105,7 @@ JNINativeMethod const kNativeMethods[] = {
     {"nativeMobileSwipe", "(JI)V", reinterpret_cast<void*>(&NativeMobileSwipe)},
     {"nativePopulateMenu", "(JLandroid/view/Menu;)V", reinterpret_cast<void*>(&NativePopulateMenu)},
     {"nativeExecuteMenuCommand", "(JI)V", reinterpret_cast<void*>(&NativeExecuteMenuCommand)},
+    {"nativeExitFullscreen", "(J)V", reinterpret_cast<void*>(&NativeExitFullscreen)},
     {"nativeDestroy", "(J)V", reinterpret_cast<void*>(&NativeDestroy)},
 };
 

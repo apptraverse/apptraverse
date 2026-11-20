@@ -35,6 +35,13 @@ gboolean Tick(gpointer opaque) {
     std::cerr << "GTK settings timeout stage=" << test.stage << " client=" << width << 'x' << height
         << " menu-min=" << minimum << " font=" << device->environment.message_font.height
         << " motion=" << device->environment.reduced_motion << '\n';
+    GdkRectangle outer{}; gdk_window_get_frame_extents(gtk_widget_get_window(presenter.TopLevelWindow()), &outer);
+    auto const* placement = device->PlacementFor(presenter.window.id());
+    auto observation = std::find_if(device->windows.begin(), device->windows.end(), [&](auto const& value) { return value.window_id == presenter.window.id(); });
+    std::cerr << "outer=" << outer.width << 'x' << outer.height << " placement=" << (placement ? placement->frame_dip.width : -1) << 'x'
+        << (placement ? placement->frame_dip.height : -1) << " revision=" << (placement ? placement->revision : 0)
+        << " observed=" << (observation == device->windows.end() ? -1 : observation->frame_dip.width) << 'x'
+        << (observation == device->windows.end() ? -1 : observation->frame_dip.height) << '\n';
     Check(false, "GTK local settings settled within 20 seconds");
   }
   if (test.transfer) {

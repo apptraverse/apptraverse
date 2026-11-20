@@ -52,6 +52,17 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
   GtkWidget* PresentationMenu() const { return presentation_menu_; }
   virtual GtkWidget* CreatePresentationMenu() { return nullptr; }
 
+  static constexpr std::uint32_t kFullscreenActionId = 5300;
+  virtual bool HasFullscreenAction() const { return false; }
+  virtual UiLayoutNode const* FullscreenActionLayout() const { return nullptr; }
+  virtual std::string ResolveFullscreenActionText() const { return {}; }
+  virtual void ToggleFullscreenFromUi() {}
+  virtual void ExitFullscreenFromUi() {}
+  virtual bool ShowPresentationContextMenu(GdkEvent* event) { return false; }
+  void SetPresentationFullscreen(bool fullscreen);
+  bool PresentationFullscreen() const { return presentation_fullscreen_; }
+  GtkWidget* FullscreenAction() const { return fullscreen_action_; }
+  int NativeChromeHeight() const;
   void ReportNativeClientFrame();
 
   void ApplyRequestedFrameFromMirror() override;
@@ -70,18 +81,28 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
     std::int32_t client_height{0};
   };
 
-  static bool FramesEqual(ClientFrame a, ClientFrame b);
-
   std::string ResolveTitleText() const;
   void SyncTitleFromMirror();
   ClientFrame ReadMirrorClientFrame() const;
   ClientFrame ReadNativeClientFrame() const;
   UiDisplayRect ReadNativeOuterFrame() const;
   void HandleNativeFrameChanged();
+  void ApplyRequestedNativeFrame(ClientFrame frame);
   void DisconnectNativeFrameReports();
   void ObserveNativeEnvironment(UiEnvironmentReason reason);
   void ApplyLocalPlacement();
-  int NativeMenuHeight() const;
+  void ApplyNativeFullscreen();
+  void RefreshFullscreenAction();
+  bool NativeFrameMatches(UiDisplayRect const& frame) const;
+  bool NativeGlobalPositionAvailable() const;
+  void RefreshMonitorSubscriptions();
+  static void OnMonitorNotify(GObject*, GParamSpec*, gpointer);
+  static void OnMonitorSetChanged(GdkDisplay*, GdkMonitor*, gpointer);
+  static gboolean OnWindowState(GtkWidget*, GdkEventWindowState*, gpointer);
+  static gboolean OnKeyPress(GtkWidget*, GdkEventKey*, gpointer);
+  static gboolean OnContextButton(GtkWidget*, GdkEventButton*, gpointer);
+  static gboolean OnContextPopup(GtkWidget*, gpointer);
+  static void OnFullscreenClicked(GtkButton*, gpointer);
   UiConstraintLayoutResult ComputeLocalLayout() const;
   bool NativeMeasurementsReady() const;
   static void OnSettingsChanged(GObject*, GParamSpec*, gpointer);
@@ -91,6 +112,16 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
   std::vector<NativeChild> native_children_;
   GtkWidget* scroller_{nullptr};
   GtkWidget* presentation_menu_{nullptr};
+  GtkWidget* fullscreen_toolbar_{nullptr};
+  GtkWidget* fullscreen_action_{nullptr};
+  bool presentation_fullscreen_{false};
+  bool fullscreen_transition_{false};
+  bool restoring_fullscreen_{false};
+  int normal_decoration_width_{0}, normal_decoration_height_{0};
+  std::uint64_t fullscreen_placement_revision_{0};
+  struct MonitorSubscription { GdkMonitor* monitor; gulong handler; };
+  std::vector<MonitorSubscription> monitor_subscriptions_;
+  gulong monitor_added_handler_{0}, monitor_removed_handler_{0};
   std::optional<UiAppearancePreferences> applied_appearance_;
   std::optional<UiDeviceEnvironment> applied_environment_;
   std::optional<UiWindowEnvironment> last_reported_window_;
@@ -121,11 +152,16 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
   bool applying_mirror_frame_{false};
   bool user_close_requested_{false};
   bool mapped_{false};
-  bool have_frame_reference_{false};
   UiDisplayRect frame_reference_{};
   bool local_placement_pending_{false};
   bool native_initial_placement_observed_{false};
   std::optional<std::uint64_t> pending_environment_revision_;
+  std::optional<ClientFrame> normal_client_reference_;
+  std::optional<ClientFrame> windowed_client_;
+  std::optional<ClientFrame> pending_restore_client_;
+  std::uint64_t windowed_placement_revision_{0};
+  std::optional<ClientFrame> pending_requested_frame_;
+  std::optional<ClientFrame> requested_native_frame_;
 };
 
 }  // namespace apptraverse::ui::linux

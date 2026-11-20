@@ -91,7 +91,7 @@ WindowCatalog::ptr BuildHeadlessWindowCatalogGraph(
 void EnsureHeadlessWindowCatalogGraphRegistration() {
   EnsureCoreObjectRegistration();
   EnsureWindowCatalogModelRegistration();
-  ui::EnsureUiControlRegistration();
+  ui::EnsureUiWindowControlRegistration();
   (void)&example::surfaces::
       g_apptraverse_registrar_HeadlessCatalogListContainerPresenter;
 }

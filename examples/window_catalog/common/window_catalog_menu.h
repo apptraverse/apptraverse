@@ -8,6 +8,7 @@ namespace apptraverse {
 // adapters (e.g. AppKit) omit the theme menu entirely. No simulated OS settings.
 enum class CatalogThemeHandling : std::uint8_t { kNativeFollowsSystem, kAdapterAppliesTheme };
 enum class CatalogMenuShell : std::uint8_t { kDefault, kWeb, kWindows, kMac, kIos };
+enum class CatalogDisplayHandling : std::uint8_t { kNone, kDesktop, kPaged };
 enum class CatalogMenuAction : std::uint8_t { kLanguage, kTheme, kLayoutFlow, kResetLayout, kFullscreen };
 struct CatalogMenuItem {
   ui::UiLocalizationString::ptr label;
@@ -105,7 +106,8 @@ class SetCatalogWindowFullscreenEvent
 WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain&, CatalogThemeHandling);
 void ComposeCatalogMenu(ae::Domain&, WindowCatalog&, CatalogThemeHandling,
                         CatalogMenuShell shell = CatalogMenuShell::kDefault,
-                        bool layout_context = false);
+                        bool layout_context = false,
+                        CatalogDisplayHandling display = CatalogDisplayHandling::kNone);
 void PrepareCatalogMenuForRun(WindowCatalog&);
 void EnsureCatalogMenuRegistration();
 

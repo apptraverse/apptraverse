@@ -43,7 +43,8 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
     return ui::UiDeviceState::ptr{state};
   };
   auto catalog = BuildWindowCatalogGraph(domain, factory, std::move(options));
-  ComposeCatalogMenu(domain, *catalog, CatalogThemeHandling::kAdapterAppliesTheme);
+  ComposeCatalogMenu(domain, *catalog, CatalogThemeHandling::kAdapterAppliesTheme,
+                     CatalogMenuShell::kDefault, true, CatalogDisplayHandling::kPaged);
   return catalog;
 }
 

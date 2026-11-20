@@ -1802,8 +1802,18 @@ void TestViewportPreservesPortableState() {
 }
 }  // namespace apptraverse::test
 
+using namespace apptraverse;
+#include "window_catalog_fullscreen_model_cases.h"
+
 int main() {
   apptraverse::EnsureHeadlessWindowCatalogGraphRegistration();
+  apptraverse::EnsureCatalogMenuRegistration();
+  for (bool compact : {false, true}) {
+    TestFullscreenModelAndPublication(compact);
+    TestFullscreenPortableAdapters(compact);
+    TestFullscreenColdAndPlatformSeed(false, compact);
+    TestFullscreenColdAndPlatformSeed(true, compact);
+  }
   apptraverse::test::TestQueuedCloseClicksRespectWindowLifetime();
   apptraverse::test::TestQueuedNativeReportsRespectWindowMembership();
   apptraverse::test::TestViewportPreservesPortableState();

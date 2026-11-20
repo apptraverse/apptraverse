@@ -5,7 +5,6 @@ import android.os.Bundle;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.FrameLayout;
-import android.widget.TextView;
 
 /** Native Activity shell; page selection belongs to the model. */
 public final class MainActivity extends Activity
@@ -13,11 +12,13 @@ public final class MainActivity extends Activity
   private static final int SWIPE_MIN_DISTANCE_PX = 80;
   public static final String EXTRA_STATE_SUBDIR = "stateSubdir";
   public static final String DEFAULT_STATE_SUBDIR = "window_catalog_state";
-  private TextView loading;
+  private View loading;
   private float gestureDownX, gestureDownY;
   private long gestureDownTime;
   private boolean trackingGesture;
   private boolean mountedDark, themeRecreationPosted;
+  private boolean presentedFullscreen;
+  private android.window.OnBackInvokedCallback fullscreenBackCallback;
 
   private boolean isDark(int mode) {
     return mode == 2 || (mode == 0 && (getResources().getConfiguration().uiMode
@@ -56,6 +57,63 @@ public final class MainActivity extends Activity
   }
 
   @Override public boolean onCreateOptionsMenu(android.view.Menu menu) { return true; }
+
+  /** Projection of the current page's published LOCAL preference, never an intent. */
+  public void setPresentedFullscreen(boolean fullscreen) {
+    if (presentedFullscreen == fullscreen) return;
+    presentedFullscreen = fullscreen;
+    if (android.os.Build.VERSION.SDK_INT >= 33) {
+      if (fullscreen) {
+        fullscreenBackCallback = () -> NativeRuntime.nativeExitFullscreen(application().runtimeHandle());
+        getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+            android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, fullscreenBackCallback);
+      } else if (fullscreenBackCallback != null) {
+        getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(fullscreenBackCallback);
+        fullscreenBackCallback = null;
+      }
+    }
+    applySystemBars();
+    invalidateOptionsMenu();
+  }
+
+  private void applySystemBars() {
+    // Retain the native ActionBar/overflow: Exit remains accessible by touch and
+    // accessibility while Android permits transient system bars with a swipe.
+    // In multi-window modes the OS may keep its bars visible; retain the LOCAL
+    // preference so it applies again when this Activity returns to full screen.
+    if (android.os.Build.VERSION.SDK_INT >= 30) {
+      android.view.WindowInsetsController controller = getWindow().getInsetsController();
+      if (controller == null) return; // Decor has not attached yet; focus reapplies.
+      controller.setSystemBarsBehavior(
+          android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+      if (presentedFullscreen) controller.hide(android.view.WindowInsets.Type.systemBars());
+      else controller.show(android.view.WindowInsets.Type.systemBars());
+    } else {
+      getWindow().getDecorView().setSystemUiVisibility(presentedFullscreen
+          ? View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+              | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+          : View.SYSTEM_UI_FLAG_VISIBLE);
+    }
+  }
+
+  @Override public void onWindowFocusChanged(boolean hasFocus) {
+    super.onWindowFocusChanged(hasFocus);
+    if (hasFocus) applySystemBars();
+  }
+
+  @Override public void onMultiWindowModeChanged(boolean inMultiWindowMode,
+      android.content.res.Configuration configuration) {
+    super.onMultiWindowModeChanged(inMultiWindowMode, configuration);
+    applySystemBars();
+  }
+
+  @Override public void onBackPressed() {
+    if (presentedFullscreen) {
+      NativeRuntime.nativeExitFullscreen(application().runtimeHandle());
+      return;
+    }
+    super.onBackPressed();
+  }
 
   @Override public boolean onPrepareOptionsMenu(android.view.Menu menu) {
     menu.clear();
@@ -101,6 +159,8 @@ public final class MainActivity extends Activity
   }
 
   @Override protected void onDestroy() {
+    if (android.os.Build.VERSION.SDK_INT >= 33 && fullscreenBackCallback != null)
+      getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(fullscreenBackCallback);
     application().clearActivity(this);
     super.onDestroy();
   }

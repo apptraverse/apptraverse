@@ -58,7 +58,9 @@ def load(page: Page, url: str) -> None:
     expect(page.locator(ACTIVE)).to_have_count(1, timeout=60000)
     expect(control(page, 5002)).to_have_count(1)
     expect(control(page, 5005)).to_have_count(0)
-    expect(page.get_by_role('combobox')).to_have_count(2)
+    # Restored fullscreen deliberately removes ordinary menus from the
+    # accessibility tree while retaining their authored DOM for normal mode.
+    expect(page.locator('#application-menu select')).to_have_count(2)
     assert page.evaluate("crossOriginIsolated && typeof SharedArrayBuffer !== 'undefined'")
 
 
@@ -69,7 +71,7 @@ def shutdown(page: Page):
     assert files and all(f['path'].endswith('/user.bin') and f['size'] > 0 for f in files), files
     assert len({f['path'].rsplit('/', 1)[0] for f in files}) == len(files), files
     assert page.locator('.catalog-page').count() == 0
-    for menu in page.get_by_role('combobox').all():
+    for menu in page.locator('#application-menu select').all():
         expect(menu).to_be_disabled()
     return files
 

@@ -19,6 +19,7 @@ int RunWindowCatalogAndroidModel(WindowCatalogAndroidEmbeddedProfile& profile,
     catalog.persisted.device_state->ObserveEnvironment(
         startup_environment, ui::UiEnvironmentReason::kStartup);
     PrepareWindowCatalogForRun(catalog);
+    catalog.EnableLocalWindowLifecycle();
     PrepareCatalogMenuForRun(catalog);
   };
   hooks.before_incremental = [](apptraverse::WindowCatalog& catalog) {

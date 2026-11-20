@@ -43,9 +43,9 @@ namespace apptraverse {
 void EnsureWindowCatalogGraphRegistration() {
   // The single Linux application entry point: all transitive schema anchors.
   EnsureCoreObjectRegistration();
-  EnsureWindowCatalogDesktopModelRegistration();
+  EnsureWindowCatalogNativeMenuModelRegistration();
   EnsureCatalogMenuRegistration();
-  ui::linux::EnsureLinuxUiPresenterRegistration();
+  ui::linux::EnsureLinuxWindowControlPresenterRegistration();
   (void)&example::surfaces::g_apptraverse_registrar_CatalogListContainerPresenter;
   (void)&example::surfaces::g_apptraverse_registrar_CatalogDesktopWindowPresenter;
 }

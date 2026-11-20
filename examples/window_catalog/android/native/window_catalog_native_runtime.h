@@ -34,6 +34,7 @@ class WindowCatalogNativeRuntime {
   void MobileSwipe(int delta);
   void PopulateMenu(JNIEnv* env, jobject menu);
   void ExecuteMenuCommand(int native_item_id);
+  void ExitFullscreen();
 
  private:
   void PublishMobilePages();
@@ -47,6 +48,9 @@ class WindowCatalogNativeRuntime {
   ApplicationModelRuntime runtime_;
   ui::android::AndroidPresentationHost presentation_host_;
   std::unique_ptr<android::AndroidApplicationHost> host_;
+  // Native popup lifetime only: its caption and intent refer to the same page.
+  ae::ObjId menu_window_id_;
+  bool menu_fullscreen_intent_{false};
 };
 
 }  // namespace apptraverse::example::surfaces

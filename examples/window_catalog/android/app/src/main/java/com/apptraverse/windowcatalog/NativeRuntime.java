@@ -27,6 +27,7 @@ public final class NativeRuntime {
   public static native void nativePopulateMenu(long handle, android.view.Menu menu);
 
   public static native void nativeExecuteMenuCommand(long handle, int nativeItemId);
+  public static native void nativeExitFullscreen(long handle);
 
   public static native void nativeDestroy(long handle);
 }

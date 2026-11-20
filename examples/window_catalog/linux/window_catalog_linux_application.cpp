@@ -99,6 +99,7 @@ int WindowCatalogLinuxApplication::Run(
   session_.prepare_local_state = [environment, prepare](WindowCatalog& catalog) {
     catalog.persisted.device_state->ObserveEnvironment(environment, ui::UiEnvironmentReason::kStartup);
     if (prepare) prepare(catalog);
+    catalog.EnableLocalWindowLifecycle();
     PrepareCatalogMenuForRun(catalog);
   };
   linux::LinuxApplicationHost host{session_.runtime, std::move(callbacks)};

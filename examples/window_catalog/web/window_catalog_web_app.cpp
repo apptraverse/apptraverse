@@ -87,6 +87,15 @@ EMSCRIPTEN_KEEPALIVE void ApptraverseWindowCatalogMenuCommand(unsigned group, un
   WebWindowCatalogApp::Instance().ExecuteMenuCommand(group, item);
 }
 
+EMSCRIPTEN_KEEPALIVE void ApptraverseWindowCatalogLayoutCommand(unsigned item) {
+  WebWindowCatalogApp::Instance().ExecuteLayoutCommand(item);
+}
+
+EMSCRIPTEN_KEEPALIVE void ApptraverseWindowCatalogFullscreen(
+    unsigned window_id, int fullscreen) {
+  WebWindowCatalogApp::Instance().RequestFullscreen(window_id, fullscreen != 0);
+}
+
 EMSCRIPTEN_KEEPALIVE void ApptraverseWindowCatalogRequestShutdown() {
   WebWindowCatalogApp::Instance().RequestShutdown();
 }
@@ -124,7 +133,7 @@ WebWindowCatalogApp& WebWindowCatalogApp::Instance() {
 void WebWindowCatalogApp::Start(std::filesystem::path state_dir) {
   EnsureWebWindowCatalogGraphRegistration();
   EnsureBrowserEnvironment();
-  SetStatus("Loading…");
+  SetStatus("");
 
   state_dir_ = std::move(state_dir);
 
@@ -165,6 +174,7 @@ void WebWindowCatalogApp::Start(std::filesystem::path state_dir) {
       catalog.persisted.device_state.Load();
       catalog.persisted.device_state->ObserveEnvironment(environment, ui::UiEnvironmentReason::kStartup);
       PrepareWindowCatalogForRun(catalog);
+      catalog.EnableLocalWindowLifecycle();
       PrepareCatalogMenuForRun(catalog);
     };
     hooks.before_incremental = [](WindowCatalog& catalog) {
@@ -227,6 +237,22 @@ void WebWindowCatalogApp::ExecuteMenuCommand(unsigned group, unsigned item) {
   auto& catalog = static_cast<WindowCatalog&>(host_->ui_session()->root());
   host_->model_proxy().Invoke(catalog.persisted.device_state.id(),
       &CatalogUiState::ExecuteMenuCommand, group, item);
+}
+
+void WebWindowCatalogApp::ExecuteLayoutCommand(unsigned item) {
+  if (!host_ || !host_->ui_session() ||
+      host_->lifecycle() != web::WebApplicationHostLifecycle::kRunning) return;
+  auto& catalog = static_cast<WindowCatalog&>(host_->ui_session()->root());
+  host_->model_proxy().Invoke(catalog.persisted.device_state.id(),
+      &CatalogUiState::ExecuteLayoutCommand, item);
+}
+
+void WebWindowCatalogApp::RequestFullscreen(unsigned window_id, bool fullscreen) {
+  if (!host_ || !host_->ui_session() ||
+      host_->lifecycle() != web::WebApplicationHostLifecycle::kRunning) return;
+  auto& catalog = static_cast<WindowCatalog&>(host_->ui_session()->root());
+  host_->model_proxy().Invoke(catalog.persisted.device_state.id(),
+      &CatalogUiState::RequestWindowFullscreenFromUi, ae::ObjId{window_id}, fullscreen);
 }
 
 void WebWindowCatalogApp::FinishTeardown(bool shutdown_succeeded) {
@@ -338,8 +364,18 @@ void WebWindowCatalogApp::PublishMobilePages(ae::Obj& application_root) {
     ids += std::to_string(ring[i].id().id());
   }
   CatalogWindow::ptr const active = catalog.ResolveActiveWindow();
-  EM_ASM({ AtCatalog.setPages(UTF8ToString(Number($0)), $1); }, ids.c_str(),
-         active.id().id());
+  auto layout_items = val::array();
+  for (auto const& item : state.menu->layout_items) {
+    auto choice = val::object();
+    choice.set("label", item.label->Resolve(language));
+    choice.set("selected", state.MenuItemSelected(item));
+    layout_items.call<void>("push", choice);
+  }
+  bool const fullscreen = state.IsWindowFullscreen(active.id());
+  auto const& display = state.DisplayMenu();
+  val::global("AtCatalog").call<void>("setPages", ids, active.id().id(), fullscreen,
+      display.fullscreen_items[fullscreen ? 1 : 0].label->Resolve(language),
+      layout_items, active.id() == catalog.persisted.main_window.id());
 }
 
 }  // namespace apptraverse

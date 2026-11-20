@@ -221,8 +221,7 @@ void CloseMain(WindowCatalog& catalog) {
 void MoveResizeNative(GtkWidget* widget, FrameExpect frame) {
   auto* presenter = static_cast<ui::linux::LinuxDesktopWindowPresenter*>(
       g_object_get_data(G_OBJECT(widget), "apptraverse_presenter"));
-  auto* menu = presenter->PresentationMenu();
-  int const menu_height = menu ? gtk_widget_get_allocated_height(menu) : 0;
+  int const menu_height = presenter->NativeChromeHeight();
   // FrameExpect retains application content dimensions; GTK takes the whole
   // client surface, including native menu chrome outside the solver viewport.
   gtk_window_resize(GTK_WINDOW(widget), frame.w, frame.h + menu_height);
@@ -278,8 +277,7 @@ FrameExpect LocalObservedFrame(CatalogWindow& window) {
   GdkRectangle outer{}; gdk_window_get_frame_extents(native, &outer);
   int const decoration_width = std::max(0, outer.width - gdk_window_get_width(native));
   int const decoration_height = std::max(0, outer.height - gdk_window_get_height(native));
-  auto* menu = presenter.PresentationMenu();
-  int const menu_height = menu ? gtk_widget_get_allocated_height(menu) : 0;
+  int const menu_height = presenter.NativeChromeHeight();
   return {area.x + f.x, area.y + f.y, f.width - decoration_width,
           f.height - decoration_height - menu_height};
 }

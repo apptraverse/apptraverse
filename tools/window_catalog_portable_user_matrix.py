@@ -19,6 +19,11 @@ def sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def partition_hashes(profile: Path) -> dict:
+    return {file: sha(profile / file) if (profile / file).is_file() else None
+            for file in ("user.bin", "local/user.bin")}
+
+
 class Runner:
     def __init__(self, name: str, config: dict, root: Path):
         self.name, self.config, self.root = name, config, root
@@ -35,7 +40,8 @@ class Runner:
         config = self.config
         stem = f"{self.name}-{mode}-{source.name}"
         log = self.root / (stem + ".log")
-        input_sha256 = sha(source / "user.bin") if mode == "verify" else None
+        input_partitions = partition_hashes(source) if mode == "verify" else None
+        input_sha256 = input_partitions["user.bin"] if input_partitions else None
         if config.get("kind") == "adb":
             adb = config["adb"]
             subprocess.run(adb + ["shell", "mkdir", "-p", config["remote_root"]], check=True)
@@ -44,6 +50,10 @@ class Runner:
                 for file in ("user.bin", "manifest.txt"):
                     subprocess.run(adb + ["push", str(source / file), self.path(source) + "/" + file],
                                    check=True, capture_output=True)
+                if (source / "local/user.bin").is_file():
+                    subprocess.run(adb + ["shell", "mkdir", "-p", self.path(source) + "/local"], check=True)
+                    subprocess.run(adb + ["push", str(source / "local/user.bin"),
+                        self.path(source) + "/local/user.bin"], check=True, capture_output=True)
             command = adb + ["shell", config["executable"], mode, self.path(source)]
         else:
             command = config["command"] + [mode, self.path(source)]
@@ -63,18 +73,35 @@ class Runner:
             for file in ("user.bin", "manifest.txt"):
                 subprocess.run(config["adb"] + ["pull", self.path(produced) + "/" + file,
                                                str(produced / file)], check=True, capture_output=True)
+            remote_local = self.path(produced) + "/local/user.bin"
+            if subprocess.run(config["adb"] + ["shell", "test", "-f", remote_local],
+                              capture_output=True).returncode == 0:
+                (produced / "local").mkdir(exist_ok=True)
+                subprocess.run(config["adb"] + ["pull", remote_local,
+                    str(produced / "local/user.bin")], check=True, capture_output=True)
         remote_input_sha256 = None
+        remote_partitions = None
         if code == 0 and config.get("kind") == "adb" and mode == "verify":
-            remote_bytes = subprocess.run(config["adb"] + ["exec-out", "cat",
-                self.path(source) + "/user.bin"], check=True, capture_output=True).stdout
-            remote_input_sha256 = hashlib.sha256(remote_bytes).hexdigest()
+            remote_partitions = {}
+            for file in ("user.bin", "local/user.bin"):
+                remote_file = self.path(source) + "/" + file
+                if subprocess.run(config["adb"] + ["shell", "test", "-f", remote_file],
+                                  capture_output=True).returncode != 0:
+                    remote_partitions[file] = None
+                else:
+                    remote_bytes = subprocess.run(config["adb"] + ["exec-out", "cat",
+                        remote_file], check=True, capture_output=True).stdout
+                    remote_partitions[file] = hashlib.sha256(remote_bytes).hexdigest()
+            remote_input_sha256 = remote_partitions["user.bin"]
         input_unchanged = (mode != "verify" or (
-            sha(source / "user.bin") == input_sha256 and
-            (remote_input_sha256 is None or remote_input_sha256 == input_sha256)))
+            partition_hashes(source) == input_partitions and
+            (remote_partitions is None or remote_partitions == input_partitions)))
         return {"runner": self.name, "operation": mode, "input": source.name,
                 "output": output.name if output else None, "exit": code,
                 "seconds": round(time.monotonic() - started, 3), "log": str(log),
                 "remote_input_sha256": remote_input_sha256,
+                "remote_input_partition_sha256": remote_partitions,
+                "input_partition_sha256": input_partitions,
                 "input_sha256": input_sha256, "input_unchanged": input_unchanged,
                 "abi": next((line for line in log.read_text(encoding="utf-8", errors="replace").splitlines()
                              if line.startswith("PORTABLE_USER_ABI ")), None)}

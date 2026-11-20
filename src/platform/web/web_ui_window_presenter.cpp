@@ -225,7 +225,7 @@ void WebDesktopWindowPresenter::UnregisterChildControl(emscripten::EM_VAL child)
   std::erase_if(native_children_, [child](auto const& entry) { return entry.element == child; });
 }
 bool WebDesktopWindowPresenter::NativeMeasurementsReady() const {
-  auto* root = LayoutRoot(); if (!root) return true;
+  auto* root = LayoutRoot();
   auto ready = [&](auto&& self, UiLayoutNode const& node) -> bool {
     if (node.flow == UiLayoutFlow::kLeaf) return std::any_of(native_children_.begin(), native_children_.end(), [&](auto const& c) { return c.control_id == node.control_id; });
     return std::all_of(node.children.begin(), node.children.end(), [&](auto const& c) { return self(self, c); });
@@ -251,7 +251,7 @@ UiConstraintLayoutResult WebDesktopWindowPresenter::ComputeLocalLayout() const {
   return result;
 }
 UiControlLayout WebDesktopWindowPresenter::ResolveChildLayout(UiControlLayout requested) const {
-  if (!LayoutRoot() || !NativeMeasurementsReady()) return requested;
+  if (!NativeMeasurementsReady()) return requested;
   auto result = ComputeLocalLayout();
   auto found = std::find_if(result.controls.begin(), result.controls.end(), [&](auto const& r) { return r.control_id == requested.control_id; });
   if (found == result.controls.end()) { WriteFatalStderr("fatal: DOM control missing from required layout\n"); std::abort(); }
@@ -259,7 +259,7 @@ UiControlLayout WebDesktopWindowPresenter::ResolveChildLayout(UiControlLayout re
       std::max(1, static_cast<int>(std::lround(found->width))), std::max(1, static_cast<int>(std::lround(found->height))), requested.control_id};
 }
 void WebDesktopWindowPresenter::RefreshLayout(bool require_complete) {
-  if (!dom_refs_ || applying_layout_ || !LayoutRoot()) return;
+  if (!dom_refs_ || applying_layout_) return;
   if (!NativeMeasurementsReady()) {
     if (require_complete) { WriteFatalStderr("fatal: DOM required layout control was not presented\n"); std::abort(); }
     ApptraverseScheduleDesktopLayout(dom_refs_->window_element, this); return;
@@ -279,7 +279,7 @@ void WebDesktopWindowPresenter::RefreshLocalPresentation(bool environment_change
   if (!dom_refs_) return;
   auto* device = LocalDeviceState();
   auto environment = ReadWebDeviceEnvironment();
-  if (device) {
+  {
     ApptraverseApplyDesktopAppearance(dom_refs_->window_element, static_cast<int>(device->appearance.theme), device->appearance.soften_dark, environment.high_contrast);
     auto* host = static_cast<WebPresentationHost*>(presentation_host);
     bool const accepts_observations = host->accepts_runtime_observations;

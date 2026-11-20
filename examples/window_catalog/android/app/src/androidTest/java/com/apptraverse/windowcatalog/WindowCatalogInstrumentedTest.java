@@ -190,7 +190,7 @@ public final class WindowCatalogInstrumentedTest {
         + " -n " + PACKAGE + "/.MainActivity --es stateSubdir " + stateSubdir);
     assertTrue(result, result.contains("Status: ok"));
     waitChild();
-    assertTrue(device.wait(Until.gone(By.text("Loading")), 10_000));
+    assertTrue(device.wait(Until.gone(By.res(PACKAGE, "loading")), 10_000));
     assertEquals(originalPid, device.executeShellCommand("pidof " + PACKAGE + ":demo").trim());
     waitForCatalogInputFocus();
     swipe(1);
@@ -234,6 +234,102 @@ public final class WindowCatalogInstrumentedTest {
     tap(russian ? "Язык" : "Language");
     waitText("English");
     waitText("Русский");
+  }
+
+  private void nativeMenu() throws Exception {
+    waitForCatalogInputFocus();
+    device.waitForIdle();
+    keyEvent(82);
+  }
+
+  private void assertFullscreenMenu(boolean fullscreen) throws Exception {
+    if (fullscreen) {
+      // Android may show its one-time immersive-mode education above the app.
+      UiObject2 education = device.wait(Until.findObject(By.text("Got it")), 1_000);
+      if (education != null) { education.click(); device.waitForIdle(); }
+    }
+    nativeMenu();
+    waitText(fullscreen ? "Exit fullscreen" : "Enter fullscreen");
+    assertFalse(device.hasObject(By.text(fullscreen ? "Enter fullscreen" : "Exit fullscreen")));
+    back();
+    assertTrue("Native overflow must dismiss before another Back or page command",
+        device.wait(Until.gone(By.text(fullscreen ? "Exit fullscreen" : "Enter fullscreen")), 10_000));
+    device.waitForIdle();
+  }
+
+  @Test public void fullscreenTracksCurrentPageBackRotationAndColdLocalRestore() throws Exception {
+    launch();
+    waitCatalog();
+    nativeMenu(); tap("Enter fullscreen");
+    assertFullscreenMenu(true);
+    tap("Add"); waitChild();
+    assertFullscreenMenu(false);
+    nativeMenu(); tap("Enter fullscreen");
+    assertFullscreenMenu(true);
+    device.setOrientationLeft();
+    waitChild();
+    assertChildCloseUsesViewport(android.view.Surface.ROTATION_90);
+    assertFullscreenMenu(true);
+    device.setOrientationNatural();
+    waitChild();
+    assertChildCloseUsesViewport(android.view.Surface.ROTATION_0);
+    swipe(1); waitCatalog();
+    assertFullscreenMenu(true);
+    back(); // Exits only the current page's fullscreen preference.
+    waitCatalog();
+    assertFullscreenMenu(false);
+    swipe(-1); waitChild();
+    assertFullscreenMenu(true);
+    assertTrue("Fullscreen intent stays RAM-backed until onStop", userFiles().isEmpty());
+    home();
+    assertEquals(1, userFiles().size());
+    assertTrue(new File(stateDir, "local/user.bin").length() > 0);
+    killDemoProcessOnly();
+    launch();
+    boolean fresh = Boolean.parseBoolean(
+        InstrumentationRegistry.getArguments().getString("debugFresh", "true"));
+    if (fresh) { waitCatalog(); assertFullscreenMenu(false); }
+    else {
+      waitChild(); assertFullscreenMenu(true);
+      String oldPid = device.executeShellCommand("pidof " + PACKAGE + ":demo").trim();
+      String remount = device.executeShellCommand("am start -W -f 0x10008000"
+          + " -n " + PACKAGE + "/.MainActivity --es stateSubdir " + stateSubdir);
+      assertTrue(remount, remount.contains("Status: ok"));
+      waitChild(); assertFullscreenMenu(true);
+      assertEquals(oldPid, device.executeShellCommand("pidof " + PACKAGE + ":demo").trim());
+      back(); waitChild(); assertFullscreenMenu(false);
+      tap("Close"); waitCatalog();
+      tap("Window 1 (closed)"); waitChild();
+      assertFullscreenMenu(false);
+    }
+  }
+
+  @Test public void nativeLayoutCommandsUsePublishedChecksAndMainPageScope() throws Exception {
+    launch(); waitCatalog();
+    nativeMenu();
+    assertTrue(menuChecked("Layout: Automatic"));
+    tap("Layout: Horizontal");
+    nativeMenu();
+    assertTrue(menuChecked("Layout: Horizontal"));
+    tap("Layout: Vertical");
+    nativeMenu();
+    assertTrue(menuChecked("Layout: Vertical"));
+    tap("Reset layout to application default");
+    nativeMenu();
+    assertTrue(menuChecked("Layout: Automatic"));
+    back();
+    tap("Add"); waitChild();
+    nativeMenu();
+    assertFalse(device.hasObject(By.text("Layout: Automatic")));
+    waitText("Enter fullscreen"); back();
+    swipe(1); waitCatalog();
+    languageMenu(false); tap("Русский");
+    waitText("Каталог окон");
+    nativeMenu();
+    waitText("На весь экран");
+    waitText("Раскладка: автоматически");
+    waitText("Вернуть раскладку приложения");
+    back();
   }
 
   @Test public void appearanceCommandsPersistLocallyAndFollowFreshProfilePolicy() throws Exception {
@@ -282,7 +378,8 @@ public final class WindowCatalogInstrumentedTest {
     assertTrue(menuChecked("Русский"));
     assertFalse(menuChecked("English"));
     back();
-    keyEvent(82);
+    assertTrue(device.wait(Until.gone(By.text("Русский")), 10_000));
+    nativeMenu();
     tap("Тема");
     waitText("Из системы");
     waitText("Мягкая тёмная");
@@ -546,15 +643,23 @@ public final class WindowCatalogInstrumentedTest {
   }
 
   private void assertChildCloseUsesViewport() {
+    assertChildCloseUsesViewport(-1);
+  }
+
+  private void assertChildCloseUsesViewport(int expectedRotation) {
     // The common UI-runtime solver arranges native views after viewport measurement.
     Rect bounds = waitText("Close").getVisibleBounds();
     long deadline = SystemClock.uptimeMillis() + 10_000;
-    while ((bounds.width() < device.getDisplayWidth() * 4 / 5
+    while (((expectedRotation >= 0 && device.getDisplayRotation() != expectedRotation)
+            || bounds.width() < device.getDisplayWidth() * 4 / 5
             || bounds.centerY() < device.getDisplayHeight() * 3 / 4)
            && SystemClock.uptimeMillis() < deadline) {
       SystemClock.sleep(25);
       bounds = waitText("Close").getVisibleBounds();
     }
+    if (expectedRotation >= 0)
+      assertEquals("Native rotation must settle before viewport input", expectedRotation,
+          device.getDisplayRotation());
     assertTrue("Close must use client width: " + bounds,
         bounds.width() >= device.getDisplayWidth() * 4 / 5);
     assertTrue("Close must be at client bottom: " + bounds,

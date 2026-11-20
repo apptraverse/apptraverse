@@ -248,6 +248,7 @@ endif()
 add_library(apptraverse_ui_android_presenters STATIC
   src/platform/android/android_ui_presenters.cpp
   src/platform/android/android_ui_registration.cpp
+  src/platform/android/android_ui_control_registration.cpp
   src/platform/android/android_ui_window_presenter_host.cpp
 )
 target_include_directories(apptraverse_ui_android_presenters PUBLIC
@@ -433,6 +434,7 @@ if(UNIX AND NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN AND
     src/platform/linux/linux_ui_text_control_presenter.cpp
     src/platform/linux/linux_ui_push_button_presenter.cpp
     src/platform/linux/linux_ui_registration.cpp
+    src/platform/linux/linux_ui_control_registration.cpp
   )
   target_include_directories(apptraverse_ui_linux PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -453,6 +455,7 @@ if(EMSCRIPTEN)
     src/platform/web/web_application_host.cpp
     src/platform/web/web_idbfs.cpp
     src/platform/web/web_ui_registration.cpp
+    src/platform/web/web_ui_window_control_registration.cpp
   )
   target_include_directories(apptraverse_ui_web PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include)

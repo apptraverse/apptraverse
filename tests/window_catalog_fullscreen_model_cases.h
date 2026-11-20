@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <deque>
 #include "window_catalog_graph_builder.h"
+#include "window_catalog_menu.h"
 #include "window_catalog_prepare.h"
 #include "window_catalog_supply_constant_ids.h"
 #include "apptraverse/distill.h"
@@ -11,7 +12,13 @@
 #include "apptraverse/single_file_user_storage.h"
 
 namespace {
-WindowCatalog::ptr BuildMenuModel(ae::Domain& domain, bool display) {
+enum class TestCatalogDisplayHandling { kNone, kDesktop, kPaged, kDesktopWithLoading };
+void PrepareTestCatalogMenuForRun(WindowCatalog& catalog) {
+  PrepareCatalogMenuForRun(catalog);
+  if (static_cast<CatalogUiState&>(*catalog.persisted.device_state).menu->GetClassId() == CatalogWindowDisplayMenuDefinition::kClassId)
+    catalog.EnableLocalWindowLifecycle();
+}
+WindowCatalog::ptr BuildMenuModel(ae::Domain& domain, TestCatalogDisplayHandling handling, bool web_shell = false) {
   WindowCatalogPresenterFactory factory;
   factory.create_window = [](ae::Domain& d, ae::ObjId id, WindowCatalog::ptr const&) {
     return ui::UiDesktopWindowPresenter::ptr::Create(ae::CreateWith{d}.with_id(id));
@@ -31,28 +38,44 @@ WindowCatalog::ptr BuildMenuModel(ae::Domain& domain, bool display) {
     return ui::UiDeviceState::ptr{state};
   };
   auto catalog = BuildWindowCatalogGraph(domain, factory, std::move(options));
-  // Non-display shape matches the existing Linux/Android menu composition.
+  auto const shell = handling == TestCatalogDisplayHandling::kDesktopWithLoading ? CatalogMenuShell::kWindows
+      : web_shell ? CatalogMenuShell::kWeb : CatalogMenuShell::kDefault;
+  auto const display = handling == TestCatalogDisplayHandling::kDesktop ? CatalogDisplayHandling::kDesktop
+      : handling == TestCatalogDisplayHandling::kPaged ? CatalogDisplayHandling::kPaged : CatalogDisplayHandling::kNone;
   ComposeCatalogMenu(domain, *catalog, CatalogThemeHandling::kAdapterAppliesTheme,
-                     display ? CatalogMenuShell::kWindows : CatalogMenuShell::kDefault,
-                     display);
+                     shell, handling != TestCatalogDisplayHandling::kNone, display);
+  PrepareTestCatalogMenuForRun(*catalog);
   return catalog;
 }
 
-void TestFullscreenModelAndPublication(bool compact) {
+WindowCatalog::ptr BuildMenuModel(ae::Domain& domain, bool display) {
+  return BuildMenuModel(domain, display ? TestCatalogDisplayHandling::kDesktopWithLoading : TestCatalogDisplayHandling::kNone);
+}
+
+void TestFullscreenModelAndPublication(bool compact,
+    TestCatalogDisplayHandling handling = TestCatalogDisplayHandling::kDesktopWithLoading) {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
-  auto catalog = BuildMenuModel(domain, true);
+  auto catalog = BuildMenuModel(domain, handling, handling == TestCatalogDisplayHandling::kPaged);
   PrepareWindowCatalogForRun(*catalog);
-  catalog->EnableLocalWindowLifecycle();
   auto& state = static_cast<CatalogUiState&>(*catalog->persisted.device_state);
   state.SetImmediateEventCompaction(compact);
   auto const main = catalog->persisted.main_window.id();
   CHECK(state.DisplayMenu().fullscreen_items.size() == 2);
   CHECK(state.DisplayMenu().fullscreen_toolbar.children[0].control_id == 5300);
-  CHECK(state.DisplayMenu().fullscreen_items[0].label->Resolve(0) == "Enter fullscreen (F11)");
+  CHECK(state.DisplayMenu().fullscreen_items[0].label->Resolve(0) ==
+        (handling == TestCatalogDisplayHandling::kPaged ? "Enter fullscreen" : "Enter fullscreen (F11)"));
+  if (handling == TestCatalogDisplayHandling::kPaged) {
+    CHECK(state.menu->shell_strings.size() == 8);
+    CHECK(state.menu->shell_strings[0]->Resolve(0) == "Previous page");
+    CHECK(state.menu->shell_strings[0].id().id() < 9500);
+    CHECK(state.menu->layout_items[0].label.id().id() >= 9500);
+    CHECK(state.DisplayMenu().fullscreen_items[0].label.id().id() >= 9600);
+  } else if (handling == TestCatalogDisplayHandling::kDesktop) CHECK(state.menu->shell_strings.empty());
+  else CHECK(state.DisplayMenu().LoadingText().Resolve(0) == "Loading catalog");
   state.ExecuteMenuCommand(1, 1);
   CHECK(state.DisplayMenu().fullscreen_items[1].label->Resolve(1) ==
-        "Выйти из полноэкранного режима (Esc)");
+        (handling == TestCatalogDisplayHandling::kPaged ? "Выйти из полноэкранного режима" : "Выйти из полноэкранного режима (Esc)"));
   CHECK(!state.DisplayMenu().fullscreen_items[1].label->strings[0].is_loaded());
   CHECK(state.DisplayMenu().fullscreen_items[1].label->strings[1].is_loaded());
   auto const constants = CollectWindowCatalogSupplyConstantIds(*catalog);
@@ -135,19 +158,24 @@ struct MenuSupply {
   ae::RamDomainStorage data;
   ae::ObjId root;
   std::set<ae::ObjId> constants;
-  explicit MenuSupply(bool display) {
+  explicit MenuSupply(TestCatalogDisplayHandling handling) {
     ae::Domain domain{data};
-    auto catalog = BuildMenuModel(domain, display);
+    auto catalog = BuildMenuModel(domain, handling, handling == TestCatalogDisplayHandling::kPaged);
     root = catalog.id();
     auto const ids = CollectWindowCatalogSupplyConstantIds(*catalog);
     constants.insert(ids.begin(), ids.end());
     FinalizeDistilledGraph(*catalog);
     SaveDistilledRoot(*catalog);
   }
+  explicit MenuSupply(bool display)
+      : MenuSupply{display ? TestCatalogDisplayHandling::kDesktopWithLoading : TestCatalogDisplayHandling::kNone} {}
 };
 
-void TestFullscreenColdAndPlatformSeed(bool source_display, bool compact) {
-  MenuSupply source{source_display}, destination{!source_display};
+void TestFullscreenColdAndPlatformSeedPolicies(TestCatalogDisplayHandling source_handling,
+    TestCatalogDisplayHandling destination_handling, bool compact) {
+  bool const source_display = source_handling != TestCatalogDisplayHandling::kNone;
+  bool const destination_display = destination_handling != TestCatalogDisplayHandling::kNone;
+  MenuSupply source{source_handling}, destination{destination_handling};
   auto const original_supply = source.data.state;
   ae::RamDomainStorage user, local;
   ae::ObjId main, child;
@@ -156,7 +184,7 @@ void TestFullscreenColdAndPlatformSeed(bool source_display, bool compact) {
     OverlayDomainStorage overlay{routed, source.data, source.constants};
     ae::Domain domain{overlay};
     auto catalog = LoadApplication<WindowCatalog>(domain, source.root);
-    PrepareWindowCatalogForRun(*catalog); PrepareCatalogMenuForRun(*catalog);
+    PrepareWindowCatalogForRun(*catalog); PrepareTestCatalogMenuForRun(*catalog);
     auto& state = static_cast<CatalogUiState&>(*catalog->persisted.device_state);
     state.SetImmediateEventCompaction(compact);
     main = catalog->persisted.main_window.id();
@@ -183,7 +211,7 @@ void TestFullscreenColdAndPlatformSeed(bool source_display, bool compact) {
     OverlayDomainStorage overlay{routed, source.data, source.constants};
     ae::Domain domain{overlay};
     auto catalog = LoadApplication<WindowCatalog>(domain, source.root);
-    PrepareWindowCatalogForRun(*catalog); PrepareCatalogMenuForRun(*catalog);
+    PrepareWindowCatalogForRun(*catalog); PrepareTestCatalogMenuForRun(*catalog);
     auto& state = static_cast<CatalogUiState&>(*catalog->persisted.device_state);
     CHECK(state.IsWindowFullscreen(main) == source_display);
     CHECK(state.IsWindowFullscreen(child) == source_display);
@@ -197,7 +225,7 @@ void TestFullscreenColdAndPlatformSeed(bool source_display, bool compact) {
     OverlayDomainStorage overlay{routed, source.data, source.constants};
     ae::Domain domain{overlay};
     auto catalog = LoadApplication<WindowCatalog>(domain, source.root);
-    PrepareWindowCatalogForRun(*catalog); PrepareCatalogMenuForRun(*catalog);
+    PrepareWindowCatalogForRun(*catalog); PrepareTestCatalogMenuForRun(*catalog);
     auto& state = static_cast<CatalogUiState&>(*catalog->persisted.device_state);
     CHECK(catalog->persisted.list->rows.size() == 1);
     CHECK(static_cast<WindowHolder&>(*catalog->persisted.list->rows[0]).window.id() == child);
@@ -211,26 +239,33 @@ void TestFullscreenColdAndPlatformSeed(bool source_display, bool compact) {
     OverlayDomainStorage overlay{routed, destination.data, destination.constants};
     ae::Domain domain{overlay};
     auto catalog = LoadApplication<WindowCatalog>(domain, destination.root);
-    PrepareWindowCatalogForRun(*catalog); PrepareCatalogMenuForRun(*catalog);
+    PrepareWindowCatalogForRun(*catalog); PrepareTestCatalogMenuForRun(*catalog);
     auto& state = static_cast<CatalogUiState&>(*catalog->persisted.device_state);
     CHECK(state.GetClassId() == CatalogUiState::kClassId);
     CHECK(state.appearance.soften_dark);
-    CHECK(state.menu->GetClassId() == (!source_display
+    CHECK(state.menu->GetClassId() == (destination_display
         ? CatalogWindowDisplayMenuDefinition::kClassId : CatalogMenuDefinition::kClassId));
     CHECK(state.IsWindowFullscreen(main) == source_display);
     CHECK(state.IsWindowFullscreen(child) == source_display);
     auto const generation = state.Generation();
     state.RequestWindowFullscreenFromUi(main, !source_display);
-    if (source_display) CHECK(state.Generation() == generation); // Destination has no display capability.
-    else CHECK(state.IsWindowFullscreen(main));
+    if (!destination_display) CHECK(state.Generation() == generation);
+    else CHECK(state.IsWindowFullscreen(main) == !source_display);
   }
   auto const own_local = seeded.state;
   SeedClientLocalStorage(seeded, local);
   CHECK(seeded.state == own_local);
 }
 
-void TestUserImportPreservesDormantLocalWindowState(bool compact) {
-  MenuSupply supply{true};
+void TestFullscreenColdAndPlatformSeed(bool source_display, bool compact) {
+  TestFullscreenColdAndPlatformSeedPolicies(
+      source_display ? TestCatalogDisplayHandling::kDesktopWithLoading : TestCatalogDisplayHandling::kNone,
+      source_display ? TestCatalogDisplayHandling::kNone : TestCatalogDisplayHandling::kDesktopWithLoading, compact);
+}
+
+void TestUserImportPreservesDormantLocalWindowState(bool compact,
+    TestCatalogDisplayHandling handling = TestCatalogDisplayHandling::kDesktopWithLoading) {
+  MenuSupply supply{handling};
   ae::RamDomainStorage user, local, three_children, two_children;
   ae::ObjId dormant;
   ui::UiDisplayRect const normal_frame{41, 53, 640, 480};
@@ -248,7 +283,7 @@ void TestUserImportPreservesDormantLocalWindowState(bool compact) {
     OverlayDomainStorage overlay{routed, supply.data, supply.constants};
     ae::Domain domain{overlay};
     auto catalog = LoadApplication<WindowCatalog>(domain, supply.root);
-    PrepareWindowCatalogForRun(*catalog); PrepareCatalogMenuForRun(*catalog);
+    PrepareWindowCatalogForRun(*catalog); PrepareTestCatalogMenuForRun(*catalog);
     auto& state = static_cast<CatalogUiState&>(*catalog->persisted.device_state);
     state.SetImmediateEventCompaction(compact);
     catalog->EnableLocalWindowLifecycle();
@@ -273,7 +308,7 @@ void TestUserImportPreservesDormantLocalWindowState(bool compact) {
     OverlayDomainStorage overlay{routed, supply.data, supply.constants};
     ae::Domain domain{overlay};
     auto catalog = LoadApplication<WindowCatalog>(domain, supply.root);
-    PrepareWindowCatalogForRun(*catalog); PrepareCatalogMenuForRun(*catalog);
+    PrepareWindowCatalogForRun(*catalog); PrepareTestCatalogMenuForRun(*catalog);
     auto& state = static_cast<CatalogUiState&>(*catalog->persisted.device_state);
     state.SetImmediateEventCompaction(compact);
     catalog->EnableLocalWindowLifecycle();
@@ -293,7 +328,7 @@ void TestUserImportPreservesDormantLocalWindowState(bool compact) {
     OverlayDomainStorage overlay{routed, supply.data, supply.constants};
     ae::Domain domain{overlay};
     auto catalog = LoadApplication<WindowCatalog>(domain, supply.root);
-    PrepareWindowCatalogForRun(*catalog); PrepareCatalogMenuForRun(*catalog);
+    PrepareWindowCatalogForRun(*catalog); PrepareTestCatalogMenuForRun(*catalog);
     auto& state = static_cast<CatalogUiState&>(*catalog->persisted.device_state);
     state.SetImmediateEventCompaction(compact);
     auto const generation = state.Generation();
@@ -336,5 +371,15 @@ void TestUserImportPreservesDormantLocalWindowState(bool compact) {
     SaveWindowCatalogPersistentSnapshot(*catalog);
     ++launch;
   }
+}
+void TestFullscreenPortableAdapters(bool compact) {
+  for (auto handling : {TestCatalogDisplayHandling::kDesktop, TestCatalogDisplayHandling::kPaged}) {
+    TestFullscreenModelAndPublication(compact, handling);
+    TestUserImportPreservesDormantLocalWindowState(compact, handling);
+    TestFullscreenColdAndPlatformSeedPolicies(TestCatalogDisplayHandling::kDesktopWithLoading, handling, compact);
+    TestFullscreenColdAndPlatformSeedPolicies(handling, TestCatalogDisplayHandling::kDesktopWithLoading, compact);
+  }
+  TestFullscreenColdAndPlatformSeedPolicies(TestCatalogDisplayHandling::kDesktop, TestCatalogDisplayHandling::kPaged, compact);
+  TestFullscreenColdAndPlatformSeedPolicies(TestCatalogDisplayHandling::kPaged, TestCatalogDisplayHandling::kDesktop, compact);
 }
 }  // namespace

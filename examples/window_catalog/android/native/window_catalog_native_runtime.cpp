@@ -14,6 +14,8 @@
 namespace apptraverse::example::surfaces {
 namespace {
 using ui::android::CheckedJni;
+constexpr int kFullscreenCommand = 1000;
+constexpr int kFirstLayoutCommand = 1100;
 
 ui::UiPresentedWindow& Presented(CatalogWindow& window) {
   return static_cast<ui::UiPresentedWindow&>(window);
@@ -147,6 +149,7 @@ void WindowCatalogNativeRuntime::PopulateMenu(JNIEnv* env, jobject menu) {
   auto add_item = CheckedJni(env, "add menu item", [&] { return env->GetMethodID(menu_class, "add", "(IIILjava/lang/CharSequence;)Landroid/view/MenuItem;"); });
   auto checkable = CheckedJni(env, "checkable menu group", [&] { return env->GetMethodID(menu_class, "setGroupCheckable", "(IZZ)V"); });
   auto checked = CheckedJni(env, "checked menu item", [&] { return env->GetMethodID(item_class, "setChecked", "(Z)Landroid/view/MenuItem;"); });
+  auto set_checkable = CheckedJni(env, "checkable menu item", [&] { return env->GetMethodID(item_class, "setCheckable", "(Z)Landroid/view/MenuItem;"); });
   auto caption = [&](ui::UiLocalizationString const& text) {
     // Android has no menu mnemonic marker. Preserve escaped literal '&'.
     std::string result;
@@ -173,6 +176,35 @@ void WindowCatalogNativeRuntime::PopulateMenu(JNIEnv* env, jobject menu) {
     CheckedJni(env, "project native radio group", [&] { env->CallVoidMethod(submenu, checkable, 1, JNI_TRUE, JNI_TRUE); });
     env->DeleteLocalRef(submenu);
   }
+  auto active_id = catalog.ResolveActiveWindow().id();
+  menu_window_id_ = active_id;
+  menu_fullscreen_intent_ = !state.IsWindowFullscreen(active_id);
+  auto title = caption(*state.DisplayMenu().fullscreen_items[
+      state.IsWindowFullscreen(active_id) ? 1 : 0].label);
+  auto native_item = CheckedJni(env, "create fullscreen item", [&] {
+    return env->CallObjectMethod(menu, add_item, 0, kFullscreenCommand, 0, title);
+  });
+  env->DeleteLocalRef(native_item); env->DeleteLocalRef(title);
+  // Layout is a main-window semantic override, offered in the native touch menu.
+  if (active_id == catalog.persisted.main_window.id()) {
+    auto const& items = state.menu->layout_items;
+    for (unsigned index = 0; index < items.size(); ++index) {
+      auto const& item = items[index];
+      title = caption(*item.label);
+      native_item = CheckedJni(env, "create layout item", [&] {
+        return env->CallObjectMethod(menu, add_item, 2, kFirstLayoutCommand + index, 0, title);
+      });
+      auto result = CheckedJni(env, "layout item checkable", [&] {
+        return env->CallObjectMethod(native_item, set_checkable,
+            item.action == CatalogMenuAction::kLayoutFlow ? JNI_TRUE : JNI_FALSE);
+      });
+      env->DeleteLocalRef(result);
+      result = CheckedJni(env, "project published layout check", [&] {
+        return env->CallObjectMethod(native_item, checked, state.MenuItemSelected(item) ? JNI_TRUE : JNI_FALSE);
+      });
+      env->DeleteLocalRef(result); env->DeleteLocalRef(native_item); env->DeleteLocalRef(title);
+    }
+  }
   env->DeleteLocalRef(item_class);
   env->DeleteLocalRef(menu_class);
 }
@@ -181,6 +213,19 @@ void WindowCatalogNativeRuntime::ExecuteMenuCommand(int native_item_id) {
   if (!host_ || !host_->ui_session()) return;
   auto& catalog = CatalogRoot(host_->ui_session()->root());
   auto const& state = static_cast<CatalogUiState const&>(*catalog.persisted.device_state);
+  auto active_id = catalog.ResolveActiveWindow().id();
+  if (native_item_id == kFullscreenCommand) {
+    host_->model_proxy().Invoke(state.obj_id, &CatalogUiState::RequestWindowFullscreenFromUi,
+        menu_window_id_, menu_fullscreen_intent_);
+    return;
+  }
+  if (native_item_id >= kFirstLayoutCommand &&
+      native_item_id < kFirstLayoutCommand + static_cast<int>(state.menu->layout_items.size())) {
+    if (active_id == catalog.persisted.main_window.id())
+      host_->model_proxy().Invoke(state.obj_id, &CatalogUiState::ExecuteLayoutCommand,
+          static_cast<unsigned>(native_item_id - kFirstLayoutCommand));
+    return;
+  }
   int token = 1;
   for (unsigned group = 0; group < state.menu->groups.size(); ++group)
     for (unsigned item = 0; item < state.menu->groups[group].items.size(); ++item, ++token)
@@ -188,6 +233,14 @@ void WindowCatalogNativeRuntime::ExecuteMenuCommand(int native_item_id) {
         host_->model_proxy().Invoke(state.obj_id, &CatalogUiState::ExecuteMenuCommand, group, item);
         return;
       }
+}
+
+void WindowCatalogNativeRuntime::ExitFullscreen() {
+  if (!host_ || !host_->ui_session()) return;
+  auto& catalog = CatalogRoot(host_->ui_session()->root());
+  auto const& state = static_cast<CatalogUiState const&>(*catalog.persisted.device_state);
+  host_->model_proxy().Invoke(state.obj_id, &CatalogUiState::RequestWindowFullscreenFromUi,
+      catalog.ResolveActiveWindow().id(), false);
 }
 
 void WindowCatalogNativeRuntime::SyncMobilePagerChrome(
@@ -220,6 +273,17 @@ void WindowCatalogNativeRuntime::SyncMobilePagerChrome(
           ? *catalog.persisted.main_window.Load()
           : *active.Load();
   SetActivityTitle(presentation_host_, ResolveWindowTitle(title_window).c_str());
+  auto const& state = static_cast<CatalogUiState const&>(*catalog.persisted.device_state);
+  JNIEnv* env = ui::android::RequireUiThreadEnv(presentation_host_);
+  auto cls = CheckedJni(env, "Activity class", [&] { return env->GetObjectClass(presentation_host_.activity); });
+  auto method = CheckedJni(env, "published fullscreen method", [&] {
+    return env->GetMethodID(cls, "setPresentedFullscreen", "(Z)V");
+  });
+  CheckedJni(env, "apply published fullscreen", [&] {
+    env->CallVoidMethod(presentation_host_.activity, method,
+        state.IsWindowFullscreen(active_id) ? JNI_TRUE : JNI_FALSE);
+  });
+  env->DeleteLocalRef(cls);
 }
 
 void WindowCatalogNativeRuntime::PublishMobilePages() {

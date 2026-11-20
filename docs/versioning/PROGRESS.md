@@ -24,6 +24,16 @@ WindowCatalog and MinimalApp built for arm64 iPhoneOS, including WindowCatalog's
 embedded load-only target. Binary inspection found no catalogue builder or
 unused text presenter in the embedded executable. iOS runtime tests were not run.
 
+## WindowCatalog display ports for Linux, Android and Web — 2026-11-19
+
+The non-Apple ports use the shared LOCAL fullscreen Event and layout model.
+Native GTK/X11, Android emulator, Web browser, Windows and headless checks ran.
+The four-platform transfer fixture passed 52 processes. A separate Android
+USER-only import retained Android LOCAL when the catalog changed from three
+windows to two or four. See the
+[port validation](../validation/window-catalog-nonapple-display-2026-11-19.md)
+for the executed scope and platform limits.
+
 ## Windows WindowCatalog monitor placement and fullscreen
 
 Windows catalog windows keep monitor preferences, current monitor observations

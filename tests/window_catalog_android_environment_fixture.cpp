@@ -13,6 +13,7 @@
 #include "window_catalog_model.h"
 #include "window_catalog_ids.h"
 #include "window_catalog_prepare.h"
+#include "window_catalog_menu.h"
 
 using namespace apptraverse;
 void Require(bool condition, char const* message) {
@@ -57,6 +58,7 @@ int main(int argc, char** argv) {
   auto const& layout = *catalog->persisted.main_window->layout;
   std::cout << "default_padding=" << layout.definition->root.padding
             << "\neffective_padding=" << layout.EffectiveRoot().padding
+            << "\neffective_flow=" << static_cast<int>(layout.EffectiveRoot().flow)
             << "\nhas_override=" << layout.has_override << '\n';
   std::cout << "row_count=" << catalog->persisted.list->rows.size()
             << "\nlanguage=" << catalog->persisted.locale->language_index()
@@ -85,5 +87,14 @@ int main(int argc, char** argv) {
   for (auto const& window : state.windows)
     std::cout << "window_display=" << window.window_id.id() << ','
               << window.monitor_key << ',' << window.dpi_x << '\n';
+  auto const& catalog_state = static_cast<CatalogUiState const&>(state);
+  std::cout << "fullscreen_count=" << catalog_state.fullscreen_windows.size() << '\n';
+  for (auto id : catalog_state.fullscreen_windows)
+    std::cout << "fullscreen_window=" << id.id() << '\n';
+  for (auto const& placement : state.placements)
+    std::cout << "placement=" << placement.window_id.id() << ','
+              << placement.preferred_monitor << ',' << placement.resolved_monitor << ','
+              << placement.frame_dip.x << ',' << placement.frame_dip.y << ','
+              << placement.frame_dip.width << ',' << placement.frame_dip.height << '\n';
   std::cout << "ANDROID_ENVIRONMENT_INSPECT_OK\n";
 }

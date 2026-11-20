@@ -43,8 +43,47 @@ class CatalogDesktopWindowPresenter
     assert(SessionMainNativeFrameQueue() != nullptr);
     assert(session_catalog_main_window_id_.is_valid());
     ui::linux::LinuxDesktopWindowPresenter::OnLoad();
+    SetPresentationFullscreen(UiState().IsWindowFullscreen(window.id()));
+    if (window.id() == catalog->persisted.main_window.id()) {
+      layout_menu_ = gtk_menu_new();
+      gtk_menu_attach_to_widget(GTK_MENU(layout_menu_), TopLevelWindow(), nullptr);
+      auto const& items = UiState().menu->layout_items;
+      for (unsigned index = 0; index < items.size(); ++index) {
+        if (items[index].action == CatalogMenuAction::kResetLayout)
+          gtk_menu_shell_append(GTK_MENU_SHELL(layout_menu_), gtk_separator_menu_item_new());
+        auto* item = gtk_check_menu_item_new_with_label("");
+        gtk_menu_shell_append(GTK_MENU_SHELL(layout_menu_), item);
+        layout_items_.push_back(item);
+        g_object_set_data(G_OBJECT(item), "apptraverse-layout-item", GUINT_TO_POINTER(index));
+        g_signal_connect(item, "activate", G_CALLBACK(OnLayoutActivated), this);
+      }
+      gtk_widget_show_all(layout_menu_);
+    }
     SyncPresentationMenu();
   }
+
+  bool HasFullscreenAction() const override { return true; }
+  ui::UiLayoutNode const* FullscreenActionLayout() const override {
+    return &UiState().DisplayMenu().fullscreen_toolbar;
+  }
+  std::string ResolveFullscreenActionText() const override {
+    return UiState().DisplayMenu().fullscreen_items[
+        UiState().IsWindowFullscreen(window.id()) ? 1 : 0].label->Resolve(locale->language_index());
+  }
+  void ToggleFullscreenFromUi() override {
+    model_proxy->Invoke(UiState().obj_id, &CatalogUiState::ToggleWindowFullscreenFromUi, window.id());
+  }
+  void ExitFullscreenFromUi() override {
+    model_proxy->Invoke(UiState().obj_id, &CatalogUiState::RequestWindowFullscreenFromUi, window.id(), false);
+  }
+  bool ShowPresentationContextMenu(GdkEvent* event) override {
+    if (!layout_menu_) return false;
+    SyncPresentationMenu();
+    if (event) gtk_menu_popup_at_pointer(GTK_MENU(layout_menu_), event);
+    else gtk_menu_popup_at_widget(GTK_MENU(layout_menu_), TopLevelWindow(), GDK_GRAVITY_NORTH_WEST, GDK_GRAVITY_NORTH_WEST, nullptr);
+    return true;
+  }
+  GtkWidget* LayoutMenuItem(unsigned index) const { return layout_items_.at(index); }
 
   GtkWidget* CreatePresentationMenu() override {
     if (window.id() != catalog->persisted.main_window.id()) return nullptr;
@@ -76,11 +115,14 @@ class CatalogDesktopWindowPresenter
   }
 
   void OnModelChanged() override {
+    SetPresentationFullscreen(UiState().IsWindowFullscreen(window.id()));
     ui::linux::LinuxDesktopWindowPresenter::OnModelChanged();
     SyncPresentationMenu();
   }
 
   void OnUnload() override {
+    if (layout_menu_) { gtk_widget_destroy(layout_menu_); layout_menu_ = nullptr; }
+    layout_items_.clear();
     ui::linux::LinuxDesktopWindowPresenter::OnUnload();
     menu_groups_.clear();
   }
@@ -152,6 +194,14 @@ class CatalogDesktopWindowPresenter
         &CatalogUiState::ExecuteMenuCommand, group, index);
   }
 
+  static void OnLayoutActivated(GtkMenuItem* item, gpointer data) {
+    auto& self = *static_cast<CatalogDesktopWindowPresenter*>(data);
+    if (self.syncing_menu_) return;
+    auto const index = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(item), "apptraverse-layout-item"));
+    self.SyncPresentationMenu();
+    self.model_proxy->Invoke(self.UiState().obj_id, &CatalogUiState::ExecuteLayoutCommand, index);
+  }
+
   void SyncPresentationMenu() {
     if (menu_groups_.empty()) return; // Child windows compose no application menu.
     syncing_menu_ = true;
@@ -175,8 +225,16 @@ class CatalogDesktopWindowPresenter
           gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(item), TRUE);
       }
     }
+    for (unsigned index = 0; index < layout_items_.size(); ++index) {
+      auto* item = layout_items_[index];
+      auto const& command = state.menu->layout_items[index];
+      set_label(item, command.label->Resolve(language), false);
+      gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(item), state.MenuItemSelected(command));
+    }
     syncing_menu_ = false;
   }
+  GtkWidget* layout_menu_{nullptr};
+  std::vector<GtkWidget*> layout_items_;
   struct NativeGroup { GtkWidget* heading{}; std::vector<GtkWidget*> items; };
   std::vector<NativeGroup> menu_groups_;
   bool syncing_menu_{false};

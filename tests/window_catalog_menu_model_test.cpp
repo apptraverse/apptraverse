@@ -18,6 +18,7 @@ int main() {
   EnsureWindowCatalogGraphRegistration();
   for (bool compact : {false, true}) {
     TestFullscreenModelAndPublication(compact);
+    TestFullscreenPortableAdapters(compact);
     TestFullscreenColdAndPlatformSeed(false, compact);
     TestFullscreenColdAndPlatformSeed(true, compact);
     TestUserImportPreservesDormantLocalWindowState(compact);

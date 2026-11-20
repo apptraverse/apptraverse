@@ -40,7 +40,8 @@ WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain& domain) {
   };
   options.language_button = false;
   auto catalog = BuildWindowCatalogGraph(domain, factory, std::move(options));
-  ComposeCatalogMenu(domain, *catalog, CatalogThemeHandling::kAdapterAppliesTheme);
+  ComposeCatalogMenu(domain, *catalog, CatalogThemeHandling::kAdapterAppliesTheme,
+                     CatalogMenuShell::kDefault, true, CatalogDisplayHandling::kDesktop);
   return catalog;
 }
 

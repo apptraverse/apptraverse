@@ -5,7 +5,7 @@
 
 namespace apptraverse {
 void ComposeCatalogMenu(ae::Domain& domain, WindowCatalog& catalog, CatalogThemeHandling theme,
-                        CatalogMenuShell shell, bool layout_context) {
+                        CatalogMenuShell shell, bool layout_context, CatalogDisplayHandling display_handling) {
   auto& state = static_cast<CatalogUiState&>(*catalog.persisted.device_state);
   ae::Domain::ObjectIdSequence ids{domain, ae::ObjId{2000}, ae::ObjId{9999}};
   state.catalog = WindowCatalog::ptr::MakeFromThis(&catalog);
@@ -13,7 +13,8 @@ void ComposeCatalogMenu(ae::Domain& domain, WindowCatalog& catalog, CatalogTheme
   catalog.persisted.locale->base->SetObjectScope(state.object_scope());
   state.fullscreen_windows.clear();
   bool const desktop_display = shell == CatalogMenuShell::kWindows || shell == CatalogMenuShell::kMac;
-  state.menu = desktop_display
+  bool const supports_display = desktop_display || display_handling != CatalogDisplayHandling::kNone;
+  state.menu = supports_display
       ? CatalogMenuDefinition::ptr{CatalogWindowDisplayMenuDefinition::ptr::Create(ae::CreateWith{domain})}
       : CatalogMenuDefinition::ptr::Create(ae::CreateWith{domain});
   auto scope = state.object_scope(); scope.is_constant = true;
@@ -37,6 +38,9 @@ void ComposeCatalogMenu(ae::Domain& domain, WindowCatalog& catalog, CatalogTheme
     state.menu->groups.insert(state.menu->groups.begin(), std::move(themes));
   }
   if (layout_context) {
+    std::optional<ae::Domain::ObjectIdSequence> layout_ids;
+    if (display_handling != CatalogDisplayHandling::kNone)
+      layout_ids.emplace(domain, ae::ObjId{9500}, ae::ObjId{9599});
     state.menu->layout_items = {
       {text("Layout: Automatic", "Раскладка: автоматически"), CatalogMenuAction::kLayoutFlow, static_cast<int>(ui::UiLayoutFlow::kAdaptive)},
       {text("Layout: Horizontal", "Раскладка: горизонтально"), CatalogMenuAction::kLayoutFlow, static_cast<int>(ui::UiLayoutFlow::kHorizontal)},
@@ -54,15 +58,22 @@ void ComposeCatalogMenu(ae::Domain& domain, WindowCatalog& catalog, CatalogTheme
       text("Stop failed", "Не удалось остановить приложение"),
       text("Save failed", "Не удалось сохранить приложение")};
   }
-  if (desktop_display) {
+  if (supports_display) {
     auto& display = static_cast<CatalogWindowDisplayMenuDefinition&>(*state.menu);
+    std::optional<ae::Domain::ObjectIdSequence> display_ids;
+    if (!desktop_display)
+      display_ids.emplace(domain, ae::ObjId{9600}, ae::ObjId{9699});
     bool const windows = shell == CatalogMenuShell::kWindows;
+    bool const mac = shell == CatalogMenuShell::kMac;
+    bool const keyboard_hints = windows || (!mac && display_handling == CatalogDisplayHandling::kDesktop);
     display.fullscreen_items = {{
-        windows ? text("Enter fullscreen (F11)", "На весь экран (F11)")
-                : text("Enter Full Screen", "На весь экран"),
+        keyboard_hints ? text("Enter fullscreen (F11)", "На весь экран (F11)")
+          : mac ? text("Enter Full Screen", "На весь экран")
+                : text("Enter fullscreen", "На весь экран"),
         CatalogMenuAction::kFullscreen, 1}, {
-        windows ? text("Exit fullscreen (Esc)", "Выйти из полноэкранного режима (Esc)")
-                : text("Exit Full Screen", "Выйти из полноэкранного режима"),
+        keyboard_hints ? text("Exit fullscreen (Esc)", "Выйти из полноэкранного режима (Esc)")
+          : mac ? text("Exit Full Screen", "Выйти из полноэкранного режима")
+                : text("Exit fullscreen", "Выйти из полноэкранного режима"),
         CatalogMenuAction::kFullscreen, 0}};
     ui::UiLayoutNode action{
         .control_id = 5300, .flow = ui::UiLayoutFlow::kLeaf,

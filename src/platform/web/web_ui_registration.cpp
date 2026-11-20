@@ -9,18 +9,13 @@
 namespace apptraverse::ui::web {
 namespace {
 
-APPTRAVERSE_REGISTER(WebDesktopWindowPresenter);
-APPTRAVERSE_REGISTER(WebPushButtonPresenter);
-APPTRAVERSE_REGISTER(WebListContainerPresenter);
 APPTRAVERSE_REGISTER(WebTextControlPresenter);
 
 }  // namespace
 
 void EnsureWebUiPresenterRegistration() {
   EnsureUiPresenterRegistration();
-  (void)&g_apptraverse_registrar_WebDesktopWindowPresenter;
-  (void)&g_apptraverse_registrar_WebPushButtonPresenter;
-  (void)&g_apptraverse_registrar_WebListContainerPresenter;
+  EnsureWebWindowControlRegistration();
   (void)&g_apptraverse_registrar_WebTextControlPresenter;
 }
 

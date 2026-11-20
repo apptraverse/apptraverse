@@ -45,7 +45,7 @@ WindowCatalog::ptr BuildWebWindowCatalogGraph(ae::Domain& domain) {
   };
   auto catalog = BuildWindowCatalogGraph(domain, factory, std::move(options));
   ComposeCatalogMenu(domain, *catalog, CatalogThemeHandling::kAdapterAppliesTheme,
-                     CatalogMenuShell::kWeb);
+                     CatalogMenuShell::kWeb, true, CatalogDisplayHandling::kPaged);
   return catalog;
 }
 

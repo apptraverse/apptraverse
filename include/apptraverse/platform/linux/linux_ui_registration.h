@@ -3,6 +3,7 @@
 
 namespace apptraverse::ui::linux {
 
+void EnsureLinuxWindowControlPresenterRegistration();
 void EnsureLinuxUiPresenterRegistration();
 
 }  // namespace apptraverse::ui::linux

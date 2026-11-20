@@ -40,9 +40,9 @@ APPTRAVERSE_REGISTER(WebCatalogListContainerPresenter);
 namespace apptraverse {
 void EnsureWebWindowCatalogGraphRegistration() {
   EnsureCoreObjectRegistration();
-  EnsureWindowCatalogModelRegistration();
+  EnsureWindowCatalogNativeMenuModelRegistration();
   EnsureCatalogMenuRegistration();
-  ui::web::EnsureWebUiPresenterRegistration();
+  ui::web::EnsureWebWindowControlRegistration();
   (void)&example::surfaces::g_apptraverse_registrar_CatalogDesktopWindowPresenter;
   (void)&example::surfaces::g_apptraverse_registrar_WebCatalogListContainerPresenter;
 }

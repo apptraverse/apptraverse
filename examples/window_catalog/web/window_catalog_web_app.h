@@ -29,6 +29,8 @@ class WebWindowCatalogApp {
   void ChildViewportChanged(unsigned window_id, int width, int height);
   void FinishTeardown(bool shutdown_succeeded);
   void ExecuteMenuCommand(unsigned group, unsigned item);
+  void ExecuteLayoutCommand(unsigned item);
+  void RequestFullscreen(unsigned window_id, bool fullscreen);
 
  private:
   WebWindowCatalogApp() = default;

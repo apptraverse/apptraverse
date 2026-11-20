@@ -4,6 +4,7 @@
 namespace apptraverse::ui::android {
 
 void EnsureAndroidUiPresenterRegistration();
+void EnsureAndroidWindowControlPresenterRegistration();
 
 }  // namespace apptraverse::ui::android
 

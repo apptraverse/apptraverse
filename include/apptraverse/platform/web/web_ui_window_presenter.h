@@ -63,6 +63,7 @@ class WebDesktopWindowPresenter : public UiDesktopWindowPresenter {
 };
 
 void EnsureWebUiPresenterRegistration();
+void EnsureWebWindowControlRegistration();
 
 }  // namespace apptraverse::ui::web
 

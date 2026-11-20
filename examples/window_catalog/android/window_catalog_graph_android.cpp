@@ -26,9 +26,9 @@ APPTRAVERSE_REGISTER(AndroidCatalogListContainerPresenter);
 namespace apptraverse {
 void EnsureWindowCatalogAndroidGraphRegistration() {
   EnsureCoreObjectRegistration();
-  EnsureWindowCatalogModelRegistration();
+  EnsureWindowCatalogNativeMenuModelRegistration();
   EnsureCatalogMenuRegistration();
-  ui::android::EnsureAndroidUiPresenterRegistration();
+  ui::android::EnsureAndroidWindowControlPresenterRegistration();
   (void)&example::surfaces::g_apptraverse_registrar_AndroidCatalogListContainerPresenter;
   (void)&example::surfaces::g_apptraverse_registrar_CatalogDesktopWindowPresenter;
 }
