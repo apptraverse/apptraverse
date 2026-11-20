@@ -1,3 +1,16 @@
+## SharedNode chat GTK responsiveness — 2026-11-19
+
+The GTK presenter defers layout updates until after GTK's allocation pass and
+coalesces updates by client viewport size. The previous content allocation
+callback kept scheduling idle paint frames on both Wayland and X11. The
+instrumented Wayland build stopped painting in idle after the fix.
+
+The GTK chat fixture passed native input, resize after sending, stable idle
+layout, RAM restart and LOCAL restoration. The Window Catalog Linux menu and
+LOCAL tests passed. The WSLg chat received a message from the Android emulator
+and sent a reply back in the existing room. The fixed chat window moved under
+XWayland without changing size.
+
 ## SharedNode chat multi-platform update — 2026-11-19
 
 Android, Web and Linux use the common native control model and the current

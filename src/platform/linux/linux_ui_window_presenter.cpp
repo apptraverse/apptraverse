@@ -749,12 +749,24 @@ gboolean LinuxDesktopWindowPresenter::OnMapEvent(GtkWidget* widget,
   return FALSE;
 }
 
-void LinuxDesktopWindowPresenter::OnClientMountSizeAllocate(
-    GtkWidget* widget, GdkRectangle* allocation, gpointer user_data) {
-  (void)widget;
-  (void)allocation;
+void LinuxDesktopWindowPresenter::OnViewportSizeAllocate(
+    GtkWidget*, GtkAllocation* allocation, gpointer user_data) {
   auto* self = static_cast<LinuxDesktopWindowPresenter*>(user_data);
+  if (self->viewport_width_ == allocation->width &&
+      self->viewport_height_ == allocation->height) return;
+  self->viewport_width_ = allocation->width;
+  self->viewport_height_ = allocation->height;
+  // Measuring or resizing children during GTK allocation can invalidate the
+  // same allocation and schedule another frame at the same viewport size.
+  if (!self->viewport_resize_idle_)
+    self->viewport_resize_idle_ = g_idle_add(OnViewportResizeIdle, self);
+}
+
+gboolean LinuxDesktopWindowPresenter::OnViewportResizeIdle(gpointer user_data) {
+  auto* self = static_cast<LinuxDesktopWindowPresenter*>(user_data);
+  self->viewport_resize_idle_ = 0;
   self->HandleNativeFrameChanged();
+  return G_SOURCE_REMOVE;
 }
 
 gboolean LinuxDesktopWindowPresenter::OnDeleteEvent(GtkWidget* widget,
@@ -816,6 +828,7 @@ void LinuxDesktopWindowPresenter::OnLoad() {
   auto const desktop = desktop_window();
   user_close_requested_ = false;
   mapped_ = false;
+  viewport_width_ = viewport_height_ = 0;
   placement_revision_ = 0;
   local_placement_pending_ = false;
   native_initial_placement_observed_ = false;
@@ -893,8 +906,8 @@ void LinuxDesktopWindowPresenter::OnLoad() {
   settings_handler_ = g_signal_connect(gtk_settings_get_default(), "notify", G_CALLBACK(OnSettingsChanged), this);
   monitors_handler_ = g_signal_connect(gdk_screen_get_default(), "monitors-changed", G_CALLBACK(OnMonitorsChanged), this);
   size_allocate_handler_ =
-      g_signal_connect(client_mount_, "size-allocate",
-                       G_CALLBACK(OnClientMountSizeAllocate), this);
+      g_signal_connect_after(scroller_, "size-allocate",
+                             G_CALLBACK(OnViewportSizeAllocate), this);
 
   // Measure native chrome with the current application/OS font and palette.
   RefreshPresentationSettings();
@@ -931,12 +944,16 @@ void LinuxDesktopWindowPresenter::OnModelChanged() {
 }
 
 void LinuxDesktopWindowPresenter::DisconnectNativeFrameReports() {
+  if (viewport_resize_idle_) {
+    g_source_remove(viewport_resize_idle_);
+    viewport_resize_idle_ = 0;
+  }
   if (configure_handler_ != 0) {
     g_signal_handler_disconnect(window_, configure_handler_);
     configure_handler_ = 0;
   }
   if (size_allocate_handler_ != 0) {
-    g_signal_handler_disconnect(client_mount_, size_allocate_handler_);
+    g_signal_handler_disconnect(scroller_, size_allocate_handler_);
     size_allocate_handler_ = 0;
   }
 }

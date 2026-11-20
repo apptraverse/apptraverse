@@ -33,7 +33,9 @@ struct Fixture {
             path, "LinuxNativeTest", true, "", [] {}, true, {},
             transport_profile) {}
   void Pump() {
-    while (gtk_events_pending()) gtk_main_iteration();
+    // A continuously rescheduled native frame must not hide test deadlines.
+    for (int i = 0; i < 64 && gtk_events_pending(); ++i)
+      gtk_main_iteration_do(FALSE);
     session.ApplyPublication(&host);
   }
   template <class F>
@@ -54,6 +56,13 @@ struct Fixture {
       std::this_thread::sleep_for(2ms);
     }
     Pump();
+  }
+  void PumpFor(std::chrono::milliseconds duration) {
+    auto const end = std::chrono::steady_clock::now() + duration;
+    do {
+      Pump();
+      std::this_thread::sleep_for(2ms);
+    } while (std::chrono::steady_clock::now() < end);
   }
   LinuxTextControlPresenter* Text(unsigned id) {
     for (auto const& p : session.Mirror()->native_presenters)
@@ -160,6 +169,28 @@ int main(int argc, char** argv) {
     f.Until(
         [&] { return f.session.Mirror()->connection.messages.size() == 2; });
     CHECK(gtk_widget_has_focus(input));
+
+    f.stage = "resize and idle after message publication";
+    auto* presenter = static_cast<LinuxDesktopWindowPresenter*>(
+        f.session.Mirror()->presenter.operator->());
+    auto* window = presenter->TopLevelWindow();
+    int const previous_width = gtk_widget_get_allocated_width(input);
+    int width{}, height{};
+    gtk_window_get_size(GTK_WINDOW(window), &width, &height);
+    gtk_window_resize(GTK_WINDOW(window), width + 100, height + 40);
+    f.Until([&] { return gtk_widget_get_allocated_width(input) > previous_width; });
+    f.PumpFor(800ms);
+    unsigned allocations{};
+    auto const handler = g_signal_connect(
+        window, "size-allocate",
+        G_CALLBACK(+[](GtkWidget*, GtkAllocation*, gpointer data) {
+          ++*static_cast<unsigned*>(data);
+        }),
+        &allocations);
+    f.PumpFor(1000ms);
+    g_signal_handler_disconnect(window, handler);
+    CHECK(allocations <= 3);
+
     f.session.Stop();
     CHECK(std::filesystem::exists(std::filesystem::path{argv[1]} /
                                   "local/user.bin"));
@@ -177,6 +208,6 @@ int main(int argc, char** argv) {
           ui::UiThemeMode::kDark);
     f.session.Stop();
   }
-  std::cout << "PASS GTK native keyboard/input/caret/remount/Enter/button, RAM "
+  std::cout << "PASS GTK native input, window resize, stable idle layout, RAM "
                "restart and LOCAL cold restore\n";
 }

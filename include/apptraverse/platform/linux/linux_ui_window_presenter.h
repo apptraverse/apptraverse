@@ -139,8 +139,8 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
                               gpointer user_data);
   static gboolean OnMapEvent(GtkWidget* widget, GdkEvent* event,
                              gpointer user_data);
-  static void OnClientMountSizeAllocate(GtkWidget* widget, GdkRectangle* allocation,
-                                        gpointer user_data);
+  static void OnViewportSizeAllocate(GtkWidget*, GtkAllocation*, gpointer);
+  static gboolean OnViewportResizeIdle(gpointer);
 
   GtkWidget* window_{nullptr};
   GtkWidget* client_mount_{nullptr};
@@ -149,6 +149,9 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
   gulong map_handler_{0};
   gulong configure_handler_{0};
   gulong size_allocate_handler_{0};
+  guint viewport_resize_idle_{0};
+  int viewport_width_{0};
+  int viewport_height_{0};
   bool applying_mirror_frame_{false};
   bool user_close_requested_{false};
   bool mapped_{false};
