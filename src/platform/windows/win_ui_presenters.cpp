@@ -97,6 +97,17 @@ LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
   if (msg == WM_CONTEXTMENU && presenter->ShowPresentationContextMenu(
       static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam)))) return 0;
   if (msg == WM_SIZE) {
+    if ((wparam == SIZE_MAXIMIZED || wparam == SIZE_RESTORED) &&
+        presenter->native_maximized_.has_value() && !presenter->fullscreen_ &&
+        !presenter->changing_fullscreen_ &&
+        !presenter->applying_local_placement_ &&
+        !presenter->applying_native_frame_ && !presenter->applying_settings_) {
+      bool const maximized = wparam == SIZE_MAXIMIZED;
+      if (presenter->native_maximized_ != maximized) {
+        presenter->native_maximized_ = maximized;
+        presenter->ObserveMaximized(maximized);
+      }
+    }
     presenter->RefreshLayout();
     if (wparam == SIZE_RESTORED && !presenter->applying_native_frame_ &&
         !presenter->applying_settings_) presenter->ApplyLocalPlacement();
@@ -228,6 +239,7 @@ LRESULT CALLBACK WinDesktopWindowPresenter::WndProc(HWND hwnd, UINT msg,
     if (!presenter->applying_native_frame_) {
       presenter->HandleNativeFrameChanged();
     }
+    presenter->RecordMaximizedMonitorOnClose();
     auto* host =
         static_cast<WinPresentationHost*>(presenter->presentation_host);
     host->on_desktop_window_user_close(host->opaque,
@@ -388,7 +400,15 @@ void WinDesktopWindowPresenter::OnLoad() {
   ApplyLocalPlacement();
   if (!LocalDeviceState()->PlacementFor(window.id())) KeepInCurrentWorkArea();
   RefreshPresentationSettings();
-  ShowWindow(hwnd_, SW_SHOW);
+  auto const saved = SavedMaximization();
+  ShowWindow(hwnd_, saved.value_or(false) ? SW_SHOWMAXIMIZED : SW_SHOW);
+  if (saved) {
+    // STARTF_USESHOWWINDOW may override the first ShowWindow call.
+    if (*saved && IsWindowVisible(hwnd_) && !IsIconic(hwnd_) &&
+        !IsZoomed(hwnd_))
+      ShowWindow(hwnd_, SW_MAXIMIZE);
+    native_maximized_ = IsIconic(hwnd_) ? *saved : IsZoomed(hwnd_) != FALSE;
+  }
   UpdateWindow(hwnd_);
   ReportEnvironmentFromNative();
 }
@@ -488,6 +508,7 @@ void WinDesktopWindowPresenter::OnModelChanged() {
 }
 
 void WinDesktopWindowPresenter::OnUnload() {
+  native_maximized_.reset();
   SetLastError(0);
   LONG_PTR const previous = SetWindowLongPtrW(
       hwnd_, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(nullptr));
@@ -621,6 +642,33 @@ void WinDesktopWindowPresenter::ReportEnvironmentFromNative(UiEnvironmentReason 
     model_proxy->Invoke(local->obj_id, &UiDeviceState::ObserveWindow, window_environment, reason);
     last_reported_window_ = window_environment;
   }
+}
+
+void WinDesktopWindowPresenter::RecordMaximizedMonitorOnClose() {
+  if (!native_maximized_.value_or(false) || fullscreen_ || !environment_)
+    return;
+  auto* local = LocalDeviceState();
+  auto* placement = local->PlacementFor(window.id());
+  if (!pending_user_placement_ && !placement) return;
+  auto const& previous = pending_user_placement_
+                             ? pending_user_placement_->monitor_key
+                             : placement->preferred_monitor;
+  auto observed = environment_->WindowSnapshot(window.id());
+  if (previous == observed.monitor_key) return;
+  // Win+Shift+Arrow can move a zoomed HWND without a normal-size drag.
+  // A fallback after unplugging the preferred monitor must keep its preference.
+  WinUiEnvironment live{nullptr};
+  auto const& displays = live.snapshot().monitors;
+  if (std::none_of(displays.begin(), displays.end(), [&](auto const& display) {
+        return display.key == previous;
+      }))
+    return;
+  observed.frame_dip = pending_user_placement_
+                           ? pending_user_placement_->frame_dip
+                           : placement->frame_dip;
+  model_proxy->Invoke(local->obj_id, &UiDeviceState::ObserveWindow,
+                      std::move(observed),
+                      UiEnvironmentReason::kUserWindowChange);
 }
 
 void WinDesktopWindowPresenter::ApplyLocalPlacement() {

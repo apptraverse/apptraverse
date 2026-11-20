@@ -77,7 +77,8 @@ bool WriteBytesArray(std::ostream& out, std::string_view name,
     std::snprintf(hex, sizeof hex, "%02x", bytes[i]);
     out << hex;
     if (i + 1 != bytes.size()) {
-      out << ", ";
+      out << ',';
+      if ((i + 1) % 12 != 0) out << ' ';
     }
   }
   if (!bytes.empty()) {

@@ -22,18 +22,43 @@ std::wstring ReadText(HWND hwnd) {
   return value;
 }
 }  // namespace
+void WinAccessibleName::Set(HWND hwnd, std::string const& name) {
+  if (name.empty())
+    FatalWin32("Missing accessible control name", ERROR_INVALID_DATA);
+  if (applied_ == name) return;
+  if (!services_) {
+    auto apartment = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    com_initialized_ = SUCCEEDED(apartment);
+    if (FAILED(apartment) && apartment != RPC_E_CHANGED_MODE)
+      FatalWin32("CoInitializeEx accessibility", static_cast<DWORD>(apartment));
+    auto result =
+        CoCreateInstance(CLSID_AccPropServices, nullptr, CLSCTX_INPROC_SERVER,
+                         IID_PPV_ARGS(&services_));
+    if (FAILED(result))
+      FatalWin32("Create accessibility services", static_cast<DWORD>(result));
+  }
+  auto result =
+      services_->SetHwndPropStr(hwnd, OBJID_CLIENT, CHILDID_SELF,
+                                PROPID_ACC_NAME, Utf8ToWide(name).c_str());
+  if (FAILED(result))
+    FatalWin32("Set accessible name", static_cast<DWORD>(result));
+  applied_ = name;
+}
+
+void WinAccessibleName::Clear(HWND hwnd) {
+  if (!services_) return;
+  auto result = services_->ClearHwndProps(hwnd, OBJID_CLIENT, CHILDID_SELF,
+                                          &PROPID_ACC_NAME, 1);
+  if (FAILED(result))
+    FatalWin32("Clear accessible name", static_cast<DWORD>(result));
+  services_->Release();
+  services_ = nullptr;
+  if (com_initialized_) CoUninitialize();
+  com_initialized_ = false;
+  applied_.clear();
+}
+
 void WinTextControlPresenter::OnLoad() {
-  auto apartment = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-  com_initialized_ = SUCCEEDED(apartment);
-  if (FAILED(apartment) && apartment != RPC_E_CHANGED_MODE)
-    FatalWin32("CoInitializeEx text accessibility",
-               static_cast<DWORD>(apartment));
-  auto created =
-      CoCreateInstance(CLSID_AccPropServices, nullptr, CLSCTX_INPROC_SERVER,
-                       IID_PPV_ARGS(&accessibility_));
-  if (FAILED(created))
-    FatalWin32("CoCreateInstance text accessibility",
-               static_cast<DWORD>(created));
   auto parent = static_cast<HWND>(window_presenter->NativeChildParentHandle());
   auto kind = control->kind;
   wchar_t const* type = kind == UiTextControlKind::kLabel ? L"STATIC" : L"EDIT";
@@ -64,18 +89,8 @@ void WinTextControlPresenter::OnLoad() {
 }
 void WinTextControlPresenter::OnModelChanged() {
   applying_ = true;
-  if (control->kind != UiTextControlKind::kLabel) {
-    if (control->accessible_label.empty())
-      FatalWin32("Missing semantic text control name", ERROR_INVALID_DATA);
-    if (applied_accessible_label_ != control->accessible_label) {
-      auto label = Utf8ToWide(control->accessible_label);
-      auto result = accessibility_->SetHwndPropStr(
-          hwnd_, OBJID_CLIENT, CHILDID_SELF, PROPID_ACC_NAME, label.c_str());
-      if (FAILED(result))
-        FatalWin32("SetHwndPropStr text name", static_cast<DWORD>(result));
-      applied_accessible_label_ = control->accessible_label;
-    }
-  }
+  if (control->kind != UiTextControlKind::kLabel)
+    accessible_name_.Set(hwnd_, control->accessible_label);
   SetNativeControlStateIfChanged(hwnd_, control->enabled, control->visible);
   if (control->revision >= pending_edit) {
     auto value = control->text;
@@ -133,16 +148,10 @@ LRESULT CALLBACK WinTextControlPresenter::Subclass(HWND hwnd, UINT msg,
 void WinTextControlPresenter::OnUnload() {
   WinDesktopWindowPresenter::FromNativeWindow(GetParent(hwnd_))
       ->UnregisterChildControl(hwnd_);
+  accessible_name_.Clear(hwnd_);
   RemoveWindowSubclass(hwnd_, Subclass, 1);
   if (!DestroyWindow(hwnd_))
     FatalWin32("DestroyWindow text control", GetLastError());
   hwnd_ = nullptr;
-  accessibility_->Release();
-  accessibility_ = nullptr;
-  if (com_initialized_) {
-    CoUninitialize();
-    com_initialized_ = false;
-  }
-  applied_accessible_label_.clear();
 }
 }  // namespace apptraverse::ui::windows

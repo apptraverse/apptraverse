@@ -1,3 +1,24 @@
+## Windows SharedNode chat — 2026-11-19
+
+The chat accepts `--lang system|en|ru` and
+`--theme system|light|dark|soft-dark`. Each launch defaults to Windows
+settings. The localized window uses WindowCatalog's native presenters,
+constraint solver, system font, DPI, and High Contrast handling. LOCAL keeps
+the monitor, normal frame in DIPs and maximization. A returning participant
+recovers chat history from the live room. The current Æther C++ SDK uses its
+default message port over TCP and leaves other hierarchical streams available
+to their subscribers.
+
+Windows x64 Debug and Release built with v143. Ten focused CTests passed,
+including the embedded Russian UI model, SharedNode memory, chat RAM, Æther
+link, native text control, real monitor placement, layout, device state and
+the WindowCatalog High Contrast palette cases. The native three-process
+fixture verified localized accessible names, rendered palettes, Unicode
+delivery to all peers, offline and restart/rejoin. On two monitors with
+different DPI it also verified maximized restart, closing while minimized
+from maximized, normal restoration and moving a maximized window between
+displays. Two exports of the Windows UI supply produced identical bytes.
+
 ## Apple WindowCatalog and MinimalApp — 2026-11-19
 
 WindowCatalog on macOS uses the catalogue's per-window fullscreen Event and

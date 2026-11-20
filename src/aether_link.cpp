@@ -153,7 +153,11 @@ struct AetherByteLink::Impl {
     endpoint = UidText(client->uid());
     port_sub = client->message_stream_manager().new_port_event().Subscribe(
         [this](ae::P2pPortHandle& handle) {
-          if (stopped || !handle || handle.destination() == client->uid()) {
+          // This adapter owns the default message port. Leave hierarchical
+          // streams and named services available to their own subscribers.
+          if (stopped || !handle || handle.stream_id() != 0 ||
+              handle.service() != ae::PeerService{} ||
+              handle.destination() == client->uid()) {
             return;
           }
           auto* peer = Get(handle.destination());

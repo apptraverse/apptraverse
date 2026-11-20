@@ -88,6 +88,8 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
   }
 
   HWND hwnd() const { return hwnd_; }
+  virtual std::optional<bool> SavedMaximization() const { return {}; }
+  virtual void ObserveMaximized(bool) {}
 
   // Fullscreen is a published application choice; all native placement/style
   // bookkeeping remains runtime-only. The standard system caption is retained
@@ -165,6 +167,7 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
   };
   void ReportEnvironmentFromNative(UiEnvironmentReason reason = UiEnvironmentReason::kSystemNotification);
   void ApplyLocalPlacement();
+  void RecordMaximizedMonitorOnClose();
   void KeepInCurrentWorkArea();
   bool NativeMeasurementsReady() const;
   UiConstraintLayoutResult ComputeLocalLayout() const;
@@ -182,6 +185,7 @@ class WinDesktopWindowPresenter : public UiDesktopWindowPresenter {
   std::optional<UiWindowEnvironment> interactive_start_window_;
   UiAppearancePreferences applied_appearance_;
   std::uint64_t applied_placement_revision_{};
+  std::optional<bool> native_maximized_;
   bool applying_local_placement_{};
   bool applying_layout_{false};
   bool applying_settings_{false};

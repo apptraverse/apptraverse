@@ -1,7 +1,9 @@
 #ifndef NOMINMAX
 #  define NOMINMAX
 #endif
+#include <oleacc.h>
 #include <windows.h>
+#include "apptraverse/platform/windows/win_ui_environment.h"
 
 #include <algorithm>
 #include <array>
@@ -100,7 +102,7 @@ struct Process {
   HWND window{};
   std::wstring name;
   std::filesystem::path profile;
-  std::wstring host_id;
+  std::wstring host_id, appearance_args;
 
   Process() = default;
   Process(Process const&) = delete;
@@ -124,7 +126,7 @@ struct Process {
     Require(!error, "Could not create participant profile directory");
     auto command = L"\"" + exe.wstring() + L"\" --profile \"" +
                    profile.wstring() + L"\" --name \"" + name + L"\"";
-    command += L" --load-only";
+    command += L" " + appearance_args;
     command += name == L"Host" ? L" --host" : L" --client";
     if (!host_id.empty()) command += L" \"" + host_id + L"\"";
     STARTUPINFOW startup{};
@@ -296,6 +298,41 @@ bool ParticipantNames(Process& process) {
   return rows == std::vector<std::wstring>{L"Alice", L"Bob", L"Host"};
 }
 
+COLORREF ClientBackground(HWND window) {
+  auto dc = GetDC(window);
+  auto memory = CreateCompatibleDC(dc);
+  auto bitmap = CreateCompatibleBitmap(dc, 8, 8);
+  auto previous = SelectObject(memory, bitmap);
+  bool printed = PrintWindow(window, memory, PW_CLIENTONLY) != FALSE;
+  auto color = GetPixel(memory, 4, 4);
+  SelectObject(memory, previous);
+  DeleteObject(bitmap);
+  DeleteDC(memory);
+  ReleaseDC(window, dc);
+  Require(printed && color != CLR_INVALID,
+          "Could not sample rendered window background");
+  return color;
+}
+
+std::wstring AccessibleName(HWND hwnd) {
+  IAccessible* object{};
+  Require(
+      SUCCEEDED(AccessibleObjectFromWindow(hwnd, OBJID_CLIENT, IID_IAccessible,
+                                           reinterpret_cast<void**>(&object))),
+      "Cannot open native accessibility object");
+  VARIANT child{};
+  child.vt = VT_I4;
+  child.lVal = CHILDID_SELF;
+  BSTR name{};
+  auto result = object->get_accName(child, &name);
+  std::wstring value =
+      name ? std::wstring{name, SysStringLen(name)} : std::wstring{};
+  SysFreeString(name);
+  object->Release();
+  Require(SUCCEEDED(result), "Cannot read accessible control name");
+  return value;
+}
+
 std::wstring Argument(int argc, wchar_t** argv, wchar_t const* option) {
   for (int index = 1; index + 1 < argc; ++index) {
     if (argv[index] == std::wstring{option}) {
@@ -307,6 +344,10 @@ std::wstring Argument(int argc, wchar_t** argv, wchar_t const* option) {
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
+  namespace ui = apptraverse::ui;
+  ui::windows::EnsureWinProcessDpiAwareness();
+  Require(SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED)),
+          "Initialize accessibility");
   std::array<Process, 3> peers;
   running_processes = peers.data();
   process_count = peers.size();
@@ -332,6 +373,9 @@ int wmain(int argc, wchar_t** argv) {
     peers[index].name = names[index];
     peers[index].profile = profiles / names[index];
   }
+  peers[0].appearance_args = L"--lang en --theme light";
+  peers[1].appearance_args = L"--lang system --theme dark";
+  peers[2].appearance_args = L"--lang ru --theme soft-dark";
   peers[0].Start(exe);
   std::wstring invite;
   Wait("Automatically creating a host room", [&] {
@@ -381,6 +425,29 @@ int wmain(int argc, wchar_t** argv) {
     }
     return true;
   });
+  ui::windows::WinUiEnvironment baseline{nullptr};
+  std::array<ui::UiAppearancePreferences, 3> themes{
+      {{ui::UiThemeMode::kLight, false},
+       {ui::UiThemeMode::kDark, false},
+       {ui::UiThemeMode::kDark, true}}};
+  bool const system_russian =
+      PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_RUSSIAN;
+  for (unsigned i = 0; i < peers.size(); ++i) {
+    bool const ru = i == 2 || (i == 1 && system_russian);
+    HWND hwnd = peers[i].Window();
+    Require(!GetMenu(hwnd) && Text(Control(hwnd, kSendControl)) ==
+                                  (ru ? L"Отправить" : L"Send"),
+            "Unexpected native menu or button language");
+    Require(AccessibleName(Control(hwnd, kInputControl)) ==
+                    (ru ? L"Сообщение" : L"Message") &&
+                AccessibleName(Control(hwnd, kParticipantsControl)) ==
+                    (ru ? L"Участники" : L"Participants"),
+            "Editable field or participant list has the wrong accessible name");
+    baseline.Refresh(themes[i]);
+    Call(hwnd, WM_SETTINGCHANGE);
+    Require(ClientBackground(hwnd) == baseline.background(),
+            "Wrong native client palette after settings change");
+  }
   auto const prefix = L"gui-" + std::to_wstring(GetCurrentProcessId());
   std::vector<std::wstring> messages{
       prefix + L"-host",
@@ -448,17 +515,44 @@ int wmain(int argc, wchar_t** argv) {
     return input.right <= send.left && input.bottom <= status.top &&
            send.bottom <= status.top && status.bottom <= client.bottom;
   });
-  Call(bob_window,WM_ENTERSIZEMOVE);
-  Require(SetWindowPos(bob_window, nullptr, 48, 72, 700, 520, SWP_NOZORDER) !=
-              FALSE,
+  auto const monitors = baseline.snapshot().monitors;
+  Require(!monitors.empty(), "No desktop monitor");
+  auto secondary = std::find_if(monitors.begin(), monitors.end(),
+                                [](auto const& m) { return !m.primary; });
+  auto const& work =
+      (secondary == monitors.end() ? monitors.front() : *secondary).work_area;
+  std::cout << "Testing placement on a desktop with " << monitors.size()
+            << " monitor(s)" << std::endl;
+  Call(bob_window, WM_ENTERSIZEMOVE);
+  Require(SetWindowPos(bob_window, nullptr, work.x + 26, work.y + 34,
+                       std::min(710, work.width - 32),
+                       std::min(525, work.height - 40), SWP_NOZORDER) != FALSE,
           "Could not choose restored chat frame");
-  Call(bob_window,WM_EXITSIZEMOVE);
+  Call(bob_window, WM_EXITSIZEMOVE);
+  auto saved_monitor = MonitorFromWindow(bob_window, MONITOR_DEFAULTTONULL);
   RECT saved_frame{};
   Require(GetWindowRect(bob_window, &saved_frame) != FALSE,
           "Cannot read restored frame");
+  // WindowCatalog persists integer DIPs. At 200% a 947-pixel width
+  // round-trips to 948 pixels while retaining the same logical size.
+  auto dpi = ui::windows::GetWinWindowDpi(bob_window);
+  auto round_trip = [dpi](int pixels) {
+    return MulDiv(MulDiv(pixels, 96, dpi), dpi, 96);
+  };
+  RECT expected_frame{};
+  expected_frame.left = work.x + round_trip(saved_frame.left - work.x);
+  expected_frame.top = work.y + round_trip(saved_frame.top - work.y);
+  expected_frame.right =
+      expected_frame.left + round_trip(saved_frame.right - saved_frame.left);
+  expected_frame.bottom =
+      expected_frame.top + round_trip(saved_frame.bottom - saved_frame.top);
   std::wstring const saved_draft =
       L"unsent-\u041f\u0440\u0438\u0432\u0435\u0442";
   SetText(Control(bob_window, kInputControl), saved_draft);
+  Call(bob_window, WM_SYSCOMMAND, SC_MAXIMIZE);
+  Require(IsZoomed(bob_window), "Chat did not maximize");
+  Call(bob_window, WM_SYSCOMMAND, SC_MINIMIZE);
+  Require(IsIconic(bob_window), "Chat did not minimize from maximized");
   for (auto& peer : peers) {
     peer.Stop(true);
   }
@@ -468,20 +562,62 @@ int wmain(int argc, wchar_t** argv) {
   // policy.
   peers[2].name = L"Changed startup default";
   peers[2].host_id.clear();
+  peers[2].appearance_args.clear();
   peers[2].Start(exe);
+  Wait("Restoring maximized on the saved monitor", [&] {
+    HWND hwnd = peers[2].Window();
+    return hwnd && GetDlgItem(hwnd, kStatusControl) && IsZoomed(hwnd) &&
+           MonitorFromWindow(hwnd, MONITOR_DEFAULTTONULL) == saved_monitor;
+  });
+  auto relaunched = peers[2].Window();
+  baseline.Refresh();
+  Require(ClientBackground(relaunched) == baseline.background() &&
+              Text(Control(relaunched, kSendControl)) ==
+                  (system_russian ? L"Отправить" : L"Send"),
+          "System appearance or language did not replace the previous launch "
+          "options");
+  Call(relaunched, WM_SYSCOMMAND, SC_RESTORE);
   Wait("Restoring LOCAL frame with fresh RAM chat state", [&] {
     auto window = peers[2].Window();
     if (!window || !GetDlgItem(window, kInputControl)) return false;
     RECT frame{};
     Require(GetWindowRect(window, &frame) != FALSE,
             "Cannot measure cold frame");
-    return frame.left == saved_frame.left && frame.top == saved_frame.top &&
-           frame.right == saved_frame.right &&
-           frame.bottom == saved_frame.bottom &&
+    return EqualRect(&frame, &expected_frame) &&
            Text(Control(window, kInputControl)).empty() &&
            Text(Control(window, kMessagesControl)).empty() &&
            Text(window).find(L"Changed startup default") != std::wstring::npos;
   });
+  peers[2].Stop(true);
+  peers[2].Start(exe);
+  Wait("Remembering the return to normal mode", [&] {
+    HWND hwnd = peers[2].Window();
+    RECT frame{};
+    return hwnd && GetDlgItem(hwnd, kStatusControl) && !IsZoomed(hwnd) &&
+           GetWindowRect(hwnd, &frame) && EqualRect(&frame, &expected_frame);
+  });
+  if (secondary != monitors.end()) {
+    // A zoomed window can move between monitors without entering a drag loop.
+    auto primary = std::find_if(monitors.begin(), monitors.end(),
+                                [](auto const& m) { return m.primary; });
+    auto const area = primary->work_area;
+    HWND hwnd = peers[2].Window();
+    Call(hwnd, WM_SYSCOMMAND, SC_MAXIMIZE);
+    Require(SetWindowPos(hwnd, nullptr, area.x, area.y, area.width, area.height,
+                         SWP_NOZORDER) &&
+                IsZoomed(hwnd),
+            "Could not move maximized window");
+    auto moved_to = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONULL);
+    Require(moved_to && moved_to != saved_monitor,
+            "Maximized window stayed on the first monitor");
+    peers[2].Stop(true);
+    peers[2].Start(exe);
+    Wait("Restoring a window moved while maximized", [&] {
+      HWND fresh = peers[2].Window();
+      return fresh && GetDlgItem(fresh, kStatusControl) && IsZoomed(fresh) &&
+             MonitorFromWindow(fresh, MONITOR_DEFAULTTONULL) == moved_to;
+    });
+  }
   peers[2].Stop(true);
   for (auto const& peer : peers) {
     Require(!std::filesystem::exists(peer.profile / L"user.bin"),
@@ -497,5 +633,6 @@ int wmain(int argc, wchar_t** argv) {
       << "PASS: generic native controls, CLI host/client, Copy, event-driven "
          "Unicode three peers, RAM rejoin, LOCAL restore, clean shutdown"
       << std::endl;
+  CoUninitialize();
   return 0;
 }

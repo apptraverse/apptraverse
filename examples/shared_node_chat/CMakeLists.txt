@@ -61,8 +61,8 @@ add_executable(shared_node_chat WIN32 main_windows.cpp chat_windows_presenter.cp
 target_link_libraries(shared_node_chat PRIVATE
   apptraverse_shared_chat_ui apptraverse_ui_windows user32 gdi32 shell32)
 add_custom_target(apptraverse_generate_chat_ui_supply
-  COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/generated"
-  COMMAND $<TARGET_FILE:shared_node_chat> --distill-only "${CMAKE_CURRENT_SOURCE_DIR}/generated/chat_ui_supply.h"
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/generated/windows"
+  COMMAND $<TARGET_FILE:shared_node_chat> --distill-only "${CMAKE_CURRENT_SOURCE_DIR}/generated/windows/chat_ui_supply.h"
   DEPENDS shared_node_chat VERBATIM)
 
 # Cloud validation is explicit; normal CTest must not create SDK identities.
@@ -74,7 +74,7 @@ if(BUILD_TESTING)
   add_executable(apptraverse_shared_chat_win32_test
     ../../tests/shared_chat_win32_test.cpp)
   target_link_libraries(apptraverse_shared_chat_win32_test PRIVATE
-    apptraverse_compile_policy user32)
+    apptraverse_ui_windows user32 gdi32 oleacc oleaut32 ole32 uuid)
   target_include_directories(apptraverse_shared_chat_win32_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR})
 endif()

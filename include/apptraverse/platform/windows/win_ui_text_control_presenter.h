@@ -8,6 +8,19 @@
 #include "apptraverse/ui/ui_native_presenter_schema.h"
 #include "apptraverse/ui/ui_text_control.h"
 namespace apptraverse::ui::windows {
+// Native MSAA/UI Automation annotation for controls whose value is editable or
+// has multiple rows. Release the annotation before destroying the HWND.
+class WinAccessibleName {
+ public:
+  void Set(HWND hwnd, std::string const& name);
+  void Clear(HWND hwnd);
+
+ private:
+  IAccPropServices* services_{};
+  bool com_initialized_{};
+  std::string applied_;
+};
+
 class WinTextControlPresenter : public UiTextControlPresenter {
   APPTRAVERSE_NAMED_OBJECT(::apptraverse::ui::native_schema::kText,
                            WinTextControlPresenter, UiTextControlPresenter, 0)
@@ -34,9 +47,7 @@ class WinTextControlPresenter : public UiTextControlPresenter {
   static LRESULT CALLBACK Subclass(HWND, UINT, WPARAM, LPARAM, UINT_PTR,
                                    DWORD_PTR);
   HWND hwnd_{};
-  IAccPropServices* accessibility_{};
-  bool com_initialized_{};
-  std::string applied_accessible_label_;
+  WinAccessibleName accessible_name_;
   bool applying_{};
   std::vector<std::string> shown_rows_;
 };

@@ -480,7 +480,8 @@ struct ChatSession::Impl {
     if (name.empty()) {
       name = "User";
     }
-    view.status = "Starting Aether...";
+    view.status_code = status;
+    view.status = ChatStatusText(status);
   }
 
   std::filesystem::path profile;
@@ -512,7 +513,7 @@ struct ChatSession::Impl {
   bool finished{false};
 
   bool view_dirty{true};
-  std::string status;
+  ChatStatus status{ChatStatus::Starting};
   std::string resolving_host;
   ae::RamDomainStorage storage;
   ae::RamDomainStorage backing;
@@ -562,16 +563,16 @@ struct ChatSession::Impl {
     return true;
   }
 
-  void SetStatus(std::string message) {
+  void SetStatus(ChatStatus message) {
     if (status == message) {
       return;
     }
-    status = std::move(message);
+    status = message;
     view_dirty = true;
   }
 
-  void SetError(std::string message) {
-    SetStatus(std::move(message));
+  void SetError(ChatStatus message) {
+    SetStatus(message);
     failed = true;
     RejectPendingCommands();
   }
@@ -608,9 +609,9 @@ struct ChatSession::Impl {
                              [this](SharedNode::ptr value) {
                                Observe(*value);
                                app->Attach(std::move(value));
-                               SetStatus("Connected");
+                               SetStatus(ChatStatus::Connected);
                              });
-    SetStatus("Waiting for the host...");
+    SetStatus(ChatStatus::WaitingForHost);
   }
 
   bool InitializeModel() {
@@ -682,8 +683,8 @@ struct ChatSession::Impl {
     if (!CommitMemory()) {
       return false;
     }
-    SetStatus(app->room.is_valid() ? "Session restored"
-                                   : "Enter the host Aether ID");
+    SetStatus(app->room.is_valid() ? ChatStatus::Restored
+                                   : ChatStatus::EnterHost);
     BindExpected();
     return true;
   }
@@ -703,10 +704,10 @@ struct ChatSession::Impl {
     app->Attach(room);
     sync->RegisterNode(room);
     if (!CommitMemory()) {
-      SetError("Could not commit the room in memory");
+      SetError(ChatStatus::RoomCommitFailed);
       return;
     }
-    SetStatus("Room created. Share your Aether ID");
+    SetStatus(ChatStatus::RoomCreated);
   }
 
   void JoinRoom(std::string invite) {
@@ -720,13 +721,13 @@ struct ChatSession::Impl {
     });
     if (host.size() != 36 || host == native->EndpointId() ||
         !WatchPeer(host)) {
-      SetStatus("Invalid host Aether ID");
+      SetStatus(ChatStatus::InvalidHostId);
       return;
     }
     joining_request = ae::ObjId::GenerateUnique();
     resolving_host = std::move(host);
     next_join_request = 0;
-    SetStatus("Finding the host room...");
+    SetStatus(ChatStatus::FindingRoom);
   }
 
   void OnResolveRoom(std::string const& source, ae::ObjId room_id) {
@@ -745,7 +746,7 @@ struct ChatSession::Impl {
     app->Expect(room_id, source);
     resolving_host.clear();
     if (!CommitMemory()) {
-      SetError("Could not commit the host selection");
+      SetError(ChatStatus::HostCommitFailed);
       return;
     }
     BindExpected();
@@ -759,7 +760,7 @@ struct ChatSession::Impl {
       return false;
     }
     if (text.size() > 8192) {
-      SetStatus("Message is too long (8192 bytes maximum)");
+      SetStatus(ChatStatus::MessageTooLong);
       return false;
     }
     auto const author = std::find_if(
@@ -768,7 +769,7 @@ struct ChatSession::Impl {
           return person->link->endpoint_uid == native->EndpointId();
         });
     if (author == room->participants.end()) {
-      SetError("This client is not a room participant");
+      SetError(ChatStatus::NotMember);
       return false;
     }
     auto event = TextEvent::ptr::Create(ae::CreateWith{*domain});
@@ -777,11 +778,11 @@ struct ChatSession::Impl {
     auto const message_id = native->EndpointId() + ":" +
         std::to_string(event->obj_id.id());
     if (!sync->CommitLocal(room->obj_id, std::move(event))) {
-      SetError("Could not commit the message");
+      SetError(ChatStatus::MessageCommitFailed);
       return false;
     }
     local_message_start_us.emplace(message_id, current_monotonic_us);
-    SetStatus("Connected");
+    SetStatus(ChatStatus::Connected);
     return true;
   }
 
@@ -801,7 +802,8 @@ struct ChatSession::Impl {
         [&](auto const& peer) { return peer->endpoint_uid == source; });
     if (known) {
       if(!sync->QueueInitialState(room_id,source,true)){
-        SetError("Could not commit the returning participant snapshot");return;
+        SetError(ChatStatus::SnapshotFailed);
+        return;
       }
       seen_join_requests[source].insert(request);
       return;
@@ -812,7 +814,7 @@ struct ChatSession::Impl {
     auto event = JoinEvent::ptr::Create(ae::CreateWith{*domain});
     event->person = MakeParticipant(*domain, source, std::move(person_name));
     if (!sync->AdmitPeer(room_id, std::move(event), source)) {
-      SetError("Could not commit the participant admission");
+      SetError(ChatStatus::AdmissionFailed);
     } else seen_join_requests[source].insert(request);
   }
 
@@ -833,7 +835,8 @@ struct ChatSession::Impl {
     next.push_registered=!push_token.empty()&&registered_token==push_token;
     next.push_notify_status=push_notify_status;
     next.push_notify_request=push_notify_request;
-    next.status = status;
+    next.status_code = status;
+    next.status = ChatStatusText(status);
     next.ready = sync && !failed && !finished && !sync->failed();
     if(connection)next.connection=connection->Observation();
     if(finished)next.connection.phase=TransportPhase::Stopped;
@@ -943,13 +946,13 @@ struct ChatSession::Impl {
     finished = false;
     view_dirty = true;
     if (prepare_profile && !prepare_profile()) {
-      SetError("Could not open the chat profile");
+      SetError(ChatStatus::OpenProfileFailed);
       finished = true;
       Publish();
       return;
     }
     if (name.size() > 256) {
-      SetError("Name is too long (256 bytes maximum)");
+      SetError(ChatStatus::NameTooLong);
       Publish();
       return;
     }
@@ -957,13 +960,13 @@ struct ChatSession::Impl {
     std::error_code directory_error;
     std::filesystem::create_directories(profile, directory_error);
     if (directory_error) {
-      SetError("Could not create the chat profile");
+      SetError(ChatStatus::CreateProfileFailed);
       Publish();
       return;
     }
     connection=std::make_unique<ConnectionRuntime>(adapters_factory(profile / "sdk"));
     native=&connection->Transport();
-    SetStatus("Connecting...");
+    SetStatus(ChatStatus::Connecting);
     while (!stop_requested.load()) {
       auto time=ReadConnectionTime();
       auto const now=time.monotonic_us;
@@ -972,7 +975,8 @@ struct ChatSession::Impl {
       {std::lock_guard lock{network_mutex};network=pending_network;}
       connection->NetworkChanged(network);
       connection->Service(time);
-      if(native->Phase()==TransportPhase::Failed&&!failed)SetError("Transport connection failed");
+      if (native->Phase() == TransportPhase::Failed && !failed)
+        SetError(ChatStatus::ConnectionFailed);
       if(!sync&&!failed&&native->Ready()){
         if (!push_service.empty()) {
           native->ConfigureRawService(push_service,
@@ -990,8 +994,10 @@ struct ChatSession::Impl {
               }, [this] { push_reader.Reset(); });
         }
         // Flush only the independently owned SDK identity, before any chat model.
-        if(flush_profile&&!flush_profile())SetError("Could not store SDK identity");
-        if(!failed&&!InitializeModel())SetError("Could not initialize the chat");
+        if (flush_profile && !flush_profile())
+          SetError(ChatStatus::IdentitySaveFailed);
+        if (!failed && !InitializeModel())
+          SetError(ChatStatus::InitializationFailed);
       }
       auto observed=connection->Observation();
       if(observed!=last_connection){last_connection=std::move(observed);view_dirty=true;}
@@ -1020,7 +1026,7 @@ struct ChatSession::Impl {
         sync->Service(now);
         if (auto* room = CurrentRoom(); room && now >= next_progress) {
           if (!sync->PublishProgress(room->obj_id)) {
-            SetError("Could not commit delivery progress");
+            SetError(ChatStatus::DeliveryCommitFailed);
           } else {
             // Refusal is normal until every member has confirmed the prefix.
             (void)sync->CompactConfirmed(room->obj_id);
@@ -1028,7 +1034,7 @@ struct ChatSession::Impl {
           next_progress = now + 1000000ULL;
         }
         if (sync->failed()) {
-          SetError("SharedNode could not commit its state");
+          SetError(ChatStatus::StateCommitFailed);
         }
       }
       if (view_dirty) {
@@ -1042,7 +1048,7 @@ struct ChatSession::Impl {
     }
     finished = true;
     if (!failed) {
-      SetStatus("Stopped");
+      SetStatus(ChatStatus::Stopped);
     }
     Publish();
     // Cancel callbacks and transport before their domain and SDK dependencies.
@@ -1150,7 +1156,7 @@ void ChatSession::Checkpoint(std::function<void(bool)> completion) {
   impl_->Enqueue(
       [impl = impl_.get(), completion = std::move(completion)](ae::Domain&) {
         bool const ok = impl->CommitMemory();
-        if (!ok) impl->SetError("Could not commit chat RAM checkpoint");
+        if (!ok) impl->SetError(ChatStatus::CheckpointFailed);
         completion(ok);
       }, std::move(reject));
 }

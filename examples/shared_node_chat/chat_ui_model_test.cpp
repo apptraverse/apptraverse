@@ -10,10 +10,12 @@
 #include "apptraverse/object_serialization.h"
 #include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/single_file_user_storage.h"
-#include "generated/chat_ui_supply.h"
 #ifdef _WIN32
 #  include "apptraverse/platform/windows/win_ui_presenters.h"
 #  include "chat_windows_presenter.h"
+#  include "generated/windows/chat_ui_supply.h"
+#else
+#  include "generated/chat_ui_supply.h"
 #endif
 using namespace apptraverse;
 using namespace apptraverse::chat::gui;
@@ -36,10 +38,10 @@ int main() {
   auto app = BuildUi(domain);
   FinalizeDistilledGraph(*app);
   app->SetImmediateEventCompaction(true);
-  app->SelectTheme(3);
+  app->device_state->SetAppearance({ui::UiThemeMode::kDark, true});
   CHECK(app->device_state->appearance.theme == ui::UiThemeMode::kDark &&
         app->device_state->appearance.soften_dark);
-  app->SelectTheme(0);
+  app->device_state->SetAppearance({ui::UiThemeMode::kAuto, false});
   CHECK(app->device_state->appearance.theme == ui::UiThemeMode::kAuto &&
         !app->device_state->appearance.soften_dark);
   app->Configure(true, "Host", "");
@@ -218,8 +220,24 @@ int main() {
           static_cast<apptraverse::ui::UiWindow*>(&*loaded));
     CHECK(loaded->text_controls.front()->owner.id() == RootId());
     CHECK(loaded->layout_state && loaded->device_state);
+#ifdef _WIN32
+    loaded->PrepareLanguage(ui::UiLanguage::kRussian);
+    loaded->Configure(false, "Embedded", "");
+    CHECK(loaded->presenter->title->Resolve(1) == "Чат SharedNode - Embedded");
+    CHECK(loaded->Get(Control::Join).text == "Войти");
+    chat::ChatView remote;
+    remote.status_code = chat::ChatStatus::InvalidHostId;
+    remote.participants.push_back({"Zoë", "", chat::Presence::Unknown});
+    loaded->AcceptTransport(remote);
+    CHECK(loaded->Get(Control::Status).text ==
+          "Не в сети | Некорректный Aether ID хоста");
+    CHECK(loaded->participants->rows.front()->primary_text->Resolve(1) ==
+          "Zoë");
+    CHECK(loaded->text_controls.at(6)->accessible_label == "Сообщение");
+#else
     loaded->Configure(true, "Embedded", "");
     CHECK(loaded->Title() == "SharedNode Chat - Embedded");
+#endif
   }
   std::cout << "Chat UI model PASS: send ACK revisions, RAM serialization, "
                "local constraints, typed controls/mirror\n";

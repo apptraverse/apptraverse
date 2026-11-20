@@ -2,10 +2,13 @@
 
 Minimal Windows/macOS demonstration: one host creates a room, participants join by
 the host Aether ID, and each participant sends its own Events directly to every peer.
-Fixed English labels; no localization or extra chat features.
-On Windows the native Theme menu uses the same system appearance baseline and
-LOCAL preferences as WindowCatalog: From system, Light, Dark and Soft dark.
-The menu submits model Events; native controls repaint after publication.
+On Windows the chat follows the system UI language and theme at startup.
+Russian Windows selects Russian; other Windows languages use English.
+Override either setting for one process with `--lang system|en|ru` and
+`--theme system|light|dark|soft-dark`. Windows High Contrast takes precedence.
+The window uses the same native controls, font/DPI measurements, accessibility
+notifications and constraint solver as WindowCatalog. Each profile restores
+the normal window rectangle, preferred monitor and maximized state.
 
 The native `shared_node_chat_headless` target uses the same `ChatSession`,
 SharedNode journal and embedded transport supply without a UI graph or window.
@@ -21,7 +24,10 @@ match the exact public revision in `cmake/shared_aether.cmake`.
 The default native configuration uses direct `P2pStream` over TCP, with no
 SafeStream or adaptive stream. Native archive fragments carry whole SharedSync
 messages; SharedSync owns in-process RAM ACK/retry and duplicate suppression.
-Ordinary builds leave both options OFF. Build target `shared_node_chat`.
+This SDK uses Æther's delivery envelope on the default stream, including its
+cloud route. A participant built with the earlier raw-message SDK requires a
+compatible SDK build to join. Ordinary builds leave both options OFF. Build
+target `shared_node_chat`.
 
 The current chat graph, messages, drafts, names and pending receipts live only
 in RAM. Send/receive, checkpoint and shutdown never write chat business USER.
@@ -33,8 +39,9 @@ ordinary native object format. Old experimental chat business files are neither
 read nor deleted. Earlier platform restore reports retain their historical scope
 and are superseded by this policy.
 
-Normal Debug creates fresh UI LOCAL under a separate `debug-run-*` directory;
-explicit `--load-only` (or the documented platform load-only flag) reuses LOCAL.
+The Windows GUI reopens its profile's UI LOCAL in both Debug and Release.
+Other Debug hosts use fresh UI LOCAL under `debug-run-*` unless their load-only
+mode is selected.
 Shipping consumers use the matching embedded supply; the Debug exporter prepares
 that supply without adding application migrations.
 
@@ -53,15 +60,17 @@ For individual processes:
 ```powershell
 ./build/shared-node-debug/examples/shared_node_chat/shared_node_chat.exe --host
 ./build/shared-node-debug/examples/shared_node_chat/shared_node_chat.exe --client ff1f6401-bbee-4d06-b4e2-551ee3a9198e
-./build/shared-node-debug/examples/shared_node_chat/shared_node_chat.exe --client --profile .artifacts/chat-alice --name Alice
+./build/shared-node-debug/examples/shared_node_chat/shared_node_chat.exe --client --profile .artifacts/chat-alice --name Alice --lang ru --theme soft-dark
 ```
 
 `--host` automatically creates a room after Aether initialization. `--client
 HOST-AETHER-ID` automatically resolves and joins the host's room. `--client`
 without an ID (also the default when no role is supplied) allows manual entry.
 The roles are mutually exclusive. `--profile PATH` and `--name NAME` remain
-optional; default profiles are `shared-chat-host-state` and
-`shared-chat-client-state`, respectively. SDK identities are restored. Chat business state starts empty after process restart.
+optional. Windows places its default role profiles (`shared-chat-host-state`
+and `shared-chat-client-state`) under `%LOCALAPPDATA%\AppTraverse\SharedNodeChat`.
+Launching from a directory with an existing role profile continues to use that
+profile. SDK identities are restored. Chat business state starts empty after process restart.
 Messages committed during a live-process transport outage synchronize on reconnection.
 
 Room resolution uses retried request/reply frames on the existing Aether link;
@@ -100,8 +109,9 @@ cmake --build build/shared-node-debug --target apptraverse_shared_chat_win32_tes
 
 The acceptance controller owns three processes and fresh private profiles. It
 requires actual admission, Unicode/all-peer delivery, continued use while a
-peer is stopped, the same SDK identity and USER history after restart, delivery
-of offline messages and clean shutdown.
+peer is stopped, the same SDK identity and room history recovered from live peers after restart,
+delivery of offline messages, localized native accessibility names, theme
+selection, and cold restoration of the maximized and normal window frames.
 A bootstrap failure does not count as a chat PASS.
 
 Headless delivery latency, using the same production `ChatSession` in two

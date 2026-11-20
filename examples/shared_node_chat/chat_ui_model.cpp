@@ -128,12 +128,14 @@ std::string ChatUi::Text(Label label) const {
 std::string ChatUi::Title() const {
   return Text(Label::Title) + " - " + editing.name;
 }
-void ChatUi::SelectTheme(unsigned choice) {
-  if (choice >= 4) return;
-  device_state->SetAppearance({
-      choice == 0 ? ui::UiThemeMode::kAuto :
-      choice == 1 ? ui::UiThemeMode::kLight : ui::UiThemeMode::kDark,
-      choice == 3});
+void ChatUi::PrepareLanguage(ui::UiLanguage language) {
+  auto const index = static_cast<int>(language);
+  for (auto& label : labels) {
+    label.Load();
+    label->MaterializeLanguage(index);
+  }
+  presenter->title->MaterializeLanguage(index);
+  presenter->locale->SubmitLanguageIndexFromUi(index);
 }
 ControlState const& ChatUi::Get(Control c) const {
   return controls.at(static_cast<unsigned>(c));
@@ -183,7 +185,7 @@ void ChatUi::Configure(bool host, std::string name, std::string initial_host) {
   Commit(e);
   auto title_event =
       ui::SetUiLocalizationSlotUtf8Event::ptr::Create(ae::CreateWith{*domain});
-  title_event->slot_index = 0;
+  title_event->slot_index = presenter->locale->language_index();
   title_event->utf8 = Title();
   presenter->title->Commit(title_event);
   auto root = layout_state->definition->root;
@@ -243,18 +245,23 @@ void ChatUi::AcceptTransport(ChatView view) {
   ConnectionState next{};
   next.uid = std::move(view.local_uid);
   next.invite = std::move(view.invite);
-  next.status = std::move(view.status);
+  // Older single-language supplies use the transport's English diagnostic.
+  auto const status_count = static_cast<unsigned>(ChatStatus::Count) - 1;
+  auto const label_count = static_cast<unsigned>(Label::Count);
+  if (view.status_code != ChatStatus::Unspecified &&
+      labels.size() == label_count + status_count) {
+    next.status =
+        labels.at(label_count + static_cast<unsigned>(view.status_code) - 1)
+            ->Resolve(presenter->locale->language_index());
+  } else {
+    next.status = std::move(view.status);
+  }
   next.messages = std::move(view.messages);
   next.ready = view.ready;
   next.in_room = view.in_room;
   next.online = view.locally_online;
-  for (auto const& p : view.participants) {
-    auto const state = p.presence == Presence::Online    ? Label::Online
-                       : p.presence == Presence::Offline ? Label::Offline
-                                                         : Label::Unknown;
-    (void)state;
-    next.people.push_back(p.name);
-  }
+  for (auto const& participant : view.participants)
+    next.people.push_back(participant.name);
   // ACK/progress/path counters are runtime diagnostics, not UI model changes.
   if (next != connection) {
     if (next.people != connection.people) {
@@ -267,7 +274,7 @@ void ChatUi::AcceptTransport(ChatView view) {
             ui::UiLocalizationString::ptr::Create(ae::CreateWith{*domain});
         auto text = ui::UiString::ptr::Create(ae::CreateWith{*domain});
         text->utf8 = name;
-        label->strings = {text};
+        label->strings.assign(ui::UiLanguageCount(), text);
         row->primary_text = label;
         InitializeRuntimeNode(*label, *this);
         InitializeRuntimeNode(*row, *this);
@@ -401,43 +408,86 @@ ChatUi::ptr BuildUi(ae::Domain& domain) {
   app->editing = {};
   app->editing.error_label = -1;
   app->copy_request = 0;
-  char const* texts[] = {"SharedNode Chat",
-                         "My Aether ID",
-                         "Host Aether ID",
-                         "Copy",
-                         "Join",
-                         "Participants",
-                         "Messages",
-                         "Send",
-                         "Message",
-                         "Done",
-                         "Connecting...",
-                         "Online",
-                         "Offline",
-                         "Unknown",
-                         "Message is too long (maximum 8192 UTF-8 bytes).",
-                         "Could not save the message.",
-                         "Aether ID copied",
-                         "Could not copy Aether ID",
-                         "Quit",
-                         "Edit",
-                         "Cut",
-                         "Paste",
-                         "Select All",
-                         "&Theme",
-                         "From system",
-                         "Light",
-                         "Dark",
-                         "Soft dark"};
-  for (auto text : texts) {
+  struct Translation {
+    char const* en;
+    char const* ru;
+  };
+  constexpr Translation captions[] = {
+      {"SharedNode Chat", "Чат SharedNode"},
+      {"My Aether ID", "Мой Aether ID"},
+      {"Host Aether ID", "Aether ID хоста"},
+      {"Copy", "Копировать"},
+      {"Join", "Войти"},
+      {"Participants", "Участники"},
+      {"Messages", "Сообщения"},
+      {"Send", "Отправить"},
+      {"Message", "Сообщение"},
+      {"Done", "Готово"},
+      {"Connecting...", "Подключение…"},
+      {"Online", "В сети"},
+      {"Offline", "Не в сети"},
+      {"Unknown", "Неизвестно"},
+      {"Message is too long (maximum 8192 UTF-8 bytes).",
+       "Слишком длинное сообщение (до 8192 байт UTF-8)."},
+      {"Could not save the message.", "Не удалось сохранить сообщение."},
+      {"Aether ID copied", "Aether ID скопирован"},
+      {"Could not copy Aether ID", "Не удалось скопировать Aether ID"},
+      {"Quit", "Выход"},
+      {"Edit", "Правка"},
+      {"Cut", "Вырезать"},
+      {"Paste", "Вставить"},
+      {"Select All", "Выделить всё"},
+  };
+  constexpr char const* status_ru[] = {
+      "",
+      "Запуск Aether…",
+      "Соединение установлено",
+      "Ожидание хоста…",
+      "Сеанс восстановлен",
+      "Введите Aether ID хоста",
+      "Не удалось создать комнату в памяти",
+      "Комната создана. Передайте участникам свой Aether ID",
+      "Некорректный Aether ID хоста",
+      "Поиск комнаты хоста…",
+      "Не удалось выбрать хост",
+      "Слишком длинное сообщение (до 8192 байт)",
+      "Этот клиент не входит в комнату",
+      "Не удалось добавить сообщение",
+      "Не удалось сохранить снимок для вернувшегося участника",
+      "Не удалось добавить участника",
+      "Не удалось открыть профиль чата",
+      "Слишком длинное имя (до 256 байт)",
+      "Не удалось создать профиль чата",
+      "Подключение…",
+      "Не удалось установить соединение",
+      "Не удалось сохранить идентификатор Aether",
+      "Не удалось открыть чат",
+      "Не удалось сохранить состояние доставки",
+      "Не удалось сохранить состояние SharedNode",
+      "Остановлено",
+      "Не удалось зафиксировать состояние чата в памяти",
+  };
+  static_assert(std::size(captions) == static_cast<unsigned>(Label::Count));
+  static_assert(std::size(status_ru) ==
+                static_cast<unsigned>(ChatStatus::Count));
+  auto make_text = [&](char const* utf8) {
+    auto value = ui::UiString::ptr::Create(ae::CreateWith{domain});
+    value->utf8 = utf8;
+    value->SetObjectScope({{}, {}, true});
+    return value;
+  };
+  auto add_label = [&](char const* english) {
     auto label = ui::UiLocalizationString::ptr::Create(ae::CreateWith{domain});
-    auto str = ui::UiString::ptr::Create(ae::CreateWith{domain});
-    str->utf8 = text;
-    label->strings = {str};
+    label->strings = {make_text(english)};
     label->SetObjectScope({{}, {}, true});
-    str->SetObjectScope({{}, {}, true});
     app->labels.push_back(label);
-  }
+  };
+  for (auto const& caption : captions) add_label(caption.en);
+  // The original supply allocated 28 caption pairs before the window. Reuse
+  // its five former menu slots so existing LOCAL window/device IDs stay valid.
+  constexpr unsigned first_status_count = 5;
+  for (unsigned i = 1; i <= first_status_count; ++i)
+    add_label(ChatStatusText(static_cast<ChatStatus>(i)));
   auto locale = ui::UiLocaleSettings::ptr::Create(ae::CreateWith{domain});
   locale->BootstrapLanguageIndex(0);
   auto const& factories = PresentationFactories();
@@ -563,6 +613,17 @@ ChatUi::ptr BuildUi(ae::Domain& domain) {
   list->layout_width = 0;
   list->layout_height = 0;
   app->native_presenters.push_back(list);
+  for (unsigned i = first_status_count + 1; i < std::size(status_ru); ++i)
+    add_label(ChatStatusText(static_cast<ChatStatus>(i)));
+  for (unsigned i = 0; i < std::size(captions); ++i)
+    app->labels[i]->strings.push_back(make_text(captions[i].ru));
+  for (unsigned i = 1; i < std::size(status_ru); ++i)
+    app->labels[std::size(captions) + i - 1]->strings.push_back(
+        make_text(status_ru[i]));
+  // The title slots are mutable per instance; never alias a constant caption.
+  auto russian_title = ui::UiString::ptr::Create(ae::CreateWith{domain});
+  russian_title->utf8 = captions[static_cast<unsigned>(Label::Title)].ru;
+  title->strings.push_back(russian_title);
   app->RefreshControls();
   return app;
 }

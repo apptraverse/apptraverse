@@ -14,7 +14,11 @@
 #include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/single_file_user_storage.h"
 #ifndef APPTRAVERSE_CHAT_UI_PRODUCER
-#  include "generated/chat_ui_supply.h"
+#  ifdef _WIN32
+#    include "generated/windows/chat_ui_supply.h"
+#  else
+#    include "generated/chat_ui_supply.h"
+#  endif
 #endif
 namespace apptraverse::chat::gui {
 namespace {
@@ -28,19 +32,22 @@ std::set<ae::ObjId> Constants(ae::RamDomainStorage const& backing) {
     if (backing.IsConstantObject(id)) result.insert(id);
   return result;
 }
-bool PersistLocal(ChatUi& root, ae::RamDomainStorage const& local,
-                  std::filesystem::path const& profile) {
-  // Only the ClientLocalState ownership graph reaches disk. Chat connection,
-  // drafts, history and delivery receipts are intentionally session RAM.
+bool SaveLocalRoots(ChatUi& root, std::set<ae::ObjId> const& roots) {
   ae::DomainGraph graph{root.domain,
                         ae::GraphSerializationScope::LocalPersistent};
-  return graph.SaveRoot(root.device_state.cached(), root.device_state.id())
-             .IsOk() &&
-         SaveUserStorageFile(local, profile / "local");
+  for (auto id : roots) {
+    auto object = root.domain->Find(id);
+    if (!object || !graph.SaveRoot(object, id).IsOk()) return false;
+  }
+  return true;
 }
 #ifdef APPTRAVERSE_CHAT_UI_PRODUCER
 void BuildBacking(ae::RamDomainStorage& backing) {
   ae::Domain producer{backing};
+  // BuildUi has its own identity range. Allocate the historical bases in
+  // a separate stable range when finalizing the same supply on another run.
+  ae::Domain::ObjectIdSequence bases{producer, ae::ObjId{10000},
+                                     ae::ObjId{0x7fffffff}};
   auto root = BuildUi(producer);
   FinalizeDistilledGraph(*root);
   StabilizeDistilledPersistentSnapshot(*root);
@@ -86,6 +93,12 @@ struct Session::Impl {
   // Worker-only LOCAL storage. No chat USER file is loaded or saved.
   ae::RamDomainStorage* active_local{};
   std::filesystem::path active_profile;
+  std::set<ae::ObjId> local_roots;
+
+  bool PersistLocal(ChatUi& root) {
+    return SaveLocalRoots(root, local_roots) &&
+           SaveUserStorageFile(*active_local, active_profile / "local");
+  }
   void Run() {
     ae::RamDomainStorage user, local, backing;
 #ifdef APPTRAVERSE_CHAT_UI_PRODUCER
@@ -105,11 +118,15 @@ struct Session::Impl {
     if (restore && !LoadUserStorageFile(local, active_profile / "local"))
       Fail("cannot load chat UI LOCAL\n");
     active_local = &local;
+    local_roots = CollectClientLocalRoots(backing);
     ApplicationModelSessionHooks<ChatUi> hooks;
     hooks.prepare = [this](ChatUi& model) {
       auto root = ChatUi::ptr::MakeFromThis(&model);
       root->device_state.Load();
-      PresentationFactories().prepare_device(*root->device_state);
+      auto const& factories = PresentationFactories();
+      factories.prepare_device(*root->device_state);
+      if (factories.startup_language)
+        root->PrepareLanguage(*factories.startup_language);
       root->SetImmediateEventCompaction(true);
 
       root->create = [this] { transport.CreateRoom(); };
@@ -128,9 +145,7 @@ struct Session::Impl {
       root->Configure(host, name, initial_host);
       root->AcceptTransport(transport.View());
     };
-    hooks.persist = [this, &local](ChatUi& root) {
-      return PersistLocal(root, local, active_profile) ? 0 : 1;
-    };
+    hooks.persist = [this](ChatUi& root) { return PersistLocal(root) ? 0 : 1; };
     int result = RunClientLocalApplicationModelSession(
         user, local, backing, Constants(backing), RootId(), runtime,
         [this](auto) {
@@ -193,8 +208,7 @@ void Session::Checkpoint(std::function<void(bool)> completion) {
   }
   if (!impl_->runtime.TryPost([this, done](ae::Domain& domain) {
         auto* root = domain.Find(RootId()).as<ChatUi>();
-        (*done)(
-            PersistLocal(*root, *impl_->active_local, impl_->active_profile));
+        (*done)(impl_->PersistLocal(*root));
       }))
     (*done)(false);
 }
@@ -229,10 +243,7 @@ bool Session::CaptureLocal(std::vector<std::uint8_t>& bytes,
   bool saved = false;
   impl_->runtime.SyncPost([&](ae::Domain& domain) {
     auto* root = domain.Find(RootId()).as<ChatUi>();
-    ae::DomainGraph graph{root->domain,
-                          ae::GraphSerializationScope::LocalPersistent};
-    saved = graph.SaveRoot(root->device_state.cached(), root->device_state.id())
-                .IsOk() &&
+    saved = SaveLocalRoots(*root, impl_->local_roots) &&
             SerializeUserStorage(*impl_->active_local, bytes);
     if (saved && output_file)
       *output_file = impl_->active_profile / "local" / "user.bin";

@@ -1,6 +1,7 @@
 #pragma once
 #include <functional>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 #include "apptraverse/chat_session.h"
@@ -51,11 +52,6 @@ enum class Label : unsigned {
   Cut,
   Paste,
   SelectAll,
-  Theme,
-  ThemeSystem,
-  ThemeLight,
-  ThemeDark,
-  ThemeSoftDark,
   Count
 };
 struct Rect {
@@ -98,6 +94,7 @@ struct UiFactories {
   std::function<ui::UiTextControlPresenter::ptr(ae::Domain&)> create_text;
   std::function<ui::UiListContainerPresenter::ptr(ae::Domain&)> create_list;
   std::function<void(ui::UiDeviceState&)> prepare_device;
+  std::optional<ui::UiLanguage> startup_language;
 };
 UiFactories HeadlessUiFactories();
 bool TryConfigureUiFactories(UiFactories factories);
@@ -248,7 +245,7 @@ class ChatUi : public NodeFor<ChatUi, ui::UiDesktopWindow> {
   void Send();
   void Join();
   void Copy();
-  void SelectTheme(unsigned choice);
+  void PrepareLanguage(ui::UiLanguage language);
   void Resize(int width, int height);
   void ClipboardResult(bool success);
   void Configure(bool host, std::string name, std::string initial_host);

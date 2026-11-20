@@ -15,6 +15,73 @@ namespace apptraverse::chat {
 
 enum class Presence { Unknown, Online, Offline };
 
+// Stable presentation key. Headless consumers retain the English diagnostic.
+enum class ChatStatus {
+  Unspecified,
+  Starting,
+  Connected,
+  WaitingForHost,
+  Restored,
+  EnterHost,
+  RoomCommitFailed,
+  RoomCreated,
+  InvalidHostId,
+  FindingRoom,
+  HostCommitFailed,
+  MessageTooLong,
+  NotMember,
+  MessageCommitFailed,
+  SnapshotFailed,
+  AdmissionFailed,
+  OpenProfileFailed,
+  NameTooLong,
+  CreateProfileFailed,
+  Connecting,
+  ConnectionFailed,
+  IdentitySaveFailed,
+  InitializationFailed,
+  DeliveryCommitFailed,
+  StateCommitFailed,
+  Stopped,
+  CheckpointFailed,
+  Count
+};
+
+inline constexpr char const* ChatStatusText(ChatStatus status) {
+  constexpr char const* messages[] = {
+      "",
+      "Starting Aether...",
+      "Connected",
+      "Waiting for the host...",
+      "Session restored",
+      "Enter the host Aether ID",
+      "Could not commit the room in memory",
+      "Room created. Share your Aether ID",
+      "Invalid host Aether ID",
+      "Finding the host room...",
+      "Could not commit the host selection",
+      "Message is too long (8192 bytes maximum)",
+      "This client is not a room participant",
+      "Could not commit the message",
+      "Could not commit the returning participant snapshot",
+      "Could not commit the participant admission",
+      "Could not open the chat profile",
+      "Name is too long (256 bytes maximum)",
+      "Could not create the chat profile",
+      "Connecting...",
+      "Transport connection failed",
+      "Could not store SDK identity",
+      "Could not initialize the chat",
+      "Could not commit delivery progress",
+      "SharedNode could not commit its state",
+      "Stopped",
+      "Could not commit chat RAM checkpoint",
+  };
+  static_assert(sizeof(messages) / sizeof(*messages) ==
+                static_cast<std::size_t>(ChatStatus::Count));
+  return messages[static_cast<std::size_t>(status)];
+}
+
 struct ParticipantView {
   std::string name;
   std::string uid;
@@ -55,6 +122,7 @@ struct ChatView {
   std::size_t pending_packets{0};
   // Progress reports are refreshed periodically even after all data is ACKed.
   std::size_t pending_progress_packets{0};
+  ChatStatus status_code{ChatStatus::Unspecified};
   bool operator==(ChatView const&) const = default;
 };
 
