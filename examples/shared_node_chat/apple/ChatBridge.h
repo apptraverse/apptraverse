@@ -13,7 +13,6 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)join;
 - (void)send;
 - (void)clipboardResult:(BOOL)success;
-- (void)resizeWidth:(int)width height:(int)height;
 - (void)reportFrameX:(int)x y:(int)y width:(int)width height:(int)height
      updatesRestore:(BOOL)updatesRestore
     NS_SWIFT_NAME(reportFrame(x:y:width:height:updatesRestore:));

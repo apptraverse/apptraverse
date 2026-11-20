@@ -1,3 +1,26 @@
+## SharedNode chat multi-platform update — 2026-11-19
+
+Android, Web and Linux use the common native control model and the current
+Æther delivery envelope. The build applies the no-exceptions and wasm32
+portability fixes in a private copy of the pinned SDK.
+
+The Android x86_64 debug APK ran on `emulator-5554`. A Chrome participant sent
+Cyrillic and emoji to the emulator over Æther and received its reply. The
+separate Chrome acceptance passed input, keyboard focus, Enter, clipboard,
+LOCAL save and cold rejoin. The Windows chat model, RAM chat and SharedNode
+memory CTests also passed.
+
+The GNU C++ Debug build on Ubuntu WSL linked the GTK app, headless peer and
+native GTK fixture. The fixture passed keyboard input, caret and draft
+preservation after remount, Enter and button activation, RAM restart, and
+LOCAL restoration. The Linux producer regenerated the native UI supply shared
+by the Linux, Android and Web consumers. The WSLg app joined the emulator's
+room alongside the browser participant.
+
+macOS and iPhone SwiftUI read control state from the common chat mirror and
+use the committed Apple UI supply generated on the desktop host. Xcode
+builds and application launches were not performed in this Windows workspace.
+
 ## Linux WindowCatalog fullscreen monitor restore — 2026-11-19
 
 GTK keeps the connector name when the window system provides one. The native

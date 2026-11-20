@@ -30,7 +30,7 @@ final class ChatHost: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let self, let window = self.window else { return }
             window.title = self.presenter.title
             self.installMenu()
-            window.contentMinSize = NSSize(width: self.presenter.minimumWidth, height: self.presenter.minimumHeight)
+            window.contentMinSize = NSSize(width: 400, height: 300)
             if !self.nativeSizeApplied {
                 window.setContentSize(NSSize(width: self.presenter.restoreWidth, height: self.presenter.restoreHeight))
                 if self.presenter.hasExplicitPlacement {

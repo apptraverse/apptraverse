@@ -99,6 +99,7 @@ struct Application final {
 }  // namespace
 int main(int argc, char** argv) {
   std::filesystem::path profile = "shared-chat-state";
+  std::filesystem::path distill_output;
   std::string name = "Host", invite;
   bool host = true, load_only = false;
   for (int i = 1; i < argc; ++i) {
@@ -111,6 +112,10 @@ int main(int argc, char** argv) {
       host = true;
     else if (arg == "--load-only")
       load_only = true;
+#ifdef APPTRAVERSE_CHAT_UI_PRODUCER
+    else if (arg == "--distill-only" && i + 1 < argc)
+      distill_output = argv[++i];
+#endif
     else if (arg == "--client") {
       host = false;
       if (i + 1 < argc && std::string(argv[i + 1]).find("--") != 0)
@@ -118,10 +123,11 @@ int main(int argc, char** argv) {
     } else
       return 2;
   }
-  if (!gtk_init_check(nullptr, nullptr)) return 1;
+  if (distill_output.empty() && !gtk_init_check(nullptr, nullptr)) return 1;
   using namespace apptraverse::ui::linux;
   EnsureLinuxUiPresenterRegistration();
-  auto environment = ReadLinuxDeviceEnvironment();
+  auto environment = distill_output.empty() ? ReadLinuxDeviceEnvironment()
+                                            : apptraverse::ui::UiDeviceEnvironment{};
   gui::ConfigureUiFactories(
       {[](ae::Domain& d) {
          return LinuxDesktopWindowPresenter::ptr::Create(ae::CreateWith{d});
@@ -139,6 +145,9 @@ int main(int argc, char** argv) {
          state.ObserveEnvironment(
              environment, apptraverse::ui::UiEnvironmentReason::kStartup);
        }});
+#ifdef APPTRAVERSE_CHAT_UI_PRODUCER
+  if (!distill_output.empty()) return gui::ExportUiSupply(distill_output);
+#endif
   Application app;
   app.host.opaque = &app;
   app.host.on_desktop_window_user_close = [](void* p, ae::Obj*) {

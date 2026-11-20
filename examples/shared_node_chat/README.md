@@ -1,7 +1,8 @@
 # SharedNode chat
 
-Minimal Windows/macOS demonstration: one host creates a room, participants join by
-the host Aether ID, and each participant sends its own Events directly to every peer.
+SharedNode chat has targets for Windows, GTK Linux, Android, the browser, macOS and
+iPhone. A host creates a room and participants join using the host Aether ID.
+All targets use the same chat model and Æther stream format.
 On Windows the chat follows the system UI language and theme at startup.
 Russian Windows selects Russian; other Windows languages use English.
 Override either setting for one process with `--lang system|en|ru` and
@@ -145,8 +146,9 @@ remove the extra ACK-timeout wait after a locally refused send.
 
 ## macOS (SwiftUI)
 
-The macOS host uses SwiftUI controls and a thin Objective-C++ bridge to the
-same `ChatSession` as Windows. AppKit owns only the application/window shell.
+The macOS host uses SwiftUI controls and an Objective-C++ bridge to the
+shared chat model. SwiftUI measures the controls with the current system font
+and appearance. AppKit owns the application and window lifecycle.
 Model notifications dispatch to the main queue; published values update the
 SwiftUI presenter. There is no UI polling timer or separate chat model.
 Editing fields are transient UI state; room creation, Join and Send enqueue model commands.
@@ -186,6 +188,11 @@ For several clients, launch the bundle executable directly with distinct
 `--profile PATH --name NAME` arguments. An advisory lock rejects concurrent
 use of one profile. Keep existing profiles paired with their supply revision.
 
+The committed Apple UI supply serves both SwiftUI targets. After changing the
+shared UI schema, build the Debug target `apptraverse_chat_apple_ui_exporter`
+on a desktop host and pass it `examples/shared_node_chat/generated/apple/chat_ui_supply.h`
+as its output path.
+
 Explicit three-process SwiftUI/cloud acceptance:
 
 ```sh
@@ -206,15 +213,14 @@ its profiles contain test credentials and must remain private.
 
 The iOS screen uses the same Apple `ChatPresenter`, Objective-C++ bridge and
 C++ `ChatSession` as macOS. It places messages above the keyboard-aware composer
-and shows participants in a sheet. There is no second model or refresh timer.
+and displays the participant list above the conversation. Publications drive the interface.
 The default role is client: enter the Windows/macOS host Aether ID and tap Join.
 `--host` and `--client HOST-UID` are also available as launch arguments.
 
-Every accepted model mutation is durable before ACK. On scene deactivation,
-iOS additionally enqueues a model-worker checkpoint with a bounded native
-background task. Completion ends that task; expiration also releases it. The
-session and presenters stay alive. A cold launch restores the same native USER
-and SDK identity; no application-termination callback is required to save them.
+On scene deactivation, iOS enqueues a model-worker checkpoint with a bounded
+background task. The session and presenters stay alive. A cold launch restores
+local UI preferences and the SDK identity. Rejoin the live host to recover the
+room's messages.
 
 For an installed iOS 17.2 Simulator, first produce the chat supply using the
 macOS exporter above. Then, from the repository root:
@@ -253,6 +259,16 @@ python3 tests/run_shared_chat_ios.py \
 
 This creates fresh private cloud identities and requires a new output directory.
 It never joins or modifies a user's manually running chat.
+
+## Android emulator
+
+From `examples/shared_node_chat/android`, build the x86_64 debug APK with
+`./gradlew :app:assembleDebug` or the corresponding `gradlew.bat` command on
+Windows. Select the emulator serial explicitly with
+`adb -s SERIAL install -r app/build/outputs/apk/debug/app-debug.apk`.
+The launcher opens a host room. Use the activity
+extras `host=false` and `invite=HOST-AETHER-ID` to launch as a client, and use a
+distinct `profile` for each local participant.
 
 ## Optional Android push demo
 

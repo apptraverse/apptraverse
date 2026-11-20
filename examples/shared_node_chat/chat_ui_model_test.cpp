@@ -14,6 +14,8 @@
 #  include "apptraverse/platform/windows/win_ui_presenters.h"
 #  include "chat_windows_presenter.h"
 #  include "generated/windows/chat_ui_supply.h"
+#elif defined(__APPLE__)
+#  include "generated/apple/chat_ui_supply.h"
 #else
 #  include "generated/chat_ui_supply.h"
 #endif

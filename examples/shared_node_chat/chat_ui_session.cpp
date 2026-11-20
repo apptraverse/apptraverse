@@ -5,7 +5,6 @@
 #include <thread>
 #include "apptraverse/application_model_runtime.h"
 #include "apptraverse/application_ui_session.h"
-#include "apptraverse/distill.h"
 #include "apptraverse/distilled_domain_export.h"
 #include "apptraverse/embedded_application_model_session.h"
 #include "apptraverse/embedded_distilled_domain.h"
@@ -16,6 +15,8 @@
 #ifndef APPTRAVERSE_CHAT_UI_PRODUCER
 #  ifdef _WIN32
 #    include "generated/windows/chat_ui_supply.h"
+#  elif defined(__APPLE__)
+#    include "generated/apple/chat_ui_supply.h"
 #  else
 #    include "generated/chat_ui_supply.h"
 #  endif
@@ -41,19 +42,6 @@ bool SaveLocalRoots(ChatUi& root, std::set<ae::ObjId> const& roots) {
   }
   return true;
 }
-#ifdef APPTRAVERSE_CHAT_UI_PRODUCER
-void BuildBacking(ae::RamDomainStorage& backing) {
-  ae::Domain producer{backing};
-  // BuildUi has its own identity range. Allocate the historical bases in
-  // a separate stable range when finalizing the same supply on another run.
-  ae::Domain::ObjectIdSequence bases{producer, ae::ObjId{10000},
-                                     ae::ObjId{0x7fffffff}};
-  auto root = BuildUi(producer);
-  FinalizeDistilledGraph(*root);
-  StabilizeDistilledPersistentSnapshot(*root);
-  SaveDistilledRoot(*root);
-}
-#endif
 }  // namespace
 struct Session::Impl {
   Impl(std::filesystem::path path, std::string who, bool role,
@@ -102,7 +90,7 @@ struct Session::Impl {
   void Run() {
     ae::RamDomainStorage user, local, backing;
 #ifdef APPTRAVERSE_CHAT_UI_PRODUCER
-    BuildBacking(backing);
+    BuildUiBacking(backing);
     active_profile =
         load_only
             ? profile
@@ -255,17 +243,4 @@ ChatUi const* Session::Mirror() const {
 }
 ChatView Session::TransportView() const { return impl_->transport.View(); }
 ModelObjectProxy& Session::Proxy() { return impl_->proxy; }
-#ifdef APPTRAVERSE_CHAT_UI_PRODUCER
-int ExportUiSupply(std::filesystem::path const& path) {
-  ae::RamDomainStorage backing;
-  BuildBacking(backing);
-  auto constants = Constants(backing);
-  std::vector<ae::ObjId> ids{constants.begin(), constants.end()};
-  return WriteEmbeddedDistilledSupplyHeader(
-             path, "shared_chat_ui", "APPTRAVERSE_SHARED_CHAT_UI_SUPPLY_H_",
-             RootId(), ids, backing, CollectStoredObjectIds(backing))
-             ? 0
-             : 1;
-}
-#endif
 }  // namespace apptraverse::chat::gui

@@ -302,5 +302,6 @@ struct Presentation {
 };
 inline ae::ObjId RootId() { return ae::ObjId{9500}; }
 void EnsureUiRegistration();
+void BuildUiBacking(ae::RamDomainStorage& backing);
 ChatUi::ptr BuildUi(ae::Domain& domain);
 }  // namespace apptraverse::chat::gui

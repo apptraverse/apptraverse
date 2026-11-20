@@ -1,4 +1,4 @@
-add_library(apptraverse_shared_chat_ui STATIC chat_ui_model.cpp chat_ui_session.cpp)
+add_library(apptraverse_shared_chat_ui STATIC chat_ui_model.cpp chat_ui_session.cpp chat_ui_supply.cpp)
 target_link_libraries(apptraverse_shared_chat_ui PUBLIC apptraverse_shared_chat_session)
 target_include_directories(apptraverse_shared_chat_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(apptraverse_shared_chat_ui PUBLIC
@@ -6,6 +6,13 @@ target_compile_definitions(apptraverse_shared_chat_ui PUBLIC
 if(NOT ANDROID AND NOT EMSCRIPTEN AND NOT IOS)
   add_executable(shared_node_chat_headless main_headless.cpp)
   target_link_libraries(shared_node_chat_headless PRIVATE apptraverse_shared_chat_session)
+  if(CMAKE_CONFIGURATION_TYPES OR CMAKE_BUILD_TYPE STREQUAL "Debug")
+    add_executable(apptraverse_chat_apple_ui_exporter EXCLUDE_FROM_ALL
+      export_chat_ui_supply.cpp chat_ui_model.cpp chat_ui_supply.cpp)
+    target_link_libraries(apptraverse_chat_apple_ui_exporter PRIVATE apptraverse)
+    target_compile_definitions(apptraverse_chat_apple_ui_exporter PRIVATE
+      APPTRAVERSE_CHAT_UI_PRODUCER APPTRAVERSE_ENABLE_DISTILLATION)
+  endif()
 endif()
 if(BUILD_TESTING AND (WIN32 OR (APPLE AND NOT IOS)) AND
    (CMAKE_CONFIGURATION_TYPES OR CMAKE_BUILD_TYPE STREQUAL "Debug"))

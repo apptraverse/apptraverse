@@ -17,24 +17,15 @@ static std::string Utf8(NSString* value) {
   if (bytes.length == 0) return {};
   return {static_cast<char const*>(bytes.bytes), bytes.length};
 }
-struct ApplePresentation:Presentation {
-  std::function<void(Control,ControlState const&)> update;
-  std::function<void(ChatUi const&)> updateWindow;
-  std::function<void()> removeWindow;
-  void Present(Control c,ControlState const& state,ChatUi const&)override{update(c,state);}
-  void Remove(Control)override{}
-  void PresentWindow(ChatUi const& model)override{updateWindow(model);}
-  void RemoveWindow()override{removeWindow();}
-};
-@interface ATChatBridge ()
-- (void)render:(unsigned)index state:(ControlState const&)state;
-- (void)renderWindow:(ChatUi const&)model;
-@end
+static NSDictionary* ControlSnapshot(ControlState const& state) {
+  NSMutableArray* rows = [NSMutableArray arrayWithCapacity:state.rows.size()];
+  for (auto const& row : state.rows) [rows addObject:Text(row)];
+  return @{@"text":Text(state.text), @"rows":rows, @"enabled":@(state.enabled),
+           @"visible":@(state.visible), @"readOnly":@(state.read_only)};
+}
+
 @implementation ATChatBridge {
   std::unique_ptr<Session> session;
-  std::unique_ptr<ApplePresentation> presentation;
-  NSMutableArray<NSDictionary*>* controls;
-  NSDictionary* windowState;
   NSString* profile;
   void (^changed)(void);
   int lock;
@@ -42,21 +33,22 @@ struct ApplePresentation:Presentation {
 }
 - (instancetype)initWithProfile:(NSString*)path name:(NSString*)name host:(BOOL)host initialHost:(NSString*)initialHost loadOnly:(BOOL)loadOnly changed:(void (^)(void))callback {
   if((self=[super init])){
-    EnsureUiRegistration();
-    profile=[path copy];changed=[callback copy];lock=-1;
-    controls=[NSMutableArray array];
-    for(unsigned i=0;i<static_cast<unsigned>(Control::Count);++i)[controls addObject:@{}];
-    __weak ATChatBridge* weakSelf=self;
-    presentation=std::make_unique<ApplePresentation>();
-    presentation->update=[weakSelf](Control c,ControlState const& state){
-      ATChatBridge* bridge=weakSelf;if(bridge)[bridge render:static_cast<unsigned>(c) state:state];
-    };
-    presentation->updateWindow=[weakSelf](ChatUi const& model){
-      ATChatBridge* bridge=weakSelf;if(bridge)[bridge renderWindow:model];
-    };
-    presentation->removeWindow=[weakSelf]{
-      ATChatBridge* bridge=weakSelf;if(bridge)bridge->windowState=nil;
-    };
+    static bool const configured = [] {
+      EnsureUiRegistration();
+      auto factories = HeadlessUiFactories();
+      NSString* language = [[NSLocale preferredLanguages].firstObject
+          componentsSeparatedByString:@"-"].firstObject;
+      factories.startup_language = [language isEqualToString:@"ru"]
+          ? apptraverse::ui::UiLanguage::kRussian
+          : apptraverse::ui::UiLanguage::kEnglish;
+      ConfigureUiFactories(std::move(factories));
+      return true;
+    }();
+    (void)configured;
+    profile = [path copy];
+    changed = [callback copy];
+    lock = -1;
+    __weak ATChatBridge* weakSelf = self;
     char const* nativePath = path.fileSystemRepresentation;
     if (!nativePath || nativePath[0] == '\0') {
       apptraverse::WriteFatalStderr("cannot resolve chat profile path\n"); std::abort();
@@ -64,22 +56,9 @@ struct ApplePresentation:Presentation {
     session=std::make_unique<Session>(nativePath,Utf8(name),host,
       Utf8(initialHost),[weakSelf]{dispatch_async(dispatch_get_main_queue(),^{
         ATChatBridge* bridge=weakSelf;
-        if(bridge&&!bridge->stopped&&bridge->session->ApplyPublication(*bridge->presentation))bridge->changed();
+        if(bridge&&!bridge->stopped&&bridge->session->ApplyPublication(static_cast<void*>(nullptr)))bridge->changed();
       });},loadOnly);
   }return self;
-}
-- (void)renderWindow:(ChatUi const&)model {
-  windowState=@{@"width":@(model.client_width()),@"height":@(model.client_height()),
-    @"x":@(model.x()),@"y":@(model.y()),
-    @"restoreWidth":@(model.restore_client_width()),@"restoreHeight":@(model.restore_client_height()),
-    @"hasExplicitPlacement":@(model.HasExplicitPosition()),
-    @"minimumWidth":@(model.layout.minimum_width),@"minimumHeight":@(model.layout.minimum_height)};
-}
-- (void)render:(unsigned)index state:(ControlState const&)state {
-  NSMutableArray* rows=[NSMutableArray array];for(auto const& row:state.rows)[rows addObject:Text(row)];
-  controls[index]=@{@"text":Text(state.text),@"rows":rows,@"enabled":@(state.enabled),
-    @"visible":@(state.visible),@"readOnly":@(state.read_only),@"x":@(state.frame.x),
-    @"y":@(state.frame.y),@"width":@(state.frame.width),@"height":@(state.frame.height)};
 }
 - (void)registerApplePushToken:(NSString*)token {if(!stopped)session->RegisterPushToken(Utf8(token),true);}
 - (BOOL)start {
@@ -104,7 +83,6 @@ struct ApplePresentation:Presentation {
 - (void)join {if(!stopped)session->Proxy().Invoke(RootId(),&ChatUi::Join);}
 - (void)send {if(!stopped)session->Proxy().Invoke(RootId(),&ChatUi::Send);}
 - (void)clipboardResult:(BOOL)ok {if(!stopped)session->Proxy().Invoke(RootId(),&ChatUi::ClipboardResult,static_cast<bool>(ok));}
-- (void)resizeWidth:(int)width height:(int)height {if(!stopped)session->Proxy().Invoke(RootId(),&ChatUi::Resize,width,height);}
 - (void)reportFrameX:(int)x y:(int)y width:(int)width height:(int)height
      updatesRestore:(BOOL)updatesRestore {
   if(!stopped) session->Proxy().Invoke<apptraverse::ui::UiDesktopWindow>(RootId(),
@@ -118,17 +96,19 @@ struct ApplePresentation:Presentation {
   auto const& data=model->connection;
   // These acceptance metrics come from the live transport, not the UI graph.
   auto const diagnostics=session->TransportView();
-  NSMutableDictionary* result=[windowState mutableCopy];
-  if(!result){apptraverse::WriteFatalStderr("chat window presenter missing\n");std::abort();}
-  [result addEntriesFromDictionary:@{@"loaded":@YES,@"controls":[controls copy],@"labels":labels,@"title":Text(model->Title()),
-    @"uid":Text(data.uid),@"invite":Text(model->editing.invite),
-    @"editRevision":@(model->editing.revision),@"status":Text(model->Get(Control::Status).text),
-    @"ready":@(data.ready),@"in_room":@(data.in_room),@"online":@(data.online),@"host":@(model->editing.host),
-    @"tcp":@(diagnostics.tcp_path_verified),@"pending":@(diagnostics.pending_packets),
+  NSMutableArray* controls = [NSMutableArray arrayWithCapacity:model->controls.size()];
+  for (auto const& state : model->controls)
+    [controls addObject:ControlSnapshot(state)];
+  return @{@"loaded":@YES, @"controls":controls, @"labels":labels, @"title":Text(model->Title()),
+    @"width":@(model->client_width()), @"height":@(model->client_height()), @"x":@(model->x()), @"y":@(model->y()),
+    @"restoreWidth":@(model->restore_client_width()), @"restoreHeight":@(model->restore_client_height()),
+    @"hasExplicitPlacement":@(model->HasExplicitPosition()),
+    @"uid":Text(data.uid), @"invite":Text(model->editing.invite),
+    @"editRevision":@(model->editing.revision), @"status":Text(model->Get(Control::Status).text),
+    @"ready":@(data.ready), @"in_room":@(data.in_room), @"online":@(data.online), @"host":@(model->editing.host),
+    @"tcp":@(diagnostics.tcp_path_verified), @"pending":@(diagnostics.pending_packets),
     @"pending_progress":@(diagnostics.pending_progress_packets),
     @"participants":controls[static_cast<unsigned>(Control::People)][@"rows"],
-    @"messages":controls[static_cast<unsigned>(Control::Messages)][@"rows"],
-    @"gap":@(model->layout.gap)}];
-  return result;
+    @"messages":controls[static_cast<unsigned>(Control::Messages)][@"rows"]};
 }
 @end

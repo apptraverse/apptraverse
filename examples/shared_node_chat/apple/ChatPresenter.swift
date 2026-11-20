@@ -9,12 +9,9 @@ enum ChatRole { case host, client }
 struct ChatControlView {
     let text: String, rows: [String]
     let enabled: Bool, visible: Bool, readOnly: Bool
-    let x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat
     init(_ v: [String: Any]) {
         text = v["text"] as! String; rows = v["rows"] as! [String]
         enabled = v["enabled"] as! Bool; visible = v["visible"] as! Bool; readOnly = v["readOnly"] as! Bool
-        x = CGFloat((v["x"] as! NSNumber).doubleValue); y = CGFloat((v["y"] as! NSNumber).doubleValue)
-        width = CGFloat((v["width"] as! NSNumber).doubleValue); height = CGFloat((v["height"] as! NSNumber).doubleValue)
     }
 }
 final class ChatPresenter: ObservableObject {
@@ -36,7 +33,6 @@ final class ChatPresenter: ObservableObject {
     @Published var ready = false
     @Published var inRoom = false
     var labels: [String] = []
-    var width: CGFloat = 0, height: CGFloat = 0, minimumWidth: CGFloat = 0, minimumHeight: CGFloat = 0, gap: CGFloat = 0
     var x: CGFloat = 0, y: CGFloat = 0, restoreWidth: CGFloat = 0, restoreHeight: CGFloat = 0
     var hasExplicitPlacement = false
     var chromeChanged: (() -> Void)?
@@ -59,16 +55,6 @@ final class ChatPresenter: ObservableObject {
     func start() -> Bool { bridge.start() }
     func checkpoint(_ completion: @escaping (Bool) -> Void) { bridge.checkpoint(completion) }
     func stop() { guard !stopped else { return }; stopped = true; bridge.stop() }
-    func resize(_ size: CGSize) {
-        // The temporary native container must not overwrite restored geometry
-        // before the first mirror has supplied the actual window dimensions.
-        guard !controls.isEmpty, !stopped else { return }
-        precondition(size.width.isFinite && size.height.isFinite &&
-                     size.width <= CGFloat(Int32.max) && size.height <= CGFloat(Int32.max),
-                     "Invalid native chat viewport")
-        guard size.width >= 1 && size.height >= 1 else { return }
-        bridge.resizeWidth(Int32(size.width), height: Int32(size.height))
-    }
     func join() { bridge.join() }
     func reportFrame(_ frame: CGRect, updatesRestore: Bool) {
         guard !controls.isEmpty, !stopped else { return }
@@ -107,65 +93,118 @@ final class ChatPresenter: ObservableObject {
         participants = value["participants"] as! [String]; messages = value["messages"] as! [String]
         ready = value["ready"] as! Bool; inRoom = value["in_room"] as! Bool
         role = (value["host"] as! Bool) ? .host : .client
-        width = CGFloat((value["width"] as! NSNumber).doubleValue); height = CGFloat((value["height"] as! NSNumber).doubleValue)
         x = CGFloat((value["x"] as! NSNumber).doubleValue); y = CGFloat((value["y"] as! NSNumber).doubleValue)
         restoreWidth = CGFloat((value["restoreWidth"] as! NSNumber).doubleValue)
         restoreHeight = CGFloat((value["restoreHeight"] as! NSNumber).doubleValue)
         hasExplicitPlacement = value["hasExplicitPlacement"] as! Bool
-        minimumWidth = CGFloat((value["minimumWidth"] as! NSNumber).doubleValue); minimumHeight = CGFloat((value["minimumHeight"] as! NSNumber).doubleValue)
-        gap = CGFloat((value["gap"] as! NSNumber).doubleValue)
         applying = false; chromeChanged?()
         #if CHAT_ACCEPTANCE
         published?(value)
         #endif
     }
 }
-// Control visibility, enabled state, text and rectangles come from native UI
-// mirror presenters. SwiftUI provides native styling and value input bindings.
+private enum ChatSlot: Int {
+    case idLabel, ownID, copy, invite, join, peopleLabel, people
+    case messagesLabel, messages, input, send, status
+}
+
+// The model owns each control's content and state. SwiftUI measures the
+// current font and arranges the controls within the available viewport.
 struct ChatPanel: View {
     @ObservedObject var presenter: ChatPresenter
-    @ViewBuilder private func control(_ index: Int, _ value: ChatControlView) -> some View {
-        switch index {
-        case 1: Text(value.text).textSelection(.enabled)
-        case 2: Button(value.text, action: presenter.copyID).accessibilityIdentifier("chat.copy")
-        case 3: TextField(presenter.labels[2], text: $presenter.invite).onSubmit(presenter.join)
-                .disabled(value.readOnly).accessibilityIdentifier("chat.invite")
-        case 4: Button(value.text, action: presenter.join).accessibilityIdentifier("chat.join")
-        case 6, 8:
-            ScrollViewReader { reader in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: presenter.gap) {
-                        ForEach(Array(value.rows.enumerated()), id: \.offset) { index, text in
-                            Text(text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).id(index)
-                        }
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                }.accessibilityIdentifier(index == 6 ? "chat.participants" : "chat.messages")
-                 .onChange(of: value.rows.count) { count in if count > 0 { reader.scrollTo(count - 1, anchor: .bottom) } }
-            }
-        case 9: TextField(presenter.labels[8], text: $presenter.input).onSubmit(presenter.send).accessibilityIdentifier("chat.input")
-        case 10: Button(value.text, action: presenter.send).accessibilityIdentifier("chat.send")
-        case 11: Text(value.text).font(.caption).accessibilityIdentifier("chat.status")
-        default: Text(value.text)
-        }
+
+    private func state(_ slot: ChatSlot) -> ChatControlView {
+        presenter.controls[slot.rawValue]
     }
-    var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .topLeading) {
-                ForEach(Array(presenter.controls.enumerated()), id: \.offset) { index, value in
-                    if value.visible {
-                        control(index, value).disabled(!value.enabled)
-                            .frame(width: value.width, height: value.height, alignment: .leading)
-                            .position(x: value.x + value.width / 2, y: value.y + value.height / 2)
-                    }
+
+    private var roomAddress: some View {
+        VStack(alignment: .leading) {
+            Text(state(.idLabel).text).font(.subheadline)
+            if state(.ownID).visible {
+                HStack {
+                    Text(state(.ownID).text).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button(state(.copy).text, action: presenter.copyID)
+                        .disabled(!state(.copy).enabled)
+                        .accessibilityIdentifier("chat.copy")
+                }
+            } else {
+                HStack {
+                    TextField(state(.idLabel).text, text: $presenter.invite)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit(presenter.join)
+                        .disabled(state(.invite).readOnly || !state(.invite).enabled)
+                        .accessibilityIdentifier("chat.invite")
+                    Button(state(.join).text, action: presenter.join)
+                        .disabled(!state(.join).enabled)
+                        .accessibilityIdentifier("chat.join")
                 }
             }
-            #if !os(macOS)
-             .onAppear { presenter.resize(geometry.size) }
-             .onChange(of: geometry.size) { size in presenter.resize(size) }
-             .onChange(of: presenter.controls.isEmpty) { empty in
-                 if !empty { presenter.resize(geometry.size) }
-             }
-            #endif
+        }
+    }
+
+    private func history(_ slot: ChatSlot, label: ChatSlot, id: String) -> some View {
+        let rows = state(slot).rows
+        let title = state(label).text
+        return VStack(alignment: .leading) {
+            Text(title).font(.headline).accessibilityAddTraits(.isHeader)
+            ScrollViewReader { reader in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 6) {
+                        ForEach(Array(rows.enumerated()), id: \.offset) { index, text in
+                            Text(text).textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .id(index)
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .accessibilityLabel(title)
+                .accessibilityIdentifier(id)
+                .onAppear { if let last = rows.indices.last { reader.scrollTo(last, anchor: .bottom) } }
+                .onChange(of: rows.count) { count in
+                    if count > 0 { reader.scrollTo(count - 1, anchor: .bottom) }
+                }
+            }
+        }
+    }
+
+    private var composer: some View {
+        HStack {
+            TextField(presenter.labels[8], text: $presenter.input)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(presenter.send)
+                .disabled(!state(.input).enabled)
+                .accessibilityIdentifier("chat.input")
+            Button(state(.send).text, action: presenter.send)
+                .disabled(!state(.send).enabled)
+                .accessibilityIdentifier("chat.send")
+        }
+    }
+
+    var body: some View {
+        if presenter.controls.isEmpty {
+            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
+                roomAddress
+                #if os(macOS)
+                HStack(alignment: .top, spacing: 16) {
+                    history(.people, label: .peopleLabel, id: "chat.participants")
+                        .frame(minWidth: 100, idealWidth: 160, maxWidth: 220)
+                    history(.messages, label: .messagesLabel, id: "chat.messages")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                #else
+                history(.people, label: .peopleLabel, id: "chat.participants")
+                    .frame(height: 84)
+                history(.messages, label: .messagesLabel, id: "chat.messages")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                #endif
+                composer
+                Text(state(.status).text).font(.caption)
+                    .accessibilityIdentifier("chat.status")
+            }
+            .padding()
         }
     }
 }
