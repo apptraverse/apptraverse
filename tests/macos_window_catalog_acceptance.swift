@@ -38,9 +38,10 @@ private final class CatalogScenario {
 
     private func hasClientSize(_ window: MacWindowAdapter?, _ size: CGSize) -> Bool {
         guard let window, let native = host.nativeWindows[window.sceneID],
-              let viewport = window.clientSize else { return false }
-        return native.contentLayoutRect.size == size && viewport.width == size.width
-            && viewport.height > 0 && viewport.height < size.height
+              let viewport = window.clientSize,
+              let chrome = window.chromeMeasurement else { return false }
+        return viewport == size && chrome.width == size.width && native.contentLayoutRect.width == size.width
+            && native.contentLayoutRect.height == size.height + chrome.height
     }
 
     private func isFullscreen(_ adapter: MacWindowAdapter?) -> Bool {
@@ -151,6 +152,7 @@ private final class CatalogScenario {
             await wait("exiting fullscreen restores both normal native frames") {
                 restoredWindow.titleVisibility == .visible && restoredChild.titleVisibility == .visible
                     && self.frameMatches(restoredChild.frame, saved.childFrame)
+                    && self.hasClientSize(self.child(2), CGSize(width: 210, height: 260))
             }
             let workArea = restoredWindow.screen!.visibleFrame
             // The Windows presenter also fits saved placements to the work area.
@@ -177,6 +179,10 @@ private final class CatalogScenario {
                     && self.host.menuGroups.last?.items.first?.isSelected == true
             }
             let window = host.nativeWindows[main!.sceneID]!
+            await wait("initial catalog semantic size reaches the exact client viewport") {
+                guard let state = self.main?.snapshot?.state else { return false }
+                return self.hasClientSize(self.main, CGSize(width: state.width, height: state.height))
+            }
             let listID = list!.controlID
             let buttonID = button("Add").controlID
             let ids = (main!.buttons.map(\.controlID) + main!.lists.map(\.controlID)).map { NSNumber(value: $0) }
@@ -228,6 +234,7 @@ private final class CatalogScenario {
             button("Add").click()
             await wait("Add opens an independent SwiftUI child presentation") {
                 self.mounted(self.child(1)) && self.list?.selectedRow == 0
+                    && self.hasClientSize(self.child(1), CGSize(width: 480, height: 320))
             }
             let nativeMain = host.nativeWindows[main!.sceneID]!
             let nativeChild = host.nativeWindows[child(1)!.sceneID]!
@@ -244,6 +251,24 @@ private final class CatalogScenario {
             }
             ATMacAcceptanceRequestFrame(child(1)!.id, 160, 140, 400, 280)
             await wait("same semantic frame request still reapplies after native resize") {
+                self.hasClientSize(self.child(1), CGSize(width: 400, height: 280))
+            }
+            host.setFullscreen(true, window: child(1)!.id)
+            await wait("child enters fullscreen before a deferred semantic request") {
+                self.isFullscreen(self.child(1))
+            }
+            ATMacAcceptanceRequestFrame(child(1)!.id, 170, 150, 410, 290)
+            await wait("fullscreen defers the requested normal client size") {
+                self.child(1)?.snapshot?.state.width == 410
+                    && self.child(1)?.snapshot?.state.height == 290 && self.isFullscreen(self.child(1))
+            }
+            host.setFullscreen(false, window: child(1)!.id)
+            await wait("fullscreen exit applies the deferred exact client size") {
+                self.child(1)?.snapshot?.state.display?.isFullscreen == false
+                    && self.hasClientSize(self.child(1), CGSize(width: 410, height: 290))
+            }
+            ATMacAcceptanceRequestFrame(child(1)!.id, 160, 140, 400, 280)
+            await wait("normal semantic request restores the exact size before remount") {
                 self.hasClientSize(self.child(1), CGSize(width: 400, height: 280))
             }
             close(child(1)!)
@@ -281,6 +306,10 @@ private final class CatalogScenario {
                     && self.list?.rows.allSatisfy { $0.text.hasPrefix("Окно ") } == true
                     && self.host.menuGroups.last?.items.last?.isSelected == true
                     && self.host.contextMenuItems.first?.title == "Раскладка: автоматически"
+            }
+            ATMacAcceptanceRequestFrame(child(2)!.id, 180, 160, 210, 260)
+            await wait("localized measured toolbar preserves the exact narrow client size") {
+                self.hasClientSize(self.child(2), CGSize(width: 210, height: 260))
             }
             close(child(1)!)
             await wait("closing a localized child retains its identity") {

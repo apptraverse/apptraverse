@@ -97,6 +97,7 @@ final class MacWindowAdapter: ObservableObject, Identifiable {
     var pendingLists: [MacListAdapter] = []
     @Published private(set) var snapshot: MacWindowSnapshot?
     private(set) var clientSize: CGSize?
+    var chromeMeasurement: (height: CGFloat, width: CGFloat, fullscreen: Bool)?
 
     var title: String { windowState.title }
     var softenDark: Bool { windowState.softenDark }
@@ -221,6 +222,25 @@ private struct MacWindowContent: View {
                         .accessibilityIdentifier("window-fullscreen")
                         .layoutValue(key: AppleControlID.self, value: display.actionControlID)
                     }
+                    .background(GeometryReader { chrome in
+                        Color.clear
+                            .onAppear {
+                                host.observeWindowChrome(chrome.size.height, width: window.size.width,
+                                                         fullscreen: display.isFullscreen, adapter: adapter)
+                            }
+                            .onChange(of: chrome.size.height) {
+                                host.observeWindowChrome($0, width: window.size.width,
+                                                         fullscreen: display.isFullscreen, adapter: adapter)
+                            }
+                            .onChange(of: window.size.width) {
+                                host.observeWindowChrome(chrome.size.height, width: $0,
+                                                         fullscreen: display.isFullscreen, adapter: adapter)
+                            }
+                            .onChange(of: display.isFullscreen) {
+                                host.observeWindowChrome(chrome.size.height, width: window.size.width,
+                                                         fullscreen: $0, adapter: adapter)
+                            }
+                    })
                 }
                 GeometryReader { geometry in
                     ScrollView([.horizontal, .vertical]) {
@@ -402,10 +422,41 @@ public final class MacApplicationHost: NSObject, ObservableObject, ATMacApplicat
     private func bindNativeWindow(_ id: UUID) {
         guard let native = nativeWindows[id], let adapter = window(for: id),
               let snapshot = adapter.snapshot, let bridge else { return }
-        if boundScenes.insert(id).inserted { bridge.bindNativeWindow(native, token: adapter.id) }
+        // Wait for SwiftUI's native control measurement, including on a cold
+        // fullscreen mount. Applications without window chrome bind at once.
+        if snapshot.state.display != nil && adapter.chromeMeasurement == nil { return }
+        if boundScenes.insert(id).inserted {
+            bridge.bindNativeWindow(native, token: adapter.id,
+                                    chromeHeight: Double(adapter.chromeMeasurement?.height ?? 0))
+        }
         if pendingFrames.remove(adapter.id) != nil { bridge.applyRequestedNativeFrame(adapter.id) }
         if let display = snapshot.state.display {
             bridge.applyWindowFullscreen(display.isFullscreen, token: adapter.id)
+            if let chrome = adapter.chromeMeasurement, chrome.fullscreen == display.isFullscreen {
+                // A measurement can arrive before the native transition. Replay
+                // that observation after it, even when its height is unchanged.
+                bridge.observeWindowChromeHeight(Double(chrome.height), width: Double(chrome.width), token: adapter.id,
+                                                 fullscreen: chrome.fullscreen)
+            }
+        }
+    }
+
+    func observeWindowChrome(_ height: CGFloat, width: CGFloat, fullscreen: Bool, adapter: MacWindowAdapter) {
+        guard height.isFinite, height > 0, width.isFinite, width >= 1 else { return }
+        // Geometry callbacks can outlive a closed scene. Recheck the adapter
+        // and presentation after leaving SwiftUI's current layout pass.
+        DispatchQueue.main.async { [weak self, weak adapter] in
+            guard let self, let adapter, !self.terminating,
+                  self.windows[adapter.id] === adapter,
+                  adapter.snapshot?.state.display?.isFullscreen == fullscreen else { return }
+            adapter.chromeMeasurement = (height, width, fullscreen)
+            if self.boundScenes.contains(adapter.sceneID) {
+                self.bridge?.observeWindowChromeHeight(Double(height), width: Double(width), token: adapter.id,
+                                                       fullscreen: fullscreen)
+            } else {
+                self.bindNativeWindow(adapter.sceneID)
+                self.schedulePresentations()
+            }
         }
     }
 

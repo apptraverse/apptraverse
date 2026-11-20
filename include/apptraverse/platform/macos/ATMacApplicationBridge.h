@@ -116,7 +116,10 @@ typedef NS_ENUM(NSInteger, ATMacPublicationKind) {
 - (void)submitWindowFullscreen:(BOOL)fullscreen token:(uint64_t)token;
 - (void)selectListRow:(NSInteger)row token:(uint64_t)token;
 - (void)activateListRow:(NSInteger)row token:(uint64_t)token;
-- (void)bindNativeWindow:(id)window token:(uint64_t)token;
+- (void)bindNativeWindow:(id)window token:(uint64_t)token
+           chromeHeight:(double)chromeHeight;
+- (void)observeWindowChromeHeight:(double)height width:(double)width token:(uint64_t)token
+                      fullscreen:(BOOL)fullscreen;
 - (void)unbindNativeWindow:(uint64_t)token;
 - (void)applyWindowFullscreen:(BOOL)fullscreen token:(uint64_t)token;
 - (void)observeNativeWindow:(uint64_t)token commit:(BOOL)commit;

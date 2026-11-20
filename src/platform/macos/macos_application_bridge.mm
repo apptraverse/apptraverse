@@ -91,12 +91,14 @@ NSRect FrameInWorkArea(NSRect area, UiDisplayRect saved) {
 }
 
 // SwiftUI's full-size content includes the title bar in contentRect. The
-// model's semantic size is the unobscured layout viewport.
-NSSize ContentSizeForViewport(NSWindow* window, double width, double height) {
+// model's semantic size excludes both that title bar and the solver-measured
+// SwiftUI window chrome above the application layout.
+NSSize ContentSizeForViewport(NSWindow* window, double width, double height,
+                              double chrome_height) {
   auto const current = [window contentRectForFrameRect:window.frame].size;
   auto const viewport = window.contentLayoutRect.size;
   return NSMakeSize(width + current.width - viewport.width,
-                    height + current.height - viewport.height);
+                    height + chrome_height + current.height - viewport.height);
 }
 
 struct NormalWindowChrome {
@@ -122,6 +124,8 @@ struct NativeWindow {
   bool moving{};
   bool own_initial_placement{};
   bool pending_requested_frame{};
+  double chrome_height{};
+  std::optional<double> applied_chrome_height;
   std::optional<NormalWindowChrome> normal_chrome;
 };
 
@@ -500,16 +504,25 @@ class MacNativeViews final
       .SubmitListRowActivatedFromUi(static_cast<std::size_t>(row));
 }
 
-- (void)bindNativeWindow:(id)window token:(uint64_t)token {
+- (void)bindNativeWindow:(id)window token:(uint64_t)token
+           chromeHeight:(double)chromeHeight {
   auto& native = _windows[token];
   native.window = static_cast<NSWindow*>(window);
+  native.chrome_height = chromeHeight;
+  native.applied_chrome_height = chromeHeight;
   if (_callbacks.window_display_state) {
     native.window.collectionBehavior = (native.window.collectionBehavior &
         ~(NSWindowCollectionBehaviorFullScreenPrimary | NSWindowCollectionBehaviorFullScreenAuxiliary))
         | NSWindowCollectionBehaviorFullScreenNone;
   }
   auto& presenter = FromToken<MacDesktopWindowPresenter>(token);
-  if ([self applyLocalPlacement:token]) return;
+  if ([self applyLocalPlacement:token]) {
+    // LOCAL supplies an already complete normal outer frame. The initial
+    // scene can measure a different width or the fullscreen exit action;
+    // establish the normal baseline at the restored width without resizing it.
+    native.applied_chrome_height.reset();
+    return;
+  }
 
   auto const desktop = presenter.desktop_window();
   native.applying_frame = true;
@@ -517,13 +530,56 @@ class MacNativeViews final
     [self placeSemanticFrame:token];
   } else {
     [native.window setContentSize:ContentSizeForViewport(native.window,
-        desktop->restore_client_width(), desktop->restore_client_height())];
+        desktop->restore_client_width(), desktop->restore_client_height(), native.chrome_height)];
   }
   native.applying_frame = false;
   [self observeNativeWindow:token commit:NO];
 }
 
 - (void)unbindNativeWindow:(uint64_t)token { _windows.erase(token); }
+
+- (void)observeWindowChromeHeight:(double)height width:(double)width token:(uint64_t)token
+                      fullscreen:(BOOL)fullscreen {
+  auto const found = _windows.find(token);
+  if (_stopping || found == _windows.end()) return;
+  auto& native = found->second;
+  // Fullscreen uses the work area and retains its independent normal frame.
+  // Late SwiftUI measurements from the other presentation must not resize it.
+  if (fullscreen || native.normal_chrome || !native.window ||
+      std::abs(width - native.window.contentLayoutRect.size.width) > 0.5) return;
+  native.chrome_height = height;
+  [self reconcileWindowChrome:token];
+}
+
+- (void)reconcileWindowChrome:(uint64_t)token {
+  auto& native = _windows.at(token);
+  NSWindow* window = native.window;
+  if (!window || native.applying_frame || native.normal_chrome || native.moving ||
+      window.inLiveResize || window.isMiniaturized || window.isZoomed) return;
+  if (!native.applied_chrome_height) {
+    native.applied_chrome_height = native.chrome_height;
+    return;
+  }
+  double const delta = native.chrome_height - *native.applied_chrome_height;
+  if (delta == 0) return;
+  native.applied_chrome_height = native.chrome_height;
+  // Preserve the current client size, including a user's native resize, when
+  // localization or native control measurement changes the chrome height.
+  auto frame = window.frame;
+  frame.origin.y -= delta;
+  frame.size.height += delta;
+  native.applying_frame = true;
+  [window setFrame:frame display:YES];
+  native.applying_frame = false;
+  auto& presenter = FromToken<MacDesktopWindowPresenter>(token);
+  auto const* placement = presenter.LocalDeviceState()->PlacementFor(presenter.window.id());
+  // Keep a completed semantic resize's LOCAL outer frame in step with its
+  // delayed native measurement, without replacing a missing preferred monitor
+  // with the automatic fallback display.
+  BOOL const commit = window.screen &&
+      (!placement || placement->preferred_monitor == ScreenKey(window.screen));
+  [self observeNativeWindow:token commit:commit];
+}
 
 - (void)applyWindowFullscreen:(BOOL)fullscreen token:(uint64_t)token {
   auto const found = _windows.find(token);
@@ -617,6 +673,7 @@ class MacNativeViews final
   if (_stopping || found == _windows.end() || found->second.applying_frame) return;
   auto& native = found->second;
   native.moving = false;
+  [self reconcileWindowChrome:token];
   NSWindow* window = native.window;
   if (native.pending_requested_frame && !native.normal_chrome) {
     [self applyRequestedNativeFrame:token];
@@ -663,10 +720,12 @@ class MacNativeViews final
 }
 
 - (void)placeSemanticFrame:(uint64_t)token {
-  NSWindow* window = _windows.at(token).window;
+  auto& native = _windows.at(token);
+  NSWindow* window = native.window;
   auto const desktop = FromToken<MacDesktopWindowPresenter>(token).desktop_window();
   auto const size = ContentSizeForViewport(window, desktop->restore_client_width(),
-                                            desktop->restore_client_height());
+      desktop->restore_client_height(), native.chrome_height);
+  native.applied_chrome_height = native.chrome_height;
   auto const outer = [window frameRectForContentRect:NSMakeRect(0, 0, size.width, size.height)];
   auto const primary = NSScreen.screens.firstObject;
   [window setFrame:NSMakeRect(desktop->x(), NSMaxY(primary.frame) - desktop->y() - outer.size.height,
