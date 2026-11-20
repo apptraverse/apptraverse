@@ -327,6 +327,8 @@ runtime-only; no persistent model schema or SharedSync wire schema changes.
 
 An application with an Æther hierarchy can dedicate a Raw
 (`ae::StreamDelivery::kMessages`) child stream to each SharedNode peer.
+Enable `APPTRAVERSE_AETHER_STREAM_HIERARCHY` for this integration when also
+building the standalone chat, which defaults to OFF.
 Use the same stream ID and service on both endpoints. On each model thread,
 pass the matching `ae::HierarchicalStream` to `AttachRawStream` before sending.
 Set `AetherLinkOptions::require_attached_streams` when the application supplies

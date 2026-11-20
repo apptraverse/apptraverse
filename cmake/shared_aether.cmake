@@ -1,7 +1,14 @@
 # Keep the optional SDK out of ordinary model/UI builds. Shared object and
 # serialization dependencies have already been added by the root project.
 set(APPTRAVERSE_AETHER_CLIENT_GIT_TAG
-  "925c5b71519469ddfef67e583a7e154af6508a4f")
+  "e14a043b47f4a98de5df12912ae45431ad888b26")
+set(_apptraverse_hierarchy_default ON)
+if(APPTRAVERSE_BUILD_SHARED_NODE_CHAT)
+  set(_apptraverse_hierarchy_default OFF)
+endif()
+option(APPTRAVERSE_AETHER_STREAM_HIERARCHY
+  "Enable the Æther SDK stream hierarchy and SharedNode stream attachment"
+  ${_apptraverse_hierarchy_default})
 set(APPTRAVERSE_AETHER_CLIENT_SOURCE "" CACHE PATH "Optional clean SDK checkout at the pinned upstream revision")
 if(EMSCRIPTEN)
   set(_apptraverse_shared_aether_default_config "${CMAKE_CURRENT_LIST_DIR}/shared_aether_web_config.h")
@@ -24,6 +31,7 @@ endfunction()
 
 function(apptraverse_add_shared_aether)
   set(USER_CONFIG "${APPTRAVERSE_AETHER_USER_CONFIG}")
+  set(AE_ENABLE_STREAM_HIERARCHY "${APPTRAVERSE_AETHER_STREAM_HIERARCHY}")
   set(AE_BUILD_TESTS OFF CACHE BOOL "SDK tests" FORCE)
   set(AE_BUILD_EXAMPLES OFF CACHE BOOL "SDK examples" FORCE)
   set(AE_BUILD_TOOLS OFF CACHE BOOL "SDK tools" FORCE)

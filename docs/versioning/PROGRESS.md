@@ -1,3 +1,22 @@
+## Optional Æther stream hierarchy — 2026-11-20
+
+The SDK enables the hierarchy by default through `AE_ENABLE_STREAM_HIERARCHY`.
+AppTraverse disables it by default for standalone SharedNode Chat through
+`APPTRAVERSE_AETHER_STREAM_HIERARCHY`. The chat uses stream ID 0 and SharedSync
+handles ACKs and retries. The SDK keeps stream definitions in its serialized
+client profile in both configurations.
+
+With SDK commit `e14a043b`, Windows MinSizeRel produced a 1,887,744-byte x64
+GUI EXE and a 1,262,592-byte x86 GUI EXE. The x86 build used the equivalent
+MSVC size flags from the existing size study. Both linker maps excluded the
+hierarchy. The headless builds exchanged messages over Æther, and each GUI
+received the room history and exchanged messages with the opposite-bitness
+headless peer.
+
+The hierarchy-enabled three-process cloud fixture passed with the initial
+option commit `5ba3dcdc`. The standalone compiler check covered the follow-up
+include fix with the hierarchy disabled and hole punching enabled.
+
 ## SharedNode application-owned Raw streams — 2026-11-20
 
 `AetherByteLink` can attach a dedicated Raw child from the application's

@@ -39,9 +39,11 @@ struct AetherLinkOptions {
   std::size_t max_message_bytes{1024 * 1024};
   // Adapter-thread notification for changed local/remote availability.
   std::function<void()> on_presence_changed;
+#if AE_ENABLE_STREAM_HIERARCHY
   // Require an application-supplied stream for each SharedNode destination.
   // The separately configured raw binary service still uses its default port.
   bool require_attached_streams{false};
+#endif
 };
 
 // Cache of the native Client::QueryPeerPresence result, with no presence
@@ -107,6 +109,7 @@ class AetherByteLink final : public IByteLink {
   AetherByteLink(AetherByteLink const&) = delete;
   AetherByteLink& operator=(AetherByteLink const&) = delete;
 
+#if AE_ENABLE_STREAM_HIERARCHY
   // Borrow a dedicated kMessages (Raw) stream from this Client's hierarchy.
   // Attach on both endpoints before sending. The application must detach
   // before destroying or reconfiguring its hierarchy. All calls use the
@@ -114,6 +117,7 @@ class AetherByteLink final : public IByteLink {
   // state and SharedSync retains the message for retry.
   [[nodiscard]] bool AttachRawStream(ae::HierarchicalStream& stream);
   void DetachRawStream(ae::HierarchicalStream& stream);
+#endif
 
   std::string const& EndpointId() const;
   bool WatchPeer(std::string const& endpoint);

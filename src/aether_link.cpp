@@ -14,7 +14,9 @@
 #include "aether/client_messages/p2p_stream_write_budget.h"
 #include "aether/connection_manager/peer_presence_query.h"
 #include "aether/cloud_connections/cloud_server_connections.h"
-#include "aether/streams/stream_hierarchy.h"
+#if AE_ENABLE_STREAM_HIERARCHY
+#  include "aether/streams/stream_hierarchy.h"
+#endif
 #include "apptraverse/p2p_message_fragments.h"
 
 namespace apptraverse {
@@ -115,7 +117,7 @@ struct AetherByteLink::Impl {
     std::uint64_t last_write_progress_us{0};
     bool reset_needed{false};
     std::unique_ptr<ae::P2pStream> raw;
-    ae::HierarchicalStream* attached{nullptr};
+    ae::ByteIStream* attached{nullptr};
     P2pMessageReader packets;
     ae::Subscription chunk_sub;
     // Java MessageNode replies open an independent reverse port. Receiving a
@@ -214,8 +216,12 @@ struct AetherByteLink::Impl {
     return !options.raw_service_uid.empty() &&
            UidText(uid) == options.raw_service_uid;
   }
-  bool UsesDefaultPort(ae::Uid const& uid) const {
+  bool UsesDefaultPort([[maybe_unused]] ae::Uid const& uid) const {
+#if AE_ENABLE_STREAM_HIERARCHY
     return !options.require_attached_streams || IsRawService(uid);
+#else
+    return true;
+#endif
   }
   Peer* Watch(std::string const& text) {
     ae::Uid uid;
@@ -358,7 +364,7 @@ struct AetherByteLink::Impl {
                                                std::move(handle));
     Subscribe(peer);
   }
-  void Bind(Peer& peer, ae::HierarchicalStream& stream) {
+  void Bind(Peer& peer, ae::ByteIStream& stream) {
     BeginBinding(peer);
     peer.attached = &stream;
     Subscribe(peer);
@@ -510,6 +516,7 @@ AetherByteLink::AetherByteLink(ae::AeContext const& context,
                                AetherLinkOptions options)
     : impl_{std::make_unique<Impl>(context, std::move(client), options)} {}
 AetherByteLink::~AetherByteLink() = default;
+#if AE_ENABLE_STREAM_HIERARCHY
 bool AetherByteLink::AttachRawStream(ae::HierarchicalStream& stream) {
   auto const uid = stream.destination();
   if (stream.id() == 0 ||
@@ -529,6 +536,7 @@ void AetherByteLink::DetachRawStream(ae::HierarchicalStream& stream) {
     peer->second->Drop();
   }
 }
+#endif
 std::string const& AetherByteLink::EndpointId() const {
   return impl_->endpoint;
 }

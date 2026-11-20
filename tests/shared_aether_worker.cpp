@@ -23,7 +23,9 @@
 #include "aether-miscpp/format/format.h"
 #include "aether/ae_actions/select_client.h"
 #include "aether/aether_app.h"
-#include "aether/streams/stream_hierarchy.h"
+#if AE_ENABLE_STREAM_HIERARCHY
+#  include "aether/streams/stream_hierarchy.h"
+#endif
 #include "apptraverse/aether_link.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/shared_sync.h"
@@ -385,18 +387,22 @@ struct Worker {
         stream_context{context},
         stream_client{std::move(client)},
         use_hierarchy{use_hierarchy} {}
+#if AE_ENABLE_STREAM_HIERARCHY
   ~Worker() {
     for (auto const& [uid, attachment] : streams) {
       link.DetachRawStream(*attachment.second);
     }
   }
+#endif
   AetherByteLink& link;
   CountingLink counted;
   ae::AeContext stream_context;
   ae::Client::ptr stream_client;
   bool use_hierarchy;
+#if AE_ENABLE_STREAM_HIERARCHY
   std::map<std::string, std::pair<std::unique_ptr<ae::StreamHierarchy>,
                                   ae::HierarchicalStream*>> streams;
+#endif
   ae::RamDomainStorage storage;
   std::unique_ptr<ae::Domain> domain;
   Application::ptr app;
@@ -477,6 +483,7 @@ struct Worker {
     if (command == "watch") {
       std::string peer;
       input >> peer;
+#if AE_ENABLE_STREAM_HIERARCHY
       if (use_hierarchy) {
         std::uint32_t stream_id{};
         if (!(input >> stream_id) || stream_id == 0 || stream_id >= 1000) {
@@ -505,8 +512,10 @@ struct Worker {
         }
         streams.emplace(peer, std::make_pair(std::move(tree), stream));
       }
+#endif
       return link.WatchPeer(peer);
     }
+#if AE_ENABLE_STREAM_HIERARCHY
     if (command == "detach") {
       std::string peer;
       input >> peer;
@@ -518,6 +527,7 @@ struct Worker {
       streams.erase(it);
       return !link.WatchPeer(peer) && !link.Send(peer, {1});
     }
+#endif
     if (command == "boot") {
       std::string peer;
       input >> peer;
@@ -776,6 +786,13 @@ int main(int argc, char** argv) {
   using namespace apptraverse::live_test;  // Test executable entry.
   apptraverse::EnsureSharedNodeRegistration();
   auto const name = Arg(argc, argv, "--name", "shared-node-live");
+  auto const use_hierarchy = Arg(argc, argv, "--hierarchy", "0") == "1";
+#if !AE_ENABLE_STREAM_HIERARCHY
+  if (use_hierarchy) {
+    std::cerr << "Build with the stream hierarchy to run this fixture\n";
+    return 1;
+  }
+#endif
   std::filesystem::create_directories("commands");
   std::filesystem::create_directories("acks");
   AtomicText("status.json", "{\"selected\":false,\"error\":\"\"}");
@@ -816,11 +833,13 @@ int main(int argc, char** argv) {
               ae::RxTimingConf::Every(std::chrono::milliseconds{1000}));
       apptraverse::AetherLinkOptions options;
       options.use_presence = Arg(argc, argv, "--presence", "0") == "1";
-      options.require_attached_streams = Arg(argc, argv, "--hierarchy", "0") == "1";
+#if AE_ENABLE_STREAM_HIERARCHY
+      options.require_attached_streams = use_hierarchy;
+#endif
       link = std::make_unique<apptraverse::AetherByteLink>(*sdk->aether(),
                                                            client, options);
       worker = std::make_unique<Worker>(*link, *sdk->aether(), client,
-                                        options.require_attached_streams);
+                                        use_hierarchy);
       worker->compact_status = Arg(argc, argv, "--compact-status", "0") == "1";
       if (!worker->Initialize()) {
         AtomicText("status.json",

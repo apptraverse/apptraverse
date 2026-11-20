@@ -25,6 +25,11 @@ For Linux use `CMAKE_BUILD_TYPE=MinSizeRel`. Android builds in this acceptance
 use only `x86_64`; pass the profile to the parent JNI CMake directory before
 adding AppTraverse so it also covers the final JNI target.
 
+The standalone SharedNode chat defaults to `APPTRAVERSE_AETHER_STREAM_HIERARCHY=OFF`.
+This sets the SDK's `AE_ENABLE_STREAM_HIERARCHY` option to OFF and retains
+the chat's direct `P2pStream` on ID 0. Enable the AppTraverse option for builds
+that need to attach application Raw streams to SharedNode.
+
 Web acceptance uses Emscripten 7.0.0 with `-sMEMORY64=1` on both C and C++
 compilation. A 32-bit Wasm module does not satisfy this profile. The native
 Emval handle remains opaque in C++; JS handles are i32 indices, while actual
