@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
-#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -15,6 +14,10 @@
 #include "aether/client.h"
 #include "aether/remote_presence.h"
 #include "apptraverse/byte_link.h"
+
+namespace ae {
+class HierarchicalStream;
+}
 
 namespace apptraverse {
 
@@ -36,6 +39,9 @@ struct AetherLinkOptions {
   std::size_t max_message_bytes{1024 * 1024};
   // Adapter-thread notification for changed local/remote availability.
   std::function<void()> on_presence_changed;
+  // Require an application-supplied stream for each SharedNode destination.
+  // The separately configured raw binary service still uses its default port.
+  bool require_attached_streams{false};
 };
 
 // Cache of the native Client::QueryPeerPresence result, with no presence
@@ -72,7 +78,7 @@ struct AetherLinkStatistics {
   std::uint64_t malformed_messages{0};
   std::uint64_t write_failures{0};
   std::uint64_t session_replacements{0};
-  // Populated by PeerStats from the actual SDK send path.
+  // Path flags are available for streams opened by the adapter.
   bool linked_tcp_endpoint{false};
   bool linked_udp_endpoint{false};
   std::size_t recommended_element_size{0};
@@ -100,6 +106,14 @@ class AetherByteLink final : public IByteLink {
   ~AetherByteLink() override;
   AetherByteLink(AetherByteLink const&) = delete;
   AetherByteLink& operator=(AetherByteLink const&) = delete;
+
+  // Borrow a dedicated kMessages (Raw) stream from this Client's hierarchy.
+  // Attach on both endpoints before sending. The application must detach
+  // before destroying or reconfiguring its hierarchy. All calls use the
+  // adapter's model thread. Attaching a replacement drops local fragment
+  // state and SharedSync retains the message for retry.
+  [[nodiscard]] bool AttachRawStream(ae::HierarchicalStream& stream);
+  void DetachRawStream(ae::HierarchicalStream& stream);
 
   std::string const& EndpointId() const;
   bool WatchPeer(std::string const& endpoint);

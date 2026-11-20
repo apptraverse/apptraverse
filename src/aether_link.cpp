@@ -14,6 +14,7 @@
 #include "aether/client_messages/p2p_stream_write_budget.h"
 #include "aether/connection_manager/peer_presence_query.h"
 #include "aether/cloud_connections/cloud_server_connections.h"
+#include "aether/streams/stream_hierarchy.h"
 #include "apptraverse/p2p_message_fragments.h"
 
 namespace apptraverse {
@@ -114,6 +115,7 @@ struct AetherByteLink::Impl {
     std::uint64_t last_write_progress_us{0};
     bool reset_needed{false};
     std::unique_ptr<ae::P2pStream> raw;
+    ae::HierarchicalStream* attached{nullptr};
     P2pMessageReader packets;
     ae::Subscription chunk_sub;
     // Java MessageNode replies open an independent reverse port. Receiving a
@@ -127,6 +129,13 @@ struct AetherByteLink::Impl {
     std::optional<ae::WriteAction::Status> terminal;
     AetherLinkStatistics statistics;
 
+    ae::ByteIStream* Stream() const {
+      if (attached) {
+        return attached;
+      }
+      return raw.get();
+    }
+
     void Drop() {
       service_inbound_sub.Reset();
       service_inbound.reset();
@@ -135,6 +144,7 @@ struct AetherByteLink::Impl {
       writing = false;
       terminal.reset();
       jobs.clear();
+      attached = nullptr;
       raw.reset();
       packets.Reset();
     }
@@ -160,7 +170,13 @@ struct AetherByteLink::Impl {
               handle.destination() == client->uid()) {
             return;
           }
+          if (!UsesDefaultPort(handle.destination())) {
+            return;
+          }
           auto* peer = Get(handle.destination());
+          if (peer->attached) {
+            return;
+          }
           if (UidText(peer->uid) == options.raw_service_uid && peer->raw) {
             peer->service_inbound_sub.Reset();
             if (raw_reset) raw_reset();
@@ -194,13 +210,20 @@ struct AetherByteLink::Impl {
     }
     return found->second.get();
   }
+  bool IsRawService(ae::Uid const& uid) const {
+    return !options.raw_service_uid.empty() &&
+           UidText(uid) == options.raw_service_uid;
+  }
+  bool UsesDefaultPort(ae::Uid const& uid) const {
+    return !options.require_attached_streams || IsRawService(uid);
+  }
   Peer* Watch(std::string const& text) {
     ae::Uid uid;
     if (!ParseUid(text, uid) || uid == client->uid()) {
       return nullptr;
     }
     auto* peer = Get(uid);
-    if (!peer->raw) {
+    if (!peer->Stream() && UsesDefaultPort(uid)) {
       Bind(*peer, client->message_stream_manager().CreatePort(uid));
     }
     return peer;
@@ -316,7 +339,7 @@ struct AetherByteLink::Impl {
       }
     }
   }
-  void Bind(Peer& peer, ae::P2pPortHandle handle) {
+  void BeginBinding(Peer& peer) {
     bool const replacement = peer.generation != 0;
     peer.Drop();
     if (replacement) {
@@ -324,18 +347,29 @@ struct AetherByteLink::Impl {
       ++peer.statistics.session_replacements;
     }
     ++peer.generation;
-    if (UidText(peer.uid) == options.raw_service_uid && raw_reset) raw_reset();
     peer.session_started_us = now_us;
     peer.last_write_progress_us = now_us;
     peer.reset_needed = false;
+  }
+  void Bind(Peer& peer, ae::P2pPortHandle handle) {
+    BeginBinding(peer);
+    if (IsRawService(peer.uid) && raw_reset) raw_reset();
     peer.raw = std::make_unique<ae::P2pStream>(context, client.Load(), peer.uid,
                                                std::move(handle));
+    Subscribe(peer);
+  }
+  void Bind(Peer& peer, ae::HierarchicalStream& stream) {
+    BeginBinding(peer);
+    peer.attached = &stream;
+    Subscribe(peer);
+  }
+  void Subscribe(Peer& peer) {
     auto* const raw_peer = &peer;
     auto const generation = peer.generation;
-    peer.chunk_sub = peer.raw->out_data_event().Subscribe(
+    peer.chunk_sub = peer.Stream()->out_data_event().Subscribe(
         [this, raw_peer, generation](ae::DataBuffer const& data) {
           if (!stopped && raw_peer->generation == generation) {
-            if (UidText(raw_peer->uid) == options.raw_service_uid) {
+            if (!raw_peer->attached && IsRawService(raw_peer->uid)) {
               if (raw_receiver) raw_receiver(options.raw_service_uid, data);
               return;
             }
@@ -353,7 +387,7 @@ struct AetherByteLink::Impl {
     if (!peer.jobs.empty()) {
       return false;
     }
-    peer.jobs.emplace_back(bytes, UidText(peer.uid) == options.raw_service_uid);
+    peer.jobs.emplace_back(bytes, !peer.attached && IsRawService(peer.uid));
     // Start the stall window with this newly queued frame. Idle time since a
     // previous successful write is not evidence that the new frame is stalled.
     peer.last_write_progress_us = now_us;
@@ -403,15 +437,21 @@ struct AetherByteLink::Impl {
         now_us >= peer.session_started_us &&
         now_us - peer.session_started_us >= options.recreate_interval_us) {
       // SharedNode retains the pending business message for durable retry.
-      Bind(peer, client->message_stream_manager().CreatePort(peer.uid));
+      if (auto* attached = peer.attached) {
+        // Recovery of the application stream belongs to its owner.
+        Bind(peer, *attached);
+      } else if (peer.raw) {
+        Bind(peer, client->message_stream_manager().CreatePort(peer.uid));
+      }
     }
     peer.packets.Expire(now_us);
-    if (peer.reset_needed || peer.writing || !peer.raw ||
+    auto* stream = peer.Stream();
+    if (peer.reset_needed || peer.writing || !stream ||
         (options.use_presence && options.gate_delivery_on_presence &&
          availability != LinkAvailability::Online)) {
       return;
     }
-    auto const info = peer.raw->stream_info();
+    auto const info = stream->stream_info();
     if (peer.jobs.empty() || !info.is_writable || info.max_element_size == 0) {
       return;
     }
@@ -427,7 +467,7 @@ struct AetherByteLink::Impl {
     peer.writing = true;
     auto const generation = peer.generation;
     auto* const raw_peer = &peer;
-    auto& action = peer.raw->Write(std::move(chunk));
+    auto& action = stream->Write(std::move(chunk));
     if (action.is_finished()) {
       // The SDK provides no readable status after synchronous completion.
       peer.terminal = ae::WriteAction::Status::kFail;
@@ -470,11 +510,31 @@ AetherByteLink::AetherByteLink(ae::AeContext const& context,
                                AetherLinkOptions options)
     : impl_{std::make_unique<Impl>(context, std::move(client), options)} {}
 AetherByteLink::~AetherByteLink() = default;
+bool AetherByteLink::AttachRawStream(ae::HierarchicalStream& stream) {
+  auto const uid = stream.destination();
+  if (stream.id() == 0 ||
+      stream.definition().delivery != ae::StreamDelivery::kMessages ||
+      uid.empty() || uid == impl_->client->uid() || impl_->IsRawService(uid)) {
+    return false;
+  }
+  auto* peer = impl_->Get(uid);
+  if (peer->attached != &stream) {
+    impl_->Bind(*peer, stream);
+  }
+  return true;
+}
+void AetherByteLink::DetachRawStream(ae::HierarchicalStream& stream) {
+  auto const peer = impl_->peers.find(UidText(stream.destination()));
+  if (peer != impl_->peers.end() && peer->second->attached == &stream) {
+    peer->second->Drop();
+  }
+}
 std::string const& AetherByteLink::EndpointId() const {
   return impl_->endpoint;
 }
 bool AetherByteLink::WatchPeer(std::string const& endpoint) {
-  return impl_->Watch(endpoint) != nullptr;
+  auto* peer = impl_->Watch(endpoint);
+  return peer && peer->Stream();
 }
 void AetherByteLink::SetPresenceWatch(std::string const& endpoint,bool enabled) {
   if(auto* peer=impl_->Watch(endpoint)){peer->presence_watched=enabled;if(!enabled)peer->presence.Forget();}
@@ -530,7 +590,7 @@ bool AetherByteLink::Send(std::string const& destination,
     return false;
   }
   auto* peer = impl_->Watch(destination);
-  if (peer == nullptr || peer->reset_needed ||
+  if (peer == nullptr || !peer->Stream() || peer->reset_needed ||
       (impl_->options.use_presence &&
        impl_->options.gate_delivery_on_presence &&
        impl_->Availability(*peer) != LinkAvailability::Online) ||
@@ -596,6 +656,11 @@ AetherLinkStatistics AetherByteLink::PeerStats(
     statistics.recommended_element_size = path.aggregated.rec_element_size;
     statistics.maximum_element_size = path.aggregated.max_element_size;
     statistics.writable = path.aggregated.is_writable;
+  } else if (auto const* stream = found->second->attached) {
+    auto const info = stream->stream_info();
+    statistics.recommended_element_size = info.rec_element_size;
+    statistics.maximum_element_size = info.max_element_size;
+    statistics.writable = info.is_writable;
   }
   return statistics;
 }

@@ -39,13 +39,14 @@ def read_status(path: Path):
 
 
 class Campaign:
-    def __init__(self, exe: Path, out: Path, deadline: float):
+    def __init__(self, exe: Path, out: Path, deadline: float, hierarchy=False):
         self.exe, self.out, self.deadline = exe, out, time.monotonic() + deadline
         self.processes: dict[str, subprocess.Popen] = {}
         self.logs = []
         self.serial = 0
         self.run_id = uuid.uuid4().hex
         self.events = []
+        self.hierarchy = hierarchy
 
     def record(self, event, **fields):
         value = dict(time=time.time(), event=event, **fields)
@@ -63,8 +64,11 @@ class Campaign:
         log = (profile / f"worker-{self.serial:04d}.log").open("wb")
         self.logs.append(log)
         flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        command = [str(self.exe), "--name", f"shared-node-{self.run_id}-{side}"]
+        if self.hierarchy:
+            command += ["--hierarchy", "1"]
         process = subprocess.Popen(
-            [str(self.exe), "--name", f"shared-node-{self.run_id}-{side}"],
+            command,
             cwd=profile, stdout=log, stderr=subprocess.STDOUT, creationflags=flags,
         )
         self.processes[side] = process
@@ -134,6 +138,13 @@ class Campaign:
         self.record("stop", side=side, pid=process.pid)
         del self.processes[side]
 
+    def watch_peers(self, side, uids):
+        stream_ids = {"AH": 41, "AB": 42, "BH": 43}
+        for other, uid in uids.items():
+            if other != side:
+                suffix = f" {stream_ids[''.join(sorted(side + other))]}" if self.hierarchy else ""
+                self.command(side, f"watch {uid}{suffix}")
+
     def stable(self, sides, tail, members, journal=None, checkpoint=None):
         states = {side: self.status(side) for side in sides}
         if not all(s.get("tail") == tail and s.get("participants") == members
@@ -161,9 +172,10 @@ class Campaign:
         if len(set(uids.values())) != 3:
             raise RuntimeError("clients are not independent identities")
         for side in "HAB":
-            for other in "HAB":
-                if other != side:
-                    self.command(side, "watch " + uids[other])
+            self.watch_peers(side, uids)
+        if self.hierarchy:
+            self.command("A", "detach " + uids["H"])
+            self.command("A", "watch " + uids["H"] + " 41")
         self.command("H", "boot " + uids["A"])
         room_id = self.wait("host root persisted", lambda: self.status("H").get("room_id"))
         self.command("A", f"expect {room_id} {uids['H']}")
@@ -224,6 +236,8 @@ class Campaign:
                     min_accepted_retry_gap_us=peer["min_event_accepted_retry_gap_us"])
         self.start("B")
         self.wait("B restores the same identity", lambda: self.status("B").get("uid") == uids["B"], 130)
+        if self.hierarchy:
+            self.watch_peers("B", uids)
         self.wait("B catches up from durable pending", lambda: self.stable("HAB", tail, 3, 7), 90)
         for side in "HAB":
             self.command(side, "progress 1000")
@@ -240,6 +254,9 @@ class Campaign:
         self.wait("cold checkpoint and stable UIDs restored", lambda:
                   all(self.status(s).get("uid") == uids[s] for s in "HAB") and
                   self.stable("HAB", tail, 3, 0, 1000), 130)
+        if self.hierarchy:
+            for side in "HAB":
+                self.watch_peers(side, uids)
         old_index = self.status("A")["index"]
         self.command("A", "append 1100 |A1100")
         tail += "|A1100"
@@ -274,6 +291,8 @@ def main():
     parser.add_argument("--exe", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--deadline", type=float, default=480)
+    parser.add_argument("--hierarchy", action="store_true",
+                        help="attach an application-owned Raw child stream per pair")
     args = parser.parse_args()
     exe = args.exe.resolve()
     out = args.out.resolve()
@@ -282,7 +301,7 @@ def main():
     if out.exists() and any(out.iterdir()):
         parser.error("use a fresh output directory; identities must not be reused from another campaign")
     out.mkdir(parents=True, exist_ok=True)
-    campaign = Campaign(exe, out, args.deadline)
+    campaign = Campaign(exe, out, args.deadline, args.hierarchy)
     try:
         campaign.run()
         print("SharedNode real Aether three-process test PASS", flush=True)

@@ -9,6 +9,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -22,6 +23,7 @@
 #include "aether-miscpp/format/format.h"
 #include "aether/ae_actions/select_client.h"
 #include "aether/aether_app.h"
+#include "aether/streams/stream_hierarchy.h"
 #include "apptraverse/aether_link.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/shared_sync.h"
@@ -376,10 +378,25 @@ class CountingLink final : public IByteLink {
 
 struct Worker {
   static constexpr ae::ObjId kApplicationId{0x7a100001};
-  explicit Worker(AetherByteLink& transport)
-      : link{transport}, counted{link, link.EndpointId()} {}
+  Worker(AetherByteLink& transport, ae::AeContext context, ae::Client::ptr client,
+         bool use_hierarchy)
+      : link{transport},
+        counted{link, link.EndpointId()},
+        stream_context{context},
+        stream_client{std::move(client)},
+        use_hierarchy{use_hierarchy} {}
+  ~Worker() {
+    for (auto const& [uid, attachment] : streams) {
+      link.DetachRawStream(*attachment.second);
+    }
+  }
   AetherByteLink& link;
   CountingLink counted;
+  ae::AeContext stream_context;
+  ae::Client::ptr stream_client;
+  bool use_hierarchy;
+  std::map<std::string, std::pair<std::unique_ptr<ae::StreamHierarchy>,
+                                  ae::HierarchicalStream*>> streams;
   ae::RamDomainStorage storage;
   std::unique_ptr<ae::Domain> domain;
   Application::ptr app;
@@ -460,7 +477,46 @@ struct Worker {
     if (command == "watch") {
       std::string peer;
       input >> peer;
+      if (use_hierarchy) {
+        std::uint32_t stream_id{};
+        if (!(input >> stream_id) || stream_id == 0 || stream_id >= 1000) {
+          return false;
+        }
+        if (auto it = streams.find(peer); it != streams.end()) {
+          return it->second.second->id() == stream_id && link.WatchPeer(peer);
+        }
+        if (link.WatchPeer(peer) || link.Send(peer, {1})) {
+          return false;
+        }
+        ae::StreamDefinition root;
+        root.id = stream_id + 1000;
+        root.destination = ae::Uid::FromString(ae::UidString{std::string_view{peer}});
+        root.delivery = ae::StreamDelivery::kReliable;
+        auto& child = root.children.emplace_back();
+        child.id = stream_id;
+        child.delivery = ae::StreamDelivery::kMessages;
+        auto tree = std::make_unique<ae::StreamHierarchy>(
+            stream_context, stream_client.Load(),
+            std::vector<ae::StreamDefinition>{std::move(root)});
+        auto* stream = tree->Find(stream_id);
+        if (link.AttachRawStream(*tree->roots().front()) || !stream ||
+            !link.AttachRawStream(*stream)) {
+          return false;
+        }
+        streams.emplace(peer, std::make_pair(std::move(tree), stream));
+      }
       return link.WatchPeer(peer);
+    }
+    if (command == "detach") {
+      std::string peer;
+      input >> peer;
+      auto it = streams.find(peer);
+      if (it == streams.end()) {
+        return false;
+      }
+      link.DetachRawStream(*it->second.second);
+      streams.erase(it);
+      return !link.WatchPeer(peer) && !link.Send(peer, {1});
     }
     if (command == "boot") {
       std::string peer;
@@ -760,9 +816,11 @@ int main(int argc, char** argv) {
               ae::RxTimingConf::Every(std::chrono::milliseconds{1000}));
       apptraverse::AetherLinkOptions options;
       options.use_presence = Arg(argc, argv, "--presence", "0") == "1";
+      options.require_attached_streams = Arg(argc, argv, "--hierarchy", "0") == "1";
       link = std::make_unique<apptraverse::AetherByteLink>(*sdk->aether(),
                                                            client, options);
-      worker = std::make_unique<Worker>(*link);
+      worker = std::make_unique<Worker>(*link, *sdk->aether(), client,
+                                        options.require_attached_streams);
       worker->compact_status = Arg(argc, argv, "--compact-status", "0") == "1";
       if (!worker->Initialize()) {
         AtomicText("status.json",

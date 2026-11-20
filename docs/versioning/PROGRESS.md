@@ -1,3 +1,15 @@
+## SharedNode application-owned Raw streams — 2026-11-20
+
+`AetherByteLink` can attach a dedicated Raw child from the application's
+Æther hierarchy for a peer. The application manages the stream lifetime.
+The standalone chat uses stream ID 0. SharedSync owns acknowledgments and retries.
+
+The explicit three-process cloud test passed on nonzero Raw child stream IDs.
+It delivered the large initial snapshot, converged after all-pairs updates,
+retried after the ACK timeout, and restored delivery after participant and cold
+restarts. The SharedSync and Æther adapter CTests passed. The default ID 0 chat
+path exchanged messages between the Windows and Linux headless builds.
+
 ## System DNS for Æther consumers — 2026-11-20
 
 `AE_DNS_BACKEND` selects `AE_DNS_NONE`, `AE_DNS_CARES`, or the default

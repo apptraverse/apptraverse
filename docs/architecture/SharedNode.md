@@ -314,8 +314,8 @@ configuration enables TCP only. GetClientTiming uses its defined correlated
 RPC. The earlier transport pin and probe-based verification are historical in
 [the original validation](../validation/shared-node-aether-2026-11-11.md).
 
-`AetherByteLink` implements `IByteLink` directly over SDK `P2pStream`.
-P2pSafeStream, SizedPacketGate and the adaptive datagram stream are not used.
+`AetherByteLink` implements `IByteLink` over Raw message streams. The simple
+chat opens SDK `P2pStream` on stream ID 0.
 `P2pMessageWriter` wraps unchanged frozen native SharedSyncMessage bytes in
 independent, native-archive fragments sized for the SDK's encrypted wire
 budget. `P2pMessageReader` tolerates reordered, duplicate and retried fragments
@@ -325,8 +325,18 @@ twice. Limits per peer are 1 MiB per business message, 16 incomplete assemblies,
 8 MiB of buffered payload and a 30-second progress timeout. The envelope is
 runtime-only; no persistent model schema or SharedSync wire schema changes.
 
-`WatchPeer(uid)` prepares a local peer session; Send can discover a valid
-new UID, and incoming SDK ports create or replace the corresponding local peer
+An application with an Æther hierarchy can dedicate a Raw
+(`ae::StreamDelivery::kMessages`) child stream to each SharedNode peer.
+Use the same stream ID and service on both endpoints. On each model thread,
+pass the matching `ae::HierarchicalStream` to `AttachRawStream` before sending.
+Set `AetherLinkOptions::require_attached_streams` when the application supplies
+all SharedNode streams. Sends before attachment then remain pending in
+SharedSync. The application owns the hierarchy and detaches its streams via
+`DetachRawStream` before destroying or rebuilding it. The configured binary
+service endpoint continues to use ID 0.
+
+In the default mode, `WatchPeer(uid)` prepares a local peer session. Send can
+discover a valid new UID, and incoming SDK ports create or replace the local peer
 session. Endpoint strings are validated and normalized Aether UIDs. Application
 membership still comes from SharedNode Join/snapshot, rather than from merely
 seeing transport traffic. The adapter and SharedSyncRuntime run on one model
