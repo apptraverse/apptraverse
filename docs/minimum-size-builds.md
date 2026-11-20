@@ -11,8 +11,12 @@ mandatory x86-64 scalar ABI baseline. This is an explicit size-oriented profile,
 not a recommendation for builds requiring those protections or strict IEEE math.
 
 Native Aether consumers use the pinned SDK with Hydrogen only and TCP. Cloud
-registration/DNS remain enabled. Browser consumers use WebSocket, with native
-TCP/DNS disabled. Do not use whole-archive linking for the object system: retain
+registration and system DNS are enabled by default. Set `AE_DNS_BACKEND` in
+the SDK user config to `AE_DNS_NONE`, `AE_DNS_CARES`, or `AE_DNS_SYSTEM`.
+Windows uses asynchronous Winsock where available and a background worker
+on Windows 7. Apple uses DNS-SD and Linux and Android use background
+`getaddrinfo`. Browser consumers use WebSocket and delegate DNS to the browser.
+Keep whole-archive linking disabled for the object system. Retain
 the existing explicit registration entry points and let LTO/section GC remove
 unused implementations.
 

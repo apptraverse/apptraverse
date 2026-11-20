@@ -1,3 +1,24 @@
+## System DNS for Æther consumers — 2026-11-20
+
+`AE_DNS_BACKEND` selects `AE_DNS_NONE`, `AE_DNS_CARES`, or the default
+`AE_DNS_SYSTEM` in the pinned SDK integration. Browser builds delegate DNS
+to their WebSocket implementation. Windows discovers the asynchronous
+Winsock functions at runtime and uses a background resolver when the
+functions are unavailable. Apple uses DNS-SD. Linux and Android use
+background `getaddrinfo`.
+
+Windows MinSizeRel produced a 1,994,752-byte x64 chat and a 1,331,200-byte
+x86 chat. Both opened and closed their native windows. The two headless
+builds exchanged messages over Æther and a profile from the c-ares build
+retained its UID under SYSTEM. The debugger recorded both the asynchronous
+Winsock call and its overlapped completion on the Windows test host.
+With the async cancellation entry hidden in the test process, the same
+binary used background `getaddrinfo`.
+The configuration probe covered all three choices and the legacy DNS
+disable flag. A GNU C++ Linux headless peer registered and exchanged
+messages with the Windows x64 build. The Android NDK compiled the resolver
+source for API 24.
+
 ## SharedNode chat GTK responsiveness — 2026-11-19
 
 The GTK presenter defers layout updates until after GTK's allocation pass and

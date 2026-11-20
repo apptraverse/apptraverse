@@ -49,8 +49,11 @@ function(apptraverse_add_shared_aether)
   # Build from an owned SDK copy. Keep both the CPM checkout and an optional
   # caller checkout pristine, and preserve the pinned wire format.
   set(sdk_patch "${APPTRAVERSE_CMAKE_DIR}/patches/aether-client-no-exceptions-wasm32-v1.patch")
-  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${sdk_patch}")
-  file(SHA256 "${sdk_patch}" patch_hash)
+  set(dns_patch "${APPTRAVERSE_CMAKE_DIR}/patches/aether-system-dns-v1.patch")
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${sdk_patch}" "${dns_patch}")
+  file(SHA256 "${sdk_patch}" portability_hash)
+  file(SHA256 "${dns_patch}" dns_hash)
+  string(SHA256 patch_hash "${portability_hash}:${dns_hash}")
   string(SUBSTRING "${patch_hash}" 0 12 patch_id)
   string(SUBSTRING "${APPTRAVERSE_AETHER_CLIENT_GIT_TAG}" 0 12 sdk_id)
   set(sdk_source "${CMAKE_CURRENT_BINARY_DIR}/_deps/ae-${sdk_id}-${patch_id}")
@@ -62,8 +65,10 @@ function(apptraverse_add_shared_aether)
     endif()
     execute_process(COMMAND git -C "${sdk_source}" checkout --force --detach
       "${APPTRAVERSE_AETHER_CLIENT_GIT_TAG}" COMMAND_ERROR_IS_FATAL ANY)
-    execute_process(COMMAND git -C "${sdk_source}" apply --whitespace=nowarn
-      "${sdk_patch}" COMMAND_ERROR_IS_FATAL ANY)
+    foreach(patch IN ITEMS "${sdk_patch}" "${dns_patch}")
+      execute_process(COMMAND git -C "${sdk_source}" apply --whitespace=nowarn
+        "${patch}" COMMAND_ERROR_IS_FATAL ANY)
+    endforeach()
     file(TOUCH "${sdk_source}/apptraverse-patched")
   endif()
   add_subdirectory("${sdk_source}" "${CMAKE_CURRENT_BINARY_DIR}/_deps/aether-client-cpp-build" EXCLUDE_FROM_ALL)
