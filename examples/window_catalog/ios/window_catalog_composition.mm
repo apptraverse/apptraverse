@@ -18,6 +18,7 @@
 #include "window_catalog_menu.h"
 #include "window_catalog_ids.h"
 #include "window_catalog_prepare.h"
+#include "window_catalog_settings_ios.h"
 #if defined(APPTRAVERSE_WINDOW_CATALOG_DEBUG_BOOTSTRAP)
 #include "apptraverse/distill.h"
 #include "window_catalog_supply_constant_ids.h"
@@ -82,10 +83,11 @@ struct CatalogProfile {
     }
     apptraverse::ApplicationModelSessionHooks<apptraverse::WindowCatalog> hooks;
     hooks.prepare = [&environment](apptraverse::WindowCatalog& catalog) {
+      apptraverse::PrepareWindowCatalogForRun(catalog);
+      catalog.EnableLocalWindowLifecycle();
       catalog.persisted.device_state->ObserveEnvironment(
           environment, apptraverse::ui::UiEnvironmentReason::kStartup);
       apptraverse::PrepareCatalogMenuForRun(catalog);
-      apptraverse::PrepareWindowCatalogForRun(catalog);
     };
     hooks.before_incremental = [](apptraverse::WindowCatalog& catalog) {
       catalog.pending_focus_window = {};
@@ -138,9 +140,9 @@ struct CatalogProfile {
                        .as<apptraverse::WindowCatalog>();
     return profile->Persist(*catalog);
   };
-  callbacks.menu_state = [](ae::Obj& root) -> NSArray<ATIosMenuGroupState*>* {
+  callbacks.settings_state = [](ae::Obj& root) -> ATIosSettingsState* {
     auto& catalog = static_cast<apptraverse::WindowCatalog&>(root);
-    auto& state = static_cast<apptraverse::CatalogUiState&>(
+    auto& state = static_cast<apptraverse::IosCatalogUiState&>(
         *catalog.persisted.device_state);
     int const language = catalog.persisted.locale->language_index();
     NSMutableArray<ATIosMenuGroupState*>* groups = [NSMutableArray array];
@@ -156,13 +158,24 @@ struct CatalogProfile {
       [groups addObject:[[ATIosMenuGroupState alloc]
           initWithTitle:CatalogMenuText(title) items:items]];
     }
-    return [groups copy];
+    auto const& chrome = state.menu->shell_strings;
+    return [[ATIosSettingsState alloc]
+        initWithTitle:CatalogMenuText(chrome[0]->Resolve(language))
+            doneTitle:CatalogMenuText(chrome[1]->Resolve(language))
+               groups:groups
+            presented:state.settings_presented];
   };
   callbacks.on_menu_command = [](ae::Obj& root,
       apptraverse::ModelObjectProxy& proxy, unsigned group, unsigned item) {
     auto& catalog = static_cast<apptraverse::WindowCatalog&>(root);
     proxy.Invoke(catalog.persisted.device_state.id(),
         &apptraverse::CatalogUiState::ExecuteMenuCommand, group, item);
+  };
+  callbacks.on_settings_presented = [](ae::Obj& root,
+      apptraverse::ModelObjectProxy& proxy, bool presented) {
+    auto& catalog = static_cast<apptraverse::WindowCatalog&>(root);
+    proxy.Invoke(catalog.persisted.device_state.id(),
+        &apptraverse::IosCatalogUiState::SetSettingsPresentedFromUi, presented);
   };
   callbacks.close_desktop_window =
       [](ae::Obj& root, ae::Obj& closed_window,

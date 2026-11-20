@@ -22,6 +22,10 @@ struct MacApplicationBridgeCallbacks {
   std::function<NSArray<ATMacMenuItemState*>*(ae::Obj&)> context_menu_state;
   std::function<void(ae::Obj&, ModelObjectProxy&, unsigned)>
       on_context_menu_command;
+  std::function<ATMacWindowDisplayState*(UiDeviceState const&, ae::ObjId, int)>
+      window_display_state;
+  std::function<void(ModelObjectProxy&, ae::ObjId, ae::ObjId, bool)>
+      on_window_fullscreen;
   ApplicationModelRuntime* runtime = nullptr;
   std::function<void(ae::Obj&, ModelObjectProxy&, std::function<void()>)>
       on_application_quit;

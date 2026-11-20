@@ -9,6 +9,7 @@
 
 #include "apptraverse/platform/macos/macos_application_bridge.h"
 #include "apptraverse/platform/macos/macos_ui_presenters.h"
+#include "apptraverse/platform/apple/apple_window_layout.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "window_catalog_graph.h"
 #include "window_catalog_menu.h"
@@ -63,6 +64,7 @@ ATMacApplicationBridge* ATCreateWindowCatalogApplicationBridge(
   application->session.state_dir = NativeDirectory(userDirectory);
   application->session.prepare_local_state =
       [environment = apptraverse::ui::macos::ReadMacDeviceEnvironment()](apptraverse::WindowCatalog& catalog) {
+        catalog.EnableLocalWindowLifecycle();
         catalog.persisted.device_state->ObserveEnvironment(
             environment, apptraverse::ui::UiEnvironmentReason::kStartup);
         apptraverse::PrepareCatalogMenuForRun(catalog);
@@ -135,6 +137,23 @@ ATMacApplicationBridge* ATCreateWindowCatalogApplicationBridge(
     auto& catalog = static_cast<apptraverse::WindowCatalog&>(root);
     proxy.Invoke(catalog.persisted.device_state.id(),
         &apptraverse::CatalogUiState::ExecuteLayoutCommand, item);
+  };
+  callbacks.window_display_state = [](apptraverse::ui::UiDeviceState const& device,
+                                     ae::ObjId window, int language) {
+    auto const& state = static_cast<apptraverse::CatalogUiState const&>(device);
+    auto const& display = state.DisplayMenu();
+    bool const fullscreen = state.IsWindowFullscreen(window);
+    auto const& action = display.fullscreen_items[fullscreen ? 1 : 0];
+    return [[ATMacWindowDisplayState alloc]
+        initWithFullscreen:fullscreen
+               actionTitle:CatalogMenuText(action.label->Resolve(language))
+             toolbarLayout:[[ATAppleWindowLayout alloc] initWithRoot:display.fullscreen_toolbar]
+            actionControlID:display.fullscreen_toolbar.children.front().control_id];
+  };
+  callbacks.on_window_fullscreen = [](apptraverse::ModelObjectProxy& proxy,
+      ae::ObjId state, ae::ObjId window, bool fullscreen) {
+    proxy.Invoke(state, &apptraverse::CatalogUiState::RequestWindowFullscreenFromUi,
+                 window, fullscreen);
   };
   callbacks.close_desktop_window =
       [](ae::Obj& root, ae::Obj& closed_window,

@@ -1,3 +1,29 @@
+## Apple WindowCatalog and MinimalApp — 2026-11-19
+
+WindowCatalog on macOS uses the catalogue's per-window fullscreen Event and
+monitor placement in LOCAL. SwiftUI measures the authored fullscreen toolbar
+with the shared constraint solver. The fullscreen window fills the display's
+work area so the macOS menu remains accessible. The bridge restores normal
+geometry from LOCAL after leaving fullscreen, including after a cold launch.
+
+On iOS, the settings sheet's visibility belongs to an iOS-specific LOCAL
+object layer. A SwiftUI action submits an Event and the published state drives
+the sheet. The regular lifecycle checkpoint saves its visibility with the
+profile. The sheet's title and Done button use the catalogue's active language.
+Both Apple applications now register the window, button, and list schema used
+by their presenters.
+
+macOS Debug built both products. The device-state, headless WindowCatalog,
+and native MinimalApp CTests passed. A native-window fixture submitted intents
+through the host and verified independent fullscreen windows and normal-frame
+restoration in fresh Debug and an embedded seed/cold pair. Direct native
+key-equivalent dispatch verified F11 entry and Escape exit. The locked desktop
+blocked the full foreground mouse and keyboard CTest.
+
+WindowCatalog and MinimalApp built for arm64 iPhoneOS, including WindowCatalog's
+embedded load-only target. Binary inspection found no catalogue builder or
+unused text presenter in the embedded executable. iOS runtime tests were not run.
+
 ## Windows WindowCatalog monitor placement and fullscreen
 
 Windows catalog windows keep monitor preferences, current monitor observations

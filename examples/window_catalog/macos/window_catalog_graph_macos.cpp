@@ -44,7 +44,7 @@ namespace apptraverse {
 void EnsureWindowCatalogGraphRegistration() {
   // The single macOS application entry point: all transitive schema anchors.
   EnsureCoreObjectRegistration();
-  EnsureWindowCatalogDesktopModelRegistration();
+  EnsureWindowCatalogNativeMenuModelRegistration();
   EnsureCatalogMenuRegistration();
   ui::macos::EnsureMacUiPresenterRegistration();
   (void)&example::surfaces::g_apptraverse_registrar_CatalogListContainerPresenter;

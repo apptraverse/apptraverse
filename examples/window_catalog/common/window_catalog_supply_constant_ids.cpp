@@ -54,7 +54,8 @@ std::vector<ae::ObjId> CollectWindowCatalogSupplyConstantIds(
   catalog.persisted.device_state.Load();
   // Menus are an authored optional component: headless/common supplies can use
   // the plain device state, while menu supplies own this immutable LOCAL graph.
-  if (catalog.persisted.device_state->GetClassId() == CatalogUiState::kClassId) {
+  if (ae::Registry::GetRegistry().GenerationDistance(
+          CatalogUiState::kClassId, catalog.persisted.device_state->GetClassId()) >= 0) {
     auto const& state = static_cast<CatalogUiState const&>(*catalog.persisted.device_state);
     state.menu.Load();
     ids.push_back(state.menu.id());

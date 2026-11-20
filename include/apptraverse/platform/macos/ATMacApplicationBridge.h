@@ -61,6 +61,16 @@ typedef NS_ENUM(NSInteger, ATMacPublicationKind) {
 @required
 @end
 
+@interface ATMacWindowDisplayState : NSObject
+@property(nonatomic, readonly, getter=isFullscreen) BOOL fullscreen;
+@property(nonatomic, readonly) NSString* actionTitle;
+@property(nonatomic, readonly) ATAppleWindowLayout* toolbarLayout;
+@property(nonatomic, readonly) uint32_t actionControlID;
+- (instancetype)initWithFullscreen:(BOOL)fullscreen actionTitle:(NSString*)actionTitle
+                    toolbarLayout:(ATAppleWindowLayout*)toolbarLayout
+                   actionControlID:(uint32_t)actionControlID;
+@end
+
 @interface ATMacWindowState : NSObject
 @property(nonatomic, readonly) NSString* title;
 @property(nonatomic, readonly, getter=isPrimary) BOOL primary;
@@ -69,6 +79,7 @@ typedef NS_ENUM(NSInteger, ATMacPublicationKind) {
 @property(nonatomic, readonly) BOOL softenDark;
 @property(nonatomic, readonly) double width;
 @property(nonatomic, readonly) double height;
+@property(nonatomic, readonly, nullable) ATMacWindowDisplayState* display;
 @end
 
 @interface ATMacButtonState : NSObject
@@ -102,11 +113,15 @@ typedef NS_ENUM(NSInteger, ATMacPublicationKind) {
 - (void)clickButton:(uint64_t)token;
 - (void)executeMenuGroup:(NSUInteger)group item:(NSUInteger)item;
 - (void)executeContextMenuItem:(NSUInteger)item;
+- (void)submitWindowFullscreen:(BOOL)fullscreen token:(uint64_t)token;
 - (void)selectListRow:(NSInteger)row token:(uint64_t)token;
 - (void)activateListRow:(NSInteger)row token:(uint64_t)token;
 - (void)bindNativeWindow:(id)window token:(uint64_t)token;
 - (void)unbindNativeWindow:(uint64_t)token;
+- (void)applyWindowFullscreen:(BOOL)fullscreen token:(uint64_t)token;
 - (void)observeNativeWindow:(uint64_t)token commit:(BOOL)commit;
+- (void)beginNativeWindowMove:(uint64_t)token;
+- (void)finishNativeWindowInteraction:(uint64_t)token commit:(BOOL)commit;
 - (void)applyRequestedNativeFrame:(uint64_t)token;
 - (void)observeSystemEnvironment;
 - (void)activateWindow:(uint64_t)token;

@@ -20,6 +20,9 @@ struct MacNativeWindowAttachment: NSViewRepresentable {
         private weak var host: MacApplicationHost?
         private weak var attachedWindow: NSWindow?
         private var observers: [NSObjectProtocol] = []
+        private var moveStart: NSRect?
+        private var resizeStart: NSRect?
+        private var mouseUpMonitor: Any?
 
         init(sceneID: UUID, host: MacApplicationHost) {
             self.sceneID = sceneID
@@ -35,19 +38,25 @@ struct MacNativeWindowAttachment: NSViewRepresentable {
             guard window !== attachedWindow else { return }
             observers.forEach(NotificationCenter.default.removeObserver)
             observers.removeAll()
+            stopTrackingMove()
+            resizeStart = nil
             attachedWindow = window
             guard let window else { return }
             window.tabbingMode = .disallowed
             let id = sceneID
             observe(NSWindow.willCloseNotification, window) { $0.nativeWindowClosed(id, $1) }
             observe(NSWindow.didBecomeKeyNotification, window) { $0.nativeWindowFocused(id, $1) }
-            observe(NSWindow.didMoveNotification, window) { host, window in
-                if let event = NSApp.currentEvent, event.window === window,
-                   event.type == .leftMouseDragged || event.type == .leftMouseUp {
-                    host.nativeWindowChanged(id, window, commit: true)
-                } else {
-                    host.nativeWindowChanged(id, window, commit: false)
-                }
+            observe(NSWindow.willMoveNotification, window) { [weak self] host, window in
+                guard NSEvent.pressedMouseButtons & 1 != 0 else { return }
+                self?.trackMove(from: window.frame)
+                host.nativeWindowWillMove(id, window)
+            }
+            observe(NSWindow.didMoveNotification, window) { [weak self] host, window in
+                host.nativeWindowChanged(id, window, commit: false)
+                if NSEvent.pressedMouseButtons & 1 == 0 { self?.finishMove() }
+            }
+            observe(NSWindow.willStartLiveResizeNotification, window) { [weak self] _, window in
+                self?.resizeStart = window.frame
             }
             observe(NSWindow.didResizeNotification, window) { host, window in
                 // SwiftUI solves the viewport live. Save the normal desktop
@@ -56,7 +65,17 @@ struct MacNativeWindowAttachment: NSViewRepresentable {
                     host.nativeWindowChanged(id, window, commit: false)
                 }
             }
-            observe(NSWindow.didEndLiveResizeNotification, window) { $0.nativeWindowChanged(id, $1, commit: true) }
+            observe(NSWindow.didEndLiveResizeNotification, window) { [weak self] host, window in
+                let changed = self?.resizeStart.map { $0 != window.frame } == true
+                self?.resizeStart = nil
+                host.nativeWindowInteractionFinished(id, window, commit: changed)
+            }
+            observe(NSWindow.didDeminiaturizeNotification, window) {
+                $0.nativeWindowInteractionFinished(id, $1, commit: false)
+            }
+            observe(NSWindow.didExitFullScreenNotification, window) {
+                $0.nativeWindowInteractionFinished(id, $1, commit: false)
+            }
             observe(NSWindow.didChangeScreenNotification, window) { $0.nativeWindowChanged(id, $1, commit: false) }
             observe(NSWindow.didChangeBackingPropertiesNotification, window) { $0.nativeWindowChanged(id, $1, commit: false) }
             DispatchQueue.main.async { [weak self, weak window] in
@@ -64,6 +83,31 @@ struct MacNativeWindowAttachment: NSViewRepresentable {
                 self.host?.nativeWindowAttached(self.sceneID, window)
                 if window.isKeyWindow { self.host?.nativeWindowFocused(self.sceneID, window) }
             }
+        }
+
+        private func trackMove(from frame: NSRect) {
+            guard moveStart == nil else { return }
+            moveStart = frame
+            mouseUpMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
+                DispatchQueue.main.async { self?.finishMove() }
+                return event
+            }
+            // AppKit's title-bar drag can consume mouse-up in its tracking loop.
+            RunLoop.main.perform(inModes: [.default]) { [weak self] in
+                if NSEvent.pressedMouseButtons & 1 == 0 { self?.finishMove() }
+            }
+        }
+
+        private func finishMove() {
+            guard let start = moveStart, let window = attachedWindow else { return }
+            stopTrackingMove()
+            host?.nativeWindowInteractionFinished(sceneID, window, commit: start != window.frame)
+        }
+
+        private func stopTrackingMove() {
+            if let monitor = mouseUpMonitor { NSEvent.removeMonitor(monitor) }
+            mouseUpMonitor = nil
+            moveStart = nil
         }
 
         private func observe(_ name: Notification.Name, _ window: NSWindow,
@@ -76,7 +120,10 @@ struct MacNativeWindowAttachment: NSViewRepresentable {
             })
         }
 
-        deinit { observers.forEach(NotificationCenter.default.removeObserver) }
+        deinit {
+            stopTrackingMove()
+            observers.forEach(NotificationCenter.default.removeObserver)
+        }
     }
 }
 

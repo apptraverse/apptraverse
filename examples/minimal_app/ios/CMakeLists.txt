@@ -54,6 +54,7 @@ if(_minimal_apple_needs_supply)
 add_custom_command(
   OUTPUT "${_ios_supply_header}"
   COMMAND "${APPTRAVERSE_IOS_HOST_EXPORTER}" "${_ios_supply_header}"
+  DEPENDS "${APPTRAVERSE_IOS_HOST_EXPORTER}"
   VERBATIM
   COMMENT "Embed distilled iOS MinimalApp supply via macOS host exporter")
 endif()

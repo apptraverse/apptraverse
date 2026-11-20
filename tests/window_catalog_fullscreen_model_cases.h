@@ -31,9 +31,10 @@ WindowCatalog::ptr BuildMenuModel(ae::Domain& domain, bool display) {
     return ui::UiDeviceState::ptr{state};
   };
   auto catalog = BuildWindowCatalogGraph(domain, factory, std::move(options));
-  // Non-display shape matches the existing Linux/Android/iOS menu composition.
+  // Non-display shape matches the existing Linux/Android menu composition.
   ComposeCatalogMenu(domain, *catalog, CatalogThemeHandling::kAdapterAppliesTheme,
-                     false, display, display);
+                     display ? CatalogMenuShell::kWindows : CatalogMenuShell::kDefault,
+                     display);
   return catalog;
 }
 

@@ -7,6 +7,7 @@ namespace apptraverse {
 // Supply-authoring policy of a backend, not a user preference. Native-following
 // adapters (e.g. AppKit) omit the theme menu entirely. No simulated OS settings.
 enum class CatalogThemeHandling : std::uint8_t { kNativeFollowsSystem, kAdapterAppliesTheme };
+enum class CatalogMenuShell : std::uint8_t { kDefault, kWeb, kWindows, kMac, kIos };
 enum class CatalogMenuAction : std::uint8_t { kLanguage, kTheme, kLayoutFlow, kResetLayout, kFullscreen };
 struct CatalogMenuItem {
   ui::UiLocalizationString::ptr label;
@@ -34,7 +35,7 @@ class CatalogMenuDefinition : public NodeFor<CatalogMenuDefinition> {
   template<class D> void Save(ae::Version<0>, D& d) const { d(base_, groups, layout_items, shell_strings); }
 };
 
-// The opt-in Windows display definition is immutable supply data;
+// The opt-in desktop display definition is immutable supply data;
 // fullscreen choices belong to the device-local state, keyed by window identity.
 class CatalogWindowDisplayMenuDefinition
     : public NodeFor<CatalogWindowDisplayMenuDefinition, CatalogMenuDefinition> {
@@ -103,8 +104,8 @@ class SetCatalogWindowFullscreenEvent
 
 WindowCatalog::ptr BuildWindowCatalogGraph(ae::Domain&, CatalogThemeHandling);
 void ComposeCatalogMenu(ae::Domain&, WindowCatalog&, CatalogThemeHandling,
-                        bool web_shell = false, bool layout_context = false,
-                        bool windows_display = false);
+                        CatalogMenuShell shell = CatalogMenuShell::kDefault,
+                        bool layout_context = false);
 void PrepareCatalogMenuForRun(WindowCatalog&);
 void EnsureCatalogMenuRegistration();
 

@@ -8,7 +8,6 @@
 #include "apptraverse/platform/ios/ios_application_bridge.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/platform/ios/ios_ui_presenters.h"
-#include "apptraverse/ui/ui_presenters.h"
 #include "apptraverse/object_macros.h"
 #include "minimal_app_desktop_close.h"
 #include "minimal_app_lifecycle_ios.h"
@@ -73,8 +72,7 @@ ATIosApplicationBridge* ATCreateMinimalApplicationBridge(
 }
 
 void ATRegisterMinimalIosApplication(void) {
-  apptraverse::EnsureObjectRegistration();
-  apptraverse::ui::EnsureUiPresenterRegistration();
+  apptraverse::EnsureCoreObjectRegistration();
   apptraverse::ui::ios::EnsureIosUiPresenterRegistration();
   apptraverse::example::minimal::EnsureMinimalApplicationRegistration();
 }

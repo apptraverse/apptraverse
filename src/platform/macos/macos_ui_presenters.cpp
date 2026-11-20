@@ -21,7 +21,7 @@ MacUiNativeViews& NativeViews(Presenter const& presenter) {
 }  // namespace
 
 void EnsureMacUiPresenterRegistration() {
-  EnsureUiControlRegistration();
+  EnsureUiWindowControlRegistration();
   (void)&g_apptraverse_registrar_MacDesktopWindowPresenter;
   (void)&g_apptraverse_registrar_MacPushButtonPresenter;
   (void)&g_apptraverse_registrar_MacListContainerPresenter;

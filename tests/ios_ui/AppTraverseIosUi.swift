@@ -53,7 +53,7 @@ final class AppTraverseIosUi: XCTestCase {
         app.buttons["settings-done"].tap()
     }
 
-    func testSettingsRestoresAfterProcessRestart() {
+    func testSettingsRemainOpenAcrossBackgrounding() {
         let app = XCUIApplication(bundleIdentifier: "org.apptraverse.WindowCatalog.ios")
         app.launch()
         let done = app.buttons["settings-done"]
@@ -63,15 +63,15 @@ final class AppTraverseIosUi: XCTestCase {
         }
         assertPage("Settings", in: app)
 
-        app.terminate()
-        app.launch()
+        XCUIDevice.shared.press(.home)
+        app.activate()
         assertPage("Settings", in: app)
         XCTAssertTrue(app.staticTexts["Theme"].exists)
 
         done.tap()
         assertPage("Window Catalog", in: app)
-        app.terminate()
-        app.launch()
+        XCUIDevice.shared.press(.home)
+        app.activate()
         assertPage("Window Catalog", in: app)
         XCTAssertTrue(app.buttons["catalog-settings"].isHittable)
         XCTAssertFalse(done.exists)

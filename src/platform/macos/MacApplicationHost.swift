@@ -179,6 +179,19 @@ private struct MacListControl: View {
     }
 }
 
+private let fullscreenKey = KeyEquivalent("\u{F70E}")
+
+private struct MacWindowTokenKey: FocusedValueKey {
+    typealias Value = UInt64
+}
+
+extension FocusedValues {
+    fileprivate var macWindowToken: UInt64? {
+        get { self[MacWindowTokenKey.self] }
+        set { self[MacWindowTokenKey.self] = newValue }
+    }
+}
+
 private struct MacWindowContent: View {
     let host: MacApplicationHost
     let adapter: MacWindowAdapter
@@ -196,20 +209,36 @@ private struct MacWindowContent: View {
 
     var body: some View {
         let windowMenu = MacWindowContextMenu(host: host, isPrimary: snapshot.state.isPrimary)
-        GeometryReader { geometry in
-            ScrollView([.horizontal, .vertical]) {
-                if geometry.size.width >= 1, geometry.size.height >= 1 {
-                    AppleConstraintLayout(definition: snapshot.state.layout, viewport: geometry.size) {
-                        ForEach(snapshot.buttons) { MacButtonControl(adapter: $0) }
-                        ForEach(snapshot.lists) { MacListControl(adapter: $0, windowMenu: windowMenu) }
+        GeometryReader { window in
+            VStack(spacing: 0) {
+                if let display = snapshot.state.display, window.size.width >= 1 {
+                    AppleConstraintLayout(definition: display.toolbarLayout,
+                                          viewport: CGSize(width: window.size.width, height: 0)) {
+                        Button(display.actionTitle) {
+                            host.setFullscreen(!display.isFullscreen, window: adapter.id)
+                        }
+                        .keyboardShortcut(display.isFullscreen ? .escape : fullscreenKey, modifiers: [])
+                        .accessibilityIdentifier("window-fullscreen")
+                        .layoutValue(key: AppleControlID.self, value: display.actionControlID)
                     }
                 }
+                GeometryReader { geometry in
+                    ScrollView([.horizontal, .vertical]) {
+                        if geometry.size.width >= 1, geometry.size.height >= 1 {
+                            AppleConstraintLayout(definition: snapshot.state.layout, viewport: geometry.size) {
+                                ForEach(snapshot.buttons) { MacButtonControl(adapter: $0) }
+                                ForEach(snapshot.lists) { MacListControl(adapter: $0, windowMenu: windowMenu) }
+                            }
+                        }
+                    }
+                    .onAppear { adapter.observeViewport(geometry.size) }
+                    .onChange(of: geometry.size) { adapter.observeViewport($0) }
+                }
+                .contentShape(Rectangle())
+                .contextMenu { windowMenu }
             }
-            .contentShape(Rectangle())
-            .contextMenu { windowMenu }
-            .onAppear { adapter.observeViewport(geometry.size) }
-            .onChange(of: geometry.size) { adapter.observeViewport($0) }
         }
+        .focusedSceneValue(\.macWindowToken, adapter.id)
         .frame(minWidth: 1, minHeight: 1)
         .navigationTitle(snapshot.state.title)
         .background(snapshot.state.softenDark && contrast != .increased ?
@@ -257,6 +286,7 @@ private struct MacWindowScene: View {
 
 private struct MacApplicationCommands: Commands {
     @ObservedObject var host: MacApplicationHost
+    @FocusedValue(\.macWindowToken) private var windowToken
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {}
@@ -275,6 +305,13 @@ private struct MacApplicationCommands: Commands {
                         }))
                     }
                 }
+            }
+        }
+        CommandGroup(after: .windowArrangement) {
+            if let token = windowToken, let display = host.windows[token]?.snapshot?.state.display,
+               display.isFullscreen {
+                Button(display.actionTitle) { host.setFullscreen(false, window: token) }
+                    .keyboardShortcut(fullscreenKey, modifiers: [])
             }
         }
     }
@@ -364,9 +401,12 @@ public final class MacApplicationHost: NSObject, ObservableObject, ATMacApplicat
 
     private func bindNativeWindow(_ id: UUID) {
         guard let native = nativeWindows[id], let adapter = window(for: id),
-              adapter.snapshot != nil, let bridge else { return }
+              let snapshot = adapter.snapshot, let bridge else { return }
         if boundScenes.insert(id).inserted { bridge.bindNativeWindow(native, token: adapter.id) }
         if pendingFrames.remove(adapter.id) != nil { bridge.applyRequestedNativeFrame(adapter.id) }
+        if let display = snapshot.state.display {
+            bridge.applyWindowFullscreen(display.isFullscreen, token: adapter.id)
+        }
     }
 
     func nativeWindowClosed(_ id: UUID, _ native: MacNativeWindowHandle) {
@@ -393,6 +433,19 @@ public final class MacApplicationHost: NSObject, ObservableObject, ATMacApplicat
         bridge?.observeNativeWindow(adapter.id, commit: commit)
     }
 
+    func nativeWindowWillMove(_ id: UUID, _ native: MacNativeWindowHandle) {
+        guard !terminating, nativeWindows[id] === native,
+              let adapter = window(for: id) else { return }
+        bridge?.beginNativeWindowMove(adapter.id)
+    }
+
+    func nativeWindowInteractionFinished(_ id: UUID, _ native: MacNativeWindowHandle, commit: Bool) {
+        guard !terminating, nativeWindows[id] === native,
+              let adapter = window(for: id) else { return }
+        bridge?.finishNativeWindowInteraction(adapter.id, commit: commit)
+        bindNativeWindow(id)
+    }
+
     public func requestStop() {
         guard !terminating, let bridge else { return }
         terminating = true
@@ -408,6 +461,11 @@ public final class MacApplicationHost: NSObject, ObservableObject, ATMacApplicat
     func executeContextMenu(item: Int) {
         guard !terminating, contextMenuItems.indices.contains(item) else { return }
         bridge?.executeContextMenuItem(UInt(item))
+    }
+
+    func setFullscreen(_ fullscreen: Bool, window token: UInt64) {
+        guard !terminating, let window = windows[token], boundScenes.contains(window.sceneID) else { return }
+        bridge?.submitWindowFullscreen(fullscreen, token: token)
     }
 
     private func present(_ id: UUID, activate: Bool) {

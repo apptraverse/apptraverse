@@ -3,13 +3,11 @@
 #include "apptraverse/distilled_domain_export.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/platform/ios/ios_ui_presenters.h"
-#include "apptraverse/ui/ui_presenters.h"
 #include "minimal_app_graph_ios.h"
 
 int main(int argc, char** argv) {
   if (argc != 2) return 2;
-  apptraverse::EnsureObjectRegistration();
-  apptraverse::ui::EnsureUiPresenterRegistration();
+  apptraverse::EnsureCoreObjectRegistration();
   apptraverse::ui::ios::EnsureIosUiPresenterRegistration();
   apptraverse::example::minimal::EnsureMinimalApplicationRegistration();
 

@@ -243,15 +243,18 @@ private func colorSchemePreference(for state: ATIosWindowState?,
 
 private struct IosSettingsView: View {
     @ObservedObject var host: IosApplicationHost
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
+        if let settings = host.settingsState { content(settings) }
+    }
+
+    private func content(_ settings: ATIosSettingsState) -> some View {
         let state = host.mainScene?.snapshot?.state
         let softDark = state?.softenDark == true && contrast != .increased
-        NavigationStack {
+        return NavigationStack {
             Form {
-                ForEach(Array(host.menuGroups.enumerated()), id: \.offset) { groupIndex, group in
+                ForEach(Array(settings.groups.enumerated()), id: \.offset) { groupIndex, group in
                     Section(group.title.replacingOccurrences(of: "&", with: "")) {
                         ForEach(Array(group.items.enumerated()), id: \.offset) { itemIndex, item in
                             Button {
@@ -274,11 +277,11 @@ private struct IosSettingsView: View {
             }
             .scrollContentBackground(softDark ? .hidden : .automatic)
             .background(softDark ? Color(white: 0.18) : Color.clear)
-            .navigationTitle("Settings")
+            .navigationTitle(settings.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                    Button(settings.doneTitle) { host.setSettingsPresented(false) }
                         .accessibilityIdentifier("settings-done")
                 }
             }
@@ -289,7 +292,6 @@ private struct IosSettingsView: View {
 
 public struct IosApplicationRootView: View {
     @ObservedObject public var host: IosApplicationHost
-    @AppStorage("apptraverse.ios.showsSettings") private var showsSettings = false
     @Environment(\.scenePhase) private var phase
     @Environment(\.displayScale) private var displayScale
     @Environment(\.colorScheme) private var scheme
@@ -305,8 +307,8 @@ public struct IosApplicationRootView: View {
     }
 
     private var settingsPresentation: Binding<Bool> {
-        Binding(get: { showsSettings && !host.menuGroups.isEmpty },
-                set: { showsSettings = $0 })
+        Binding(get: { host.settingsState?.isPresented == true },
+                set: { host.setSettingsPresented($0) })
     }
 
     private var settings: IosSystemSettings {
@@ -348,12 +350,13 @@ public struct IosApplicationRootView: View {
             .navigationTitle(host.activeScene?.title ?? "")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                if let main = host.mainScene, host.activeToken == main.id, !host.menuGroups.isEmpty {
+                if let main = host.mainScene, host.activeToken == main.id,
+                   let settings = host.settingsState {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
-                            showsSettings = true
+                            host.setSettingsPresented(true)
                         } label: {
-                            Label("Settings", systemImage: "gearshape")
+                            Label(settings.title, systemImage: "gearshape")
                                 .labelStyle(.iconOnly)
                         }
                         .accessibilityIdentifier("catalog-settings")
@@ -382,7 +385,7 @@ public struct IosApplicationRootView: View {
 private struct IosPresentation {
     var pages: [UInt64] = []
     var active: UInt64?
-    var menu: [ATIosMenuGroupState] = []
+    var settings: ATIosSettingsState?
 }
 
 public final class IosApplicationHost: NSObject, ObservableObject, ATIosApplicationBridgeDelegate {
@@ -408,7 +411,7 @@ public final class IosApplicationHost: NSObject, ObservableObject, ATIosApplicat
 
     var pageTokens: [UInt64] { presentation.pages }
     var activeToken: UInt64? { presentation.active }
-    var menuGroups: [ATIosMenuGroupState] { presentation.menu }
+    var settingsState: ATIosSettingsState? { presentation.settings }
     var activeScene: IosWindowSceneModel? { activeToken.flatMap { scenes[$0] } }
     var mainScene: IosWindowSceneModel? { pageTokens.first.flatMap { scenes[$0] } }
     public var isRunning: Bool { started && !stopping }
@@ -444,6 +447,12 @@ public final class IosApplicationHost: NSObject, ObservableObject, ATIosApplicat
     func executeMenu(group: Int, item: Int) {
         guard started && !stopping else { return }
         bridge.executeMenuGroup(UInt(group), item: UInt(item))
+    }
+
+    func setSettingsPresented(_ presented: Bool) {
+        guard started && !stopping, let settingsState,
+              settingsState.isPresented != presented else { return }
+        bridge.submitSettingsPresented(presented)
     }
 
     public func reportViewport(_ size: CGSize) {
@@ -513,8 +522,8 @@ public final class IosApplicationHost: NSObject, ObservableObject, ATIosApplicat
         pendingPresentation.active = token
     }
 
-    public func bridge(_ bridge: ATIosApplicationBridge, syncMenu groups: [ATIosMenuGroupState]) {
-        pendingPresentation.menu = groups
+    public func bridge(_ bridge: ATIosApplicationBridge, syncSettings settings: ATIosSettingsState) {
+        pendingPresentation.settings = settings
     }
 
     public func bridge(_ bridge: ATIosApplicationBridge, loadButton token: UInt64) {

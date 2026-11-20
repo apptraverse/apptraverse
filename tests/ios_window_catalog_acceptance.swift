@@ -40,6 +40,7 @@ private struct Expected: Codable {
     var active: UInt64
     var closed: UInt64
     var selected: Int?
+    var settingsPresented: Bool
 }
 
 private final class Acceptance {
@@ -155,7 +156,8 @@ private final class Acceptance {
     func recordExpected() {
         expected = Expected(rows: list!.rows.map(\.id), labels: list!.rows.map(\.text),
                             active: host.activeScene!.identity, closed: thirdIdentity,
-                            selected: list!.selectedRow)
+                            selected: list!.selectedRow,
+                            settingsPresented: host.settingsState!.isPresented)
         try! JSONEncoder().encode(expected!).write(to: root.appendingPathComponent("expected.json"))
     }
     func snapshot(_ name: String) {
@@ -186,8 +188,13 @@ private final class Acceptance {
                 require(self.host.activeScene!.identity == self.expected!.active, "cold active page lost")
                 require(self.list!.selectedRow == self.expected!.selected, "cold selected holder lost")
                 require(self.child(3) == nil, "cold closed child eagerly activated")
+                require(self.host.settingsState?.isPresented == self.expected!.settingsPresented,
+                        "cold settings visibility lost")
                 self.snapshot("cold-restored")
             })
+            step("cold settings can be dismissed from the restored model", action: {
+                self.host.setSettingsPresented(false)
+            }, ready: { self.host.settingsState?.isPresented == false })
             step("cold main page", action: { self.goMain() }, ready: {
                 self.host.activeToken == self.main?.id
             })
@@ -267,10 +274,11 @@ private final class Acceptance {
         }, ready: {
             self.main?.snapshot?.state.softenDark == true &&
                 self.child(1)?.snapshot?.state.softenDark == true &&
-                self.host.menuGroups.first?.items.last?.isSelected == true
+                self.host.settingsState?.groups.first?.items.last?.isSelected == true
         })
         step("localization across pages", action: { self.host.executeMenu(group: 1, item: 1) }, ready: {
-            self.main?.title == "Каталог окон" && self.child(1)?.title == "Окно 1" && self.child(2)?.title == "Окно 2"
+            self.main?.title == "Каталог окон" && self.child(1)?.title == "Окно 1"
+                && self.child(2)?.title == "Окно 2" && self.host.settingsState?.title == "Настройки"
         }, check: { self.snapshot("localized-main") })
         step("Delete removes selected page", action: { self.click("Удалить") }, ready: {
             self.list!.rows.count == 1 && self.child(1) == nil
@@ -315,6 +323,7 @@ private final class Acceptance {
             // for its publication. Repeated lifecycle notifications must not
             // lose this work or create a new model/UI session.
             self.host.selectPage(self.main!.id)
+            self.host.setSettingsPresented(true)
             self.host.sceneWillDeactivate()
             self.host.sceneDidBecomeActive()
             self.host.sceneWillDeactivate()
@@ -322,6 +331,7 @@ private final class Acceptance {
         }, ready: {
             self.host.lastBackgroundSaveExitCode() == 0 &&
                 self.host.activeToken == self.main?.id && self.savedUser() != self.firstSavedUser
+                && self.host.settingsState?.isPresented == true
         }, check: {
             self.requireSameLiveSession(activeUnchanged: false)
             self.recordExpected()

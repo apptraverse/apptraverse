@@ -34,6 +34,16 @@ typedef struct {
                         items:(NSArray<ATIosMenuItemState*>*)items;
 @end
 
+@interface ATIosSettingsState : NSObject
+@property(nonatomic, readonly) NSString* title;
+@property(nonatomic, readonly) NSString* doneTitle;
+@property(nonatomic, readonly) NSArray<ATIosMenuGroupState*>* groups;
+@property(nonatomic, readonly, getter=isPresented) BOOL presented;
+- (instancetype)initWithTitle:(NSString*)title doneTitle:(NSString*)doneTitle
+                       groups:(NSArray<ATIosMenuGroupState*>*)groups
+                    presented:(BOOL)presented;
+@end
+
 @protocol ATIosApplicationBridgeDelegate <NSObject>
 - (void)bridge:(ATIosApplicationBridge*)bridge
     loadWindow:(uint64_t)token;
@@ -59,7 +69,7 @@ typedef struct {
 - (void)bridgeModelDidFinish:(ATIosApplicationBridge*)bridge;
 @optional
 - (void)bridge:(ATIosApplicationBridge*)bridge
-    syncMenu:(NSArray<ATIosMenuGroupState*>*)groups;
+    syncSettings:(ATIosSettingsState*)settings;
 @required
 - (void)bridge:(ATIosApplicationBridge*)bridge
     backgroundSaveDidFinish:(NSInteger)result;
@@ -105,6 +115,7 @@ typedef struct {
 - (ATIosListState*)listState:(uint64_t)token;
 - (void)clickButton:(uint64_t)token;
 - (void)executeMenuGroup:(NSUInteger)group item:(NSUInteger)item;
+- (void)submitSettingsPresented:(BOOL)presented;
 - (void)selectListRow:(NSInteger)row token:(uint64_t)token;
 - (void)activateListRow:(NSInteger)row token:(uint64_t)token;
 - (void)submitViewportWidth:(double)width height:(double)height;

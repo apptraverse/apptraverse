@@ -4,6 +4,7 @@
 #include "window_catalog_model.h"
 #include "window_catalog_menu.h"
 #include "window_catalog_presenters_ios.h"
+#include "window_catalog_settings_ios.h"
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/object_macros.h"
 
@@ -32,11 +33,28 @@ APPTRAVERSE_REGISTER(IosCatalogListPresenter);
 
 namespace apptraverse {
 
+void IosCatalogUiState::SetSettingsPresentedFromUi(bool presented) {
+  if (settings_presented == presented) return;
+  auto event = SetIosCatalogSettingsPresentedEvent::ptr::Create(ae::CreateWith{*domain});
+  event->presented = presented;
+  CommitLocal(std::move(event));
+}
+
+void IosCatalogUiState::Apply(SetIosCatalogSettingsPresentedEvent const& event) {
+  settings_presented = event.presented;
+  NoteMaterializedChange();
+}
+
+APPTRAVERSE_REGISTER(IosCatalogUiState);
+APPTRAVERSE_REGISTER(SetIosCatalogSettingsPresentedEvent);
+
 void EnsureWindowCatalogGraphRegistration() {
   EnsureCoreObjectRegistration();
-  EnsureWindowCatalogModelRegistration();
+  EnsureWindowCatalogNativeMenuModelRegistration();
   EnsureCatalogMenuRegistration();
   ui::ios::EnsureIosUiPresenterRegistration();
+  (void)&g_apptraverse_registrar_IosCatalogUiState;
+  (void)&g_apptraverse_registrar_SetIosCatalogSettingsPresentedEvent;
   (void)&example::surfaces::g_apptraverse_registrar_IosCatalogWindowPresenter;
   (void)&example::surfaces::g_apptraverse_registrar_IosCatalogListPresenter;
 }

@@ -6,7 +6,6 @@
 
 #include "apptraverse/platform/macos/macos_application_bridge.h"
 #include "apptraverse/platform/macos/macos_ui_presenters.h"
-#include "apptraverse/ui/ui_presenters.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/noninteractive_crt.h"
 #include "minimal_app_desktop_close.h"
@@ -53,8 +52,7 @@ ATMacApplicationBridge* ATCreateMinimalApplicationBridge(
 }
 
 void ATRegisterMinimalMacApplication(void) {
-  apptraverse::EnsureObjectRegistration();
-  apptraverse::ui::EnsureUiPresenterRegistration();
+  apptraverse::EnsureCoreObjectRegistration();
   apptraverse::ui::macos::EnsureMacUiPresenterRegistration();
   apptraverse::example::minimal::EnsureMinimalApplicationRegistration();
 }

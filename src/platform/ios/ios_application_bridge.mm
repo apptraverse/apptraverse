@@ -107,6 +107,20 @@ class IosNativeViews final
 }
 @end
 
+@implementation ATIosSettingsState
+- (instancetype)initWithTitle:(NSString*)title doneTitle:(NSString*)doneTitle
+                       groups:(NSArray<ATIosMenuGroupState*>*)groups
+                    presented:(BOOL)presented {
+  if ((self = [super init])) {
+    _title = title;
+    _doneTitle = doneTitle;
+    _groups = [groups copy];
+    _presented = presented;
+  }
+  return self;
+}
+@end
+
 @interface ATIosWindowState ()
 - (instancetype)initWithTitle:(NSString*)title identity:(uint64_t)identity
                       layout:(ATAppleWindowLayout*)layout theme:(NSUInteger)theme
@@ -366,8 +380,8 @@ class IosNativeViews final
     if (_callbacks.after_incremental) _callbacks.after_incremental(_uiSession->root());
   }
   [self publishMobilePresentation];
-  if (_callbacks.menu_state) {
-    [self.delegate bridge:self syncMenu:_callbacks.menu_state(_uiSession->root())];
+  if (_callbacks.settings_state) {
+    [self.delegate bridge:self syncSettings:_callbacks.settings_state(_uiSession->root())];
   }
   [self.delegate bridgeDidFinishPublication:self];
   _runtime->NotifyPublicationConsumed();
@@ -422,6 +436,11 @@ class IosNativeViews final
   if (_stopping || !_uiSession || !_callbacks.on_menu_command) return;
   _callbacks.on_menu_command(_uiSession->root(), *_proxy,
       static_cast<unsigned>(group), static_cast<unsigned>(item));
+}
+
+- (void)submitSettingsPresented:(BOOL)presented {
+  if (_stopping || !_uiSession || !_callbacks.on_settings_presented) return;
+  _callbacks.on_settings_presented(_uiSession->root(), *_proxy, presented);
 }
 
 - (void)clickButton:(uint64_t)token {

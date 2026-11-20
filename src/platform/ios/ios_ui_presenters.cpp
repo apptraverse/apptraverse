@@ -18,7 +18,7 @@ IosUiNativeViews& NativeViews(Presenter const& presenter) {
 }  // namespace
 
 void EnsureIosUiPresenterRegistration() {
-  EnsureUiControlRegistration();
+  EnsureUiWindowControlRegistration();
   (void)&g_apptraverse_registrar_IosDesktopWindowPresenter;
   (void)&g_apptraverse_registrar_IosPushButtonPresenter;
   (void)&g_apptraverse_registrar_IosListContainerPresenter;

@@ -6,6 +6,7 @@ import SwiftUI
 private struct SavedCatalog: Codable {
     let rows: [UInt64]
     let mainFrame: CGRect
+    let childFrame: CGRect
 }
 
 private final class CatalogScenario {
@@ -33,6 +34,37 @@ private final class CatalogScenario {
     private func mounted(_ window: MacWindowAdapter?) -> Bool {
         guard let window else { return false }
         return window.clientSize != nil && host.nativeWindows[window.sceneID] != nil
+    }
+
+    private func hasClientSize(_ window: MacWindowAdapter?, _ size: CGSize) -> Bool {
+        guard let window, let native = host.nativeWindows[window.sceneID],
+              let viewport = window.clientSize else { return false }
+        return native.contentLayoutRect.size == size && viewport.width == size.width
+            && viewport.height > 0 && viewport.height < size.height
+    }
+
+    private func isFullscreen(_ adapter: MacWindowAdapter?) -> Bool {
+        guard let adapter, let native = host.nativeWindows[adapter.sceneID],
+              let screen = native.screen else { return false }
+        return adapter.snapshot?.state.display?.isFullscreen == true
+            && native.titleVisibility == .hidden && native.frame == screen.visibleFrame
+    }
+
+    private func frameMatches(_ actual: CGRect, _ expected: CGRect) -> Bool {
+        abs(actual.minX - expected.minX) <= 1 && abs(actual.minY - expected.minY) <= 1
+            && abs(actual.width - expected.width) <= 1 && abs(actual.height - expected.height) <= 1
+    }
+
+    private func pressFullscreenKey(_ characters: String, code: UInt16, in window: NSWindow) {
+        NSApp.postEvent(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+            context: nil, characters: characters, charactersIgnoringModifiers: characters,
+            isARepeat: false, keyCode: code)!, atStart: false)
+    }
+
+    @MainActor private func focus(_ window: NSWindow) async {
+        host.nativeWindows.raise(window, activate: true)
+        await wait("native input target is the key window") { NSApp.isActive && window.isKeyWindow }
     }
 
     private func button(_ title: String) -> MacButtonAdapter {
@@ -110,6 +142,16 @@ private final class CatalogScenario {
                     && self.main?.softenDark == true
             }
             let restoredWindow = host.nativeWindows[host.primarySceneID]!
+            let restoredChild = host.nativeWindows[child(2)!.sceneID]!
+            await wait("cold launch restores both independently fullscreen windows") {
+                self.isFullscreen(self.main) && self.isFullscreen(self.child(2))
+            }
+            host.setFullscreen(false, window: main!.id)
+            host.setFullscreen(false, window: child(2)!.id)
+            await wait("exiting fullscreen restores both normal native frames") {
+                restoredWindow.titleVisibility == .visible && restoredChild.titleVisibility == .visible
+                    && self.frameMatches(restoredChild.frame, saved.childFrame)
+            }
             let workArea = restoredWindow.screen!.visibleFrame
             // The Windows presenter also fits saved placements to the work area.
             let width = min(saved.mainFrame.width, workArea.width)
@@ -119,10 +161,7 @@ private final class CatalogScenario {
                 y: min(max(saved.mainFrame.maxY - height, workArea.minY), workArea.maxY - height),
                 width: width, height: height)
             let restoredFrame = restoredWindow.frame
-            precondition(abs(restoredFrame.minX - expectedFrame.minX) <= 1 &&
-                         abs(restoredFrame.minY - expectedFrame.minY) <= 1 &&
-                         abs(restoredFrame.width - expectedFrame.width) <= 1 &&
-                         abs(restoredFrame.height - expectedFrame.height) <= 1,
+            precondition(frameMatches(restoredFrame, expectedFrame),
                          "LOCAL restored \(restoredFrame), expected \(expectedFrame)")
             select(expected[0])
             await wait("SwiftUI list binding selects the closed row") { self.list?.selectedRow == 0 }
@@ -146,7 +185,8 @@ private final class CatalogScenario {
             }
             window.setContentSize(CGSize(width: 780, height: 460))
             await wait("wide native resize reflows controls beside the list") {
-                guard self.main?.clientSize?.width == 780 && self.main?.clientSize == window.contentLayoutRect.size else { return false }
+                guard self.main?.clientSize?.width == 780,
+                      self.main!.clientSize!.height < window.contentLayoutRect.height else { return false }
                 let frames = solved()
                 return frames.frame(forControl: buttonID).minX > frames.frame(forControl: listID).maxX
             }
@@ -175,7 +215,8 @@ private final class CatalogScenario {
             }
             window.setContentSize(CGSize(width: 310, height: 570))
             await wait("tall native resize reflows controls below the list") {
-                guard self.main?.clientSize?.width == 310 && self.main?.clientSize == window.contentLayoutRect.size else { return false }
+                guard self.main?.clientSize?.width == 310,
+                      self.main!.clientSize!.height < window.contentLayoutRect.height else { return false }
                 let frames = solved()
                 return frames.frame(forControl: buttonID).minY > frames.frame(forControl: listID).maxY
             }
@@ -195,7 +236,7 @@ private final class CatalogScenario {
             let firstScene = child(1)!.sceneID
             ATMacAcceptanceRequestFrame(child(1)!.id, 160, 140, 400, 280)
             await wait("model frame request delivers its size to SwiftUI layout") {
-                self.child(1)?.clientSize == CGSize(width: 400, height: 280)
+                self.hasClientSize(self.child(1), CGSize(width: 400, height: 280))
             }
             nativeChild.setContentSize(CGSize(width: 455, height: 320))
             await wait("native resize changes only the child viewport") {
@@ -203,7 +244,7 @@ private final class CatalogScenario {
             }
             ATMacAcceptanceRequestFrame(child(1)!.id, 160, 140, 400, 280)
             await wait("same semantic frame request still reapplies after native resize") {
-                self.child(1)?.clientSize == CGSize(width: 400, height: 280)
+                self.hasClientSize(self.child(1), CGSize(width: 400, height: 280))
             }
             close(child(1)!)
             await wait("closing the SwiftUI child leaves its lazy model row") {
@@ -215,20 +256,20 @@ private final class CatalogScenario {
             await wait("Open remounts the same row in a new SwiftUI presentation") {
                 self.mounted(self.child(1)) && self.child(1)?.sceneID != firstScene
                     && self.list?.rows.first?.id == first
-                    && self.child(1)?.clientSize == CGSize(width: 400, height: 280)
+                    && self.hasClientSize(self.child(1), CGSize(width: 400, height: 280))
             }
             button("Add").click()
             await wait("second Add mounts an independent scene") {
                 self.mounted(self.child(2)) && self.list?.selectedRow == 1
             }
-            nativeMain.makeKeyAndOrderFront(nil)
+            await focus(nativeMain)
             clickRow(0)
             await wait("native list click selects the row by identity") { self.list?.selectedRow == 0 }
             button("Open").click()
             await wait("Open activates the existing independent window") {
                 self.host.nativeWindows[self.child(1)!.sceneID]?.isKeyWindow == true
             }
-            nativeMain.makeKeyAndOrderFront(nil)
+            await focus(nativeMain)
             clickRow(1, count: 2)
             await wait("native list double-click activates its existing window") {
                 self.list?.selectedRow == 1 && self.host.nativeWindows[self.child(2)!.sceneID]?.isKeyWindow == true
@@ -259,8 +300,27 @@ private final class CatalogScenario {
                 self.main?.softenDark == true && self.child(2)?.softenDark == true
                     && self.host.menuGroups.first?.items.last?.isSelected == true
             }
+            let nativeSecond = host.nativeWindows[child(2)!.sceneID]!
+            let normalChild = nativeSecond.frame
+            let saved = SavedCatalog(rows: list!.rows.map(\.id), mainFrame: nativeMain.frame,
+                                     childFrame: normalChild)
+            await focus(nativeSecond)
+            pressFullscreenKey("\u{F70E}", code: 103, in: nativeSecond)
+            await wait("fullscreen is localized and applies only to the requested child") {
+                self.isFullscreen(self.child(2)) && nativeSecond.isKeyWindow
+                    && !self.isFullscreen(self.main)
+                    && self.child(2)?.snapshot?.state.display?.actionTitle == "Выйти из полноэкранного режима"
+            }
+            pressFullscreenKey("\u{1B}", code: 53, in: nativeSecond)
+            await wait("child exits fullscreen to the same normal frame") {
+                nativeSecond.titleVisibility == .visible && self.frameMatches(nativeSecond.frame, normalChild)
+            }
+            host.setFullscreen(true, window: main!.id)
+            host.setFullscreen(true, window: child(2)!.id)
+            await wait("main and child can enter fullscreen independently") {
+                self.isFullscreen(self.main) && self.isFullscreen(self.child(2))
+            }
             precondition(savedFiles().isEmpty)
-            let saved = SavedCatalog(rows: list!.rows.map(\.id), mainFrame: nativeMain.frame)
             try! JSONEncoder().encode(saved).write(to: snapshot)
             host.requestStop()
         }

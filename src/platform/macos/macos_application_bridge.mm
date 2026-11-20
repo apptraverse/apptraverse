@@ -9,6 +9,7 @@
 #include <limits>
 #include <memory>
 #include <map>
+#include <optional>
 #include <set>
 #include <thread>
 #include <utility>
@@ -74,6 +75,21 @@ std::string ScreenKey(NSScreen* screen) {
   return std::string{key.UTF8String};
 }
 
+NSScreen* ScreenForKey(std::string const& key) {
+  for (NSScreen* screen in NSScreen.screens) {
+    if (ScreenKey(screen) == key) return screen;
+  }
+  return nil;
+}
+
+NSRect FrameInWorkArea(NSRect area, UiDisplayRect saved) {
+  double const width = std::clamp<double>(saved.width, 1, std::max(1.0, area.size.width));
+  double const height = std::clamp<double>(saved.height, 1, std::max(1.0, area.size.height));
+  return NSMakeRect(area.origin.x + std::clamp<double>(saved.x, 0, area.size.width - width),
+      NSMaxY(area) - std::clamp<double>(saved.y, 0, area.size.height - height) - height,
+      width, height);
+}
+
 // SwiftUI's full-size content includes the title bar in contentRect. The
 // model's semantic size is the unobscured layout viewport.
 NSSize ContentSizeForViewport(NSWindow* window, double width, double height) {
@@ -83,11 +99,30 @@ NSSize ContentSizeForViewport(NSWindow* window, double width, double height) {
                     height + current.height - viewport.height);
 }
 
+struct NormalWindowChrome {
+  NSWindowStyleMask style;
+  NSRect frame;
+  NSWindowTitleVisibility title_visibility;
+  NSTitlebarSeparatorStyle separator;
+  BOOL transparent_titlebar;
+  BOOL movable;
+  BOOL zoomed;
+};
+
+void SetCaptionButtonsHidden(NSWindow* window, BOOL hidden) {
+  for (auto button : {NSWindowCloseButton, NSWindowMiniaturizeButton, NSWindowZoomButton}) {
+    [window standardWindowButton:button].hidden = hidden;
+  }
+}
+
 struct NativeWindow {
   __weak NSWindow* window{};
   std::uint64_t placement_revision{};
   bool applying_frame{};
+  bool moving{};
   bool own_initial_placement{};
+  bool pending_requested_frame{};
+  std::optional<NormalWindowChrome> normal_chrome;
 };
 
 class MacNativeViews final
@@ -168,13 +203,28 @@ class MacNativeViews final
 }
 @end
 
+@implementation ATMacWindowDisplayState
+- (instancetype)initWithFullscreen:(BOOL)fullscreen actionTitle:(NSString*)actionTitle
+                    toolbarLayout:(ATAppleWindowLayout*)toolbarLayout
+                   actionControlID:(uint32_t)actionControlID {
+  if ((self = [super init])) {
+    _fullscreen = fullscreen;
+    _actionTitle = actionTitle;
+    _toolbarLayout = toolbarLayout;
+    _actionControlID = actionControlID;
+  }
+  return self;
+}
+@end
+
 @interface ATMacWindowState ()
 - (instancetype)initWithTitle:(NSString*)title
                         width:(double)width
                        height:(double)height
                       primary:(BOOL)primary
                        layout:(ATAppleWindowLayout*)layout
-                       theme:(NSUInteger)theme softenDark:(BOOL)softenDark;
+                       theme:(NSUInteger)theme softenDark:(BOOL)softenDark
+                     display:(ATMacWindowDisplayState*)display;
 @end
 
 @implementation ATMacWindowState
@@ -183,7 +233,8 @@ class MacNativeViews final
                        height:(double)height
                       primary:(BOOL)primary
                        layout:(ATAppleWindowLayout*)layout
-                       theme:(NSUInteger)theme softenDark:(BOOL)softenDark {
+                       theme:(NSUInteger)theme softenDark:(BOOL)softenDark
+                     display:(ATMacWindowDisplayState*)display {
   if ((self = [super init])) {
     _title = title;
     _width = width;
@@ -192,6 +243,7 @@ class MacNativeViews final
     _layout = layout;
     _theme = theme;
     _softenDark = softenDark;
+    _display = display;
   }
   return self;
 }
@@ -364,9 +416,12 @@ class MacNativeViews final
 - (ATMacWindowState*)windowState:(uint64_t)token {
   auto& presenter = FromToken<MacDesktopWindowPresenter>(token);
   auto desktop = presenter.desktop_window();
-  auto const appearance = presenter.LocalDeviceState()->appearance;
-  NSString* title = ToNSString(presenter.ResolvePresentedWindowTitle(
-      presenter.locale->language_index()));
+  auto const& device = *presenter.LocalDeviceState();
+  auto const appearance = device.appearance;
+  int const language = presenter.locale->language_index();
+  NSString* title = ToNSString(presenter.ResolvePresentedWindowTitle(language));
+  auto* display = _callbacks.window_display_state
+      ? _callbacks.window_display_state(device, desktop->obj_id, language) : nil;
   return [[ATMacWindowState alloc]
       initWithTitle:title
               width:desktop->restore_client_width()
@@ -374,7 +429,8 @@ class MacNativeViews final
             primary:desktop->obj_id == _mainWindowId
              layout:[[ATAppleWindowLayout alloc] initWithRoot:*presenter.LayoutRoot()]
               theme:static_cast<NSUInteger>(appearance.theme)
-         softenDark:appearance.soften_dark];
+         softenDark:appearance.soften_dark
+            display:display];
 }
 
 - (ATMacButtonState*)buttonState:(uint64_t)token {
@@ -420,6 +476,13 @@ class MacNativeViews final
       static_cast<unsigned>(item));
 }
 
+- (void)submitWindowFullscreen:(BOOL)fullscreen token:(uint64_t)token {
+  if (_stopping || !_callbacks.on_window_fullscreen || !_windows.contains(token)) return;
+  auto& presenter = FromToken<MacDesktopWindowPresenter>(token);
+  _callbacks.on_window_fullscreen(*_proxy, presenter.LocalDeviceState()->obj_id,
+      presenter.window.id(), fullscreen);
+}
+
 - (void)clickButton:(uint64_t)token {
   if (_stopping) return;
   FromToken<MacPushButtonPresenter>(token).NotifyClickedFromUi();
@@ -440,6 +503,11 @@ class MacNativeViews final
 - (void)bindNativeWindow:(id)window token:(uint64_t)token {
   auto& native = _windows[token];
   native.window = static_cast<NSWindow*>(window);
+  if (_callbacks.window_display_state) {
+    native.window.collectionBehavior = (native.window.collectionBehavior &
+        ~(NSWindowCollectionBehaviorFullScreenPrimary | NSWindowCollectionBehaviorFullScreenAuxiliary))
+        | NSWindowCollectionBehaviorFullScreenNone;
+  }
   auto& presenter = FromToken<MacDesktopWindowPresenter>(token);
   if ([self applyLocalPlacement:token]) return;
 
@@ -457,13 +525,67 @@ class MacNativeViews final
 
 - (void)unbindNativeWindow:(uint64_t)token { _windows.erase(token); }
 
+- (void)applyWindowFullscreen:(BOOL)fullscreen token:(uint64_t)token {
+  auto const found = _windows.find(token);
+  if (_stopping || found == _windows.end()) return;
+  auto& native = found->second;
+  NSWindow* window = native.window;
+  if (!window || window.isMiniaturized || window.inLiveResize || native.moving ||
+      static_cast<bool>(fullscreen) == native.normal_chrome.has_value()) return;
+  auto& presenter = FromToken<MacDesktopWindowPresenter>(token);
+  auto const* placement = presenter.LocalDeviceState()->PlacementFor(presenter.window.id());
+
+  if (fullscreen) {
+    NSScreen* screen = placement ? ScreenForKey(placement->resolved_monitor) : window.screen;
+    if (!screen) return;
+    BOOL const was_key = window.isKeyWindow;
+    native.normal_chrome = NormalWindowChrome{window.styleMask, window.frame,
+        window.titleVisibility, window.titlebarSeparatorStyle,
+        window.titlebarAppearsTransparent, window.isMovable, window.isZoomed};
+    native.applying_frame = true;
+    // Preserve the titled style so the SwiftUI scene remains keyboard-active.
+    window.styleMask = NSWindowStyleMaskTitled | NSWindowStyleMaskFullSizeContentView |
+        (window.styleMask & NSWindowStyleMaskClosable);
+    window.titleVisibility = NSWindowTitleHidden;
+    window.titlebarAppearsTransparent = YES;
+    window.titlebarSeparatorStyle = NSTitlebarSeparatorStyleNone;
+    SetCaptionButtonsHidden(window, YES);
+    window.movable = NO;
+    [window setFrame:screen.visibleFrame display:YES];
+    if (was_key && !window.isKeyWindow) [window makeKeyWindow];
+    native.applying_frame = false;
+    if (placement) native.placement_revision = placement->revision;
+    [self observeNativeWindow:token commit:NO];
+    return;
+  }
+
+  auto const normal = *native.normal_chrome;
+  native.applying_frame = true;
+  window.styleMask = normal.style;
+  window.titleVisibility = normal.title_visibility;
+  window.titlebarAppearsTransparent = normal.transparent_titlebar;
+  window.titlebarSeparatorStyle = normal.separator;
+  SetCaptionButtonsHidden(window, NO);
+  window.movable = normal.movable;
+  [window setFrame:normal.frame display:YES];
+  native.normal_chrome.reset();
+  native.placement_revision = 0;
+  native.applying_frame = false;
+  if (std::exchange(native.pending_requested_frame, false)) {
+    [self applyRequestedNativeFrame:token];
+  } else {
+    [self applyLocalPlacement:token];
+    if (normal.zoomed && !window.isZoomed) [window zoom:nil];
+    [self observeNativeWindow:token commit:NO];
+  }
+}
+
 - (void)observeNativeWindow:(uint64_t)token commit:(BOOL)commit {
   auto const found = _windows.find(token);
   if (_stopping || found == _windows.end() || found->second.applying_frame) return;
   auto& native = found->second;
   NSWindow* window = native.window;
-  if (!window || window.isMiniaturized || window.isZoomed ||
-      (window.styleMask & NSWindowStyleMaskFullScreen) || !window.screen) return;
+  if (!window || !window.screen) return;
   auto& presenter = FromToken<MacDesktopWindowPresenter>(token);
   auto* state = presenter.LocalDeviceState();
   auto const frame = window.frame;
@@ -471,11 +593,44 @@ class MacNativeViews final
   UiDisplayRect const outer{ModelCoordinate(frame.origin.x - area.origin.x),
       ModelCoordinate(NSMaxY(area) - NSMaxY(frame)),
       ModelCoordinate(frame.size.width), ModelCoordinate(frame.size.height)};
-  if (!state->PlacementFor(presenter.window.id())) native.own_initial_placement = true;
+  bool const normal = !native.normal_chrome && !window.isMiniaturized && !window.isZoomed &&
+      !(window.styleMask & NSWindowStyleMaskFullScreen);
+  if (!state->PlacementFor(presenter.window.id())) {
+    if (!normal) return;
+    native.own_initial_placement = true;
+  }
   auto const dpi = static_cast<std::uint32_t>(std::lround(96 * window.backingScaleFactor));
   _proxy->Invoke(state->obj_id, &UiDeviceState::ObserveWindow,
       UiWindowEnvironment{presenter.window.id(), ScreenKey(window.screen), dpi, dpi, outer},
-      commit ? UiEnvironmentReason::kUserWindowChange : UiEnvironmentReason::kSystemNotification);
+      commit && normal ? UiEnvironmentReason::kUserWindowChange
+                       : UiEnvironmentReason::kSystemNotification);
+}
+
+- (void)beginNativeWindowMove:(uint64_t)token {
+  auto const found = _windows.find(token);
+  if (!_stopping && found != _windows.end() && !found->second.applying_frame)
+    found->second.moving = true;
+}
+
+- (void)finishNativeWindowInteraction:(uint64_t)token commit:(BOOL)commit {
+  auto const found = _windows.find(token);
+  if (_stopping || found == _windows.end() || found->second.applying_frame) return;
+  auto& native = found->second;
+  native.moving = false;
+  NSWindow* window = native.window;
+  if (native.pending_requested_frame && !native.normal_chrome) {
+    [self applyRequestedNativeFrame:token];
+    return;
+  }
+  if (commit && window && !window.isZoomed && !native.normal_chrome) {
+    // A completed user move takes priority over placement deferred during it.
+    auto& presenter = FromToken<MacDesktopWindowPresenter>(token);
+    auto const* placement = presenter.LocalDeviceState()->PlacementFor(presenter.window.id());
+    if (placement) native.placement_revision = placement->revision;
+    [self observeNativeWindow:token commit:YES];
+  } else if (![self applyLocalPlacement:token]) {
+    [self observeNativeWindow:token commit:NO];
+  }
 }
 
 - (BOOL)applyLocalPlacement:(uint64_t)token {
@@ -483,28 +638,28 @@ class MacNativeViews final
   NSWindow* window = native.window;
   auto& presenter = FromToken<MacDesktopWindowPresenter>(token);
   auto const* placement = presenter.LocalDeviceState()->PlacementFor(presenter.window.id());
-  if (!window || !placement || placement->revision == native.placement_revision ||
+  if (!window || window.isMiniaturized || window.inLiveResize || native.moving || !placement ||
+      (window.styleMask & NSWindowStyleMaskFullScreen) ||
+      placement->revision == native.placement_revision ||
       placement->resolution == UiMonitorResolution::kUnavailable) return NO;
-  if (native.own_initial_placement && placement->revision == 1) {
+  if (!native.normal_chrome && native.own_initial_placement && placement->revision == 1) {
     native.placement_revision = placement->revision;
     return NO;
   }
-  for (NSScreen* screen in NSScreen.screens) {
-    if (ScreenKey(screen) != placement->resolved_monitor) continue;
-    auto const area = screen.visibleFrame;
-    auto const saved = placement->frame_dip;
-    double const width = std::clamp<double>(saved.width, 1, std::max(1.0, area.size.width));
-    double const height = std::clamp<double>(saved.height, 1, std::max(1.0, area.size.height));
-    auto const target = NSMakeRect(area.origin.x + std::clamp<double>(saved.x, 0, area.size.width - width),
-        NSMaxY(area) - std::clamp<double>(saved.y, 0, area.size.height - height) - height, width, height);
-    native.placement_revision = placement->revision;
-    native.applying_frame = true;
-    [window setFrame:target display:YES];
-    native.applying_frame = false;
-    [self observeNativeWindow:token commit:NO];
-    return YES;
-  }
-  return NO;
+  NSScreen* screen = ScreenForKey(placement->resolved_monitor);
+  if (!screen) return NO;
+  auto const area = screen.visibleFrame;
+  // A newly mounted scene can inherit an AppKit zoomed rectangle from the
+  // previous process. Apply LOCAL normal geometry before entering fullscreen.
+  bool const preserve_zoom = native.placement_revision != 0 && window.isZoomed;
+  auto const target = native.normal_chrome || preserve_zoom
+      ? area : FrameInWorkArea(area, placement->frame_dip);
+  native.placement_revision = placement->revision;
+  native.applying_frame = true;
+  [window setFrame:target display:YES];
+  native.applying_frame = false;
+  [self observeNativeWindow:token commit:NO];
+  return YES;
 }
 
 - (void)placeSemanticFrame:(uint64_t)token {
@@ -521,9 +676,15 @@ class MacNativeViews final
 - (void)applyRequestedNativeFrame:(uint64_t)token {
   auto const found = _windows.find(token);
   if (found == _windows.end() || !found->second.window) return;
-  found->second.applying_frame = true;
+  auto& native = found->second;
+  if (native.normal_chrome || native.moving || native.window.inLiveResize) {
+    native.pending_requested_frame = true;
+    return;
+  }
+  native.pending_requested_frame = false;
+  native.applying_frame = true;
   [self placeSemanticFrame:token];
-  found->second.applying_frame = false;
+  native.applying_frame = false;
   [self observeNativeWindow:token commit:YES];
 }
 

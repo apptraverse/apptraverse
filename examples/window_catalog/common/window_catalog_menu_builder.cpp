@@ -5,14 +5,15 @@
 
 namespace apptraverse {
 void ComposeCatalogMenu(ae::Domain& domain, WindowCatalog& catalog, CatalogThemeHandling theme,
-                        bool web_shell, bool layout_context, bool windows_display) {
+                        CatalogMenuShell shell, bool layout_context) {
   auto& state = static_cast<CatalogUiState&>(*catalog.persisted.device_state);
   ae::Domain::ObjectIdSequence ids{domain, ae::ObjId{2000}, ae::ObjId{9999}};
   state.catalog = WindowCatalog::ptr::MakeFromThis(&catalog);
   catalog.persisted.locale->SetObjectScope(state.object_scope());
   catalog.persisted.locale->base->SetObjectScope(state.object_scope());
   state.fullscreen_windows.clear();
-  state.menu = windows_display
+  bool const desktop_display = shell == CatalogMenuShell::kWindows || shell == CatalogMenuShell::kMac;
+  state.menu = desktop_display
       ? CatalogMenuDefinition::ptr{CatalogWindowDisplayMenuDefinition::ptr::Create(ae::CreateWith{domain})}
       : CatalogMenuDefinition::ptr::Create(ae::CreateWith{domain});
   auto scope = state.object_scope(); scope.is_constant = true;
@@ -42,7 +43,7 @@ void ComposeCatalogMenu(ae::Domain& domain, WindowCatalog& catalog, CatalogTheme
       {text("Layout: Vertical", "Раскладка: вертикально"), CatalogMenuAction::kLayoutFlow, static_cast<int>(ui::UiLayoutFlow::kVertical)},
       {text("Reset layout to application default", "Вернуть раскладку приложения"), CatalogMenuAction::kResetLayout, 0}};
   }
-  if (web_shell) {
+  if (shell == CatalogMenuShell::kWeb) {
     state.menu->shell_strings = {
       text("Previous page", "Предыдущая страница"),
       text("Next page", "Следующая страница"),
@@ -53,11 +54,16 @@ void ComposeCatalogMenu(ae::Domain& domain, WindowCatalog& catalog, CatalogTheme
       text("Stop failed", "Не удалось остановить приложение"),
       text("Save failed", "Не удалось сохранить приложение")};
   }
-  if (windows_display) {
+  if (desktop_display) {
     auto& display = static_cast<CatalogWindowDisplayMenuDefinition&>(*state.menu);
-    display.fullscreen_items = {
-      {text("Enter fullscreen (F11)", "На весь экран (F11)"), CatalogMenuAction::kFullscreen, 1},
-      {text("Exit fullscreen (Esc)", "Выйти из полноэкранного режима (Esc)"), CatalogMenuAction::kFullscreen, 0}};
+    bool const windows = shell == CatalogMenuShell::kWindows;
+    display.fullscreen_items = {{
+        windows ? text("Enter fullscreen (F11)", "На весь экран (F11)")
+                : text("Enter Full Screen", "На весь экран"),
+        CatalogMenuAction::kFullscreen, 1}, {
+        windows ? text("Exit fullscreen (Esc)", "Выйти из полноэкранного режима (Esc)")
+                : text("Exit Full Screen", "Выйти из полноэкранного режима"),
+        CatalogMenuAction::kFullscreen, 0}};
     ui::UiLayoutNode action{
         .control_id = 5300, .flow = ui::UiLayoutFlow::kLeaf,
         .min_width = 0, .min_height = 28,
@@ -72,10 +78,15 @@ void ComposeCatalogMenu(ae::Domain& domain, WindowCatalog& catalog, CatalogTheme
         .max_width = -1, .max_height = -1, .grow = 0,
         .padding = 8, .gap = 0, .alignment = ui::UiLayoutAlignment::kEnd,
         .children = {action}};
-    // A separate producer cursor preserves every existing supply identity,
-    // including the menu's historical base allocated below.
-    ae::Domain::ObjectIdSequence loading_ids{domain, ae::ObjId{9800}, ae::ObjId{9899}};
-    state.menu->shell_strings = {text("Loading catalog", "Загрузка каталога")};
+  }
+  if (shell == CatalogMenuShell::kWindows || shell == CatalogMenuShell::kIos) {
+    // Keep platform chrome out of the shared menu's ordinary ID sequence.
+    ae::Domain::ObjectIdSequence chrome_ids{domain, ae::ObjId{9800}, ae::ObjId{9899}};
+    if (shell == CatalogMenuShell::kWindows) {
+      state.menu->shell_strings = {text("Loading catalog", "Загрузка каталога")};
+    } else {
+      state.menu->shell_strings = {text("Settings", "Настройки"), text("Done", "Готово")};
+    }
   }
   InitializeRuntimeNode(*state.menu, state);
   PrepareCatalogMenuForRun(catalog);
