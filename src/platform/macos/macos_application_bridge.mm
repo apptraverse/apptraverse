@@ -101,22 +101,6 @@ NSSize ContentSizeForViewport(NSWindow* window, double width, double height,
                     height + chrome_height + current.height - viewport.height);
 }
 
-struct NormalWindowChrome {
-  NSWindowStyleMask style;
-  NSRect frame;
-  NSWindowTitleVisibility title_visibility;
-  NSTitlebarSeparatorStyle separator;
-  BOOL transparent_titlebar;
-  BOOL movable;
-  BOOL zoomed;
-};
-
-void SetCaptionButtonsHidden(NSWindow* window, BOOL hidden) {
-  for (auto button : {NSWindowCloseButton, NSWindowMiniaturizeButton, NSWindowZoomButton}) {
-    [window standardWindowButton:button].hidden = hidden;
-  }
-}
-
 struct NativeWindow {
   __weak NSWindow* window{};
   std::uint64_t placement_revision{};
@@ -126,8 +110,14 @@ struct NativeWindow {
   bool pending_requested_frame{};
   double chrome_height{};
   std::optional<double> applied_chrome_height;
-  std::optional<NormalWindowChrome> normal_chrome;
+  std::optional<bool> fullscreen_transition;
+  std::optional<bool> awaiting_native_intent;
 };
+
+bool InFullscreen(NativeWindow const& native) {
+  return native.fullscreen_transition.has_value() ||
+      (native.window.styleMask & NSWindowStyleMaskFullScreen);
+}
 
 class MacNativeViews final
     : public apptraverse::ui::macos::MacUiNativeViews {
@@ -512,8 +502,8 @@ class MacNativeViews final
   native.applied_chrome_height = chromeHeight;
   if (_callbacks.window_display_state) {
     native.window.collectionBehavior = (native.window.collectionBehavior &
-        ~(NSWindowCollectionBehaviorFullScreenPrimary | NSWindowCollectionBehaviorFullScreenAuxiliary))
-        | NSWindowCollectionBehaviorFullScreenNone;
+        ~(NSWindowCollectionBehaviorFullScreenNone | NSWindowCollectionBehaviorFullScreenAuxiliary))
+        | NSWindowCollectionBehaviorFullScreenPrimary;
   }
   auto& presenter = FromToken<MacDesktopWindowPresenter>(token);
   if ([self applyLocalPlacement:token]) {
@@ -545,7 +535,7 @@ class MacNativeViews final
   auto& native = found->second;
   // Fullscreen uses the work area and retains its independent normal frame.
   // Late SwiftUI measurements from the other presentation must not resize it.
-  if (fullscreen || native.normal_chrome || !native.window ||
+  if (fullscreen || InFullscreen(native) || !native.window ||
       std::abs(width - native.window.contentLayoutRect.size.width) > 0.5) return;
   native.chrome_height = height;
   [self reconcileWindowChrome:token];
@@ -554,7 +544,7 @@ class MacNativeViews final
 - (void)reconcileWindowChrome:(uint64_t)token {
   auto& native = _windows.at(token);
   NSWindow* window = native.window;
-  if (!window || native.applying_frame || native.normal_chrome || native.moving ||
+  if (!window || native.applying_frame || InFullscreen(native) || native.moving ||
       window.inLiveResize || window.isMiniaturized || window.isZoomed) return;
   if (!native.applied_chrome_height) {
     native.applied_chrome_height = native.chrome_height;
@@ -585,54 +575,39 @@ class MacNativeViews final
   auto const found = _windows.find(token);
   if (_stopping || found == _windows.end()) return;
   auto& native = found->second;
+  if (native.awaiting_native_intent) {
+    if (*native.awaiting_native_intent != static_cast<bool>(fullscreen)) return;
+    native.awaiting_native_intent.reset();
+  }
   NSWindow* window = native.window;
   if (!window || window.isMiniaturized || window.inLiveResize || native.moving ||
-      static_cast<bool>(fullscreen) == native.normal_chrome.has_value()) return;
-  auto& presenter = FromToken<MacDesktopWindowPresenter>(token);
-  auto const* placement = presenter.LocalDeviceState()->PlacementFor(presenter.window.id());
+      std::any_of(_windows.begin(), _windows.end(), [](auto const& entry) {
+        return entry.second.fullscreen_transition.has_value();
+      }) || static_cast<bool>(fullscreen) == InFullscreen(native)) return;
+  native.fullscreen_transition = static_cast<bool>(fullscreen);
+  [window toggleFullScreen:nil];
+}
 
-  if (fullscreen) {
-    NSScreen* screen = placement ? ScreenForKey(placement->resolved_monitor) : window.screen;
-    if (!screen) return;
-    BOOL const was_key = window.isKeyWindow;
-    native.normal_chrome = NormalWindowChrome{window.styleMask, window.frame,
-        window.titleVisibility, window.titlebarSeparatorStyle,
-        window.titlebarAppearsTransparent, window.isMovable, window.isZoomed};
-    native.applying_frame = true;
-    // Preserve the titled style so the SwiftUI scene remains keyboard-active.
-    window.styleMask = NSWindowStyleMaskTitled | NSWindowStyleMaskFullSizeContentView |
-        (window.styleMask & NSWindowStyleMaskClosable);
-    window.titleVisibility = NSWindowTitleHidden;
-    window.titlebarAppearsTransparent = YES;
-    window.titlebarSeparatorStyle = NSTitlebarSeparatorStyleNone;
-    SetCaptionButtonsHidden(window, YES);
-    window.movable = NO;
-    [window setFrame:screen.visibleFrame display:YES];
-    if (was_key && !window.isKeyWindow) [window makeKeyWindow];
-    native.applying_frame = false;
-    if (placement) native.placement_revision = placement->revision;
-    [self observeNativeWindow:token commit:NO];
-    return;
-  }
+- (void)nativeFullscreenWillChange:(BOOL)fullscreen token:(uint64_t)token {
+  auto const found = _windows.find(token);
+  if (_stopping || !_callbacks.on_window_fullscreen || found == _windows.end()) return;
+  auto& native = found->second;
+  if (native.fullscreen_transition == static_cast<bool>(fullscreen)) return;
+  native.fullscreen_transition = static_cast<bool>(fullscreen);
+  native.awaiting_native_intent = static_cast<bool>(fullscreen);
+  [self submitWindowFullscreen:fullscreen token:token];
+}
 
-  auto const normal = *native.normal_chrome;
-  native.applying_frame = true;
-  window.styleMask = normal.style;
-  window.titleVisibility = normal.title_visibility;
-  window.titlebarAppearsTransparent = normal.transparent_titlebar;
-  window.titlebarSeparatorStyle = normal.separator;
-  SetCaptionButtonsHidden(window, NO);
-  window.movable = normal.movable;
-  [window setFrame:normal.frame display:YES];
-  native.normal_chrome.reset();
-  native.placement_revision = 0;
-  native.applying_frame = false;
-  if (std::exchange(native.pending_requested_frame, false)) {
-    [self applyRequestedNativeFrame:token];
-  } else {
-    [self applyLocalPlacement:token];
-    if (normal.zoomed && !window.isZoomed) [window zoom:nil];
-    [self observeNativeWindow:token commit:NO];
+- (void)nativeFullscreenDidChange:(uint64_t)token {
+  auto const found = _windows.find(token);
+  if (found == _windows.end() || !_callbacks.on_window_fullscreen) return;
+  auto& native = found->second;
+  native.fullscreen_transition.reset();
+  if (!InFullscreen(native)) {
+    // AppKit restores its own pre-Space frame. Reapply the model's normal
+    // placement against the current work area after the transition completes.
+    native.placement_revision = 0;
+    native.own_initial_placement = false;
   }
 }
 
@@ -649,8 +624,10 @@ class MacNativeViews final
   UiDisplayRect const outer{ModelCoordinate(frame.origin.x - area.origin.x),
       ModelCoordinate(NSMaxY(area) - NSMaxY(frame)),
       ModelCoordinate(frame.size.width), ModelCoordinate(frame.size.height)};
-  bool const normal = !native.normal_chrome && !window.isMiniaturized && !window.isZoomed &&
-      !(window.styleMask & NSWindowStyleMaskFullScreen);
+  // An explicit semantic frame has already been applied when commit is set.
+  // AppKit can still report the old zoom state immediately after a Space exit.
+  bool const normal = !InFullscreen(native) && !window.isMiniaturized &&
+      (commit || !window.isZoomed);
   if (!state->PlacementFor(presenter.window.id())) {
     if (!normal) return;
     native.own_initial_placement = true;
@@ -675,11 +652,11 @@ class MacNativeViews final
   native.moving = false;
   [self reconcileWindowChrome:token];
   NSWindow* window = native.window;
-  if (native.pending_requested_frame && !native.normal_chrome) {
+  if (native.pending_requested_frame && !InFullscreen(native)) {
     [self applyRequestedNativeFrame:token];
     return;
   }
-  if (commit && window && !window.isZoomed && !native.normal_chrome) {
+  if (commit && window && !window.isZoomed && !InFullscreen(native)) {
     // A completed user move takes priority over placement deferred during it.
     auto& presenter = FromToken<MacDesktopWindowPresenter>(token);
     auto const* placement = presenter.LocalDeviceState()->PlacementFor(presenter.window.id());
@@ -696,10 +673,10 @@ class MacNativeViews final
   auto& presenter = FromToken<MacDesktopWindowPresenter>(token);
   auto const* placement = presenter.LocalDeviceState()->PlacementFor(presenter.window.id());
   if (!window || window.isMiniaturized || window.inLiveResize || native.moving || !placement ||
-      (window.styleMask & NSWindowStyleMaskFullScreen) ||
+      InFullscreen(native) ||
       placement->revision == native.placement_revision ||
       placement->resolution == UiMonitorResolution::kUnavailable) return NO;
-  if (!native.normal_chrome && native.own_initial_placement && placement->revision == 1) {
+  if (native.own_initial_placement && placement->revision == 1) {
     native.placement_revision = placement->revision;
     return NO;
   }
@@ -709,7 +686,7 @@ class MacNativeViews final
   // A newly mounted scene can inherit an AppKit zoomed rectangle from the
   // previous process. Apply LOCAL normal geometry before entering fullscreen.
   bool const preserve_zoom = native.placement_revision != 0 && window.isZoomed;
-  auto const target = native.normal_chrome || preserve_zoom
+  auto const target = preserve_zoom
       ? area : FrameInWorkArea(area, placement->frame_dip);
   native.placement_revision = placement->revision;
   native.applying_frame = true;
@@ -736,7 +713,7 @@ class MacNativeViews final
   auto const found = _windows.find(token);
   if (found == _windows.end() || !found->second.window) return;
   auto& native = found->second;
-  if (native.normal_chrome || native.moving || native.window.inLiveResize) {
+  if (InFullscreen(native) || native.moving || native.window.inLiveResize) {
     native.pending_requested_frame = true;
     return;
   }

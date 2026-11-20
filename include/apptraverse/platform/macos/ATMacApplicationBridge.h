@@ -122,6 +122,8 @@ typedef NS_ENUM(NSInteger, ATMacPublicationKind) {
                       fullscreen:(BOOL)fullscreen;
 - (void)unbindNativeWindow:(uint64_t)token;
 - (void)applyWindowFullscreen:(BOOL)fullscreen token:(uint64_t)token;
+- (void)nativeFullscreenWillChange:(BOOL)fullscreen token:(uint64_t)token;
+- (void)nativeFullscreenDidChange:(uint64_t)token;
 - (void)observeNativeWindow:(uint64_t)token commit:(BOOL)commit;
 - (void)beginNativeWindowMove:(uint64_t)token;
 - (void)finishNativeWindowInteraction:(uint64_t)token commit:(BOOL)commit;

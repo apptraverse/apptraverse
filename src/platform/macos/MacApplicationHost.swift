@@ -97,6 +97,7 @@ final class MacWindowAdapter: ObservableObject, Identifiable {
     var pendingLists: [MacListAdapter] = []
     @Published private(set) var snapshot: MacWindowSnapshot?
     private(set) var clientSize: CGSize?
+    var nativeFullscreen = false
     var chromeMeasurement: (height: CGFloat, width: CGFloat, fullscreen: Bool)?
 
     var title: String { windowState.title }
@@ -258,6 +259,9 @@ private struct MacWindowContent: View {
                 .contextMenu { windowMenu }
             }
         }
+        .onExitCommand(perform: snapshot.state.display?.isFullscreen == true ? {
+            host.setFullscreen(false, window: adapter.id)
+        } : nil)
         .focusedSceneValue(\.macWindowToken, adapter.id)
         .frame(minWidth: 1, minHeight: 1)
         .navigationTitle(snapshot.state.title)
@@ -495,6 +499,23 @@ public final class MacApplicationHost: NSObject, ObservableObject, ATMacApplicat
               let adapter = window(for: id) else { return }
         bridge?.finishNativeWindowInteraction(adapter.id, commit: commit)
         bindNativeWindow(id)
+    }
+
+    func nativeFullscreenWillChange(_ id: UUID, _ native: MacNativeWindowHandle, fullscreen: Bool) {
+        guard !terminating, nativeWindows[id] === native, let adapter = window(for: id) else { return }
+        bridge?.nativeFullscreenWillChange(fullscreen, token: adapter.id)
+    }
+
+    func nativeFullscreenDidChange(_ id: UUID, _ native: MacNativeWindowHandle) {
+        DispatchQueue.main.async { [weak self, weak native] in
+            guard let self, let native, !self.terminating, self.nativeWindows[id] === native,
+                  let adapter = self.window(for: id) else { return }
+            adapter.nativeFullscreen = native.styleMask.contains(.fullScreen)
+            self.bridge?.nativeFullscreenDidChange(adapter.id)
+            self.bridge?.observeSystemEnvironment()
+            self.nativeWindowInteractionFinished(id, native, commit: false)
+            for adapter in self.windows.values { self.bindNativeWindow(adapter.sceneID) }
+        }
     }
 
     public func requestStop() {

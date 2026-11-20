@@ -6,6 +6,7 @@ import SwiftUI
 private struct SavedCatalog: Codable {
     let rows: [UInt64]
     let mainFrame: CGRect
+    let mainWorkArea: CGRect
     let childFrame: CGRect
 }
 
@@ -45,10 +46,9 @@ private final class CatalogScenario {
     }
 
     private func isFullscreen(_ adapter: MacWindowAdapter?) -> Bool {
-        guard let adapter, let native = host.nativeWindows[adapter.sceneID],
-              let screen = native.screen else { return false }
+        guard let adapter, let native = host.nativeWindows[adapter.sceneID] else { return false }
         return adapter.snapshot?.state.display?.isFullscreen == true
-            && native.titleVisibility == .hidden && native.frame == screen.visibleFrame
+            && adapter.nativeFullscreen && native.styleMask.contains(.fullScreen)
     }
 
     private func frameMatches(_ actual: CGRect, _ expected: CGRect) -> Bool {
@@ -150,21 +150,20 @@ private final class CatalogScenario {
             host.setFullscreen(false, window: main!.id)
             host.setFullscreen(false, window: child(2)!.id)
             await wait("exiting fullscreen restores both normal native frames") {
-                restoredWindow.titleVisibility == .visible && restoredChild.titleVisibility == .visible
+                guard self.main?.nativeFullscreen == false, self.child(2)?.nativeFullscreen == false,
+                      let workArea = restoredWindow.screen?.visibleFrame else { return false }
+                let width = min(saved.mainFrame.width, workArea.width)
+                let height = min(saved.mainFrame.height, workArea.height)
+                let x = saved.mainFrame.minX - saved.mainWorkArea.minX
+                let y = saved.mainWorkArea.maxY - saved.mainFrame.maxY
+                let expectedFrame = CGRect(
+                    x: workArea.minX + min(max(x, 0), workArea.width - width),
+                    y: workArea.maxY - min(max(y, 0), workArea.height - height) - height,
+                    width: width, height: height)
+                return self.frameMatches(restoredWindow.frame, expectedFrame)
                     && self.frameMatches(restoredChild.frame, saved.childFrame)
                     && self.hasClientSize(self.child(2), CGSize(width: 210, height: 260))
             }
-            let workArea = restoredWindow.screen!.visibleFrame
-            // The Windows presenter also fits saved placements to the work area.
-            let width = min(saved.mainFrame.width, workArea.width)
-            let height = min(saved.mainFrame.height, workArea.height)
-            let expectedFrame = CGRect(
-                x: min(max(saved.mainFrame.minX, workArea.minX), workArea.maxX - width),
-                y: min(max(saved.mainFrame.maxY - height, workArea.minY), workArea.maxY - height),
-                width: width, height: height)
-            let restoredFrame = restoredWindow.frame
-            precondition(frameMatches(restoredFrame, expectedFrame),
-                         "LOCAL restored \(restoredFrame), expected \(expectedFrame)")
             select(expected[0])
             await wait("SwiftUI list binding selects the closed row") { self.list?.selectedRow == 0 }
             button("Открыть").click()
@@ -229,6 +228,8 @@ private final class CatalogScenario {
             captureLayout(window, "tall")
             // Fixture sizes setContentSize programmatically, then submits the
             // same completed-resize callback that AppKit sends after tracking.
+            let normalMainFrame = window.frame
+            let normalMainWorkArea = window.screen!.visibleFrame
             host.nativeWindowChanged(host.primarySceneID, window, commit: true)
             precondition(!button("Open").enabled && !button("Delete").enabled)
             button("Add").click()
@@ -265,11 +266,14 @@ private final class CatalogScenario {
             host.setFullscreen(false, window: child(1)!.id)
             await wait("fullscreen exit applies the deferred exact client size") {
                 self.child(1)?.snapshot?.state.display?.isFullscreen == false
+                    && self.child(1)?.nativeFullscreen == false
                     && self.hasClientSize(self.child(1), CGSize(width: 410, height: 290))
             }
             ATMacAcceptanceRequestFrame(child(1)!.id, 160, 140, 400, 280)
             await wait("normal semantic request restores the exact size before remount") {
-                self.hasClientSize(self.child(1), CGSize(width: 400, height: 280))
+                self.child(1)?.snapshot?.state.width == 400
+                    && self.child(1)?.snapshot?.state.height == 280
+                    && self.hasClientSize(self.child(1), CGSize(width: 400, height: 280))
             }
             close(child(1)!)
             await wait("closing the SwiftUI child leaves its lazy model row") {
@@ -331,8 +335,8 @@ private final class CatalogScenario {
             }
             let nativeSecond = host.nativeWindows[child(2)!.sceneID]!
             let normalChild = nativeSecond.frame
-            let saved = SavedCatalog(rows: list!.rows.map(\.id), mainFrame: nativeMain.frame,
-                                     childFrame: normalChild)
+            let saved = SavedCatalog(rows: list!.rows.map(\.id), mainFrame: normalMainFrame,
+                                     mainWorkArea: normalMainWorkArea, childFrame: normalChild)
             await focus(nativeSecond)
             pressFullscreenKey("\u{F70E}", code: 103, in: nativeSecond)
             await wait("fullscreen is localized and applies only to the requested child") {
@@ -342,7 +346,17 @@ private final class CatalogScenario {
             }
             pressFullscreenKey("\u{1B}", code: 53, in: nativeSecond)
             await wait("child exits fullscreen to the same normal frame") {
-                nativeSecond.titleVisibility == .visible && self.frameMatches(nativeSecond.frame, normalChild)
+                !nativeSecond.styleMask.contains(.fullScreen) && self.frameMatches(nativeSecond.frame, normalChild)
+            }
+            nativeSecond.toggleFullScreen(nil)
+            await wait("system fullscreen publishes the same state as the app button") {
+                self.isFullscreen(self.child(2))
+            }
+            host.setFullscreen(false, window: child(2)!.id)
+            await wait("app exit action restores a window entered through the system control") {
+                self.child(2)?.snapshot?.state.display?.isFullscreen == false
+                    && !nativeSecond.styleMask.contains(.fullScreen)
+                    && self.frameMatches(nativeSecond.frame, normalChild)
             }
             host.setFullscreen(true, window: main!.id)
             host.setFullscreen(true, window: child(2)!.id)

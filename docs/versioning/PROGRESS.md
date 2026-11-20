@@ -2,9 +2,10 @@
 
 WindowCatalog on macOS uses the catalogue's per-window fullscreen Event and
 monitor placement in LOCAL. SwiftUI measures the authored fullscreen toolbar
-with the shared constraint solver. The fullscreen window fills the display's
-work area so the macOS menu remains accessible. The bridge restores normal
-geometry from LOCAL after leaving fullscreen, including after a cold launch.
+with the shared constraint solver. The catalog action and the system green
+button share macOS Full Screen transitions. System-initiated changes publish
+the same LOCAL event. The bridge reapplies normal geometry from LOCAL when
+the native exit completes, including after a cold launch.
 
 On iOS, the settings sheet's visibility belongs to an iOS-specific LOCAL
 object layer. A SwiftUI action submits an Event and the published state drives

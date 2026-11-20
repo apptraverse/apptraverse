@@ -73,8 +73,17 @@ struct MacNativeWindowAttachment: NSViewRepresentable {
             observe(NSWindow.didDeminiaturizeNotification, window) {
                 $0.nativeWindowInteractionFinished(id, $1, commit: false)
             }
+            observe(NSWindow.willEnterFullScreenNotification, window) {
+                $0.nativeFullscreenWillChange(id, $1, fullscreen: true)
+            }
+            observe(NSWindow.willExitFullScreenNotification, window) {
+                $0.nativeFullscreenWillChange(id, $1, fullscreen: false)
+            }
+            observe(NSWindow.didEnterFullScreenNotification, window) {
+                $0.nativeFullscreenDidChange(id, $1)
+            }
             observe(NSWindow.didExitFullScreenNotification, window) {
-                $0.nativeWindowInteractionFinished(id, $1, commit: false)
+                $0.nativeFullscreenDidChange(id, $1)
             }
             observe(NSWindow.didChangeScreenNotification, window) { $0.nativeWindowChanged(id, $1, commit: false) }
             observe(NSWindow.didChangeBackingPropertiesNotification, window) { $0.nativeWindowChanged(id, $1, commit: false) }
