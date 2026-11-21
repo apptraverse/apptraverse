@@ -1,4 +1,4 @@
-# Minimum-size 64-bit consumers
+# Minimum-size consumers
 
 Enable `APPTRAVERSE_MINIMUM_64=ON` and build `MinSizeRel`. The profile is
 opt-in: ordinary Debug builds retain their producer behavior. Supply headers
@@ -9,6 +9,67 @@ stripping. It disables RTTI, C++ exceptions, stack protection, floating-point
 traps/errno, telemetry and optional SIMD/autovectorization. SSE2 remains the
 mandatory x86-64 scalar ABI baseline. This is an explicit size-oriented profile,
 not a recommendation for builds requiring those protections or strict IEEE math.
+
+## Windows x86 WindowCatalog
+
+`APPTRAVERSE_MINIMUM_WINDOWS_X86=ON` reproduces the measured x86 MinSizeRel
+recipe without setting or replacing `CL`, `_CL_`, `LINK`, `_LINK_`, or CMake's
+global flag strings. Use an x86 VS 2022 developer environment with desktop
+v143 (14.44); start without inherited compiler/linker flag overrides. The option
+rejects other architectures and cannot be combined with `APPTRAVERSE_MINIMUM_64`.
+
+The added MinSizeRel compile options are `/O1 /Ob2 /Oi /Os /Oy /GL /Gy /Gw /GF
+/GS- /d2Qvec- /fp:fast /fp:except- /Zc:inline /Zc:checkGwOdr`, with
+`AE_TELE_ENABLED=0`. C++ also uses `/GR- /EHs-c-` and `_HAS_EXCEPTIONS=0`.
+Link options are `/LTCG /OPT:REF /OPT:ICF=10 /INCREMENTAL:NO /GUARD:NO`.
+They cover dependencies and AppTraverse targets; the interface compile policy
+keeps the same inline, floating-point and ICF choices instead of overriding
+them later. Release configurations retain static `/MT`; Windows 7 remains the
+minimum. `/GS-` and `/GUARD:NO` are deliberate size choices, and `/fp:fast`
+permits relaxed floating-point semantics. `/d2Qvec-` is toolset-specific, so the
+recipe is tied to the measured v143 toolset. The prior measured executable was
+607,744 bytes; a new toolchain/source/supply requires a new measurement.
+
+Run from the repository root in that x86 developer PowerShell. Prepare both
+matching supplies with the existing Debug `*_load_only` targets: they build
+the ordinary Debug producers and invoke their `--distill-only` modes. The root
+consumer configure needs both headers even when only WindowCatalog is built.
+Reuse an existing matching x86 Debug build and its headers when available;
+reuse the existing CPM dependency cache with `-DCPM_SOURCE_CACHE=...` when needed.
+The optional `APPTRAVERSE_BUILD_EVOLUTION_TESTS=OFF` keeps this build focused.
+
+```powershell
+cmake -S . -B build/win32-ninja-msvc-debug -G Ninja `
+  -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl `
+  -DAPPTRAVERSE_MINIMUM_WINDOWS_X86=OFF -DAPPTRAVERSE_MINIMUM_64=OFF `
+  -DAPPTRAVERSE_BUILD_AETHER_LINK=OFF -DAPPTRAVERSE_BUILD_SHARED_NODE_CHAT=OFF `
+  -DAPPTRAVERSE_BUILD_EVOLUTION_TESTS=OFF
+cmake --build build/win32-ninja-msvc-debug --target `
+  win32_window_catalog_demo_load_only win32_minimal_app_load_only
+$catalogSupply = (Resolve-Path "build/win32-ninja-msvc-debug/examples/window_catalog/generated_distilled/embedded_distilled_window_catalog_supply.h").Path
+$minimalSupply = (Resolve-Path "build/win32-ninja-msvc-debug/examples/minimal_app/windows/generated_distilled/embedded_distilled_minimal_app_supply.h").Path
+cmake -S . -B build/win32-ninja-msvc-minimum -G Ninja `
+  -DCMAKE_BUILD_TYPE=MinSizeRel -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl `
+  -DAPPTRAVERSE_MINIMUM_WINDOWS_X86=ON -DAPPTRAVERSE_MINIMUM_64=OFF `
+  -DAPPTRAVERSE_BUILD_AETHER_LINK=OFF -DAPPTRAVERSE_BUILD_SHARED_NODE_CHAT=OFF `
+  -DAE_NO_DEBUG_LOG=ON -DAE_OBJECTS_RAW_TELE=OFF `
+  -DAPPTRAVERSE_BUILD_EVOLUTION_TESTS=OFF -DBUILD_TESTING=ON `
+  "-DAPPTRAVERSE_WINDOW_CATALOG_DEBUG_SUPPLY_HEADER=$catalogSupply" `
+  "-DAPPTRAVERSE_MINIMAL_APP_DEBUG_SUPPLY_HEADER=$minimalSupply"
+cmake --build build/win32-ninja-msvc-minimum --target win32_window_catalog_demo
+ctest --test-dir build/win32-ninja-msvc-minimum -C MinSizeRel --output-on-failure `
+  -R '^(apptraverse_windows_binary_contract_policy_test|win32_window_catalog_demo_binary_contract)$'
+```
+
+The contract reads the generated PE32 executable and eight-digit-address map,
+checks static runtime linkage, portable factories and excluded distillation,
+SharedNode and network SDK libraries/objects/symbols. It also supports PE32+
+and sixteen-digit-address maps for existing x64 consumers. The object-system
+library `aether-objects` is permitted. This is binary evidence; native GUI and
+actual Windows 7 execution are separate checks. Debug remains the ordinary
+fresh-graph producer, and option-OFF/non-x86 flags retain their existing policy.
+
+## 64-bit consumers
 
 Native Aether consumers use the pinned SDK with Hydrogen only and TCP. Cloud
 registration and system DNS are enabled by default. Set `AE_DNS_BACKEND` in

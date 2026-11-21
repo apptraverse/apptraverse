@@ -1,5 +1,27 @@
 # Opt-in shipping profile, applied before dependency targets are created.
 option(APPTRAVERSE_MINIMUM_64 "Minimal shipping consumers (native 64-bit; Web wasm32)" OFF)
+option(APPTRAVERSE_MINIMUM_WINDOWS_X86
+  "Measured MSVC x86 MinSizeRel consumer profile" OFF)
+if(APPTRAVERSE_MINIMUM_WINDOWS_X86)
+  if(APPTRAVERSE_MINIMUM_64)
+    message(FATAL_ERROR "Select only one AppTraverse minimum-size profile")
+  endif()
+  if(NOT WIN32 OR NOT MSVC OR NOT CMAKE_SIZEOF_VOID_P EQUAL 4 OR
+     NOT CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "X86")
+    message(FATAL_ERROR "APPTRAVERSE_MINIMUM_WINDOWS_X86 requires 32-bit Windows MSVC")
+  endif()
+  # Directory options cover dependencies too. The shared compile policy selects
+  # the same inline/FP/ICF choices so transitive options cannot undo this recipe.
+  # All code-generation changes are MinSizeRel-only; Debug remains a producer.
+  set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL ON)
+  set(CMAKE_POLICY_DEFAULT_CMP0069 NEW)
+  add_compile_options("$<$<CONFIG:MinSizeRel>:/O1;/Ob2;/Oi;/Os;/Oy;/GL;/Gy;/Gw;/GF;/GS-;/d2Qvec-;/fp:fast;/fp:except-;/Zc:inline;/Zc:checkGwOdr>"
+    "$<$<AND:$<CONFIG:MinSizeRel>,$<COMPILE_LANGUAGE:CXX>>:/GR-;/EHs-c->")
+  add_compile_definitions("$<$<CONFIG:MinSizeRel>:AE_TELE_ENABLED=0>"
+    "$<$<AND:$<CONFIG:MinSizeRel>,$<COMPILE_LANGUAGE:CXX>>:_HAS_EXCEPTIONS=0>")
+  add_link_options("$<$<CONFIG:MinSizeRel>:/LTCG;/OPT:REF;/OPT:ICF=10;/INCREMENTAL:NO;/GUARD:NO>")
+  return()
+endif()
 if(NOT APPTRAVERSE_MINIMUM_64)
   return()
 endif()

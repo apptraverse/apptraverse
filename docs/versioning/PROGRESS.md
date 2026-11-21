@@ -1,3 +1,14 @@
+## Windows x86 WindowCatalog MinSizeRel — 2026-11-20
+
+The opt-in `APPTRAVERSE_MINIMUM_WINDOWS_X86` profile reproduces the
+607,744-byte WindowCatalog executable with v143 and its x86 Debug supply.
+The PE and link-map contract now runs for x86 and x64. Both catalog bitnesses
+exclude the network SDK and SharedNode. Four x86 Debug checks and seven x86
+MinSizeRel checks passed, including native process acceptance and adaptive
+chrome in MinSizeRel. The three x64 binary checks passed and the ordinary
+x64 catalog remains 886,272 bytes.
+See the [30-rule review and executed checks](../validation/window-catalog-windows-x86-canon-2026-11-20.md).
+
 ## Æther SafeStream and peer transport update — 2026-11-20
 
 AppTraverse pins Æther C++ SDK `ebebdf58` with the consolidated SafeStream,

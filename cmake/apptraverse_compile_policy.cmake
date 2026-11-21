@@ -15,14 +15,23 @@ if(MSVC)
     target_compile_definitions(apptraverse_compile_policy INTERFACE
       WINVER=0x0601 _WIN32_WINNT=0x0601 _STL_WIN32_WINNT=0x0601)
   endif()
+  set(_apptraverse_size_inline /Ob1)
+  set(_apptraverse_size_fp /fp:precise)
+  set(_apptraverse_size_icf /OPT:ICF=5)
+  if(APPTRAVERSE_MINIMUM_WINDOWS_X86)
+    set(_apptraverse_size_inline /Ob2)
+    set(_apptraverse_size_fp /fp:fast)
+    # Release/RelWithDebInfo retain their ordinary link policy.
+    set(_apptraverse_size_icf "$<IF:$<CONFIG:MinSizeRel>,/OPT:ICF=10,/OPT:ICF=5>")
+  endif()
   target_compile_options(apptraverse_compile_policy INTERFACE
     /GR- /EHs-c- /utf-8 /Zc:preprocessor /Zc:__cplusplus /Zc:externConstexpr /bigobj
     $<$<NOT:$<CONFIG:Debug>>:/Gy;/Gw;/GF>
-    $<$<CONFIG:MinSizeRel>:/O1;/Ob1;/Oi;/Os;/Oy;/GL;/GS->
-    $<$<CONFIG:MinSizeRel>:/fp:precise;/fp:except->)
+    $<$<CONFIG:MinSizeRel>:/O1;${_apptraverse_size_inline};/Oi;/Os;/Oy;/GL;/GS->
+    $<$<CONFIG:MinSizeRel>:${_apptraverse_size_fp};/fp:except->)
   target_compile_definitions(apptraverse_compile_policy INTERFACE _HAS_EXCEPTIONS=0)
   target_link_options(apptraverse_compile_policy INTERFACE
-    $<$<NOT:$<CONFIG:Debug>>:/OPT:REF;/OPT:ICF=5>)
+    $<$<NOT:$<CONFIG:Debug>>:/OPT:REF;${_apptraverse_size_icf}>)
 else()
   target_compile_options(apptraverse_compile_policy INTERFACE
     -fno-rtti -fno-exceptions)

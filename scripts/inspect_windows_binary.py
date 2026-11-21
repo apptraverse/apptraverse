@@ -19,7 +19,10 @@ def inspect(exe, map_path):
     if data[:2] != b'MZ' or data[pe:pe + 4] != b'PE\0\0':
         raise ValueError('Not a PE executable')
     optional = pe + 24
-    is64 = u16(optional) == 0x20b
+    magic = u16(optional)
+    if magic not in (0x10b, 0x20b):
+        raise ValueError(f'Unsupported PE optional-header magic {magic:x}')
+    is64 = magic == 0x20b
     image_base = struct.unpack_from('<Q' if is64 else '<I', data,
                                     optional + (24 if is64 else 28))[0]
     directories = optional + (112 if is64 else 96)
@@ -56,12 +59,15 @@ def inspect(exe, map_path):
 
     map_text = map_path.read_text(encoding='utf-8-sig', errors='replace')
     symbols = []
+    address_digits = 16 if is64 else 8
     pattern = re.compile(r'^\s+[0-9a-fA-F]{4}:[0-9a-fA-F]{8}\s+(\S+)\s+'
-                         r'([0-9a-fA-F]{16})\s+(?:(?:f|i)\s+)*(.*?)\s*$', re.M)
+                         rf'([0-9a-fA-F]{{{address_digits}}})\s+'
+                         r'(?:(?:f|i)\s+)*(.*?)\s*$', re.M)
     for name, address, owner in pattern.findall(map_text):
         symbols.append((int(address, 16) - image_base, name, owner))
     if not symbols:
-        raise ValueError('Map has no x64 symbols; cannot verify binary contents')
+        raise ValueError(f'Map has no {"x64" if is64 else "x86"} symbols; '
+                         'cannot verify binary contents')
     text_section = next(s for s in sections if s['name'] == '.text')
     begin = text_section['rva']
     end = begin + text_section['virtual_bytes']
@@ -98,7 +104,7 @@ def inspect(exe, map_path):
         readonly_spans.append(dict(estimated_bytes=limit - address,
                                    symbol=min((n for n, _ in aliases), key=len),
                                    owners=sorted({owner for _, owner in aliases})))
-    return dict(executable=str(exe), file_bytes=len(data),
+    return dict(executable=str(exe), file_bytes=len(data), pe_bits=64 if is64 else 32,
                 header_and_other_bytes=len(data) - sum(s['file_bytes'] for s in sections),
                 sections=sections, imports=sorted(set(imports)),
                 estimated_code_by_library=groups.most_common(),
@@ -152,6 +158,30 @@ def runtime_only_violations(report, map_text, portable_window_catalog=False):
                     'CatalogLanguageButton'):
             if cls + '@' in map_text:
                 errors.append('Unused catalog implementation symbol: ' + cls)
+        # Object-system libraries (notably aether-objects) remain legitimate.
+        # Match complete library identities, never the generic "aether" prefix.
+        for library in ('apptraverse_shared_node', 'apptraverse_shared_aether',
+                        'apptraverse_shared_chat_session',
+                        'apptraverse_network_windows', 'aether'):
+            if re.search(r'(?<![\w.-])' + re.escape(library) +
+                         r'(?:\.lib)?(?=[:(\s]|$)', map_text, re.I):
+                errors.append('Forbidden catalog network library: ' + library)
+        for obj in ('shared_node.cpp.obj', 'shared_graph.cpp.obj',
+                    'shared_sync.cpp.obj', 'memory_link.cpp.obj',
+                    'p2p_message_fragments.cpp.obj', 'chat_session.cpp.obj',
+                    'aether_link.cpp.obj', 'aether_connection.cpp.obj',
+                    'win_network_observer.cpp.obj'):
+            if obj in map_text:
+                errors.append('Forbidden catalog network object: ' + obj)
+        for cls, namespace in (('SharedNode', 'apptraverse'),
+                               ('SharedSyncRuntime', 'apptraverse'),
+                               ('MemoryLink', 'apptraverse'),
+                               ('AetherByteLink', 'apptraverse'),
+                               ('AetherConnection', 'apptraverse'),
+                               ('Client', 'ae'), ('Aether', 'ae'),
+                               ('P2pStream', 'ae')):
+            if cls + '@' + namespace + '@@' in map_text:
+                errors.append('Forbidden catalog network symbol: ' + cls)
     # Portable catalog USER includes the Close graph and common window-order history
     # even when the consumer displays desktop windows. These are runtime schema,
     # not distillation. Other applications retain their narrower contract.
@@ -187,7 +217,7 @@ def main():
     for error in errors:
         print('FAIL: ' + error)
     if args.runtime_only and not errors:
-        print('PASS: static runtime; no forbidden distillation objects or concrete factories')
+        print('PASS: static runtime; no forbidden runtime objects, libraries or factories')
     return 1 if errors else 0
 
 

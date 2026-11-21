@@ -77,7 +77,7 @@ add_custom_target(apptraverse_shared_node_headless_check
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
   VERBATIM)
 
-if(MSVC AND CMAKE_SIZEOF_VOID_P EQUAL 8)
+if(MSVC AND (CMAKE_SIZEOF_VOID_P EQUAL 4 OR CMAKE_SIZEOF_VOID_P EQUAL 8))
   find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
   add_test(NAME apptraverse_windows_binary_contract_policy_test
     COMMAND "${Python3_EXECUTABLE}"
