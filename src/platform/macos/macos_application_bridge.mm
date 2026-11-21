@@ -533,7 +533,7 @@ class MacNativeViews final
   auto const found = _windows.find(token);
   if (_stopping || found == _windows.end()) return;
   auto& native = found->second;
-  // Fullscreen uses the work area and retains its independent normal frame.
+  // A fullscreen Space retains its independent normal frame.
   // Late SwiftUI measurements from the other presentation must not resize it.
   if (fullscreen || InFullscreen(native) || !native.window ||
       std::abs(width - native.window.contentLayoutRect.size.width) > 0.5) return;
@@ -583,8 +583,26 @@ class MacNativeViews final
   if (!window || window.isMiniaturized || window.inLiveResize || native.moving ||
       std::any_of(_windows.begin(), _windows.end(), [](auto const& entry) {
         return entry.second.fullscreen_transition.has_value();
-      }) || static_cast<bool>(fullscreen) == InFullscreen(native)) return;
-  native.fullscreen_transition = static_cast<bool>(fullscreen);
+      })) return;
+
+  bool native_target = fullscreen;
+  if (fullscreen) {
+    auto& presenter = FromToken<MacDesktopWindowPresenter>(token);
+    auto const* placement = presenter.LocalDeviceState()->PlacementFor(presenter.window.id());
+    if (placement) {
+      NSScreen* current_screen = window.screen;
+      if (placement->resolution == UiMonitorResolution::kUnavailable ||
+          !current_screen || !ScreenForKey(placement->resolved_monitor)) return;
+      // To move a fullscreen Space, first leave it. The completion callback
+      // applies LOCAL placement to the normal window before binding again.
+      // Treat the temporary exit as a native action for the current model
+      // publication, so it does not issue a user command to exit fullscreen.
+      native_target = ScreenKey(current_screen) == placement->resolved_monitor;
+    }
+  }
+
+  if (native_target == InFullscreen(native)) return;
+  native.fullscreen_transition = native_target;
   [window toggleFullScreen:nil];
 }
 
@@ -674,18 +692,16 @@ class MacNativeViews final
     native.placement_revision = placement->revision;
     return NO;
   }
-  NSScreen* screen = ScreenForKey(placement->resolved_monitor);
-  if (!screen) return NO;
-  auto const area = screen.visibleFrame;
   // A newly mounted scene can inherit an AppKit zoomed rectangle from the
   // previous process. Apply LOCAL normal geometry before entering fullscreen.
   bool const preserve_zoom = native.placement_revision != 0 && window.isZoomed;
-  auto const target = preserve_zoom
-      ? area : FrameInWorkArea(area, placement->frame_dip);
-  native.placement_revision = placement->revision;
+  auto const revision = placement->revision;
   native.applying_frame = true;
-  [window setFrame:target display:YES];
+  bool const applied = apptraverse::ui::macos::ApplyMacWindowPlacement(
+      window, *placement, preserve_zoom);
   native.applying_frame = false;
+  if (!applied) return NO;
+  native.placement_revision = revision;
   [self observeNativeWindow:token commit:NO];
   return YES;
 }

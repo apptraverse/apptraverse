@@ -36,6 +36,28 @@ runtime test was performed. Compilation, native behavior, cloud/APNs and binary
 linkage are NOT RUN. The bounded thirty-rule source audit and its limitations
 are recorded in [the source review](../validation/chat-swiftui-source-2026-11-21.md).
 
+## Apple WindowCatalog and MinimalApp main refresh — 2026-11-21
+
+Mac WindowCatalog uses the shared native placement adapter. When LOCAL
+publishes a different available display for a fullscreen window, the adapter
+leaves the current Space, applies the saved normal placement, and enters full
+screen on the resolved display. The temporary native transition preserves the
+model's fullscreen intent.
+
+On `356e791f` plus the placement change, both Apple applications built in
+Debug. All seven selected macOS CTests passed, including the shared layout,
+device-state and application model tests, the host lifecycle, and native
+acceptance for both apps. WindowCatalog acceptance covered independent native
+windows, viewport reflow, system and app fullscreen controls, and USER/LOCAL
+save and cold restore. The first run reached the 55-second process limit at
+shutdown while iPhone compilation was still running. The complete native
+batch passed after compilation finished. Physical multi-display transitions
+were outside the single-display run.
+
+Both iPhone executables and WindowCatalog's embedded load-only consumer were
+verified as ARM64 iOS binaries. The embedded consumer omits the WindowCatalog
+graph builder and distillation entry point. iOS runtime was not exercised.
+
 ## Windows x86 WindowCatalog MinSizeRel — 2026-11-20
 
 The opt-in `APPTRAVERSE_MINIMUM_WINDOWS_X86` profile reproduces the
