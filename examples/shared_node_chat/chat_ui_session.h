@@ -20,6 +20,9 @@ class Session {
   void ConfigurePush(std::string service_uid);
   void RegisterPushToken(std::string token, bool apple = false);
   void RegisterWebPush(std::string endpoint);
+  // Capture native settings on the UI thread before Start; the model applies
+  // this session's baseline after loading LOCAL and before first publication.
+  void PrepareDeviceEnvironment(ui::UiDeviceEnvironment environment);
   void Start();
   void Stop();
   void Checkpoint(std::function<void(bool)> completion);

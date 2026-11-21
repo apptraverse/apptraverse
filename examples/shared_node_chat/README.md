@@ -146,14 +146,20 @@ remove the extra ACK-timeout wait after a locally refused send.
 
 ## macOS (SwiftUI)
 
-The macOS host uses SwiftUI controls and an Objective-C++ bridge to the
-shared chat model. SwiftUI measures the controls with the current system font
-and appearance. AppKit owns the application and window lifecycle.
+The macOS host uses SwiftUI `App`, a single `Window` scene, `Commands` and
+controls, with an Objective-C++ bridge to the shared chat model. SwiftUI measures
+and arranges the controls with the current system font and appearance. A thin
+AppKit attachment observes the SwiftUI-owned native window's placement and
+forwards APNs and termination callbacks; it does not create windows or menus.
 Model notifications dispatch to the main queue; published values update the
 SwiftUI presenter. There is no UI polling timer or separate chat model.
-Editing fields are transient UI state; room creation, Join and Send enqueue model commands.
+Editing fields, room creation, Join, Copy and Send enqueue model commands.
 Closing the last window drains/stops the session. Deactivation leaves it alive.
 Standard Copy/Paste shortcuts are available through the Edit menu.
+Native settings are captured before the initial publication and observed live.
+Moves and resizes update device-local outer placement through model Events;
+LOCAL restore and monitor fallback apply the published placement without
+rewriting the portable semantic frame. Only LOCAL and the SDK identity persist.
 
 Use Xcode's Swift compiler and a C++20 compiler (MacPorts Clang 20 is supported).
 For example, from the repository root, with Xcode selected:
@@ -221,6 +227,9 @@ On scene deactivation, iOS enqueues a model-worker checkpoint with a bounded
 background task. The session and presenters stay alive. A cold launch restores
 local UI preferences and the SDK identity. Rejoin the live host to recover the
 room's messages.
+SwiftUI supplies the initial and live display, accessibility and viewport
+observations to LOCAL model Events. An explicit application termination drains
+and stops the session; ordinary deactivation only checkpoints LOCAL.
 
 For an installed iOS 17.2 Simulator, first produce the chat supply using the
 macOS exporter above. Then, from the repository root:
@@ -247,7 +256,8 @@ release; device signing is a separate step.
 Explicit native UI/cloud acceptance uses the installed product plus the
 standalone `tests/ios_chat_ui/SharedChatUi.xcodeproj` XCTest runner. It taps the
 real SwiftUI controls, checks Mac/iPhone messages, Unicode replies, participants,
-rotation, background/foreground without a process replacement, and cold restore.
+rotation, background/foreground without a process replacement, and cold identity
+restore followed by a live-room rejoin. Chat history itself stays in RAM.
 Build its `SharedChatUi` scheme with `xcodebuild build-for-testing`, then run:
 
 ```sh

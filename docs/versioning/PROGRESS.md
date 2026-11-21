@@ -1,3 +1,18 @@
+## Apple chat SwiftUI port — 2026-11-21 — source review only
+
+Updated from main `d621e1fa`. macOS now uses SwiftUI App/Window/Commands rather
+than a manually created AppKit app/window/menu. Shared Apple input/copy stays on
+the proxy/Event/publication path. Native startup/live settings and macOS outer
+placement observations use LOCAL, with reusable macOS/iOS backend conversions;
+the native viewport no longer rewrites portable chat geometry. iPhone retains
+the live model/presenters during deactivation and saves LOCAL; explicit normal
+termination drains/stops the session. Chat business/history remains RAM-only.
+
+The user prohibited builds: no configure/build/type-check, launch, simulator or
+runtime test was performed. Compilation, native behavior, cloud/APNs and binary
+linkage are NOT RUN. The bounded thirty-rule source audit and its limitations
+are recorded in [the source review](../validation/chat-swiftui-source-2026-11-21.md).
+
 ## Windows x86 WindowCatalog MinSizeRel — 2026-11-20
 
 The opt-in `APPTRAVERSE_MINIMUM_WINDOWS_X86` profile reproduces the

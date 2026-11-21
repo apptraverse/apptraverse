@@ -245,11 +245,8 @@ void ChatUi::AcceptTransport(ChatView view) {
   ConnectionState next{};
   next.uid = std::move(view.local_uid);
   next.invite = std::move(view.invite);
-  // Older single-language supplies use the transport's English diagnostic.
-  auto const status_count = static_cast<unsigned>(ChatStatus::Count) - 1;
   auto const label_count = static_cast<unsigned>(Label::Count);
-  if (view.status_code != ChatStatus::Unspecified &&
-      labels.size() == label_count + status_count) {
+  if (view.status_code != ChatStatus::Unspecified) {
     next.status =
         labels.at(label_count + static_cast<unsigned>(view.status_code) - 1)
             ->Resolve(presenter->locale->language_index());

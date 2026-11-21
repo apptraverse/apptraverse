@@ -1,5 +1,8 @@
 #import <Foundation/Foundation.h>
 #import <TargetConditionals.h>
+#if TARGET_OS_IOS
+#import "apptraverse/platform/ios/ATIosApplicationBridge.h"
+#endif
 NS_ASSUME_NONNULL_BEGIN
 @interface ATChatBridge : NSObject
 - (instancetype)initWithProfile:(NSString*)profile name:(NSString*)name host:(BOOL)host initialHost:(NSString*)initialHost loadOnly:(BOOL)loadOnly changed:(void (^)(void))changed;
@@ -12,10 +15,18 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)editInvite:(NSString*)text;
 - (void)join;
 - (void)send;
+- (void)copyID;
 - (void)clipboardResult:(BOOL)success;
-- (void)reportFrameX:(int)x y:(int)y width:(int)width height:(int)height
-     updatesRestore:(BOOL)updatesRestore
-    NS_SWIFT_NAME(reportFrame(x:y:width:height:updatesRestore:));
+#if TARGET_OS_OSX
+- (void)observeEnvironment;
+- (void)observeWindow:(id)window commit:(BOOL)commit;
+- (BOOL)applyWindowPlacement:(id)window;
+- (void)resetWindowPlacement;
+#else
+- (void)observeMobileSettings:(ATIosDeviceSettings)settings;
+- (void)reportMobileViewportWidth:(int)width height:(int)height
+    NS_SWIFT_NAME(reportMobileViewport(width:height:));
+#endif
 @end
 NS_ASSUME_NONNULL_END
 #if TARGET_OS_OSX

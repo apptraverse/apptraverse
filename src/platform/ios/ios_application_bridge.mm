@@ -329,18 +329,7 @@ class IosNativeViews final
 
 - (void)observeDeviceSettings:(ATIosDeviceSettings)settings {
   if (_stopping) return;
-  UiDeviceEnvironment environment;
-  using namespace apptraverse::ui;
-  environment.supported_settings = kSystemTextScale | kSystemDarkMode |
-      kSystemHighContrast | kSystemReducedMotion | kSystemScreenReaderHint;
-  environment.system_dpi_x = environment.system_dpi_y =
-      static_cast<unsigned>(std::lround(96 * settings.displayScale));
-  environment.text_scale_milli =
-      static_cast<unsigned>(std::lround(1000 * settings.bodyTextScale));
-  environment.dark = settings.dark;
-  environment.high_contrast = settings.highContrast;
-  environment.reduced_motion = settings.reducedMotion;
-  environment.screen_reader_hint = settings.voiceOver;
+  auto const environment = apptraverse::ui::ios::IosDeviceEnvironment(settings);
   if (environment == _deviceEnvironment) return;
   _deviceEnvironment = environment;
   [self publishDeviceSettings];
@@ -513,6 +502,21 @@ class IosNativeViews final
 @end
 
 namespace apptraverse::ui::ios {
+
+UiDeviceEnvironment IosDeviceEnvironment(ATIosDeviceSettings settings) {
+  UiDeviceEnvironment environment;
+  environment.supported_settings = kSystemTextScale | kSystemDarkMode |
+      kSystemHighContrast | kSystemReducedMotion | kSystemScreenReaderHint;
+  environment.system_dpi_x = environment.system_dpi_y =
+      static_cast<unsigned>(std::lround(96 * settings.displayScale));
+  environment.text_scale_milli =
+      static_cast<unsigned>(std::lround(1000 * settings.bodyTextScale));
+  environment.dark = settings.dark;
+  environment.high_contrast = settings.highContrast;
+  environment.reduced_motion = settings.reducedMotion;
+  environment.screen_reader_hint = settings.voiceOver;
+  return environment;
+}
 
 ATIosApplicationBridge* MakeIosApplicationBridge(
     IosApplicationBridgeCallbacks callbacks,

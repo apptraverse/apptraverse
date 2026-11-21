@@ -397,8 +397,9 @@ Earlier saved-profile checks are in
 `APPTRAVERSE_BUILD_SHARED_NODE_CHAT=ON` requires the optional Aether link and
 builds `shared_node_chat`. The window contains the local UID, Host room,
 invitation/Join, participant names, message history and
-input/Send. Fixed English labels follow the explicitly requested no-localization
-scope. Each running participant needs a distinct `--profile`; `--name` supplies
+input/Send. Current labels and application commands come from the model's active
+English/Russian locale; the initial fixed-English slice is historical.
+Each running participant needs a distinct `--profile`; `--name` supplies
 the display name. `examples/shared_node_chat/run_demo.ps1` opens three windows.
 
 The native model contains an Application, a SharedNode Room, Participants with
@@ -418,18 +419,20 @@ window message; on macOS/iOS the shared Apple bridge dispatches to the main queu
 SwiftUI presenter consumes the value publication. There is no regular
 publication/refresh timer, and no presentation work for ACKs/retries/idle.
 
-iOS deactivation enqueues an ordered USER checkpoint on the model worker.
+iOS deactivation enqueues an ordered LOCAL checkpoint on the model worker.
 A bounded platform background task covers completion; neither deactivation
-nor that task ending destroys the session or presenters. Ordinary accepted
-mutations remain durable before ACK, independently of lifecycle callbacks.
+nor that task ending destroys the session or presenters.
 
-The current demonstration persists chat objects and delivery obligations as
-one native USER graph over the embedded supply. A successful SharedSync commit
-saves that graph atomically to `user.bin` before the application ACK. The SDK
-identity remains separate in the private profile. Opening the same profile
-restores the room/history and retries pending delivery after reconnect. Runtime
-transport handles, deferred ACK cache and fragment assemblies never enter the
-shared graph. Earlier RAM-only acceptance records describe an older policy.
+Under the current chat contract, business objects, history, drafts and pending
+delivery obligations remain in RAM. Send/receive, checkpoint and shutdown do not
+save or restore a chat business USER file. ACK confirms in-process model apply;
+it is not a promise of disk durability across process exit. Lifecycle checkpoints
+save the native device/window LOCAL graph in its ordinary storage format; SDK
+identity remains separate in the private profile. Opening the same profile does
+not restore the room/history or pending chat delivery. Runtime transport handles,
+deferred ACK cache and fragment assemblies never enter the shared graph.
+Earlier disk-persistence acceptance records retain their historical scope and
+do not describe the current RAM-only demonstration.
 The example implements one
 room and no room merging, moderation, attachments or unrelated controls.
 

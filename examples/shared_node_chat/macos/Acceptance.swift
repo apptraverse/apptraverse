@@ -17,20 +17,22 @@ extension ChatHost {
         commandSource = source; source.resume()
     }
     func emit(_ value: [String: Any]) {
+        guard !presenter.stopped, let content else { return }
         content.layoutSubtreeIfNeeded()
         var state = value
         state["rendered"] = presenter.messages.joined(separator: "\n")
-        state["visible_strings"] = ATChatVisibleStrings(content!)
-        state["join_enabled"] = ATChatEnabled(content!, "chat.join")
-        state["role_ready"] = ATChatEnabled(content!, presenter.role == .host ? "chat.copy" : "chat.join")
-        state["send_enabled"] = ATChatEnabled(content!, "chat.send")
-        let frame = ATChatFrame(content!, "chat.messages")
+        state["visible_strings"] = ATChatVisibleStrings(content)
+        state["join_enabled"] = ATChatEnabled(content, "chat.join")
+        state["role_ready"] = ATChatEnabled(content, presenter.role == .host ? "chat.copy" : "chat.join")
+        state["send_enabled"] = ATChatEnabled(content, "chat.send")
+        let frame = ATChatFrame(content, "chat.messages")
         state["messages_width"] = frame.width
         state["messages_height"] = frame.height
         let data = try! JSONSerialization.data(withJSONObject: state)
         print("CHATUI " + String(decoding: data, as: UTF8.self)); fflush(stdout)
     }
     func readCommands() {
+        guard !presenter.stopped else { return }
         var bytes = [UInt8](repeating: 0, count: 4096)
         let count = read(STDIN_FILENO, &bytes, bytes.count)
         if count == 0 { commandSource?.cancel(); NSApp.terminate(nil); return }
@@ -44,12 +46,14 @@ extension ChatHost {
                 let action = command["action"]!
                 if action == "join" { presenter.invite = command["text"]! }
                 if action == "send" { presenter.input = command["text"]! }
-                DispatchQueue.main.async { [self] in
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, !self.presenter.stopped, let content = self.content else { return }
                     content.layoutSubtreeIfNeeded()
-                    precondition(ATChatPress(content!, "chat." + action), "SwiftUI button not accessible: " + action)
+                    precondition(ATChatPress(content, "chat." + action), "SwiftUI button not accessible: " + action)
                 }
             case "snapshot": presenter.refresh()
             case "screenshot":
+                guard let window, let content else { return }
                 content.layoutSubtreeIfNeeded()
                 let captured = CGWindowListCreateImage(.null, .optionIncludingWindow,
                     CGWindowID(window.windowNumber), [.boundsIgnoreFraming, .bestResolution])!

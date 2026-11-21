@@ -18,7 +18,7 @@
   <string>${MACOSX_BUNDLE_BUNDLE_VERSION}</string>
   <key>CFBundleSupportedPlatforms</key>
   <array>
-    <string>iPhoneSimulator</string>
+    <string>${_apptraverse_ios_bundle_platform}</string>
   </array>
   <key>UILaunchScreen</key>
   <dict/>

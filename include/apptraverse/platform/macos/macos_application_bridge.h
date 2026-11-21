@@ -10,9 +10,16 @@
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/ui/ui_device_state.h"
 
+@class NSWindow;
+
 namespace apptraverse::ui::macos {
 
 UiDeviceEnvironment ReadMacDeviceEnvironment();
+// Native coordinate conversion shared by SwiftUI application boundaries.
+// Call with a screen-attached window on the main thread.
+UiWindowEnvironment ReadMacWindowEnvironment(NSWindow* window, ae::ObjId id);
+bool ApplyMacWindowPlacement(NSWindow* window, UiWindowPlacement const& placement,
+                             bool preserve_zoom);
 
 struct MacApplicationBridgeCallbacks {
   // Optional application composition; generic hosts do not invent a menu.

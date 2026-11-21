@@ -32,7 +32,7 @@ final class ChatPresenter: ObservableObject {
     @Published var messages: [String] = []
     @Published var ready = false
     @Published var inRoom = false
-    var labels: [String] = []
+    @Published var labels: [String] = []
     var x: CGFloat = 0, y: CGFloat = 0, restoreWidth: CGFloat = 0, restoreHeight: CGFloat = 0
     var hasExplicitPlacement = false
     var chromeChanged: (() -> Void)?
@@ -41,6 +41,7 @@ final class ChatPresenter: ObservableObject {
     private var acknowledgedEdit: UInt64 = 0
     private var pendingInput: UInt64 = 0
     private var pendingInvite: UInt64 = 0
+    private var consumedCopy: UInt64 = 0
     private var bridge: ATChatBridge!
     private(set) var stopped = false
     #if CHAT_ACCEPTANCE
@@ -56,19 +57,28 @@ final class ChatPresenter: ObservableObject {
     func checkpoint(_ completion: @escaping (Bool) -> Void) { bridge.checkpoint(completion) }
     func stop() { guard !stopped else { return }; stopped = true; bridge.stop() }
     func join() { bridge.join() }
-    func reportFrame(_ frame: CGRect, updatesRestore: Bool) {
-        guard !controls.isEmpty, !stopped else { return }
-        for value in [frame.minX, frame.minY, frame.width, frame.height] {
-            precondition(value.isFinite && value >= CGFloat(Int32.min) && value <= CGFloat(Int32.max),
-                         "Invalid native chat frame")
-        }
-        guard frame.width >= 1 && frame.height >= 1 else { return }
-        bridge.reportFrame(x: Int32(frame.minX), y: Int32(frame.minY), width: Int32(frame.width),
-                           height: Int32(frame.height), updatesRestore: updatesRestore)
+    #if os(macOS)
+    func observeEnvironment() { bridge.observeEnvironment() }
+    func observeWindow(_ window: NSWindow, commit: Bool) { bridge.observeWindow(window, commit: commit) }
+    func applyWindowPlacement(_ window: NSWindow) -> Bool { bridge.applyWindowPlacement(window) }
+    func resetWindowPlacement() { bridge.resetWindowPlacement() }
+    #else
+    func observeMobileSettings(_ settings: ATIosDeviceSettings) { bridge.observeMobileSettings(settings) }
+    func reportMobileViewport(_ size: CGSize) {
+        guard size.width.isFinite, size.height.isFinite,
+              size.width >= 1, size.height >= 1,
+              size.width <= CGFloat(Int32.max), size.height <= CGFloat(Int32.max) else { return }
+        bridge.reportMobileViewport(width: Int32(size.width.rounded()), height: Int32(size.height.rounded()))
     }
+    #endif
     func send() { bridge.send() }
     func copyID() {
-        guard controls.count > 2, controls[2].enabled else { return }
+        guard !controls.isEmpty, controls[2].enabled, !stopped else { return }
+        bridge.copyID()
+    }
+    private func applyCopyRequest(_ request: UInt64) {
+        guard request != consumedCopy else { return }
+        consumedCopy = request
         #if os(macOS)
         NSPasteboard.general.clearContents()
         bridge.clipboardResult(NSPasteboard.general.setString(controls[1].text, forType: .string))
@@ -98,6 +108,7 @@ final class ChatPresenter: ObservableObject {
         restoreHeight = CGFloat((value["restoreHeight"] as! NSNumber).doubleValue)
         hasExplicitPlacement = value["hasExplicitPlacement"] as! Bool
         applying = false; chromeChanged?()
+        applyCopyRequest((value["copyRequest"] as! NSNumber).uint64Value)
         #if CHAT_ACCEPTANCE
         published?(value)
         #endif
@@ -119,22 +130,27 @@ struct ChatPanel: View {
 
     private var roomAddress: some View {
         VStack(alignment: .leading) {
-            Text(state(.idLabel).text).font(.subheadline)
-            if state(.ownID).visible {
-                HStack {
+            if state(.idLabel).visible {
+                Text(state(.idLabel).text).font(.subheadline)
+            }
+            HStack {
+                if state(.ownID).visible {
                     Text(state(.ownID).text).textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    Button(state(.copy).text, action: presenter.copyID)
-                        .disabled(!state(.copy).enabled)
-                        .accessibilityIdentifier("chat.copy")
                 }
-            } else {
-                HStack {
+                if state(.invite).visible {
                     TextField(state(.idLabel).text, text: $presenter.invite)
                         .textFieldStyle(.roundedBorder)
                         .onSubmit(presenter.join)
                         .disabled(state(.invite).readOnly || !state(.invite).enabled)
                         .accessibilityIdentifier("chat.invite")
+                }
+                if state(.copy).visible {
+                    Button(state(.copy).text, action: presenter.copyID)
+                        .disabled(!state(.copy).enabled)
+                        .accessibilityIdentifier("chat.copy")
+                }
+                if state(.join).visible {
                     Button(state(.join).text, action: presenter.join)
                         .disabled(!state(.join).enabled)
                         .accessibilityIdentifier("chat.join")
@@ -143,11 +159,14 @@ struct ChatPanel: View {
         }
     }
 
+    @ViewBuilder
     private func history(_ slot: ChatSlot, label: ChatSlot, id: String) -> some View {
         let rows = state(slot).rows
         let title = state(label).text
-        return VStack(alignment: .leading) {
-            Text(title).font(.headline).accessibilityAddTraits(.isHeader)
+        VStack(alignment: .leading) {
+            if state(label).visible {
+                Text(title).font(.headline).accessibilityAddTraits(.isHeader)
+            }
             ScrollViewReader { reader in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 6) {
@@ -160,6 +179,7 @@ struct ChatPanel: View {
                 }
                 .accessibilityLabel(title)
                 .accessibilityIdentifier(id)
+                .disabled(!state(slot).enabled)
                 .onAppear { if let last = rows.indices.last { reader.scrollTo(last, anchor: .bottom) } }
                 .onChange(of: rows.count) { count in
                     if count > 0 { reader.scrollTo(count - 1, anchor: .bottom) }
@@ -170,14 +190,18 @@ struct ChatPanel: View {
 
     private var composer: some View {
         HStack {
-            TextField(presenter.labels[8], text: $presenter.input)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit(presenter.send)
-                .disabled(!state(.input).enabled)
-                .accessibilityIdentifier("chat.input")
-            Button(state(.send).text, action: presenter.send)
-                .disabled(!state(.send).enabled)
-                .accessibilityIdentifier("chat.send")
+            if state(.input).visible {
+                TextField(presenter.labels[8], text: $presenter.input)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(presenter.send)
+                    .disabled(state(.input).readOnly || !state(.input).enabled)
+                    .accessibilityIdentifier("chat.input")
+            }
+            if state(.send).visible {
+                Button(state(.send).text, action: presenter.send)
+                    .disabled(!state(.send).enabled)
+                    .accessibilityIdentifier("chat.send")
+            }
         }
     }
 
@@ -189,20 +213,30 @@ struct ChatPanel: View {
                 roomAddress
                 #if os(macOS)
                 HStack(alignment: .top, spacing: 16) {
+                    if state(.people).visible {
+                        history(.people, label: .peopleLabel, id: "chat.participants")
+                            .frame(minWidth: 100, idealWidth: 160, maxWidth: 220)
+                    }
+                    if state(.messages).visible {
+                        history(.messages, label: .messagesLabel, id: "chat.messages")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+                #else
+                if state(.people).visible {
                     history(.people, label: .peopleLabel, id: "chat.participants")
-                        .frame(minWidth: 100, idealWidth: 160, maxWidth: 220)
+                        .frame(height: 84)
+                }
+                if state(.messages).visible {
                     history(.messages, label: .messagesLabel, id: "chat.messages")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                #else
-                history(.people, label: .peopleLabel, id: "chat.participants")
-                    .frame(height: 84)
-                history(.messages, label: .messagesLabel, id: "chat.messages")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 #endif
                 composer
-                Text(state(.status).text).font(.caption)
-                    .accessibilityIdentifier("chat.status")
+                if state(.status).visible {
+                    Text(state(.status).text).font(.caption)
+                        .accessibilityIdentifier("chat.status")
+                }
             }
             .padding()
         }

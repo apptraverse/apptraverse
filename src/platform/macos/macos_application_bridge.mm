@@ -619,11 +619,6 @@ class MacNativeViews final
   if (!window || !window.screen) return;
   auto& presenter = FromToken<MacDesktopWindowPresenter>(token);
   auto* state = presenter.LocalDeviceState();
-  auto const frame = window.frame;
-  auto const area = window.screen.visibleFrame;
-  UiDisplayRect const outer{ModelCoordinate(frame.origin.x - area.origin.x),
-      ModelCoordinate(NSMaxY(area) - NSMaxY(frame)),
-      ModelCoordinate(frame.size.width), ModelCoordinate(frame.size.height)};
   // An explicit semantic frame has already been applied when commit is set.
   // AppKit can still report the old zoom state immediately after a Space exit.
   bool const normal = !InFullscreen(native) && !window.isMiniaturized &&
@@ -632,9 +627,8 @@ class MacNativeViews final
     if (!normal) return;
     native.own_initial_placement = true;
   }
-  auto const dpi = static_cast<std::uint32_t>(std::lround(96 * window.backingScaleFactor));
   _proxy->Invoke(state->obj_id, &UiDeviceState::ObserveWindow,
-      UiWindowEnvironment{presenter.window.id(), ScreenKey(window.screen), dpi, dpi, outer},
+      apptraverse::ui::macos::ReadMacWindowEnvironment(window, presenter.window.id()),
       commit && normal ? UiEnvironmentReason::kUserWindowChange
                        : UiEnvironmentReason::kSystemNotification);
 }
@@ -775,6 +769,26 @@ class MacNativeViews final
 @end
 
 namespace apptraverse::ui::macos {
+
+UiWindowEnvironment ReadMacWindowEnvironment(NSWindow* window, ae::ObjId id) {
+  auto const frame = window.frame;
+  auto const area = window.screen.visibleFrame;
+  UiDisplayRect const outer{ModelCoordinate(frame.origin.x - area.origin.x),
+      ModelCoordinate(NSMaxY(area) - NSMaxY(frame)),
+      ModelCoordinate(frame.size.width), ModelCoordinate(frame.size.height)};
+  auto const dpi = static_cast<std::uint32_t>(std::lround(96 * window.backingScaleFactor));
+  return {id, ScreenKey(window.screen), dpi, dpi, outer};
+}
+
+bool ApplyMacWindowPlacement(NSWindow* window, UiWindowPlacement const& placement,
+                             bool preserve_zoom) {
+  NSScreen* screen = ScreenForKey(placement.resolved_monitor);
+  if (!screen) return false;  // A display may disappear after publication.
+  auto const area = screen.visibleFrame;
+  [window setFrame:preserve_zoom ? area : FrameInWorkArea(area, placement.frame_dip)
+           display:YES];
+  return true;
+}
 
 UiDeviceEnvironment ReadMacDeviceEnvironment() {
   UiDeviceEnvironment environment;

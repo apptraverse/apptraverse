@@ -13,6 +13,8 @@
 
 namespace apptraverse::ui::ios {
 
+UiDeviceEnvironment IosDeviceEnvironment(ATIosDeviceSettings settings);
+
 struct IosMobilePresentation {
   std::vector<ae::ObjId> windows;
   ae::ObjId active_window;

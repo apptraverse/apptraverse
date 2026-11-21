@@ -82,6 +82,7 @@ struct Session::Impl {
   ae::RamDomainStorage* active_local{};
   std::filesystem::path active_profile;
   std::set<ae::ObjId> local_roots;
+  std::optional<ui::UiDeviceEnvironment> startup_environment;
 
   bool PersistLocal(ChatUi& root) {
     return SaveLocalRoots(root, local_roots) &&
@@ -113,6 +114,9 @@ struct Session::Impl {
       root->device_state.Load();
       auto const& factories = PresentationFactories();
       factories.prepare_device(*root->device_state);
+      if (startup_environment)
+        root->device_state->ObserveEnvironment(*startup_environment,
+                                               ui::UiEnvironmentReason::kStartup);
       if (factories.startup_language)
         root->PrepareLanguage(*factories.startup_language);
       root->SetImmediateEventCompaction(true);
@@ -243,4 +247,8 @@ ChatUi const* Session::Mirror() const {
 }
 ChatView Session::TransportView() const { return impl_->transport.View(); }
 ModelObjectProxy& Session::Proxy() { return impl_->proxy; }
+void Session::PrepareDeviceEnvironment(ui::UiDeviceEnvironment environment) {
+  if (impl_->started) Fail("chat device baseline must precede Start\n");
+  impl_->startup_environment = std::move(environment);
+}
 }  // namespace apptraverse::chat::gui
