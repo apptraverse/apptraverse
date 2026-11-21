@@ -1,3 +1,11 @@
+## WindowCatalog fullscreen geometry on WSLg Wayland — 2026-11-21
+
+The GTK presenter waits for coherent native allocation during fullscreen
+transitions and uses the saved normal decoration extents for explicit
+restore frames. Eight native MinSizeRel runs verified exact viewport
+sizes and preserved LOCAL frames across fullscreen exit, a cold exit
+and a cold windowed restart. See the [Wayland fullscreen validation](../validation/window-catalog-wayland-fullscreen-2026-11-21.md).
+
 ## WindowCatalog MinSizeRel ports — 2026-11-21
 
 The Linux GTK and headless x86_64, Web wasm32, and Android x86_64

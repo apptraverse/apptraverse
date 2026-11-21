@@ -96,6 +96,7 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
   void RefreshFullscreenAction();
   UiConstraintLayoutResult ComputeFullscreenActionLayout(int native_client_width) const;
   bool NativeFrameMatches(UiDisplayRect const& frame) const;
+  bool NativeGeometryReady() const;
   bool NativeGlobalPositionAvailable() const;
   void RefreshMonitorSubscriptions();
   static void OnMonitorNotify(GObject*, GParamSpec*, gpointer);
@@ -121,6 +122,7 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
   bool restoring_fullscreen_{false};
   int normal_decoration_width_{0}, normal_decoration_height_{0};
   std::uint64_t fullscreen_placement_revision_{0};
+  std::optional<bool> native_fullscreen_request_;
   struct MonitorSubscription { GdkMonitor* monitor; gulong handler; };
   std::vector<MonitorSubscription> monitor_subscriptions_;
   gulong monitor_added_handler_{0}, monitor_removed_handler_{0};
@@ -141,7 +143,7 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
                               gpointer user_data);
   static gboolean OnMapEvent(GtkWidget* widget, GdkEvent* event,
                              gpointer user_data);
-  static void OnViewportSizeAllocate(GtkWidget*, GtkAllocation*, gpointer);
+  static void OnNativeSizeAllocate(GtkWidget*, GtkAllocation*, gpointer);
   static gboolean OnViewportResizeIdle(gpointer);
 
   GtkWidget* window_{nullptr};
@@ -169,6 +171,7 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
   std::uint64_t windowed_placement_revision_{0};
   std::optional<ClientFrame> pending_requested_frame_;
   std::optional<ClientFrame> requested_native_frame_;
+  bool requested_fullscreen_restore_{false};
 };
 
 }  // namespace apptraverse::ui::linux

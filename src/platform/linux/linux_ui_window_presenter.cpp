@@ -284,6 +284,17 @@ bool LinuxDesktopWindowPresenter::NativeFrameMatches(UiDisplayRect const& frame)
   return native.width == frame.width && native.height == frame.height &&
       (!NativeGlobalPositionAvailable() || (native.x == frame.x && native.y == frame.y));
 }
+bool LinuxDesktopWindowPresenter::NativeGeometryReady() const {
+  if (NativeGlobalPositionAvailable()) return true;
+  // Configure/state notifications precede GTK's child allocation. CSD shadows
+  // can animate allocations independently of the accepted window size. Pair
+  // the native frame only with its matching allocated client surface.
+  int width{}, height{};
+  gtk_window_get_size(GTK_WINDOW(window_), &width, &height);
+  auto* content = gtk_bin_get_child(GTK_BIN(window_));
+  return gtk_widget_get_allocated_width(content) == width &&
+      gtk_widget_get_allocated_height(content) == height;
+}
 UiConstraintLayoutResult LinuxDesktopWindowPresenter::ComputeFullscreenActionLayout(
     int native_client_width) const {
   auto const label = ResolveFullscreenActionText();
@@ -333,7 +344,9 @@ void LinuxDesktopWindowPresenter::RefreshFullscreenAction() {
 }
 void LinuxDesktopWindowPresenter::SetPresentationFullscreen(bool fullscreen) {
   if (presentation_fullscreen_ != fullscreen) {
-    if (fullscreen && mapped_ && !(gdk_window_get_state(gtk_widget_get_window(window_)) & GDK_WINDOW_STATE_FULLSCREEN)) {
+    if (fullscreen) windowed_client_.reset();
+    if (fullscreen && mapped_ && !local_placement_pending_ && NativeGeometryReady() &&
+        !(gdk_window_get_state(gtk_widget_get_window(window_)) & GDK_WINDOW_STATE_FULLSCREEN)) {
       windowed_client_ = ReadNativeClientFrame();
       auto const* placement = LocalDeviceState()->PlacementFor(window.id());
       windowed_placement_revision_ = placement ? placement->revision : 0;
@@ -358,11 +371,32 @@ void LinuxDesktopWindowPresenter::ApplyNativeFullscreen() {
   if (!window_ || !mapped_) return;
   auto* placement = LocalDeviceState()->PlacementFor(window.id());
   if (!presentation_fullscreen_) {
-    if (fullscreen_transition_) gtk_window_unfullscreen(GTK_WINDOW(window_));
+    // Wayland acknowledges mode before allocating its fullscreen surface.
+    // An immediate exit in that gap can be discarded by the compositor.
+    // Complete this pending native phase before issuing the latest intent;
+    // the existing after-allocation idle resumes it without polling.
+    if (!NativeGlobalPositionAvailable() &&
+        (gdk_window_get_state(gtk_widget_get_window(window_)) & GDK_WINDOW_STATE_FULLSCREEN) &&
+        !NativeGeometryReady()) return;
+    if ((fullscreen_transition_ || native_fullscreen_request_ == true) && native_fullscreen_request_ != false) {
+      native_fullscreen_request_ = false;
+      gtk_window_unfullscreen(GTK_WINDOW(window_));
+    }
     return;
   }
   auto const revision = placement ? placement->revision : 0;
-  if (!fullscreen_transition_ && fullscreen_placement_revision_ == revision) return;
+  if (native_fullscreen_request_ == true && fullscreen_placement_revision_ == revision) return;
+  if (!NativeGlobalPositionAvailable() && native_fullscreen_request_ != true &&
+      !(gdk_window_get_state(gtk_widget_get_window(window_)) & GDK_WINDOW_STATE_FULLSCREEN)) {
+    // Capture at the mapped native boundary: cold/reopened fullscreen intent
+    // can be published before map and before the controls finish allocating.
+    // Normal decoration is independent of the optional content snapshot.
+    auto const outer = ReadNativeOuterFrame();
+    int width{}, height{};
+    gtk_window_get_size(GTK_WINDOW(window_), &width, &height);
+    normal_decoration_width_ = std::max(0, outer.width - width);
+    normal_decoration_height_ = std::max(0, outer.height - height);
+  }
   auto* display = gtk_widget_get_display(window_);
   int target = -1;
   if (placement) {
@@ -376,6 +410,7 @@ void LinuxDesktopWindowPresenter::ApplyNativeFullscreen() {
     gtk_window_fullscreen(GTK_WINDOW(window_));
   }
   fullscreen_placement_revision_ = revision;
+  native_fullscreen_request_ = true;
 }
 gboolean LinuxDesktopWindowPresenter::OnWindowState(GtkWidget*, GdkEventWindowState* event, gpointer data) {
   auto* self = static_cast<LinuxDesktopWindowPresenter*>(data);
@@ -384,10 +419,15 @@ gboolean LinuxDesktopWindowPresenter::OnWindowState(GtkWidget*, GdkEventWindowSt
   if (fullscreen == self->presentation_fullscreen_) {
     self->fullscreen_transition_ = false;
     if (!fullscreen) {
+      // LOCAL may synchronously acknowledge its old normal frame. Preserve
+      // the explicit Wayland request's exit provenance across that no-op.
+      bool const explicit_restore = !self->NativeGlobalPositionAvailable() &&
+          self->restoring_fullscreen_ && self->pending_requested_frame_.has_value();
       self->ApplyLocalPlacement();
       if (self->pending_requested_frame_) {
         auto const requested = *self->pending_requested_frame_;
         self->pending_requested_frame_.reset();
+        if (explicit_restore) self->restoring_fullscreen_ = true;
         self->ApplyRequestedNativeFrame(requested);
       }
       self->HandleNativeFrameChanged();
@@ -397,6 +437,7 @@ gboolean LinuxDesktopWindowPresenter::OnWindowState(GtkWidget*, GdkEventWindowSt
     // changes native mode. Reassert it, including a settled external exit.
     self->fullscreen_transition_ = true;
     self->fullscreen_placement_revision_ = 0;
+    self->native_fullscreen_request_.reset();
     self->ApplyNativeFullscreen();
   }
   self->RefreshLayout();
@@ -548,9 +589,9 @@ void LinuxDesktopWindowPresenter::ApplyLocalPlacement() {
       area.y + std::clamp(frame.y, 0, std::max(0, area.height-height)), width, height};
   // A no-op request may produce no configure signal at all.
   auto const native_client = ReadNativeClientFrame();
-  local_placement_pending_ = pending_restore_client_
+  local_placement_pending_ = !NativeGeometryReady() || (pending_restore_client_
       ? native_client.client_width != pending_restore_client_->client_width || native_client.client_height != pending_restore_client_->client_height
-      : !NativeFrameMatches(frame_reference_);
+      : !NativeFrameMatches(frame_reference_));
   if (!local_placement_pending_) { restoring_fullscreen_ = false; pending_restore_client_.reset(); }
   placement_revision_ = placement->revision;
 }
@@ -600,6 +641,7 @@ void LinuxDesktopWindowPresenter::HandleNativeFrameChanged() {
     return;
   }
   UiDisplayRect const native = ReadNativeOuterFrame();
+  if (!NativeGeometryReady()) { RefreshLayout(); return; }
   if (native.width <= 0 || native.height <= 0) {
     return;
   }
@@ -682,6 +724,15 @@ void LinuxDesktopWindowPresenter::HandleNativeFrameChanged() {
     bool const user_change = !pending_environment_revision_ &&
         (monitor_user_change || (restore &&
             (requested_reached || (!local_placement_pending_ && !automatic_relocation && native_user_delta))));
+    if (!NativeGlobalPositionAvailable() && restore && requested_reached && requested_fullscreen_restore_) {
+      // An explicit restore intent owns the accepted client size. Its first
+      // matching allocation can still have animated Wayland shadows; persist
+      // the outer normal frame using the pre-transition native decoration.
+      int width{}, height{};
+      gtk_window_get_size(GTK_WINDOW(window_), &width, &height);
+      observation.frame_dip.width = width + normal_decoration_width_;
+      observation.frame_dip.height = height + normal_decoration_height_;
+    }
     if (user_change && placement &&
         (!restore || (local_placement_pending_ && !reached_placement && !requested_reached)))
       // A monitor-only observation must retain the normal restore frame while
@@ -699,9 +750,9 @@ void LinuxDesktopWindowPresenter::HandleNativeFrameChanged() {
     // system input, preserving a missing preferred monitor across fallback.
     if (automatic_monitor || user_change) automatic_monitor_target_.reset();
     if (restore) {
-      if (requested_reached || user_change) requested_native_frame_.reset();
+      if (requested_reached || user_change) { requested_native_frame_.reset(); requested_fullscreen_restore_ = false; }
       if (reached_placement) { local_placement_pending_ = false; restoring_fullscreen_ = false; pending_restore_client_.reset(); }
-      if (!restoring_fullscreen_) {
+      if (!restoring_fullscreen_ && !requested_fullscreen_restore_) {
         int client_width{}, client_height{};
         gtk_window_get_size(GTK_WINDOW(window_), &client_width, &client_height);
         normal_decoration_width_ = std::max(0, native.width - client_width);
@@ -756,15 +807,18 @@ gboolean LinuxDesktopWindowPresenter::OnMapEvent(GtkWidget* widget,
   return FALSE;
 }
 
-void LinuxDesktopWindowPresenter::OnViewportSizeAllocate(
+void LinuxDesktopWindowPresenter::OnNativeSizeAllocate(
     GtkWidget*, GtkAllocation* allocation, gpointer user_data) {
   auto* self = static_cast<LinuxDesktopWindowPresenter*>(user_data);
-  if (self->viewport_width_ == allocation->width &&
-      self->viewport_height_ == allocation->height) return;
-  self->viewport_width_ = allocation->width;
-  self->viewport_height_ = allocation->height;
+  if (self->NativeGlobalPositionAvailable()) {
+    if (self->viewport_width_ == allocation->width &&
+        self->viewport_height_ == allocation->height) return;
+    self->viewport_width_ = allocation->width;
+    self->viewport_height_ = allocation->height;
+  }
   // Measuring or resizing children during GTK allocation can invalidate the
-  // same allocation and schedule another frame at the same viewport size.
+  // same allocation. Observe after the whole native window has allocated,
+  // including CSD/chrome changes that leave the scroller size unchanged.
   if (!self->viewport_resize_idle_)
     self->viewport_resize_idle_ = g_idle_add(OnViewportResizeIdle, self);
 }
@@ -772,6 +826,8 @@ void LinuxDesktopWindowPresenter::OnViewportSizeAllocate(
 gboolean LinuxDesktopWindowPresenter::OnViewportResizeIdle(gpointer user_data) {
   auto* self = static_cast<LinuxDesktopWindowPresenter*>(user_data);
   self->viewport_resize_idle_ = 0;
+  if (!self->NativeGlobalPositionAvailable() && !self->presentation_fullscreen_ && self->fullscreen_transition_)
+    self->ApplyNativeFullscreen();
   self->HandleNativeFrameChanged();
   return G_SOURCE_REMOVE;
 }
@@ -805,6 +861,7 @@ void LinuxDesktopWindowPresenter::ApplyRequestedFrameFromMirror() {
 }
 void LinuxDesktopWindowPresenter::ApplyRequestedNativeFrame(ClientFrame frame) {
   requested_native_frame_ = frame;
+  requested_fullscreen_restore_ = !NativeGlobalPositionAvailable() && restoring_fullscreen_;
   local_placement_pending_ = false;
   restoring_fullscreen_ = false;
   pending_restore_client_.reset();
@@ -855,6 +912,7 @@ void LinuxDesktopWindowPresenter::OnLoad() {
   last_reported_window_.reset();
   pending_requested_frame_.reset();
   requested_native_frame_.reset();
+  requested_fullscreen_restore_ = false;
   normal_client_reference_.reset();
   native_monitor_reference_.reset();
   automatic_monitor_target_.reset();
@@ -865,6 +923,7 @@ void LinuxDesktopWindowPresenter::OnLoad() {
   presentation_fullscreen_ = false;
   fullscreen_transition_ = false;
   fullscreen_placement_revision_ = 0;
+  native_fullscreen_request_.reset();
   restoring_fullscreen_ = false;
   normal_decoration_width_ = normal_decoration_height_ = 0;
   window_ = gtk_window_new(GTK_WINDOW_TOPLEVEL);
@@ -923,8 +982,8 @@ void LinuxDesktopWindowPresenter::OnLoad() {
   settings_handler_ = g_signal_connect(gtk_settings_get_default(), "notify", G_CALLBACK(OnSettingsChanged), this);
   monitors_handler_ = g_signal_connect(gdk_screen_get_default(), "monitors-changed", G_CALLBACK(OnMonitorsChanged), this);
   size_allocate_handler_ =
-      g_signal_connect_after(scroller_, "size-allocate",
-                             G_CALLBACK(OnViewportSizeAllocate), this);
+      g_signal_connect_after(NativeGlobalPositionAvailable() ? scroller_ : window_, "size-allocate",
+                             G_CALLBACK(OnNativeSizeAllocate), this);
 
   // Measure native chrome with the current application/OS font and palette.
   RefreshPresentationSettings();
@@ -970,7 +1029,7 @@ void LinuxDesktopWindowPresenter::DisconnectNativeFrameReports() {
     configure_handler_ = 0;
   }
   if (size_allocate_handler_ != 0) {
-    g_signal_handler_disconnect(scroller_, size_allocate_handler_);
+    g_signal_handler_disconnect(NativeGlobalPositionAvailable() ? scroller_ : window_, size_allocate_handler_);
     size_allocate_handler_ = 0;
   }
 }

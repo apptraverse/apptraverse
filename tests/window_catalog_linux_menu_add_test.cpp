@@ -22,11 +22,12 @@ void Check(bool value, char const* why) {
 using CatalogPresenter = example::surfaces::CatalogDesktopWindowPresenter;
 struct Probe {
   WindowCatalog* catalog{};
-  bool restore{}, display_only{}, monitor_output{};
+  bool restore{}, restore_windowed{}, display_only{}, monitor_output{};
   int stage{}, ticks{}, choice{}, allocations{}, stable_allocations{}, settle_ticks{};
   GtkWidget* first_window{};
   GdkRGBA regular_dark{}, light_popup{};
   ui::UiDisplayRect normal_frame{};
+  ui::UiDisplayRect child_frame{};
   ae::ObjId fullscreen_child;
   std::string monitor_key;
 };
@@ -51,6 +52,23 @@ void CheckCustomPalette(GtkWidget* window) {
 }
 bool NativeFullscreen(CatalogPresenter& presenter) {
   return (gdk_window_get_state(gtk_widget_get_window(presenter.TopLevelWindow())) & GDK_WINDOW_STATE_FULLSCREEN) != 0;
+}
+bool NativeWayland(CatalogPresenter& presenter) {
+#ifdef GDK_WINDOWING_WAYLAND
+  return GDK_IS_WAYLAND_DISPLAY(gtk_widget_get_display(presenter.TopLevelWindow()));
+#else
+  return false;
+#endif
+}
+bool NativeFullscreenReady(CatalogPresenter& presenter) {
+  if (!NativeFullscreen(presenter)) return false;
+  auto* window = presenter.TopLevelWindow();
+  auto* native = gtk_widget_get_window(window);
+  auto* content = gtk_bin_get_child(GTK_BIN(window));
+  // State acknowledgement arrives before GTK allocates fullscreen content.
+  // Issue the next native input only after that asynchronous transition.
+  return gtk_widget_get_allocated_width(content) == gdk_window_get_width(native) &&
+      gtk_widget_get_allocated_height(content) == gdk_window_get_height(native);
 }
 void Key(CatalogPresenter& presenter, guint key) {
   GdkEventKey event{}; event.type = GDK_KEY_PRESS; event.keyval = key;
@@ -135,6 +153,19 @@ gboolean Tick(gpointer data) {
         << gtk_widget_get_allocated_width(presenter.ClientViewport()) << 'x'
         << gtk_widget_get_allocated_height(presenter.ClientViewport())
         << " fullscreen=" << NativeFullscreen(presenter) << " restore=" << probe.restore << '\n';
+    if (!catalog.persisted.list->rows.empty()) {
+      auto& holder = static_cast<WindowHolder&>(*catalog.persisted.list->rows.front());
+      if (catalog.IsHolderWindowOpen(holder)) {
+        auto& child = static_cast<CatalogPresenter&>(*holder.window->presenter);
+        std::cerr << "child viewport=" << gtk_widget_get_allocated_width(child.ClientViewport()) << 'x'
+            << gtk_widget_get_allocated_height(child.ClientViewport()) << " fullscreen=" << NativeFullscreen(child) << '\n';
+        GdkRectangle outer{}; gdk_window_get_frame_extents(gtk_widget_get_window(child.TopLevelWindow()), &outer);
+        auto const frame = device->PlacementFor(holder.window.id())->frame_dip;
+        std::cerr << "child saved=" << frame.width << 'x' << frame.height << " native-outer=" << outer.width << 'x' << outer.height
+            << " USER-client=" << holder.window->restore_client_width() << 'x' << holder.window->restore_client_height()
+            << " locale=" << catalog.persisted.locale->language_index() << '\n';
+      }
+    }
     if (probe.monitor_output) {
       auto* display = gtk_widget_get_display(presenter.TopLevelWindow());
       auto* actual = gdk_display_get_monitor_at_window(display, gtk_widget_get_window(presenter.TopLevelWindow()));
@@ -158,12 +189,44 @@ gboolean Tick(gpointer data) {
     Check(std::string{gtk_menu_item_get_label(GTK_MENU_ITEM(presenter.ThemeMenuItem(0)))} == "Из системы",
           "cold menu locale restored");
     auto& state = static_cast<CatalogUiState&>(*device);
-    if (!state.IsWindowFullscreen(presenter.window.id()) || !NativeFullscreen(presenter)) return G_SOURCE_CONTINUE;
-    Check(std::string{gtk_button_get_label(GTK_BUTTON(presenter.FullscreenAction()))}.find("Esc") != std::string::npos,
+    if (probe.stage == 0) {
+      if (!probe.restore_windowed && (!state.IsWindowFullscreen(presenter.window.id()) || !NativeFullscreenReady(presenter))) return G_SOURCE_CONTINUE;
+      Check(probe.restore_windowed || std::string{gtk_button_get_label(GTK_BUTTON(presenter.FullscreenAction()))}.find("Esc") != std::string::npos,
           "cold fullscreen exit remains localized and accessible");
-    Check(device->PlacementFor(presenter.window.id())->frame_dip.width < gdk_window_get_width(gtk_widget_get_window(presenter.TopLevelWindow())),
+      Check(probe.restore_windowed || device->PlacementFor(presenter.window.id())->frame_dip.width < gdk_window_get_width(gtk_widget_get_window(presenter.TopLevelWindow())),
           "cold fullscreen retained a separate normal placement");
-    std::cerr << "PASS: cold native menu, fullscreen, custom palette and separate LOCAL preference\n";
+      if (!NativeWayland(presenter)) {
+        std::cerr << "PASS: cold native menu, fullscreen, custom palette and separate LOCAL preference\n";
+        gtk_window_close(GTK_WINDOW(presenter.TopLevelWindow()));
+        return G_SOURCE_REMOVE;
+      }
+      probe.normal_frame = device->PlacementFor(presenter.window.id())->frame_dip;
+      auto& holder = static_cast<WindowHolder&>(*catalog.persisted.list->rows.front());
+      probe.child_frame = device->PlacementFor(holder.window.id())->frame_dip;
+      presenter.model_proxy->Invoke(catalog.obj_id, &WindowCatalog::OpenHolderByIdFromUi, holder.obj_id);
+      if (!probe.restore_windowed) Key(presenter, GDK_KEY_Escape);
+      probe.stage = 30;
+      return G_SOURCE_CONTINUE;
+    }
+    auto& holder = static_cast<WindowHolder&>(*catalog.persisted.list->rows.front());
+    if (!catalog.IsHolderWindowOpen(holder)) return G_SOURCE_CONTINUE;
+    auto& child = static_cast<CatalogPresenter&>(*holder.window->presenter);
+    if (!gtk_widget_get_mapped(child.TopLevelWindow()) || NativeFullscreen(presenter) || NativeFullscreen(child)) return G_SOURCE_CONTINUE;
+    Check(!state.IsWindowFullscreen(presenter.window.id()) && !state.IsWindowFullscreen(holder.window.id()), "cold normal modes are independently restored");
+    Check(device->PlacementFor(presenter.window.id())->frame_dip == probe.normal_frame &&
+          device->PlacementFor(holder.window.id())->frame_dip == probe.child_frame, "cold exit preserves both saved LOCAL frames");
+    bool const exact = gtk_widget_get_allocated_width(presenter.ClientViewport()) == 600 &&
+        gtk_widget_get_allocated_height(presenter.ClientViewport()) == 320 &&
+        gtk_widget_get_allocated_width(child.ClientViewport()) == 410 &&
+        gtk_widget_get_allocated_height(child.ClientViewport()) == 280;
+    if (probe.stage == 30) {
+      if (!exact) return G_SOURCE_CONTINUE;
+      probe.stage = 31;
+    }
+    Check(exact, "cold main 600x320 and child 410x280 remain exact after native exit/restoration");
+    if (++probe.settle_ticks < 10) return G_SOURCE_CONTINUE;
+    std::cerr << "PASS: cold " << (probe.restore_windowed ? "windowed restart" : "fullscreen exit")
+        << " main=600x320 child=410x280, stable LOCAL frames, menu and custom palette\n";
     gtk_window_close(GTK_WINDOW(presenter.TopLevelWindow()));
     return G_SOURCE_REMOVE;
   }
@@ -336,6 +399,7 @@ gboolean Tick(gpointer data) {
     Check(device->PlacementFor(presenter.window.id())->frame_dip == probe.normal_frame, "fullscreen preserves normal LOCAL geometry");
     Check(std::string{gtk_button_get_label(GTK_BUTTON(presenter.FullscreenAction()))}.find("Esc") != std::string::npos, "fullscreen offers native localized exit");
     Key(presenter, GDK_KEY_Escape);
+    probe.settle_ticks = 0;
     ++probe.stage;
   } else if (probe.stage == 14) {
     if (static_cast<CatalogUiState&>(*device).IsWindowFullscreen(presenter.window.id()) || NativeFullscreen(presenter)) return G_SOURCE_CONTINUE;
@@ -347,6 +411,7 @@ gboolean Tick(gpointer data) {
 #endif
     if (exact_outer_supported && (outer.width != probe.normal_frame.width || outer.height != probe.normal_frame.height)) return G_SOURCE_CONTINUE;
     Check(device->PlacementFor(presenter.window.id())->frame_dip == probe.normal_frame, "native exit restores content and retains saved outer preference");
+    if (++probe.settle_ticks < 10) return G_SOURCE_CONTINUE;
     auto& holder = static_cast<WindowHolder&>(*catalog.persisted.list->rows.front());
     auto& child = static_cast<CatalogPresenter&>(*holder.window->presenter);
     probe.fullscreen_child = holder.window.id();
@@ -355,7 +420,7 @@ gboolean Tick(gpointer data) {
   } else if (probe.stage == 15) {
     auto& holder = static_cast<WindowHolder&>(*catalog.persisted.list->rows.front());
     auto& child = static_cast<CatalogPresenter&>(*holder.window->presenter);
-    if (!static_cast<CatalogUiState&>(*device).IsWindowFullscreen(probe.fullscreen_child) || !NativeFullscreen(child)) return G_SOURCE_CONTINUE;
+    if (!static_cast<CatalogUiState&>(*device).IsWindowFullscreen(probe.fullscreen_child) || !NativeFullscreenReady(child)) return G_SOURCE_CONTINUE;
     Check(!NativeFullscreen(presenter), "child fullscreen is independent of main");
     gtk_window_close(GTK_WINDOW(child.TopLevelWindow()));
     ++probe.stage;
@@ -369,7 +434,7 @@ gboolean Tick(gpointer data) {
     auto& holder = static_cast<WindowHolder&>(*catalog.persisted.list->rows.front());
     if (!catalog.IsHolderWindowOpen(holder)) return G_SOURCE_CONTINUE;
     auto& child = static_cast<CatalogPresenter&>(*holder.window->presenter);
-    if (!gtk_widget_get_mapped(child.TopLevelWindow()) || !NativeFullscreen(child)) return G_SOURCE_CONTINUE;
+    if (!gtk_widget_get_mapped(child.TopLevelWindow()) || !NativeFullscreenReady(child)) return G_SOURCE_CONTINUE;
     Check(holder.window.id() == probe.fullscreen_child, "reopen retains original child identity");
     presenter.model_proxy->Invoke(holder.window.id(), &ui::UiDesktopWindow::RequestFrame, 42, 52, 410, 280);
     probe.stage = 19;
@@ -387,6 +452,7 @@ gboolean Tick(gpointer data) {
     auto& child = static_cast<CatalogPresenter&>(*holder.window->presenter);
     Key(child, GDK_KEY_Escape);
     Key(presenter, GDK_KEY_F11);
+    probe.settle_ticks = 0;
     probe.stage = 18;
   } else if (probe.stage == 18) {
     if (!NativeFullscreen(presenter)) return G_SOURCE_CONTINUE;
@@ -398,6 +464,7 @@ gboolean Tick(gpointer data) {
     Check(!NativeFullscreen(child), "child exits fullscreen after pending equal-data RequestFrame");
     Check(holder.window->restore_client_width() == 410 && holder.window->restore_client_height() == 280,
           "latest explicit normal request applies after fullscreen exit");
+    if (++probe.settle_ticks < 10) return G_SOURCE_CONTINUE;
     auto const actual_normal = device->PlacementFor(presenter.window.id())->frame_dip;
     if (actual_normal != probe.normal_frame)
       std::cerr << "normal before=" << probe.normal_frame.x << ',' << probe.normal_frame.y << ',' << probe.normal_frame.width << ',' << probe.normal_frame.height
@@ -421,6 +488,7 @@ int main(int argc, char** argv) {
   for (int index = 2; index < argc; ++index) {
     std::string_view const argument{argv[index]};
     if (argument == "--restore") probe.restore = true;
+    else if (argument == "--restore-windowed") { probe.restore = true; probe.restore_windowed = true; }
     else if (argument == "--display-only") probe.display_only = true;
     else if (argument == "--monitor-output") probe.monitor_output = true;
     else Check(false, "known GTK acceptance argument");
