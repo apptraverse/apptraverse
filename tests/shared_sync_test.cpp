@@ -255,6 +255,7 @@ class CountingLink final : public IByteLink {
     if (accepted && send_budget) {
       --*send_budget;
     }
+    if (accepted && on_accepted) on_accepted();
     return accepted;
   }
   LinkAvailability Availability(std::string const& endpoint) const override {
@@ -264,6 +265,7 @@ class CountingLink final : public IByteLink {
   // A budget refusal consumes neither capacity nor an outgoing-frame ledger
   // slot.
   std::optional<std::size_t> send_budget;
+  std::function<void()> on_accepted;
   bool fragmented{false};
   P2pMessageReader fragments;
 
@@ -797,6 +799,33 @@ void TestRefusedSendDoesNotStartAckTimeout() {
   CHECK(pair.sent.size() == after_ack);
 }
 
+void TestSynchronousPrefixAckStopsCurrentRetries() {
+  Pair pair;
+  auto const id = pair.AddRoom();
+  pair.Bootstrap(id);
+  auto const first = pair.h->Append(id, "|first", 100);
+  auto const second = pair.h->Append(id, "|second", 200);
+  pair.Service(0);
+  CHECK(pair.network.Drop(pair.Packet(SharedSyncKind::Event, "H", first).id));
+  CHECK(pair.network.Deliver(
+      pair.Packet(SharedSyncKind::Event, "H", second).id));
+  pair.Drain();
+  CHECK(pair.h->Peer(id, "B").pending_packets.size() == 2);
+
+  // Filling the gap returns the cumulative ACK inline during the first retry.
+  // The later event then disappears from the live queue during this Service.
+  pair.h->transport->on_accepted = [&] { pair.Drain(); };
+  auto const before = pair.sent.size();
+  pair.Service(kRetry);
+
+  CHECK(pair.sent.size() == before + 2);  // One retry, one cumulative ACK.
+  CHECK(pair.sent[before].message.event_id == first);
+  CHECK(pair.sent.back().message.kind == SharedSyncKind::Ack);
+  CHECK(pair.sent.back().message.received_prefix.index == 2);
+  CHECK(pair.h->Peer(id, "B").pending_packets.empty());
+  pair.Equal(id, 2);
+}
+
 void TestMaterializedNotificationsSurviveReorderAndIgnoreDuplicateAck() {
   Pair pair;
   auto const id = pair.AddRoom();
@@ -1157,6 +1186,7 @@ int main() {
   apptraverse::test::TestLiveEventLossDuplicateAndReorderedBothDirections();
   apptraverse::test::TestLostAckAndReceiverRestart();
   apptraverse::test::TestRefusedSendDoesNotStartAckTimeout();
+  apptraverse::test::TestSynchronousPrefixAckStopsCurrentRetries();
   apptraverse::test::
       TestMaterializedNotificationsSurviveReorderAndIgnoreDuplicateAck();
   apptraverse::test::TestPendingBeforeSendAndBothSidesRestart();

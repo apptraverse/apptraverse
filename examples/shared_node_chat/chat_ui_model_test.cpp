@@ -236,6 +236,10 @@ int main() {
     CHECK(loaded->participants->rows.front()->primary_text->Resolve(1) ==
           "Zoë");
     CHECK(loaded->text_controls.at(6)->accessible_label == "Сообщение");
+    remote.status_code = chat::ChatStatus::Unspecified;
+    remote.status = "Headless diagnostic";
+    loaded->AcceptTransport(remote);
+    CHECK(loaded->Get(Control::Status).text == "Не в сети");
 #else
     loaded->Configure(true, "Embedded", "");
     CHECK(loaded->Title() == "SharedNode Chat - Embedded");

@@ -231,6 +231,7 @@ class ChatUi : public NodeFor<ChatUi, ui::UiDesktopWindow> {
   void Load(ae::Version<0>, D& d) {
     d(base_, labels, presenters, controls, connection, editing, text_controls,
       action_buttons, native_presenters, participants, copy_request);
+    RequireLocalizedLabels();
   }
   template <class D>
   void Save(ae::Version<0>, D& d) const {
@@ -238,6 +239,7 @@ class ChatUi : public NodeFor<ChatUi, ui::UiDesktopWindow> {
       action_buttons, native_presenters, participants, copy_request);
   }
   std::string Text(Label label) const;
+  void RequireLocalizedLabels() const;
   std::string Title() const;
   ControlState const& Get(Control control) const;
   void EditDraft(std::string text);

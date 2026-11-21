@@ -1,3 +1,26 @@
+## SharedNode and chat canon review — 2026-11-21
+
+Reviewed the SharedNode transport boundary, per-recipient delivery and native
+Event serialization, and the standalone chat's model, mirror, localization
+and USER/LOCAL storage boundaries against Canon §25.
+
+A synchronous cumulative ACK can complete multiple entries during one send.
+SharedSync now checks the live recipient queue before sending each copied
+entry. The regression reproduced the extra transmission before the fix and
+passed after it. The chat validates required localization bindings during
+construction and load and resolves UI status through the active language.
+Headless diagnostic text remains on the headless publication. The SharedNode
+contract now describes current UID-based admission, independent ACKs and
+RAM-only chat state alongside the separate native LOCAL profile.
+
+Seven SharedNode headless CTests and two adapter/chat RAM CTests passed.
+Three-process cloud delivery passed for direct Raw ID 0 and for explicit
+hierarchy attachments, with independent retry and restart coverage. The
+Windows Debug UI model passed with the actual embedded supply. The Linux GTK
+native test passed input, idle layout, RAM restart and LOCAL cold restore.
+Windows Debug also passed the full three-window acceptance with hierarchy OFF,
+including Unicode delivery, offline catch-up, rejoin and LOCAL on two monitors.
+
 ## Apple chat SwiftUI port — 2026-11-21 — source review only
 
 Updated from main `d621e1fa`. macOS now uses SwiftUI App/Window/Commands rather

@@ -979,6 +979,9 @@ void SharedSyncRuntime::Service(std::uint64_t now_us) {
         deferred_acks_.size() < kMaxDeferredAcks) {
       deferred_acks_.try_emplace(key, std::move(bytes));
     }
+    if (failed_) {
+      return;
+    }
   }
   for (auto const& [node_id, node] : nodes_) {
     for (auto const& peer : node->local_state->peers) {
@@ -995,6 +998,10 @@ void SharedSyncRuntime::Service(std::uint64_t now_us) {
         return a.initial && !b.initial;
       });
       for (auto const& pending : packets) {
+        // A synchronous cumulative ACK can complete several copied entries.
+        if (peer->FindPending(pending.packet_id) == nullptr) {
+          continue;
+        }
         RetryKey key{node_id, endpoint, pending.packet_id};
         auto const scheduled = next_send_.find(key);
         if (scheduled != next_send_.end() && now_us < scheduled->second) {
@@ -1008,6 +1015,9 @@ void SharedSyncRuntime::Service(std::uint64_t now_us) {
         // the tentative deadline before Send so a synchronous ACK can erase
         // it without a later assignment resurrecting a completed packet.
         if (!link_.Send(endpoint, pending.bytes)) { next_send_.erase(key); }
+        if (failed_) {
+          return;
+        }
       }
     }
   }

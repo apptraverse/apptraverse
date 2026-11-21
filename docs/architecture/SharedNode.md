@@ -308,14 +308,16 @@ the owned headless cloud worker, not a GUI example or an automatic network test.
 
 The public SDK revision is pinned in `cmake/shared_aether.cmake`. A local
 source override must be clean and match that exact committed revision. The
-SDK provides streaming recovery, native Client presence and WebSocket support;
-consumer transport patches are no longer applied. The default native chat
-configuration enables TCP only. GetClientTiming uses its defined correlated
+SDK provides streaming recovery, native Client presence and WebSocket support.
+AppTraverse applies its SDK portability patch for builds without C++ exceptions
+and for Wasm. The default native chat configuration enables TCP only. GetClientTiming uses its defined correlated
 RPC. The earlier transport pin and probe-based verification are historical in
 [the original validation](../validation/shared-node-aether-2026-11-11.md).
 
 `AetherByteLink` implements `IByteLink` over Raw message streams. The simple
-chat opens SDK `P2pStream` on stream ID 0.
+chat opens one SDK `P2pStream` on stream ID 0 per recipient UID. SharedSync
+tracks pending delivery and cumulative ACKs independently for each recipient.
+One peer's ACK leaves the other peers' delivery obligations pending.
 `P2pMessageWriter` wraps unchanged frozen native SharedSyncMessage bytes in
 independent, native-archive fragments sized for the SDK's encrypted wire
 budget. `P2pMessageReader` tolerates reordered, duplicate and retried fragments
@@ -384,57 +386,43 @@ the local SDK stream and packet collector. Inbound replacement uses generation
 checks to ignore old callbacks. Recovery properties are limited to executed
 scenarios in the corresponding validation record.
 
-## Minimal Windows chat
+## SharedNode chat
 
-The chat uses the default ACK/retry mode without availability queries. The
-previous GetClientTiming blocker applies only to the opt-in presence mode;
-its historical evidence is in [native-presence validation](../validation/shared-node-presence-streaming-2026-11-11.md).
-The current publication/storage contract is recorded in
-[event-driven RAM validation](../validation/shared-node-chat-event-driven-2026-11-12.md).
-Earlier saved-profile checks are in
-[historical ACK/retry validation](../validation/shared-node-ack-retry-2026-11-12.md).
+`APPTRAVERSE_BUILD_SHARED_NODE_CHAT=ON` requires the optional Æther link.
+The [example README](../../examples/shared_node_chat/README.md) lists the
+available targets and launch options. The host shares its Æther UID. The
+participant resolves the room ID through the chat's native BinaryArchive frames
+and sends a JoinRequest. After admission, each participant sends its own Events
+to all other members. The host admits peers and provides the initial snapshot.
 
-`APPTRAVERSE_BUILD_SHARED_NODE_CHAT=ON` requires the optional Aether link and
-builds `shared_node_chat`. The window contains the local UID, Host room,
-invitation/Join, participant names, message history and
-input/Send. Current labels and application commands come from the model's active
-English/Russian locale; the initial fixed-English slice is historical.
-Each running participant needs a distinct `--profile`; `--name` supplies
-the display name. `examples/shared_node_chat/run_demo.ps1` opens three windows.
+The window uses the model's active English or Russian locale. Each running
+participant needs a distinct profile.
 
-The native model contains an Application, a SharedNode Room, Participants with
-serializable link descriptors, Join Events and Text Events. A host UID plus
-native room ID is the invitation. A small reflected BinaryArchive application
-frame routes either a JoinRequest or unchanged SharedSync bytes. The host
-admits each UID once; repeated requests retain the original frozen admission.
-After admission all participants send their own Events directly to every peer.
-The runtime handles snapshot coverage, ACKs, retry, ordering and duplicate
-suppression. The chat adds no separate journal or message index.
+The chat shows local connectivity and exposes native peer presence in
+`ChatView`. Delivery and retries proceed as transport capacity permits even
+when a participant appears offline. SharedSync handles snapshot coverage,
+ACKs, retry, ordering and duplicate suppression. The chat adds no separate
+journal or message index.
 
-The SDK, Domain and sync runtime live on a model thread. GUI commands enter
-through `ModelObjectProxy`; the UI consumes immutable value publications.
-ChatView is published only after a materialized Node change or a status
-transition, through the existing Node notifier. On Windows a callback posts a
-window message; on macOS/iOS the shared Apple bridge dispatches to the main queue and the
-SwiftUI presenter consumes the value publication. There is no regular
-publication/refresh timer, and no presentation work for ACKs/retries/idle.
+The model contains an Application, a SharedNode Room, Participants with
+serializable link descriptors, Join Events and Text Events. The SDK and the
+SharedSync runtime run on the model worker. GUI commands travel through
+`ModelObjectProxy`. The GUI displays a separate mirror updated by model
+publications. Materialized Node changes and actual connection status changes
+can update the window. Delivery diagnostics stay out of the GUI publication.
 
-iOS deactivation enqueues an ordered LOCAL checkpoint on the model worker.
-A bounded platform background task covers completion; neither deactivation
-nor that task ending destroys the session or presenters.
+Chat history, drafts and delivery obligations live in RAM. SharedSync commits
+the native object graph in RAM before acknowledging it. The SDK identity has
+its own private profile. Native window and device preferences use the separate
+`local/user.bin` layer and the platform's normal lifecycle save. Restarting a
+participant restores its SDK identity and LOCAL. It rejoins the live room to
+retrieve its history. Earlier chat builds that wrote business USER to disk
+are documented in [historical validation](../validation/shared-node-ack-retry-2026-11-12.md).
 
-Under the current chat contract, business objects, history, drafts and pending
-delivery obligations remain in RAM. Send/receive, checkpoint and shutdown do not
-save or restore a chat business USER file. ACK confirms in-process model apply;
-it is not a promise of disk durability across process exit. Lifecycle checkpoints
-save the native device/window LOCAL graph in its ordinary storage format; SDK
-identity remains separate in the private profile. Opening the same profile does
-not restore the room/history or pending chat delivery. Runtime transport handles,
-deferred ACK cache and fragment assemblies never enter the shared graph.
-Earlier disk-persistence acceptance records retain their historical scope and
-do not describe the current RAM-only demonstration.
-The example implements one
-room and no room merging, moderation, attachments or unrelated controls.
+The Apple bridge dispatches publications to the SwiftUI presenter on the main
+queue. iOS deactivation queues an ordered LOCAL checkpoint on the model worker.
+A bounded background task covers the save while the session and presenters stay
+alive. The example implements a single room.
 
 ## Next slices
 
@@ -445,10 +433,10 @@ room and no room merging, moderation, attachments or unrelated controls.
    characterization. Dynamic topology and arbitrary
    mutable dependency graphs need their own application conflict/replay tests.
 
-The current admission contract is a fixed three-participant scenario; memory
-and optional real-cloud execution evidence have separate validation records.
-Removal/rejoin, admission by multiple coordinators, host failover during
-admission and generic merging of independently formed rooms are not implemented.
+The admission tests cover three participants in memory and over Æther.
+A returning chat replica can rejoin using the same UID and receive a snapshot
+from the live host. Participant removal, admission by multiple coordinators,
+host failover and room merging remain outside this contract.
 
 Ordering uses `timestamp_us` as the primary key within the agreed
 single-computer scope. For equal timestamps, the serialized Event ID is an

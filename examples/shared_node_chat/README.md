@@ -90,7 +90,8 @@ model thread. Accepted model changes and their delivery obligations are committe
 together to RAM before SharedSync acknowledges them. Runtime handles and fragment
 assemblies never enter object storage.
 
-The chat observes native presence and displays local/remote status.
+The chat displays local connectivity. `ChatView` also exposes native presence
+observations for remote participants.
 The link sends as soon as transport capacity permits. SharedNode keeps a
 message until its application ACK and retries it every second if the ACK is
 missing, including while the recipient is stopped. SDK write completion alone

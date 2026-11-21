@@ -125,6 +125,16 @@ std::string ChatUi::Text(Label label) const {
   return labels.at(static_cast<unsigned>(label))
       ->Resolve(presenter->locale->language_index());
 }
+void ChatUi::RequireLocalizedLabels() const {
+  constexpr auto count = static_cast<unsigned>(Label::Count) +
+                         static_cast<unsigned>(ChatStatus::Count) - 1;
+  if (labels.size() != count ||
+      std::any_of(labels.begin(), labels.end(),
+                  [](auto const& label) { return !label.is_valid(); })) {
+    WriteFatalStderr("incomplete chat localization supply\n");
+    std::abort();
+  }
+}
 std::string ChatUi::Title() const {
   return Text(Label::Title) + " - " + editing.name;
 }
@@ -245,13 +255,11 @@ void ChatUi::AcceptTransport(ChatView view) {
   ConnectionState next{};
   next.uid = std::move(view.local_uid);
   next.invite = std::move(view.invite);
-  auto const label_count = static_cast<unsigned>(Label::Count);
   if (view.status_code != ChatStatus::Unspecified) {
+    auto const label_count = static_cast<unsigned>(Label::Count);
     next.status =
         labels.at(label_count + static_cast<unsigned>(view.status_code) - 1)
             ->Resolve(presenter->locale->language_index());
-  } else {
-    next.status = std::move(view.status);
   }
   next.messages = std::move(view.messages);
   next.ready = view.ready;
@@ -373,11 +381,15 @@ void ChatUi::RefreshControls() {
   at(Control::Input).enabled = connection.ready && connection.in_room;
   at(Control::Send).text = Text(Label::Send);
   at(Control::Send).enabled = connection.ready && connection.in_room;
-  at(Control::Status).text =
-      editing.error_label >= 0
-          ? Text(static_cast<Label>(editing.error_label))
-          : Text(connection.online ? Label::Online : Label::Offline) + " | " +
-                connection.status;
+  auto& status = at(Control::Status).text;
+  if (editing.error_label >= 0) {
+    status = Text(static_cast<Label>(editing.error_label));
+  } else {
+    status = Text(connection.online ? Label::Online : Label::Offline);
+    if (!connection.status.empty()) {
+      status += " | " + connection.status;
+    }
+  }
   for (auto const& control : text_controls) {
     auto const& state = Get(static_cast<Control>(control->role));
     control->Materialize(state.text, state.rows, state.enabled, state.visible,
@@ -621,6 +633,7 @@ ChatUi::ptr BuildUi(ae::Domain& domain) {
   auto russian_title = ui::UiString::ptr::Create(ae::CreateWith{domain});
   russian_title->utf8 = captions[static_cast<unsigned>(Label::Title)].ru;
   title->strings.push_back(russian_title);
+  app->RequireLocalizedLabels();
   app->RefreshControls();
   return app;
 }
