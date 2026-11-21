@@ -106,3 +106,8 @@ foreach(_catalog_demo linux_window_catalog_demo linux_window_catalog_demo_load_o
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/../common)
 endforeach()
+
+include(${PROJECT_SOURCE_DIR}/cmake/apptraverse_catalog_binary_contract.cmake)
+foreach(_catalog_demo linux_window_catalog_demo linux_window_catalog_demo_load_only)
+  apptraverse_catalog_binary_contract(${_catalog_demo})
+endforeach()

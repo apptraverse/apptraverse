@@ -3,3 +3,7 @@
 -keep class com.apptraverse.windowcatalog.NativeRuntime { *; }
 -keep class com.apptraverse.windowcatalog.NativeUiBridge { *; }
 -keep class com.apptraverse.ui.android.AppTraverseAndroidUi { *; }
+# Looked up by name from WindowCatalogNativeRuntime::SyncMobilePagerChrome.
+-keepclassmembers class com.apptraverse.windowcatalog.MainActivity {
+  public void setPresentedFullscreen(boolean);
+}

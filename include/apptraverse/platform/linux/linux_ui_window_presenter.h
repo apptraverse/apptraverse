@@ -63,6 +63,7 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
   bool PresentationFullscreen() const { return presentation_fullscreen_; }
   GtkWidget* FullscreenAction() const { return fullscreen_action_; }
   int NativeChromeHeight() const;
+  int NativeChromeHeight(int native_client_width) const;
   void ReportNativeClientFrame();
 
   void ApplyRequestedFrameFromMirror() override;
@@ -93,6 +94,7 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
   void ApplyLocalPlacement();
   void ApplyNativeFullscreen();
   void RefreshFullscreenAction();
+  UiConstraintLayoutResult ComputeFullscreenActionLayout(int native_client_width) const;
   bool NativeFrameMatches(UiDisplayRect const& frame) const;
   bool NativeGlobalPositionAvailable() const;
   void RefreshMonitorSubscriptions();

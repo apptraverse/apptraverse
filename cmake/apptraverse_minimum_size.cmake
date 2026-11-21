@@ -56,6 +56,11 @@ else()
     add_link_options("$<$<CONFIG:MinSizeRel>:-Wl,-dead_strip;-Wl,-S>")
   else()
     add_link_options("$<$<CONFIG:MinSizeRel>:-Wl,--gc-sections;-Wl,--strip-all>")
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+      # GTK/system libraries remain native shared dependencies. Ship the C++
+      # runtime with the app, as Android already does through c++_static.
+      add_link_options("$<$<CONFIG:MinSizeRel>:-static-libstdc++;-static-libgcc>")
+    endif()
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64" OR ANDROID_ABI STREQUAL "x86_64")
       # SSE2 is part of the x86-64 scalar floating-point ABI; disable extensions
       # and auto-vectorization rather than generating an invalid calling ABI.

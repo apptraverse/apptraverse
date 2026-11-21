@@ -134,6 +134,11 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
   target_compile_definitions(web_window_catalog_demo PRIVATE APPTRAVERSE_WEB_CATALOG_FRESH_USER)
 endif()
 
+include(${PROJECT_SOURCE_DIR}/cmake/apptraverse_catalog_binary_contract.cmake)
+foreach(_catalog_web_app web_window_catalog_demo web_window_catalog_demo_load_only)
+  apptraverse_catalog_binary_contract(${_catalog_web_app})
+endforeach()
+
 add_executable(apptraverse_window_catalog_web_embedded_session_test
   ${CMAKE_SOURCE_DIR}/tests/window_catalog_web_embedded_session_test.cpp
   "${_catalog_web_supply}")

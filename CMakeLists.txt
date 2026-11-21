@@ -245,12 +245,20 @@ endif()
 
 # Android presenter classes without their JNI Views: the build-host exporter
 # distills the Android MinimalApp supply from these.
+option(APPTRAVERSE_ANDROID_TEXT_CONTROLS
+  "Include the Android text-control presenter and native View adapter" ON)
 add_library(apptraverse_ui_android_presenters STATIC
   src/platform/android/android_ui_presenters.cpp
   src/platform/android/android_ui_registration.cpp
-  src/platform/android/android_ui_control_registration.cpp
   src/platform/android/android_ui_window_presenter_host.cpp
 )
+if(APPTRAVERSE_ANDROID_TEXT_CONTROLS)
+  target_sources(apptraverse_ui_android_presenters PRIVATE
+    src/platform/android/android_ui_text_presenter.cpp
+    src/platform/android/android_ui_control_registration.cpp)
+endif()
+target_compile_definitions(apptraverse_ui_android_presenters PUBLIC
+  APPTRAVERSE_ANDROID_TEXT_CONTROLS=$<BOOL:${APPTRAVERSE_ANDROID_TEXT_CONTROLS}>)
 target_include_directories(apptraverse_ui_android_presenters PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(apptraverse_ui_android_presenters PUBLIC apptraverse)
@@ -408,9 +416,12 @@ if(ANDROID)
     src/platform/android/android_ui_layout_scale.cpp
     src/platform/android/android_ui_window_presenter.cpp
     src/platform/android/android_ui_push_button_presenter.cpp
-    src/platform/android/android_ui_text_control_presenter.cpp
     src/platform/android/android_ui_list_presenter.cpp
   )
+  if(APPTRAVERSE_ANDROID_TEXT_CONTROLS)
+    target_sources(apptraverse_ui_android PRIVATE
+      src/platform/android/android_ui_text_control_presenter.cpp)
+  endif()
   target_include_directories(apptraverse_ui_android PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src/platform/android)

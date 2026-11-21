@@ -1,6 +1,10 @@
 #ifndef APPTRAVERSE_PLATFORM_ANDROID_ANDROID_UI_NATIVE_VIEWS_H_
 #define APPTRAVERSE_PLATFORM_ANDROID_ANDROID_UI_NATIVE_VIEWS_H_
 
+#ifndef APPTRAVERSE_ANDROID_TEXT_CONTROLS
+#define APPTRAVERSE_ANDROID_TEXT_CONTROLS 1
+#endif
+
 namespace apptraverse::ui::android {
 
 class AndroidDesktopWindowPresenter;
@@ -25,9 +29,11 @@ class AndroidUiNativeViews {
   virtual void SyncListContainer(AndroidListContainerPresenter& presenter) = 0;
   virtual void UnloadListContainer(AndroidListContainerPresenter& presenter) = 0;
 
+#if APPTRAVERSE_ANDROID_TEXT_CONTROLS
   virtual void LoadTextControl(AndroidTextControlPresenter& presenter) = 0;
   virtual void SyncTextControl(AndroidTextControlPresenter& presenter) = 0;
   virtual void UnloadTextControl(AndroidTextControlPresenter& presenter) = 0;
+#endif
 
  protected:
   ~AndroidUiNativeViews() = default;

@@ -34,9 +34,11 @@ struct AndroidPresentationHost final : AndroidUiNativeViews {
   void SyncListContainer(AndroidListContainerPresenter& presenter) override;
   void UnloadListContainer(AndroidListContainerPresenter& presenter) override;
 
+#if APPTRAVERSE_ANDROID_TEXT_CONTROLS
   void LoadTextControl(AndroidTextControlPresenter& presenter) override;
   void SyncTextControl(AndroidTextControlPresenter& presenter) override;
   void UnloadTextControl(AndroidTextControlPresenter& presenter) override;
+#endif
 
   static jobject ClientMount(AndroidDesktopWindowPresenter const& desktop);
 };

@@ -32,6 +32,9 @@ endif()
 
 set(APPTRAVERSE_BUILD_AETHER_DEMOS OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+# Native-menu Catalog has no text-control graph. Exclude its View operations
+# from the concrete host vtable as well as excluding its factory registration.
+set(APPTRAVERSE_ANDROID_TEXT_CONTROLS OFF CACHE BOOL "" FORCE)
 add_subdirectory(${APPTRAVERSE_ROOT} ${CMAKE_CURRENT_BINARY_DIR}/apptraverse)
 
 # Distilled supply is produced by a build-host exporter (examples/window_catalog/
@@ -183,6 +186,9 @@ set_target_properties(apptraverse_window_catalog_jni PROPERTIES
   CXX_VISIBILITY_PRESET hidden
   VISIBILITY_INLINES_HIDDEN ON
 )
+
+include(${APPTRAVERSE_ROOT}/cmake/apptraverse_catalog_binary_contract.cmake)
+apptraverse_catalog_binary_contract(apptraverse_window_catalog_jni)
 
 # An actual target-ABI consumer for cross-platform USER interchange acceptance.
 add_executable(apptraverse_window_catalog_android_portable_user_fixture

@@ -284,11 +284,9 @@ bool LinuxDesktopWindowPresenter::NativeFrameMatches(UiDisplayRect const& frame)
   return native.width == frame.width && native.height == frame.height &&
       (!NativeGlobalPositionAvailable() || (native.x == frame.x && native.y == frame.y));
 }
-void LinuxDesktopWindowPresenter::RefreshFullscreenAction() {
-  if (!fullscreen_action_) return;
+UiConstraintLayoutResult LinuxDesktopWindowPresenter::ComputeFullscreenActionLayout(
+    int native_client_width) const {
   auto const label = ResolveFullscreenActionText();
-  if (label != gtk_button_get_label(GTK_BUTTON(fullscreen_action_)))
-    gtk_button_set_label(GTK_BUTTON(fullscreen_action_), label.c_str());
   auto* text = gtk_widget_create_pango_layout(fullscreen_action_, label.c_str());
   int width{}, height{}, minimum{};
   pango_layout_get_pixel_size(text, &width, &height);
@@ -311,12 +309,21 @@ void LinuxDesktopWindowPresenter::RefreshFullscreenAction() {
     result.min_height = result.preferred_height = height + vertical;
     return result;
   };
-  int client_width{}, client_height{};
-  gtk_window_get_size(GTK_WINDOW(window_), &client_width, &client_height);
   auto result = ComputeUiConstraintLayout(*FullscreenActionLayout(),
-      mapped_ ? client_width : desktop_window()->restore_client_width(), 0, {measurement}, remeasure);
+      native_client_width, 0, {measurement}, remeasure);
   g_object_unref(text);
   if (!result.valid) FatalLinux(result.error.c_str());
+  return result;
+}
+void LinuxDesktopWindowPresenter::RefreshFullscreenAction() {
+  if (!fullscreen_action_) return;
+  auto const label = ResolveFullscreenActionText();
+  if (label != gtk_button_get_label(GTK_BUTTON(fullscreen_action_)))
+    gtk_button_set_label(GTK_BUTTON(fullscreen_action_), label.c_str());
+  int client_width{}, client_height{};
+  gtk_window_get_size(GTK_WINDOW(window_), &client_width, &client_height);
+  auto const result = ComputeFullscreenActionLayout(
+      mapped_ ? client_width : desktop_window()->restore_client_width());
   SetNativeSizeRequestIfChanged(fullscreen_toolbar_, -1, static_cast<int>(std::ceil(result.content_height)));
   auto const& rect = result.controls.front();
   SetClientMountChildFrameIfChanged(fullscreen_action_,
@@ -529,7 +536,7 @@ void LinuxDesktopWindowPresenter::ApplyLocalPlacement() {
     // content. Restore that native client when topology has not changed.
     pending_restore_client_ = windowed_client_;
     gtk_window_resize(GTK_WINDOW(window_), windowed_client_->client_width,
-        windowed_client_->client_height + NativeChromeHeight());
+        windowed_client_->client_height + NativeChromeHeight(windowed_client_->client_width));
   } else {
     pending_restore_client_.reset();
     gtk_window_resize(GTK_WINDOW(window_), width - decoration_width, height - decoration_height);
@@ -804,7 +811,7 @@ void LinuxDesktopWindowPresenter::ApplyRequestedNativeFrame(ClientFrame frame) {
   if (auto const* placement = LocalDeviceState()->PlacementFor(window.id())) placement_revision_ = placement->revision;
   applying_mirror_frame_ = true;
   gtk_window_resize(GTK_WINDOW(window_), frame.client_width,
-                    frame.client_height + NativeChromeHeight());
+                    frame.client_height + NativeChromeHeight(frame.client_width));
   if (NativeGlobalPositionAvailable()) gtk_window_move(GTK_WINDOW(window_), frame.x, frame.y);
   applying_mirror_frame_ = false;
   // Equal-data requests still express placement intent and may emit no signal.
@@ -812,14 +819,24 @@ void LinuxDesktopWindowPresenter::ApplyRequestedNativeFrame(ClientFrame frame) {
 }
 
 int LinuxDesktopWindowPresenter::NativeChromeHeight() const {
+  int client_width{}, client_height{};
+  gtk_window_get_size(GTK_WINDOW(window_), &client_width, &client_height);
+  return NativeChromeHeight(mapped_ ? client_width : desktop_window()->restore_client_width());
+}
+
+int LinuxDesktopWindowPresenter::NativeChromeHeight(int native_client_width) const {
   int height = 0, minimum{}, natural{};
   if (presentation_menu_) {
-    gtk_widget_get_preferred_height(presentation_menu_, &minimum, &natural);
+    gtk_widget_get_preferred_height_for_width(presentation_menu_,
+        std::max(1, native_client_width), &minimum, &natural);
     height += natural;
   }
   if (fullscreen_toolbar_) {
-    gtk_widget_get_preferred_height(fullscreen_toolbar_, &minimum, &natural);
-    height += natural;
+    // Toolbar text wraps at its destination width. Reading its previous GTK
+    // size request would convert an old narrow height into excess client space
+    // when an explicit/restore request widens the native window.
+    height += static_cast<int>(std::ceil(
+        ComputeFullscreenActionLayout(native_client_width).content_height));
   }
   return height;
 }
@@ -915,7 +932,7 @@ void LinuxDesktopWindowPresenter::OnLoad() {
   applying_mirror_frame_ = true;
   gtk_window_set_default_size(GTK_WINDOW(window_),
                                desktop->restore_client_width(),
-                               desktop->restore_client_height() + NativeChromeHeight());
+                               desktop->restore_client_height() + NativeChromeHeight(desktop->restore_client_width()));
   if (desktop->HasExplicitPosition() && NativeGlobalPositionAvailable()) {
     gtk_window_move(GTK_WINDOW(window_), desktop->x(), desktop->y());
     gtk_window_set_geometry_hints(GTK_WINDOW(window_), nullptr, nullptr,

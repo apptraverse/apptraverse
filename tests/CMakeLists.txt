@@ -77,6 +77,16 @@ add_custom_target(apptraverse_shared_node_headless_check
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
   VERBATIM)
 
+include(${PROJECT_SOURCE_DIR}/cmake/apptraverse_catalog_binary_contract.cmake)
+if(APPTRAVERSE_MINIMUM_64 AND NOT MSVC AND NOT APPLE AND CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
+  find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
+  add_test(NAME apptraverse_catalog_binary_contract_policy_test
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_CURRENT_SOURCE_DIR}/catalog_binary_contract_policy_test.py")
+  set_tests_properties(apptraverse_catalog_binary_contract_policy_test PROPERTIES
+    LABELS "window_catalog;binary_contract")
+endif()
+
 if(MSVC AND (CMAKE_SIZEOF_VOID_P EQUAL 4 OR CMAKE_SIZEOF_VOID_P EQUAL 8))
   find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
   add_test(NAME apptraverse_windows_binary_contract_policy_test
@@ -1607,6 +1617,9 @@ apptraverse_add_test(apptraverse_historical_base_materialization_test
 apptraverse_add_test(apptraverse_window_catalog_headless_test
   window_catalog_headless_test.cpp
   window_catalog_window_catalog_headless)
+if(NOT WIN32 AND NOT APPLE)
+  apptraverse_catalog_binary_contract(apptraverse_window_catalog_headless_test NETWORK_ONLY)
+endif()
 
 if(TARGET window_catalog_window_catalog)
   set(_window_catalog_test_library window_catalog_window_catalog)
@@ -1631,6 +1644,7 @@ if(_window_catalog_test_library)
   else()
     target_compile_definitions(apptraverse_window_catalog_portable_user_fixture PRIVATE
       APPTRAVERSE_PORTABLE_PLATFORM="linux")
+    apptraverse_catalog_binary_contract(apptraverse_window_catalog_portable_user_fixture)
   endif()
   foreach(_test window_catalog_close_unload_disk_stage
                 window_catalog_user_persistence_boundary
@@ -1988,3 +2002,11 @@ endif()
 add_executable(apptraverse_connection_runtime_test connection_runtime_test.cpp)
 target_link_libraries(apptraverse_connection_runtime_test PRIVATE apptraverse_shared_node)
 add_test(NAME apptraverse_connection_runtime_test COMMAND apptraverse_connection_runtime_test)
+
+foreach(_catalog_consumer IN ITEMS
+    linux_window_catalog_demo
+    web_window_catalog_demo
+    apptraverse_window_catalog_headless_test
+    apptraverse_window_catalog_portable_user_fixture)
+  apptraverse_catalog_binary_contract_test(${_catalog_consumer})
+endforeach()

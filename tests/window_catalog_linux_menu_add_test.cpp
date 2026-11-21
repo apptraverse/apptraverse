@@ -258,7 +258,7 @@ gboolean Tick(gpointer data) {
     if (catalog.persisted.main_window->restore_client_width() != 1 || gtk_widget_get_allocated_width(presenter.ClientViewport()) <= 1) return G_SOURCE_CONTINUE;
     // GTK's authored menu enforces a genuine native minimum. A constrained
     // explicit request must not suppress the following ordinary user resize.
-    gtk_window_resize(GTK_WINDOW(presenter.TopLevelWindow()), 620, 360 + presenter.NativeChromeHeight());
+    gtk_window_resize(GTK_WINDOW(presenter.TopLevelWindow()), 620, 360 + presenter.NativeChromeHeight(620));
     probe.stage = 72;
   } else if (probe.stage == 72) {
     if (gtk_widget_get_allocated_width(presenter.ClientViewport()) != 620 || gtk_widget_get_allocated_height(presenter.ClientViewport()) != 360) return G_SOURCE_CONTINUE;

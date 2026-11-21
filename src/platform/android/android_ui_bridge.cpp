@@ -4,8 +4,11 @@
 #include "android_jni_util.h"
 #include "android_log.h"
 #include "apptraverse/platform/android/android_ui_list_presenter.h"
+#include "apptraverse/platform/android/android_ui_native_views.h"
 #include "apptraverse/platform/android/android_ui_push_button_presenter.h"
+#if APPTRAVERSE_ANDROID_TEXT_CONTROLS
 #include "apptraverse/platform/android/android_ui_text_control_presenter.h"
+#endif
 #include "apptraverse/platform/android/android_ui_window_presenter.h"
 #include "apptraverse/ui/ui_push_button.h"
 
@@ -14,6 +17,7 @@ using ui::android::CheckedJni;
 using ui::android::FailJni;
 
 namespace {
+#if APPTRAVERSE_ANDROID_TEXT_CONTROLS
 void OnTextEdited(JNIEnv* env, jclass, jlong p, jstring text) {
   reinterpret_cast<ui::android::AndroidTextControlPresenter*>(p)
       ->QueueEditedFromUi(ui::android::JstringToUtf8(env, text));
@@ -22,6 +26,7 @@ void OnTextAccepted(JNIEnv*, jclass, jlong p) {
   reinterpret_cast<ui::android::AndroidTextControlPresenter*>(p)
       ->QueueAcceptFromUi();
 }
+#endif
 void OnPushButton(JNIEnv*, jclass, jlong presenter) {
   ui::android::NotifyAndroidPushButtonClickedFromJava(presenter);
 }
@@ -40,10 +45,12 @@ bool RegisterAndroidUiNativeMethods(JNIEnv* env) {
       env->FindClass("com/apptraverse/ui/android/AppTraverseAndroidUi");
   if (cls == nullptr) return false;
   JNINativeMethod const methods[] = {
+#if APPTRAVERSE_ANDROID_TEXT_CONTROLS
       {"nativeOnTextEdited", "(JLjava/lang/String;)V",
        reinterpret_cast<void*>(&OnTextEdited)},
       {"nativeOnTextAccepted", "(J)V",
        reinterpret_cast<void*>(&OnTextAccepted)},
+#endif
       {"nativeOnPushButtonClick", "(J)V",
        reinterpret_cast<void*>(&OnPushButton)},
       {"nativeOnListSelection", "(JI)V",
@@ -51,7 +58,8 @@ bool RegisterAndroidUiNativeMethods(JNIEnv* env) {
       {"nativeOnWindowClientSize", "(JIII)V",
        reinterpret_cast<void*>(&OnWindowClientSize)},
   };
-  jint const result = env->RegisterNatives(cls, methods, 5);
+  jint const result = env->RegisterNatives(cls, methods,
+      static_cast<jint>(sizeof(methods) / sizeof(methods[0])));
   env->DeleteLocalRef(cls);
   return result == JNI_OK;
 }

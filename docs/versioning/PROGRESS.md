@@ -1,3 +1,15 @@
+## WindowCatalog MinSizeRel ports — 2026-11-21
+
+The Linux GTK and headless x86_64, Web wasm32, and Android x86_64
+WindowCatalog builds passed their MinSizeRel binary contracts. Linux X11
+passed its native lifecycle and cold LOCAL checks. The headless model and
+portable CLI ran without a display, and Chrome and Node passed the embedded
+Web checks. The Android API 34 emulator passed four DebugLoadOnly tests and
+the MinSizeRel Add, fullscreen and cold restore checks.
+
+The [port validation](../validation/window-catalog-minsize-ports-2026-11-21.md)
+records exact sizes, scope and platform-specific findings.
+
 ## SharedNode and chat canon review — 2026-11-21
 
 Reviewed the SharedNode transport boundary, per-recipient delivery and native
