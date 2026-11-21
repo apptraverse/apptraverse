@@ -1,7 +1,7 @@
 # Keep the optional SDK out of ordinary model/UI builds. Shared object and
 # serialization dependencies have already been added by the root project.
 set(APPTRAVERSE_AETHER_CLIENT_GIT_TAG
-  "e14a043b47f4a98de5df12912ae45431ad888b26")
+  "ebebdf585f6f565a6d19495da902c74806255905")
 set(_apptraverse_hierarchy_default ON)
 if(APPTRAVERSE_BUILD_SHARED_NODE_CHAT)
   set(_apptraverse_hierarchy_default OFF)
@@ -32,6 +32,9 @@ endfunction()
 function(apptraverse_add_shared_aether)
   set(USER_CONFIG "${APPTRAVERSE_AETHER_USER_CONFIG}")
   set(AE_ENABLE_STREAM_HIERARCHY "${APPTRAVERSE_AETHER_STREAM_HIERARCHY}")
+  if(NOT APPTRAVERSE_AETHER_STREAM_HIERARCHY)
+    set(AE_SUPPORT_ADAPTIVE_DATAGRAM OFF)
+  endif()
   set(AE_BUILD_TESTS OFF CACHE BOOL "SDK tests" FORCE)
   set(AE_BUILD_EXAMPLES OFF CACHE BOOL "SDK examples" FORCE)
   set(AE_BUILD_TOOLS OFF CACHE BOOL "SDK tools" FORCE)

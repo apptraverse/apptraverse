@@ -26,7 +26,8 @@ use only `x86_64`; pass the profile to the parent JNI CMake directory before
 adding AppTraverse so it also covers the final JNI target.
 
 The standalone SharedNode chat defaults to `APPTRAVERSE_AETHER_STREAM_HIERARCHY=OFF`.
-This sets the SDK's `AE_ENABLE_STREAM_HIERARCHY` option to OFF and retains
+This disables the SDK's `AE_ENABLE_STREAM_HIERARCHY` and
+`AE_SUPPORT_ADAPTIVE_DATAGRAM` options and retains
 the chat's direct `P2pStream` on ID 0. Enable the AppTraverse option for builds
 that need to attach application Raw streams to SharedNode.
 

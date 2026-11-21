@@ -131,13 +131,16 @@
        }
 --- a/aether/streams/stream_hierarchy.cpp
 +++ b/aether/streams/stream_hierarchy.cpp
-@@ -1,4 +1,5 @@
+@@ -1,7 +1,7 @@
  // Copyright 2026 Aethernet Inc. Licensed under the Apache License, Version 2.0.
-+#include "aether/fail_without_exceptions.h"
  #include "aether/streams/stream_hierarchy.h"
  #include <set>
- #include <stdexcept>
-@@ -11,22 +12,22 @@
+-#include <stdexcept>
++#include "aether/fail_without_exceptions.h"
+ #include "aether/client.h"
+ #if AE_SUPPORT_ADAPTIVE_DATAGRAM
+ #  include "aether/client_messages/p2p_adaptive_datagram_stream.h"
+@@ -12,27 +12,27 @@
  void Validate(std::vector<StreamDefinition> const& nodes, Uid inherited,
                std::set<std::uint32_t>& ids, unsigned depth = 0) {
    if (depth > 16) {
@@ -151,6 +154,12 @@
 -      throw std::invalid_argument("Invalid or duplicate stream definition");
 +      FailWithoutExceptions("Invalid or duplicate stream definition");
      }
+ #if !AE_SUPPORT_ADAPTIVE_DATAGRAM
+     if (node.delivery == StreamDelivery::kAdaptiveDatagram) {
+-      throw std::invalid_argument("Adaptive datagram support is disabled");
++      FailWithoutExceptions("Adaptive datagram support is disabled");
+     }
+ #endif
      if (node.storage) {
 -      throw std::logic_error("Offline storage providers are not implemented");
 +      FailWithoutExceptions("Offline storage providers are not implemented");
@@ -163,6 +172,80 @@
 +      FailWithoutExceptions("Stream has no enabled route");
      }
      Validate(node.children, uid, ids, depth + 1);
+   }
+--- a/aether/safe_stream/safe_stream.cpp
++++ b/aether/safe_stream/safe_stream.cpp
+@@ -16,20 +16,20 @@
+ 
+ #include "aether/safe_stream/safe_stream.h"
+ 
+-#include <stdexcept>
++#include "aether/fail_without_exceptions.h"
+ 
+ namespace ae {
+ 
+ std::size_t SafeStreamConfig::CheckedBufferCapacity() const {
+   if (window_size == 0 || window_size >= buffer_capacity / 2) {
+-    throw std::invalid_argument(
++    FailWithoutExceptions(
+         "SafeStream window must be smaller than half the buffer");
+   }
+   if (window_size > kSafeStreamMaxWindow) {
+-    throw std::invalid_argument("SafeStream window exceeds the wire limit");
++    FailWithoutExceptions("SafeStream window exceeds the wire limit");
+   }
+   if (max_packet_size >= buffer_capacity) {
+-    throw std::invalid_argument("SafeStream packet must fit in the buffer");
++    FailWithoutExceptions("SafeStream packet must fit in the buffer");
+   }
+   return buffer_capacity;
+ }
+--- a/aether/safe_stream/details/circular_buffer.h
++++ b/aether/safe_stream/details/circular_buffer.h
+@@ -20,7 +20,7 @@
+ #include <algorithm>
+ #include <cstddef>
+ #include <span>
+-#include <stdexcept>
++#include "aether/fail_without_exceptions.h"
+ #include <vector>
+ 
+ #include "aether-miscpp/types/result.h"
+@@ -58,7 +58,7 @@
+   /**
+    * \brief Push new data and return its range
+    */
+-  constexpr Result<index_range_type, CircularBufferError> Push(
++  Result<index_range_type, CircularBufferError> Push(
+       std::span<value_type const> data) noexcept {
+     return Insert(end_, data);
+   }
+@@ -68,7 +68,7 @@
+    * \param pos - the position to insert at must be after begin_
+    * \param data - the data to insert
+    */
+-  constexpr Result<index_range_type, CircularBufferError> Insert(
++  Result<index_range_type, CircularBufferError> Insert(
+       index_type pos, std::span<value_type const> data) noexcept {
+     auto const offset = Distance(begin_, pos);
+     if (offset >= buffer_.size() || data.size() > buffer_.size() - 1 - offset) {
+@@ -93,7 +93,7 @@
+    * \brief Read the data with size from start
+    * \param start - the position to read from must be in range begin_..end_
+    */
+-  constexpr Result<DSpan, CircularBufferError> Read(
++  Result<DSpan, CircularBufferError> Read(
+       index_type start, std::size_t size) const noexcept {
+     if ((begin_ == end_) || Distance(start, end_) == 0) {
+       return Error{CircularBufferError::kEmptyBuffer};
+@@ -156,7 +156,7 @@
+  private:
+   static std::size_t CheckedCapacity(std::size_t capacity) {
+     if (capacity < 3 || capacity > kSafeStreamIndexPeriod / 2) {
+-      throw std::invalid_argument("Invalid SafeStream buffer capacity");
++      FailWithoutExceptions("Invalid SafeStream buffer capacity");
+     }
+     return capacity;
    }
 --- /dev/null
 +++ b/aether/fail_without_exceptions.h

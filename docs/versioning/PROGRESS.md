@@ -1,3 +1,23 @@
+## Æther SafeStream and peer transport update — 2026-11-20
+
+AppTraverse pins Æther C++ SDK `ebebdf58` with the consolidated SafeStream,
+packed adaptive datagram timing and feedback, and native peer UDP buffering,
+polling, and fragmentation changes. The standalone chat uses Raw stream ID 0
+over cloud TCP with the hierarchy and adaptive datagrams disabled. The SDK
+portability patch covers the new exception paths and removes `constexpr` from
+circular-buffer methods returning the non-literal `Result` type.
+
+Windows MinSizeRel produced a 1,887,744-byte x64 GUI EXE and a 1,262,592-byte
+x86 GUI EXE. Both GUI builds received room history and exchanged messages with
+the opposite-bitness headless peer. The previous x64 and updated x86 versions
+also exchanged messages over the cloud on stream ID 0.
+
+The SharedNode headless check, selected Æther integration CTests, and the
+three-process cloud test with attached Raw streams passed on Linux. The
+standalone SDK passed SafeStream, peer, adaptive datagram, and adaptive
+recovery CTests. Its GCC 13 test build kept `array-bounds` and
+`invalid-constexpr` as warnings.
+
 ## Optional Æther stream hierarchy — 2026-11-20
 
 The SDK enables the hierarchy by default through `AE_ENABLE_STREAM_HIERARCHY`.
