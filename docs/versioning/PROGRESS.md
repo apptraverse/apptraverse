@@ -58,6 +58,17 @@ Both iPhone executables and WindowCatalog's embedded load-only consumer were
 verified as ARM64 iOS binaries. The embedded consumer omits the WindowCatalog
 graph builder and distillation entry point. iOS runtime was not exercised.
 
+### Physical iPhone verification on `7411e89f`
+
+On a USB-connected iPhone 11 Pro running iOS 18.5, WindowCatalog passed 27
+checkpoints in fresh Debug, 27 with the embedded supply, and six on a cold
+relaunch of the embedded profile. The acceptance exercises portrait and
+landscape layout, page navigation, LOCAL settings visibility, separate USER
+and LOCAL saves, and restored identity. MinimalApp passed native SwiftUI
+acceptance for layout, selection, row activation, detail open and close,
+save, and presenter teardown. Results were copied from the isolated test
+container before uninstalling the test bundle.
+
 ## Windows x86 WindowCatalog MinSizeRel — 2026-11-20
 
 The opt-in `APPTRAVERSE_MINIMUM_WINDOWS_X86` profile reproduces the
