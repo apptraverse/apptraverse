@@ -3,8 +3,8 @@
 The fixed snapshot of main `d751d361` with SDK `ba4b26f8` builds and runs the
 production SwiftUI chat on macOS and a real USB-connected iPhone 11 Pro/iOS18.5.
 Physical arm64 signing, installation and launch PASS. A read-only phone screenshot
-shows Mac/iPhone participants and Online | Connected. Both apps remain running;
-no third chat participant, UI input or test message was introduced.
+shows Mac/iPhone participants and Online | Connected. Both production apps were launched and verified connected;
+no third chat participant or agent-generated test message was introduced.
 
 Actual Swift typechecks PASS; the isolated existing UI-model test PASSes and
 SharedSync/RAM CTests PASS 2/2. Message-delivery/keyboard, APNs, cold restore and

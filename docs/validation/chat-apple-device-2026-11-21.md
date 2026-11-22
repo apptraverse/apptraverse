@@ -15,7 +15,7 @@ matching chat provisioning profile cover this phone. No signing helper was
 installed. Device identifiers, provisioning files and device inventories remain
 outside the repository.
 
-## Source changes
+## Source changes in the tested snapshot
 
 - Updated the SDK pin and refreshed the existing portability patch for changed
   packet-budget context and the new hierarchy adaptation-policy exception.
@@ -96,3 +96,31 @@ broad OS/accessibility matrices are NOT RUN. Connection/room admission is proven
 by the physical product screen, not by a claim of message-delivery acceptance.
 The previously recorded thirty-rule source audit and its limitations remain
 separate from this executed evidence.
+
+## Bounded newer-main integration audit
+
+Read-only Astra review considered all thirty Canon rules for the Apple-only
+slice relative to `b182adb9`; it does not certify the newer dependency graph.
+
+| Rules | Disposition |
+| --- | --- |
+| 1, 3–9, 11–23 | Semantic/ownership/schema behavior is unchanged by the include-path and toolchain slice; prior source dispositions retain their original scope. |
+| 2 | Missing device SDK fails at xcrun; there is no Simulator substitution. |
+| 10 | Release contents/linkage and builds on the newer main remain NOT RUN. |
+| 24 | No recovery, tracing or assertion-only effects introduced. |
+| 25 | Only requested physical iOS build support is added. |
+| 26 | Existing C++20/compiler policy and distinct arm64/iPhoneOS triple retained. |
+| 27 | Builds were authorized; executed evidence belongs to the stated snapshot. |
+| 28 | Integration introduces no new network mechanism. |
+| 29 | Built snapshot, source-only integration and unexecuted scopes are separated. |
+| 30 | Archive the full tested snapshot, publish only independent fixes and preserve newer coordinated pins/configuration/patches. |
+
+## Final lifecycle observation
+
+After the connection screenshot, the Mac log recorded an accepted local Send at
+20:26. At the final process recheck the host had exited; its LOCAL file had been
+saved at 20:26:28 (807 bytes), with no fatal log or new chat crash report. The
+phone process was still running at the final CoreDevice check. No agent input or
+test message caused this later Send; it does not establish recipient delivery.
+The phone was not restarted, preserving its live RAM session. The source/evidence
+record describes the verified launch and connection, not indefinite host uptime.
