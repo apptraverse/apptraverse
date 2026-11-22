@@ -11,6 +11,11 @@ sharing, and the `examples/chat_demo` multi-platform chat client (Windows
 host implemented; Linux GTK and Android sources present). See
 `docs/chat_delivery_worklog.md` for verification status per platform.
 
+[UpdateLab](docs/update_lab.md) is the opt-in Windows/Linux update example:
+native localization and S1/prefab changes, resumable component downloads over
+Æther, portable USER, local device settings, executable rollback and compressed
+full images/state deltas.
+
 ## Requirements
 
 - C++20

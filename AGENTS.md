@@ -1,5 +1,17 @@
 # Agent rules (apptraverse — unified worktree)
 
+## UpdateLab assignment — 2026-11-22
+
+The user explicitly authorized a separate Windows/Linux update prototype with
+persistent restart/resume, USER transfer, native S1/prefab upgrades, executable
+replacement/rollback and a component-store Æther client. This assignment lifts
+the historical S0-only/no-migration/no-recovery restrictions for the opt-in
+`examples/update_lab` scope only. Existing WindowCatalog defaults stay unchanged.
+Downloads are persisted system Nodes with progress/ready/error Events. The user
+explicitly excludes application checksums/signatures: delivery is assumed correct.
+Full images and adjacent native state deltas use one compressed file each.
+Instructions and measured evidence belong in [UpdateLab](docs/update_lab.md).
+
 ## Apple UI
 
 Use SwiftUI for Apple UI, including content, lists, layout, and commands.

@@ -80,7 +80,9 @@ function(apptraverse_add_shared_aether)
     endif()
     execute_process(COMMAND git -C "${sdk_source}" checkout --force --detach
       "${APPTRAVERSE_AETHER_CLIENT_GIT_TAG}" COMMAND_ERROR_IS_FATAL ANY)
-    execute_process(COMMAND git -C "${sdk_source}" apply --whitespace=nowarn
+    # The patch may be checked out with CRLF when a Linux build shares a Windows
+    # worktree. Match context across that line-ending difference.
+    execute_process(COMMAND git -C "${sdk_source}" apply --ignore-whitespace --whitespace=nowarn
       "${sdk_patch}" COMMAND_ERROR_IS_FATAL ANY)
     file(TOUCH "${sdk_source}/apptraverse-patched")
   endif()

@@ -106,6 +106,7 @@ target_link_libraries(${_objects_target} PRIVATE apptraverse_compile_policy)
 
 option(APPTRAVERSE_BUILD_EXAMPLES
   "Build the window catalog and minimal application" ON)
+option(APPTRAVERSE_BUILD_UPDATE_LAB "Build the persistent S1/device update example" OFF)
 option(APPTRAVERSE_BUILD_LEGACY_EXAMPLES
   "Build historical demos (main window, dynamic objects) and their tests" OFF)
 option(APPTRAVERSE_BUILD_LINUX_GUI "Build Linux GTK hosts and native GUI tests" ON)
@@ -155,7 +156,7 @@ add_library(apptraverse STATIC
 )
 target_include_directories(apptraverse PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(apptraverse PUBLIC
-  aether::objects aether::miscpp apptraverse_compile_policy)
+  aether::objects aether::miscpp aether::tele apptraverse_compile_policy)
 target_compile_features(apptraverse PUBLIC cxx_std_20)
 
 # SharedNode is an explicitly linked headless extension. Existing application
@@ -172,6 +173,11 @@ target_link_libraries(apptraverse_shared_node PUBLIC apptraverse)
 option(APPTRAVERSE_BUILD_AETHER_LINK
   "Build the opt-in SharedNode Aether transport and headless cloud worker" OFF)
 if(APPTRAVERSE_BUILD_AETHER_LINK)
+  if(APPTRAVERSE_BUILD_UPDATE_LAB AND NOT APPTRAVERSE_AETHER_USER_CONFIG)
+    set(APPTRAVERSE_AETHER_USER_CONFIG
+      "${CMAKE_CURRENT_SOURCE_DIR}/cmake/update_lab_aether_config.h"
+      CACHE FILEPATH "Aether transport configuration for UpdateLab")
+  endif()
   include(cmake/shared_aether.cmake)
   apptraverse_add_shared_aether()
   if(MSVC)
@@ -543,6 +549,12 @@ if(APPTRAVERSE_BUILD_EXAMPLES OR BUILD_TESTING)
 endif()
 
 include(CTest)
+if(APPTRAVERSE_BUILD_UPDATE_LAB)
+  if(NOT APPTRAVERSE_BUILD_AETHER_LINK)
+    message(FATAL_ERROR "UpdateLab requires APPTRAVERSE_BUILD_AETHER_LINK")
+  endif()
+  add_subdirectory(examples/update_lab)
+endif()
 if(APPTRAVERSE_BUILD_SHARED_NODE_CHAT)
   if(NOT APPTRAVERSE_BUILD_AETHER_LINK)
     message(FATAL_ERROR "SharedNode chat requires APPTRAVERSE_BUILD_AETHER_LINK")

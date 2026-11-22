@@ -1,3 +1,28 @@
+## UpdateLab: Windows/Linux updates and USER transfer — 2026-11-22
+
+Added the opt-in `examples/update_lab` prototype: one native Win32/GTK window,
+R0–R3 localization changes, native S1 inherited by existing prefab clones,
+portable USER with device LOCAL preserved, persistent DownloadNode progress/
+ready/error Events and restart/resume. A dedicated real Æther component client
+serves languages and executables; an immutable launcher stages executable slots,
+waits for health and restores USER/LOCAL on failure or interrupted trial.
+No application checksum/signature was added.
+
+Windows and Linux Debug builds and native state tests PASS. Native control smoke
+PASSes on Win32 and GTK/X11 under WSL2. The separate-process Windows/Linux matrix
+PASSes 31/31, including two-way USER/ObjId preservation, actual E0↔E1 transitions,
+bad E2, health timeout, interrupted launcher and download error/retry. Real SDK
+cloud acceptance PASSes 4/4: killed partial language, resumed atomic activation,
+actual E1 download/health/S1 and downloaded E2 rollback. A separate native Linux
+SDK language download/activation and component-provider UID restore also PASS.
+The packager emits complete
+native localization images plus adjacent native deltas as single compressed files.
+The measured codec comparison selects Zstd 19/window 1 MiB for states/deltas and
+Zstd 9 for delivery blobs. Windows 7, physical Linux, Release and other platforms
+are NOT RUN. [Run instructions](../update_lab.md),
+[executed evidence](../validation/update-lab-2026-11-22.md),
+[compression measurements](../update_lab_compression.md).
+
 ## Apple chat physical-device run — 2026-11-21
 
 The fixed snapshot of main `d751d361` with SDK `ba4b26f8` builds and runs the
