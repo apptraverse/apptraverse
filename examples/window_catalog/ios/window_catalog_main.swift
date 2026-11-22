@@ -26,6 +26,6 @@ struct WindowCatalogIosApp: App {
     }
 
     var body: some Scene {
-        WindowGroup { IosApplicationRootView(host: host) }
+        WindowGroup { IosApplicationRootView(host: host, usesMaterialAppearance: true) }
     }
 }

@@ -83,6 +83,19 @@ runtime test was performed. Compilation, native behavior, cloud/APNs and binary
 linkage are NOT RUN. The bounded thirty-rule source audit and its limitations
 are recorded in [the source review](../validation/chat-swiftui-source-2026-11-21.md).
 
+## Android-inspired SwiftUI WindowCatalog on iPhone — 2026-11-21
+
+WindowCatalog opts into a SwiftUI Material appearance for the title bar,
+raised buttons, borderless rows, and settings choices. It keeps the existing
+settings sheet, model-backed navigation, and shared constraint layout.
+The Material shell uses page swipes and exposes accessible page adjustment
+on its heading. MinimalApp continues to use the default shared host style.
+
+iPhone 11 Pro on iOS 18.5 passed WindowCatalog fresh Debug and embedded seed
+(27 checkpoints each), embedded cold launch (six), and MinimalApp acceptance.
+The runs covered portrait and landscape, and USER/LOCAL persistence.
+Evidence was copied before uninstalling the temporary acceptance bundle.
+
 ## Apple WindowCatalog and MinimalApp main refresh — 2026-11-21
 
 Mac WindowCatalog uses the shared native placement adapter. When LOCAL

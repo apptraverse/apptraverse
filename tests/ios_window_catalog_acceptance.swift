@@ -433,7 +433,7 @@ private struct IosAcceptanceApp: App {
     }
     var body: some Scene {
         WindowGroup {
-            IosApplicationRootView(host: host).onAppear { scenario.start() }
+            IosApplicationRootView(host: host, usesMaterialAppearance: true).onAppear { scenario.start() }
         }
     }
 }
