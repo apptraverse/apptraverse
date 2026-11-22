@@ -25,6 +25,10 @@ def codec(name):
         return zstd.ZstdCompressor(compression_params=params).compress, zstd.ZstdDecompressor().decompress
     if name == "lz4hc-12":
         return lambda b: lz4.frame.compress(b, compression_level=12, content_checksum=False, block_checksum=False), lz4.frame.decompress
+    if name.startswith("lzma1-"):
+        size = int(name.split("-")[1]) * 1024 * 1024
+        filters = [{"id": lzma.FILTER_LZMA1, "preset": 9, "dict_size": size, "lc": 3, "lp": 0, "pb": 2}]
+        return lambda b: lzma.compress(b, format=lzma.FORMAT_RAW, filters=filters), lambda b: lzma.decompress(b, format=lzma.FORMAT_RAW, filters=filters)
     if name.startswith("lzma2-"):
         size = int(name.split("-")[1]) * 1024 * 1024
         return lambda b: lzma.compress(b, format=lzma.FORMAT_XZ, check=lzma.CHECK_NONE, filters=[{"id": lzma.FILTER_LZMA2, "preset": 9, "dict_size": size}]), lzma.decompress
@@ -81,10 +85,11 @@ def main():
     p.add_argument("--input", nargs="+", type=pathlib.Path)
     p.add_argument("--output", type=pathlib.Path)
     p.add_argument("--memory-child", nargs=3)
+    p.add_argument("--codec", nargs="+", help="Measure only the selected codecs")
     args = p.parse_args()
     if args.memory_child:
         return memory_child(*args.memory_child)
-    names = ["zstd-9", "zstd-15", "zstd-19", "lz4hc-12", "lzma2-1", "lzma2-8", "deflate-9", "bzip2-9", "brotli-11"]
+    names = args.codec or ["zstd-9", "zstd-15", "zstd-19", "lz4hc-12", "lzma1-1", "lzma2-1", "lzma2-8", "deflate-9", "bzip2-9", "brotli-11"]
     records = []
     temporary = args.output.parent / "codec-memory-input.bin"
     args.output.parent.mkdir(parents=True, exist_ok=True)

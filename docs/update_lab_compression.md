@@ -80,6 +80,40 @@ ASM и legacy frames отключены. Для Debug использована �
 Исходники probe, link maps, парсер PE и результаты находятся в
 `artifacts/update-lab/code-footprint/`, численные данные — `results.json`.
 
+## Дополнение: обычный LZMA1
+
+Измерен отдельный C decoder `LzmaDec.c` из официального 7-Zip SDK 26.06,
+commit `d3296e39e1f1f92c7b41c0c3848e65640428d42d`, без LZMA2, XZ, ASM,
+потоков и encoder. Методика footprint та же, что для Zstd выше.
+
+| Decoder | `.text`, KiB | `.rdata`, KiB | Прирост EXE, KiB |
+| --- | ---: | ---: | ---: |
+| LZMA1 C, Debug | 22.22 | 0.21 | 23.00 |
+| LZMA1 C, `/O1 /Ob1 /Gy /Gw`, `/OPT:REF /OPT:ICF` | 9.34 | 0.45 | 9.50 |
+
+Для `lc=3, lp=0, pb=2` allocator probe однократного `LzmaDecode` зафиксировал
+16 256 B под вероятности, структура `CLzmaDec` — 128 B. Этот API использует
+весь заранее выделенный выходной буфер как словарь (`p.dic = dest`); отдельно
+1 MiB истории в этом режиме не выделяется. Выходной буфер, входные данные,
+стек и накладные расходы allocator — отдельные расходы. Streaming API требует
+собственного словаря. Поэтому прежний пик Python/XZ нельзя приписывать этому
+native C one-call decoder.
+([Исходник SDK](https://github.com/ip7z/7zip/blob/26.06/C/LzmaDec.c))
+
+Дополнительный прогон Python/liblzma с raw LZMA1, preset 9, dictionary 1 MiB:
+на графе 2 022 403 B результат 45 285 B, сжатие 724.65 ms, распаковка 7.632 ms.
+Это скорость liblzma binding, не измерение скорости SDK C decoder. Native R0,
+R3 и USER дали 546, 756 и 568 B соответственно. Все четыре round-trip прошли;
+raw stream не имеет checksum. Данные: `artifacts/update-lab/compression-lzma1.json`;
+добавлен выбор `--codec lzma1-1` в benchmark tool. Footprint/allocator probes:
+`artifacts/update-lab/code-footprint/lzma-results.json`, `lzma_memory.c`.
+
+LZMA2 не требует многопоточности: число потоков — отдельный режим. Для данного
+single-shot прототипа обычный LZMA1 достаточен. По компактности native decoder
+он существенно выгоднее Zstd; прежний выбор Zstd учитывал прежде всего скорость
+распаковки. Runtime прототипа пока остаётся на Zstd, смена codec не выполнена.
+([Руководство XZ](https://tukaani.org/xz/man/xz.1.html))
+
 ## Память декодера
 
 У измеренного libzstd контекст однократного декодирования занимает **95 968 B**.
