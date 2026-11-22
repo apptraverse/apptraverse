@@ -1,3 +1,14 @@
+## SharedNode Chat non-Apple repeat run — 2026-11-21
+
+Repeated the four-port verification on AppTraverse `ac2ecda3` with the pinned
+Æther SDK `ebebdf58`. Windows x64 passed 10 CTests and the native three-window
+fixture on its first attempt, including offline catch-up, rejoin and window
+placement on two monitors. Linux passed nine CTests and GTK/X11 native input,
+resize and cold LOCAL restore. Chrome passed two-peer Unicode exchange,
+reload/rejoin and the push-worker unit test. Android API 34 emulator passed
+Unicode exchange, rotation, font-scale remount and cold LOCAL restore.
+Apple was outside this run.
+
 ## iPhone WindowCatalog appearance and LOCAL audit — 2026-11-21
 
 - Canon 5 and the client-local environment contract. A whole-window SwiftUI
