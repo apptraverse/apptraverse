@@ -71,6 +71,24 @@ Chrome native chat, Android native Unicode/lifecycle and RAM ACK/retry tests
 also passed. The Android MinSizeRel APK built for ARMv7 and x86_64 and exchanged
 a message on the emulator.
 
+With SDK `4163a08e` and Objects `2e2ac62e`, the x86_64 Android emulator
+measured 360, 425 and 465 ms from Send to the first native pre-draw with the
+committed row in a two-member room. The Linux host received all three rows.
+A separate Android and Linux run exchanged Unicode messages in both directions.
+The SDK build patch preserves the existing exception-free targets, including
+the 32-bit ARM, WebAssembly and desktop telemetry code.
+
+The host also retains one pending discovery reply per requesting peer until the
+transport accepts it. The SDK may release its single outgoing slot after the
+receive callback. A returning member could then miss every reply while ordinary
+retry traffic kept claiming that slot. The memory regression holds the slot
+through receive dispatch during rejoin. It timed out on the previous host and
+passed five consecutive runs with the new host. Real Linux replicas also
+exchanged the initial history and messages in both directions. With a Windows
+host, the same Android emulator profile launched twice and sent three messages
+on each launch. All six reached Windows. The local pre-draw readings were
+321, 405 and 311 ms on the first launch and 444, 354 and 393 ms after restart.
+
 ## SharedNode Chat non-Apple repeat run — 2026-11-21
 
 Repeated the four-port verification on AppTraverse `ac2ecda3` with the pinned

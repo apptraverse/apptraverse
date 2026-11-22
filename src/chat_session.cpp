@@ -515,6 +515,7 @@ struct ChatSession::Impl {
   bool view_dirty{true};
   ChatStatus status{ChatStatus::Starting};
   std::string resolving_host;
+  std::map<std::string, ae::ObjId> room_replies;
   ae::RamDomainStorage storage;
   ae::RamDomainStorage backing;
   std::unique_ptr<OverlayDomainStorage> model_storage;
@@ -735,7 +736,7 @@ struct ChatSession::Impl {
     if (!room_id.is_valid()) {
       auto* room = CurrentRoom();
       if (room && room->host_uid == native->EndpointId()) {
-        link->ResolveRoom(source, room->obj_id);
+        room_replies.insert_or_assign(source, room->obj_id);
       }
       return;
     }
@@ -947,6 +948,7 @@ struct ChatSession::Impl {
     failed = false;
     finished = false;
     view_dirty = true;
+    room_replies.clear();
     if (prepare_profile && !prepare_profile()) {
       SetError(ChatStatus::OpenProfileFailed);
       finished = true;
@@ -1004,6 +1006,11 @@ struct ChatSession::Impl {
       auto observed=connection->Observation();
       if(observed!=last_connection){last_connection=std::move(observed);view_dirty=true;}
       if (sync && !failed) {
+        // The SDK can free a peer's write slot after its receive callback.
+        // Give discovery a turn before ordinary retransmissions refill it.
+        std::erase_if(room_replies, [this](auto const& reply) {
+          return link->ResolveRoom(reply.first, reply.second);
+        });
         DrainCommands();
         if (auto* room = CurrentRoom()) {
           for (auto const& peer : room->links) {

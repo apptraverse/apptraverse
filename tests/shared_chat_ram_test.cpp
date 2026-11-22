@@ -27,11 +27,13 @@ struct Hub {
   };
   std::mutex mutex;
   std::map<std::string, std::deque<Packet>> inbox;
+  std::atomic<bool> busy_during_receive{};
 };
 class Transport final : public IConnectionTransport {
   std::string id_;
   Hub* hub_{};
   Receiver receiver_;
+  bool receiving_{};
 
  public:
   explicit Transport(Hub* hub = nullptr, std::string id = "ram-chat-endpoint")
@@ -53,6 +55,7 @@ class Transport final : public IConnectionTransport {
   bool Send(std::string const& destination,
             std::vector<std::uint8_t> const& bytes) override {
     if (!hub_) return true;
+    if (receiving_ && hub_->busy_during_receive) return false;
     std::lock_guard lock{hub_->mutex};
     auto target = hub_->inbox.find(destination);
     if (target == hub_->inbox.end()) return false;
@@ -69,8 +72,10 @@ class Transport final : public IConnectionTransport {
       std::lock_guard lock{hub_->mutex};
       packets.swap(hub_->inbox[id_]);
     }
+    receiving_ = true;
     for (auto& packet : packets)
       if (receiver_) receiver_(packet.source, packet.bytes);
+    receiving_ = false;
   }
   void NetworkChanged(NetworkObservation) override {}
   bool Ready() const override { return true; }
@@ -189,6 +194,9 @@ int main() {
     });
     auto first = peer.View().message_records.front().id;
     peer.Stop();
+    // An outstanding write can occupy the SDK slot until Service finishes
+    // dispatching inbound traffic for the returning participant.
+    hub.busy_during_receive = true;
     peer.Start();
     Until([&] { return peer.View().ready && !peer.View().in_room; });
     CHECK(peer.View().messages.empty());
