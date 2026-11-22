@@ -347,6 +347,14 @@ class DirectoryStorageReader final : public ae::IDomainStorageReader {
 
   ~DirectoryStorageReader() override { file_.close(); }
 
+  std::optional<bool> IsEmpty() override {
+    if (file_.peek() == std::ifstream::traits_type::eof() && file_.eof() &&
+        !file_.bad()) {
+      return true;
+    }
+    return file_.good() ? std::optional<bool>{false} : std::nullopt;
+  }
+
 
 
   ae::seri::SeriResult Read(ae::seri::SizeReadTag data) override {
@@ -889,6 +897,8 @@ class InstrumentedStorageReader final : public ae::IDomainStorageReader {
                             std::mutex& mu)
 
       : inner_{std::move(inner)}, stats_{stats}, mu_{mu} {}
+
+  std::optional<bool> IsEmpty() override { return inner_->IsEmpty(); }
 
 
 

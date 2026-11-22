@@ -127,6 +127,31 @@ void TestDirectoryDomainStorageRoundtrip() {
   std::filesystem::remove_all(root);
 }
 
+void TestLegacyEmptyBaseLayer() {
+  auto const root = std::filesystem::temp_directory_path() /
+                    "apptraverse_legacy_empty_base";
+  std::filesystem::create_directories(root);
+  DirectoryDomainStorage storage{root};
+  {
+    ae::Domain domain{storage};
+    auto node = Node::ptr::Create(ae::CreateWith{domain}.with_id(kProbeNodeId));
+    node.Save();
+  }
+  auto const path = DirectoryDomainStorageLayerPath(
+      root, ae::DomainQuery{ae::ObjId{kProbeNodeId}, ae::Obj::kClassId, 0});
+  { std::ofstream legacy{path, std::ios::binary | std::ios::trunc}; CHECK(legacy); }
+  InstrumentedDomainStorage instrumented{storage};
+  {
+    ae::Domain domain{instrumented};
+    auto node = Node::ptr::Declare(ae::CreateWith{domain}.with_id(kProbeNodeId));
+    node.Load();
+    CHECK(node.is_loaded());
+    CHECK(node.domain() == &domain);
+    node.Save();
+  }
+  CHECK(std::filesystem::file_size(path) > 0);
+}
+
 void TestUnchangedNonEmptyLayerSkipped() {
   auto root = std::filesystem::temp_directory_path() /
               "apptraverse_directory_domain_storage_unchanged";
@@ -313,6 +338,7 @@ void TestNonDirectoryObjectPathFailsSave() {
 int main() {
   apptraverse::EnsureObjectRegistration();
   apptraverse::test::TestDirectoryDomainStorageRoundtrip();
+  apptraverse::test::TestLegacyEmptyBaseLayer();
   apptraverse::test::TestUnchangedNonEmptyLayerSkipped();
   apptraverse::test::TestNewEmptyLayerWritten();
   apptraverse::test::TestReplaceNonEmptyWithEmpty();
