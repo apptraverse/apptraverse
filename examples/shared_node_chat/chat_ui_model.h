@@ -3,6 +3,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 #include "apptraverse/chat_session.h"
 #include "apptraverse/event_for.h"
@@ -72,6 +73,14 @@ struct ConnectionState {
   bool operator==(ConnectionState const&) const = default;
   AE_REFLECT_MEMBERS(uid, invite, status, people, messages, ready, in_room,
                      online)
+};
+// Only these transport fields feed the chat controls. Delivery diagnostics
+// remain available through ChatSession::View without scheduling UI model work.
+struct ChatTransportUpdate {
+  explicit ChatTransportUpdate(ChatView view);
+  ConnectionState state{};
+  ChatStatus status;
+  bool operator==(ChatTransportUpdate const&) const = default;
 };
 struct EditingState {
   std::string name, draft, invite;
@@ -251,7 +260,10 @@ class ChatUi : public NodeFor<ChatUi, ui::UiDesktopWindow> {
   void Resize(int width, int height);
   void ClipboardResult(bool success);
   void Configure(bool host, std::string name, std::string initial_host);
-  void AcceptTransport(ChatView view);
+  void AcceptTransport(ChatTransportUpdate update);
+  void AcceptTransport(ChatView view) {
+    AcceptTransport(ChatTransportUpdate{std::move(view)});
+  }
   void CompleteSend(std::uint64_t revision, bool committed);
   void RecoverInterruptedSend();
   void Apply(ChatUiEvent const& event);

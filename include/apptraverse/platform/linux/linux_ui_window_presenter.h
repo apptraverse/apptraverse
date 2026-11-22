@@ -154,8 +154,12 @@ class LinuxDesktopWindowPresenter : public UiDesktopWindowPresenter {
   gulong configure_handler_{0};
   gulong size_allocate_handler_{0};
   guint viewport_resize_idle_{0};
-  int viewport_width_{0};
-  int viewport_height_{0};
+  struct NativeAllocation {
+    int width, height, viewport_width, viewport_height;
+    bool geometry_ready;
+    bool operator==(NativeAllocation const&) const = default;
+  };
+  std::optional<NativeAllocation> last_allocation_;
   bool applying_mirror_frame_{false};
   bool user_close_requested_{false};
   bool mapped_{false};

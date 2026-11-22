@@ -174,7 +174,15 @@ int main() {
     Until([&] {
       return peer.View().in_room && host.View().participants.size() == 2;
     });
-    peer.Send("before restart");
+    std::promise<bool> local_publication;
+    auto local_visible = local_publication.get_future();
+    peer.Send("before restart", [&](bool accepted) {
+      auto const local = peer.View();
+      local_publication.set_value(accepted && local.messages.size() == 1 &&
+          local.messages.back() == "Peer: before restart" &&
+          local.message_records.size() == 1 && !local.message_records.back().delivered);
+    });
+    CHECK(local_visible.wait_for(5s) == std::future_status::ready && local_visible.get());
     Until([&] {
       return host.View().messages.size() == 1 &&
              peer.View().messages.size() == 1;

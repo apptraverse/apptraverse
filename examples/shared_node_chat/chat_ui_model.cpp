@@ -251,23 +251,24 @@ void ChatUi::RecoverInterruptedSend() {
   event->first_value = static_cast<int>(Label::Unknown);
   Commit(event);
 }
-void ChatUi::AcceptTransport(ChatView view) {
-  ConnectionState next{};
-  next.uid = std::move(view.local_uid);
-  next.invite = std::move(view.invite);
-  if (view.status_code != ChatStatus::Unspecified) {
+ChatTransportUpdate::ChatTransportUpdate(ChatView view) : status{view.status_code} {
+  state.uid = std::move(view.local_uid);
+  state.invite = std::move(view.invite);
+  state.messages = std::move(view.messages);
+  state.ready = view.ready;
+  state.in_room = view.in_room;
+  state.online = view.locally_online;
+  for (auto& participant : view.participants)
+    state.people.push_back(std::move(participant.name));
+}
+void ChatUi::AcceptTransport(ChatTransportUpdate update) {
+  auto& next = update.state;
+  if (update.status != ChatStatus::Unspecified) {
     auto const label_count = static_cast<unsigned>(Label::Count);
     next.status =
-        labels.at(label_count + static_cast<unsigned>(view.status_code) - 1)
+        labels.at(label_count + static_cast<unsigned>(update.status) - 1)
             ->Resolve(presenter->locale->language_index());
   }
-  next.messages = std::move(view.messages);
-  next.ready = view.ready;
-  next.in_room = view.in_room;
-  next.online = view.locally_online;
-  for (auto const& participant : view.participants)
-    next.people.push_back(participant.name);
-  // ACK/progress/path counters are runtime diagnostics, not UI model changes.
   if (next != connection) {
     if (next.people != connection.people) {
       auto replacement =

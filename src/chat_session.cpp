@@ -783,6 +783,8 @@ struct ChatSession::Impl {
     }
     local_message_start_us.emplace(message_id, current_monotonic_us);
     SetStatus(ChatStatus::Connected);
+    // Publish the committed row before servicing any peer writes or retries.
+    Publish();
     return true;
   }
 

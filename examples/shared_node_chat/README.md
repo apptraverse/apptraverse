@@ -271,15 +271,38 @@ python3 tests/run_shared_chat_ios.py \
 This creates fresh private cloud identities and requires a new output directory.
 It never joins or modifies a user's manually running chat.
 
-## Android emulator
+## Linux GTK
+
+For interactive Debug timing, configure the chat build with
+`-DCMAKE_CXX_FLAGS_DEBUG="-g -Og"`. This keeps assertions and symbols while
+optimizing the object graph traversal shared by the model and transport.
+On WSLg, `GDK_BACKEND=x11 GTK_CSD=0 ./shared_node_chat --client HOST-AETHER-ID`
+uses the window manager's title bar for dragging. Native Wayland also supports
+the chat and observes changes to the window and client viewport.
+
+## Android
 
 From `examples/shared_node_chat/android`, build the x86_64 debug APK with
 `./gradlew :app:assembleDebug` or the corresponding `gradlew.bat` command on
-Windows. Select the emulator serial explicitly with
+Windows. Add `-PchatAbis=armeabi-v7a,x86_64` to include 32-bit ARM phones in
+the same APK. Select the device serial explicitly with
 `adb -s SERIAL install -r app/build/outputs/apk/debug/app-debug.apk`.
 The launcher opens a host room. Use the activity
 extras `host=false` and `invite=HOST-AETHER-ID` to launch as a client, and use a
 distinct `profile` for each local participant.
+
+The `send_latency` instrumentation mode measures three native Send clicks
+through the first pre-draw containing each committed message. Build and install
+the Debug app and its `:app:assembleDebugAndroidTest` APK, then run
+
+```sh
+adb -s SERIAL shell am instrument -w -e mode send_latency -e profile timing com.apptraverse.sharedchat.test/com.apptraverse.sharedchat.GenericChatInstrumentation
+```
+
+The default creates a host. Supply `-e hostUid HOST-AETHER-ID`
+to measure a client in an existing test room. The output reports local display
+time in milliseconds. Measuring delivery also requires observing the receiving
+participant.
 
 ## Optional Android push demo
 

@@ -8,13 +8,17 @@ import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.ViewTreeObserver;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.widget.EditText;
 import android.widget.TextView;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 /** Explicit real-cloud native widget/lifecycle acceptance; only own profiles. */
 public final class GenericChatInstrumentation extends Instrumentation {
@@ -50,6 +54,12 @@ public final class GenericChatInstrumentation extends Instrumentation {
       String mode = arguments.getString("mode", "full");
       activity = launch(profile, mode.startsWith("local_"));
       await(() -> value(108) != null && value(108).isEnabled(), "connected room");
+      if ("send_latency".equals(mode)) {
+        measureSendLatency();
+        result.putString("stream", "PASS Android send latency\n");
+        finish(Activity.RESULT_OK, result);
+        return;
+      }
       if ("local_prepare".equals(mode) || "local_verify".equals(mode)) {
         verifyLocalPreferences(profile, "local_prepare".equals(mode));
         result.putString("stream", "PASS Android native LOCAL " + mode + "\n");
@@ -258,12 +268,46 @@ public final class GenericChatInstrumentation extends Instrumentation {
     check(occurrences(text(106), keys) == 1, "key forty Enter once");
     status("FRESH_KEYS40_PASS");
   }
+  private void measureSendLatency() throws Exception {
+    for (int i = 0; i < 3; ++i) {
+      String marker = "latency-" + SystemClock.elapsedRealtimeNanos();
+      setText(marker);
+      View send = value(108);
+      TextView history = (TextView) value(106);
+      CountDownLatch drawn = new CountDownLatch(1);
+      long[] timestamps = new long[2];
+      ViewTreeObserver.OnPreDrawListener listener = () -> {
+        if (drawn.getCount() != 0 && history.getText().toString().contains(marker)) {
+          timestamps[1] = SystemClock.elapsedRealtimeNanos();
+          drawn.countDown();
+        }
+        return true;
+      };
+      try {
+        onUi(() -> {
+          history.getViewTreeObserver().addOnPreDrawListener(listener);
+          timestamps[0] = SystemClock.elapsedRealtimeNanos();
+          check(send.performClick(), "native Send click");
+          return null;
+        });
+        check(drawn.await(30, TimeUnit.SECONDS), "local message draw");
+        status("SEND_TO_LOCAL_PREDRAW_MS " +
+            TimeUnit.NANOSECONDS.toMillis(timestamps[1] - timestamps[0]));
+      } finally {
+        onUi(() -> {
+          history.getViewTreeObserver().removeOnPreDrawListener(listener);
+          return null;
+        });
+      }
+    }
+  }
   private Activity launch(String profile, boolean load) {
     Intent intent = new Intent(getTargetContext(), MainActivity.class);
     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
     intent.putExtra("profile", profile)
         .putExtra("name", "AndroidNative")
-        .putExtra("host", true)
+        .putExtra("host", !("send_latency".equals(arguments.getString("mode")) &&
+            arguments.containsKey("hostUid")))
         .putExtra("invite", arguments.getString("hostUid", ""))
         .putExtra("loadOnly", load);
     return startActivitySync(intent);

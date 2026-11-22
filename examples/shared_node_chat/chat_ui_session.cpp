@@ -59,7 +59,9 @@ struct Session::Impl {
                                             : std::move(transport_profile),
                   name,
                   [this] {
-                    auto value = transport.View();
+                    ChatTransportUpdate value{transport.View()};
+                    if (last_transport_update == value) return;
+                    last_transport_update = value;
                     (void)runtime.TryPost(
                         [value = std::move(value)](ae::Domain& domain) mutable {
                           domain.Find(RootId()).as<ChatUi>()->AcceptTransport(
@@ -75,6 +77,8 @@ struct Session::Impl {
   std::function<void()> changed;
   ApplicationModelRuntime runtime;
   ModelObjectProxy proxy;
+  // Owned by the transport callback thread until it joins in Stop().
+  std::optional<ChatTransportUpdate> last_transport_update;
   ChatSession transport;
   std::thread worker;
   std::unique_ptr<ApplicationUiSession> ui;
@@ -210,7 +214,7 @@ bool Session::ApplyPublication(Presentation& host) {
 bool Session::ApplyPublication(void* host) {
   if (impl_->stopping.load()) return false;
 
-  auto bytes = impl_->runtime.TakePublishedCopy();
+  auto bytes = impl_->runtime.TakePublishedCopyForUiApply();
   if (bytes.empty()) return false;
   if (!impl_->ui)
     impl_->ui =

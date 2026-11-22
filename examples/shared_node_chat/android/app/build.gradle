@@ -1,5 +1,6 @@
 plugins { id 'com.android.application' }
 def pushEnabled = (project.findProperty('chatPush') ?: 'false').toBoolean()
+def chatAbis = (project.findProperty('chatAbis') ?: 'x86_64').split(',').collect { it.trim() }
 def pushServiceUid = (project.findProperty('pushServiceUid') ?: '') as String
 if(pushEnabled && !(pushServiceUid ==~ /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/)) throw new GradleException('Set -PpushServiceUid to the service Aether UID')
 if(pushEnabled) apply plugin: 'com.google.gms.google-services'
@@ -20,7 +21,7 @@ android {
     buildConfigField 'String', 'PUSH_SERVICE_UID', '"'+pushServiceUid+'"'
     versionCode 1
     versionName '1.0'
-    ndk { abiFilters 'x86_64' }
+    ndk { abiFilters.addAll(chatAbis) }
     externalNativeBuild.cmake {
       arguments '-DANDROID_STL=c++_static'
       if(project.findProperty('apptraverse.cmakeInitialCache')) arguments "-DAPPTRAVERSE_CMAKE_INITIAL_CACHE=${project.property('apptraverse.cmakeInitialCache')}"
@@ -35,7 +36,7 @@ android {
       minifyEnabled true
       shrinkResources true
       proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-      externalNativeBuild.cmake.arguments '-DAPPTRAVERSE_MINIMUM_64=ON'
+      externalNativeBuild.cmake.arguments '-DAPPTRAVERSE_CHAT_ANDROID_SHIPPING=ON'
     }
   }
 }

@@ -94,9 +94,11 @@ int main() {
       &transport_changes,
       [](void* count, Node&) { ++*static_cast<unsigned*>(count); });
   // ACK/progress/path diagnostics must not republish the persistent UI graph.
+  auto const visible = ChatTransportUpdate{network};
   network.pending_packets = 2;
   network.retained_events = 3;
   network.tcp_path_verified = true;
+  CHECK(ChatTransportUpdate{network} == visible);
   app->AcceptTransport(network);
   CHECK(transport_changes == 0);
   network.pending_packets = 0;
@@ -104,6 +106,7 @@ int main() {
   app->AcceptTransport(network);
   CHECK(transport_changes == 0);
   network.messages = {"Remote: delivered"};
+  CHECK(ChatTransportUpdate{network} != visible);
   app->AcceptTransport(network);
   CHECK(transport_changes > 0);
   CHECK(app->Get(Control::Messages).rows == network.messages);

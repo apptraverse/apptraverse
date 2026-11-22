@@ -41,6 +41,36 @@ No publication or deployment occurred. Workspace commands and precise source
 selection are documented in each product's `telemetry/README.md`; frozen
 artifacts/maps are under the containing workspace's `telemetry-evidence/`.
 
+## SharedNode Chat sender latency and GTK responsiveness — 2026-11-21
+
+The before/after measurements used the dependency pins from `d751d361`.
+In the five-member room hosted on Windows, the Samsung Galaxy A01 (Android 12,
+32-bit ARM) took 18,256 and 18,431 ms from touch release on Send to the committed
+row appearing in its native Messages control. Android CPU sampling during the
+second send attributed 83% of samples to releasing object references and
+walking the reflected graph across the transport, model and UI threads.
+
+The sender now publishes the locally committed row before servicing peer writes.
+The GUI schedules model work for displayed transport changes and holds the
+publication slot through presentation. Android Debug builds optimize C++ with
+`-Og` and retain assertions. With the same SDK profile, host and participants,
+the Samsung measured 1,182, 1,161 and 1,258 ms. In a separate send it measured
+1,194 ms locally and the Android emulator showed the row 709 ms after the phone
+tap (clock uncertainty ±19 ms). These measurements used real input and native
+accessibility reads. The in-process Android pre-draw probe also passed.
+
+GTK measures padding and borders in the displayed widget state and coalesces
+identical Wayland allocations while tracking viewport and decoration changes.
+The idle chat settled to zero allocations and
+draws. The five-member GTK Debug chat built with `-g -Og` showed its own send in
+271 ms. An Android emulator sent to this Wayland window in 392 ms (±8 ms).
+WSLg X11 with `GTK_CSD=0` supported dragging the live guest by its system title
+bar. The GTK/X11 native chat regression and the Wayland WindowCatalog quiet
+allocation, fullscreen and cold-restore checks passed. Windows native three-peer/offline/rejoin,
+Chrome native chat, Android native Unicode/lifecycle and RAM ACK/retry tests
+also passed. The Android MinSizeRel APK built for ARMv7 and x86_64 and exchanged
+a message on the emulator.
+
 ## SharedNode Chat non-Apple repeat run — 2026-11-21
 
 Repeated the four-port verification on AppTraverse `ac2ecda3` with the pinned

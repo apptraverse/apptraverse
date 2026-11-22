@@ -132,8 +132,11 @@ UiConstraintLayoutResult LinuxDesktopWindowPresenter::ComputeLocalLayout() const
     int width{}, height{}; pango_layout_get_pixel_size(text, &width, &height);
     GtkBorder padding{}, border{};
     auto* style = gtk_widget_get_style_context(child.widget);
-    gtk_style_context_get_padding(style, GTK_STATE_FLAG_NORMAL, &padding);
-    gtk_style_context_get_border(style, GTK_STATE_FLAG_NORMAL, &border);
+    // Query the displayed state. Measuring another state during a CSS
+    // transition can schedule a new GTK allocation for unchanged content.
+    auto const state = gtk_style_context_get_state(style);
+    gtk_style_context_get_padding(style, state, &padding);
+    gtk_style_context_get_border(style, state, &border);
     double const horizontal =
         padding.left + padding.right + border.left + border.right + 8;
     double const vertical =
@@ -306,8 +309,9 @@ UiConstraintLayoutResult LinuxDesktopWindowPresenter::ComputeFullscreenActionLay
   pango_layout_get_pixel_size(text, &minimum, nullptr);
   GtkBorder padding{}, border{};
   auto* style = gtk_widget_get_style_context(fullscreen_action_);
-  gtk_style_context_get_padding(style, GTK_STATE_FLAG_NORMAL, &padding);
-  gtk_style_context_get_border(style, GTK_STATE_FLAG_NORMAL, &border);
+  auto const state = gtk_style_context_get_state(style);
+  gtk_style_context_get_padding(style, state, &padding);
+  gtk_style_context_get_border(style, state, &border);
   int const horizontal = padding.left + padding.right + border.left + border.right + 8;
   int const vertical = padding.top + padding.bottom + border.top + border.bottom + 4;
   auto const measurement = UiLayoutMeasurement{kFullscreenActionId,
@@ -810,12 +814,17 @@ gboolean LinuxDesktopWindowPresenter::OnMapEvent(GtkWidget* widget,
 void LinuxDesktopWindowPresenter::OnNativeSizeAllocate(
     GtkWidget*, GtkAllocation* allocation, gpointer user_data) {
   auto* self = static_cast<LinuxDesktopWindowPresenter*>(user_data);
-  if (self->NativeGlobalPositionAvailable()) {
-    if (self->viewport_width_ == allocation->width &&
-        self->viewport_height_ == allocation->height) return;
-    self->viewport_width_ = allocation->width;
-    self->viewport_height_ = allocation->height;
-  }
+  // Wayland also allocates the toplevel during style transitions. Re-running
+  // layout for an identical allocation restarts those transitions. Observe
+  // the viewport and the CSD geometry acknowledgement independently so a
+  // fullscreen transition can finish even at the same outer size.
+  NativeAllocation const sample{
+      allocation->width, allocation->height,
+      gtk_widget_get_allocated_width(self->scroller_),
+      gtk_widget_get_allocated_height(self->scroller_),
+      self->NativeGeometryReady()};
+  if (self->last_allocation_ == sample) return;
+  self->last_allocation_ = sample;
   // Measuring or resizing children during GTK allocation can invalidate the
   // same allocation. Observe after the whole native window has allocated,
   // including CSD/chrome changes that leave the scroller size unchanged.
@@ -902,7 +911,7 @@ void LinuxDesktopWindowPresenter::OnLoad() {
   auto const desktop = desktop_window();
   user_close_requested_ = false;
   mapped_ = false;
-  viewport_width_ = viewport_height_ = 0;
+  last_allocation_.reset();
   placement_revision_ = 0;
   local_placement_pending_ = false;
   native_initial_placement_observed_ = false;
