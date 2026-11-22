@@ -7,6 +7,10 @@
 
 #include "aether/ae_actions/select_client.h"
 #include "aether/aether_app.h"
+#include "aether/config.h"
+#if AE_SUPPORT_P2P
+#  include "aether/peer/peer_types.h"
+#endif
 #include "apptraverse/aether_link.h"
 #include "apptraverse/directory_domain_storage.h"
 namespace apptraverse {
@@ -99,6 +103,12 @@ class AetherConnection {
       return;
     }
     if (client.is_valid() && !link) {
+#if AE_SUPPORT_P2P
+      ae::PeerSettings peer_settings;
+      peer_settings.app_id =
+          ae::Uid::FromString("3ac93165-3d37-4970-87a6-fa4ee27744e4");
+      client->ConfigurePeer(std::move(peer_settings));
+#endif
       client->connectivity_policy()
           .Load()
           ->ConfigureRxTimings()
