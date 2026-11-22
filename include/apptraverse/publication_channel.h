@@ -10,6 +10,11 @@
 
 namespace apptraverse {
 
+// CanonicalGraph is for models whose loaded same-domain references are the
+// registered instances throughout publication. Models which can detach or
+// rebind an ID retain DomainRegistry lookups.
+enum class PublicationObjectSource { DomainRegistry, CanonicalGraph };
+
 struct ByteSink {
   std::vector<std::uint8_t> bytes;
 

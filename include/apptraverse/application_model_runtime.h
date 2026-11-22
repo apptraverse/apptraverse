@@ -38,6 +38,10 @@ class ApplicationModelRuntime {
  public:
   using ModelWork = ModelObjectProxy::ModelWork;
 
+  ApplicationModelRuntime() = default;
+  explicit ApplicationModelRuntime(PublicationObjectSource source)
+      : publication_source_{source} {}
+
   void Post(ModelWork work);
   // Reports acceptance under the same lock as RequestStop. Accepted work is
   // drained by Run before shutdown, even when stop follows immediately.
@@ -68,6 +72,8 @@ class ApplicationModelRuntime {
   [[nodiscard]] std::uint64_t publish_count() const;
 
  private:
+  PublicationObjectSource publication_source_{
+      PublicationObjectSource::DomainRegistry};
   PublicationChannel<3> channel_;
   mutable std::mutex mu_;
   std::condition_variable cv_;

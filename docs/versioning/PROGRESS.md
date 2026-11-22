@@ -41,6 +41,38 @@ No publication or deployment occurred. Workspace commands and precise source
 selection are documented in each product's `telemetry/README.md`; frozen
 artifacts/maps are under the containing workspace's `telemetry-evidence/`.
 
+## SharedNode Chat local send on Galaxy A01 — 2026-11-21
+
+A physical Samsung SM-A015M (ARMv7 MinSizeRel) sent nine unique messages per run
+to the same Windows x64 Release host. Both profiles and the Windows process
+stayed the same as the phone APK changed. The room accumulated test messages.
+Native Android tracing measured touch release to the first pre-draw containing
+the submitted text. Medians from the baseline and optimized runs were 902 and
+544 ms.
+
+Sending produces two structural publications, one for the cleared draft and one
+for the committed history. The baseline model thread looked up each object
+twice after native serialization to collect historical base IDs and node
+generations. Releasing temporary owning references invokes SDK cycle detection.
+Using metadata from references visited by the native serializer reduced the
+two publication preparation times from 251 and 205 ms to 32 and 15 ms.
+Only the chat session opts into this lookup for its canonical model graph.
+The default continues to resolve IDs through the domain registry.
+
+On the optimized traced run, the local send completion including UI journal
+compaction took 264 ms, overlapping 247 ms applying the first publication.
+Applying the publication containing the message took 180 ms. Its completion
+preceded native pre-draw by 2 ms. These intervals overlap across threads.
+
+In a further A/B run with diagnostic logging removed, median touch release
+to the Samsung accessibility history was 1025 ms before and
+623 ms after (590–678 ms after). All 18 messages reached Windows.
+The corresponding Windows control medians were 328 and
+400 ms, using a host–phone clock calibration with about
+10 ms uncertainty. Six Windows Debug CTests passed, including publication
+byte equivalence for canonical graphs, default lookup after an ID is rebound,
+nested frame requests, the real Win32 frame test, and chat UI/RAM coverage.
+
 ## SharedNode Chat sender latency and GTK responsiveness — 2026-11-21
 
 In a later Release comparison, one physical Samsung Galaxy A01 (ARMv7 native

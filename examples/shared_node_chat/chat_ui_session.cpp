@@ -75,7 +75,9 @@ struct Session::Impl {
   bool host{}, load_only{}, started{};
   std::atomic<bool> stopping{false};
   std::function<void()> changed;
-  ApplicationModelRuntime runtime;
+  // Session owns the model Domain. Its controls and command owners keep their
+  // canonical identities across room updates and UI journal folds.
+  ApplicationModelRuntime runtime{PublicationObjectSource::CanonicalGraph};
   ModelObjectProxy proxy;
   // Owned by the transport callback thread until it joins in Stop().
   std::optional<ChatTransportUpdate> last_transport_update;

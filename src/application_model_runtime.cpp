@@ -138,7 +138,8 @@ void ApplicationModelRuntime::Run(
     }
     if (publish) {
       auto* pub = channel_.AcquireProducer();
-      SerializeStructuralNodePublication(application_root, pub->sink);
+      SerializeStructuralNodePublication(application_root, pub->sink,
+                                         publication_source_);
       {
         std::lock_guard<std::mutex> lock{mu_};
         if (before_incremental) {

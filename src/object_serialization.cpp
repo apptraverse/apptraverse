@@ -8,8 +8,10 @@
 #include <cassert>
 #include <cstdio>
 #include <cstring>
-#include <utility>
+#include <optional>
+#include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "aether-miscpp/reflect/reflect.h"
@@ -130,13 +132,66 @@ void ApplyUiDesktopFrameRequestPresentation(
   }
 }
 
+// Read metadata from the references already held by the native Save walk.
+// Releasing a temporary owning Ptr per lookup runs cycle detection on the
+// referenced graph. Only scalar values survive the walk.
+struct PublicationObjectInfo {
+  ae::ObjId base{};
+  std::optional<std::uint64_t> generation;
+  bool desktop_window{};
+
+  static PublicationObjectInfo Read(ae::Obj const* object) {
+    auto const* node = AsObjOf<Node>(object);
+    if (!node) return {};
+    return {node->base.id(), node->Generation(),
+            AsObjOf<ui::UiDesktopWindow>(node) != nullptr};
+  }
+};
+
+class PublicationObjectIndex {
+ public:
+  explicit PublicationObjectIndex(ae::Domain const& domain) : domain_{domain} {}
+
+  void Observe(ae::Obj const& object) {
+    if (object.domain == &domain_ && !objects_.contains(object.obj_id.id())) {
+      objects_.emplace(object.obj_id.id(), PublicationObjectInfo::Read(&object));
+    }
+  }
+
+  static void ObserveReference(void* context, ae::ObjectPtrBase& reference) {
+    if (reference.is_loaded()) {
+      static_cast<PublicationObjectIndex*>(context)->Observe(*reference.cached());
+    }
+  }
+
+  PublicationObjectInfo const& Get(ae::ObjId id) {
+    auto [it, inserted] = objects_.try_emplace(id.id());
+    if (inserted) {
+      // A custom Save can write another root directly, and a reference in
+      // another domain may be shadowed here. Preserve ordinary ID resolution.
+      it->second = PublicationObjectInfo::Read(domain_.Find(id).get());
+    }
+    return it->second;
+  }
+
+ private:
+  ae::Domain const& domain_;
+  std::unordered_map<std::uint32_t, PublicationObjectInfo> objects_;
+};
+
 void SaveObjectGraphToScratch(ae::Obj const& object,
                               ae::RamDomainStorage& scratch,
-                              ae::GraphSerializationScope scope) {
+                              ae::GraphSerializationScope scope,
+                              PublicationObjectIndex* index = nullptr) {
   ae::Domain scratch_domain{scratch};
   ae::DomainGraph graph{&scratch_domain, scope};
   auto ptr = object.domain->Find(object.obj_id);
   assert(ptr);
+  if (index) {
+    index->Observe(*ptr);
+    graph.SetObjectReferenceVisitor(
+        index, PublicationObjectIndex::ObserveReference);
+  }
   auto* factory = ae::Registry::GetRegistry().FindFactory(object.GetClassId());
   assert(factory != nullptr);
   assert(factory->save != nullptr);
@@ -192,55 +247,29 @@ void RemoveDistilledBaseObjects(std::vector<ae::Obj*>& objects) {
       objects.end());
 }
 
-std::unordered_set<std::uint32_t> CollectDistilledBaseObjectIds(
-    ae::Obj const& root, ae::RamDomainStorage::ObjClassData const& scratch_state) {
-  std::unordered_set<std::uint32_t> distilled_base_ids;
-  for (auto const& [obj_id, class_map_opt] : scratch_state) {
-    if (!class_map_opt) {
-      continue;
-    }
-    auto obj = root.domain->Find(obj_id);
-    if (!obj) {
-      continue;
-    }
-    if (auto* node = AsObjOf<Node>(obj.get())) {
-      if (node->base.is_valid()) {
-        distilled_base_ids.insert(node->base.id().id());
-      }
-    }
-  }
-  return distilled_base_ids;
-}
-
 GraphPublicationPayload BuildGraphPublicationPayload(
     ae::Obj const& root, ae::RamDomainStorage const& scratch,
-    std::unordered_set<std::uint32_t> const& distilled_base_ids,
+    PublicationObjectIndex& index,
     std::vector<std::uint32_t>* desktop_frame_requests) {
+  std::unordered_set<std::uint32_t> distilled_base_ids;
+  for (auto const& [id, layers] : scratch.state) {
+    if (!layers) continue;
+    auto base = index.Get(id).base;
+    if (base.is_valid()) distilled_base_ids.insert(base.id());
+  }
+
   GraphPublicationPayload payload;
-  for (auto const& [obj_id, class_map_opt] : scratch.state) {
-    if (!class_map_opt) {
-      continue;
-    }
-    if (distilled_base_ids.count(obj_id.id()) != 0) {
-      continue;
-    }
-    payload.layers[obj_id] = *class_map_opt;
-    auto obj = root.domain->Find(obj_id);
-    if (!obj) {
-      continue;
-    }
-    auto* node = AsObjOf<Node>(obj.get());
-    if (node == nullptr) {
-      continue;
-    }
-    payload.generations.push_back(
-        GraphPublicationNodeGeneration{obj_id.id(), node->Generation()});
-    // Use the existing materialized graph save to collect every window once,
-    // including windows nested under an application publication root.
-    if (desktop_frame_requests != nullptr) {
-      auto* desktop = AsUiDesktopWindow(node);
-      if (desktop != nullptr && desktop->TakeFrameRequestPendingPublication()) {
-        desktop_frame_requests->push_back(obj_id.id());
+  for (auto const& [id, layers] : scratch.state) {
+    if (!layers || distilled_base_ids.count(id.id())) continue;
+    payload.layers[id] = *layers;
+    auto const& info = index.Get(id);
+    if (!info.generation) continue;
+    payload.generations.push_back({id.id(), *info.generation});
+    if (desktop_frame_requests && info.desktop_window) {
+      auto object = root.domain->Find(id);
+      auto* window = AsUiDesktopWindow(object.get());
+      if (window && window->TakeFrameRequestPendingPublication()) {
+        desktop_frame_requests->push_back(id.id());
       }
     }
   }
@@ -256,15 +285,16 @@ bool SaveGraphPublicationPayload(GraphPublicationPayload const& payload,
 
 void SerializeObjectGraphToBufferImpl(
     ae::Obj const& root, ByteSink& out,
-    std::vector<std::uint32_t>* desktop_frame_requests) {
+    std::vector<std::uint32_t>* desktop_frame_requests,
+    PublicationObjectSource source = PublicationObjectSource::DomainRegistry) {
   ae::RamDomainStorage scratch;
-  SaveObjectGraphToScratch(
-      root, scratch, ae::GraphSerializationScope::MaterializedPublication);
-  auto const distilled_base_ids =
-      CollectDistilledBaseObjectIds(root, scratch.state);
-  GraphPublicationPayload const payload =
-      BuildGraphPublicationPayload(root, scratch, distilled_base_ids,
-                                   desktop_frame_requests);
+  PublicationObjectIndex index{*root.domain};
+  SaveObjectGraphToScratch(root, scratch,
+                           ae::GraphSerializationScope::MaterializedPublication,
+                           source == PublicationObjectSource::CanonicalGraph
+                               ? &index : nullptr);
+  auto payload = BuildGraphPublicationPayload(root, scratch, index,
+                                              desktop_frame_requests);
   if (!SaveGraphPublicationPayload(payload, out)) {
     WriteFatalStderr("fatal: graph publication payload save failed\n");
     std::abort();
@@ -727,13 +757,14 @@ ae::Obj& ApplyIncrementalPublication(ByteSource& in, ae::Domain& domain,
   return *object;
 }
 
-void SerializeStructuralNodePublication(Node const& node, ByteSink& out) {
+void SerializeStructuralNodePublication(Node const& node, ByteSink& out,
+                                        PublicationObjectSource source) {
   StructuralPublicationEnvelope envelope;
   envelope.object_id = node.obj_id.id();
   envelope.generation = node.Generation();
   ByteSink graph;
   SerializeObjectGraphToBufferImpl(node, graph,
-                                   &envelope.desktop_frame_requests);
+                                   &envelope.desktop_frame_requests, source);
   envelope.graph_bytes = std::move(graph.bytes);
   // Preserve the root-window sidecar API for low-level callers. Presentation
   // uses the complete id list, regardless of the structural envelope root.

@@ -224,6 +224,35 @@ void TestNestedRequestsAndIndependentWindows() {
   CHECK(h.Presenter(1).requests.size() == 1);
 }
 
+void TestDefaultPublicationResolvesReboundId() {
+  Harness h;
+  auto id = h.application->windows.front().id();
+  auto replacement = ui::UiDesktopWindow::ptr::Create(
+      ae::CreateWith{h.domain}.with_id(id));
+  replacement->AdoptPublishedGeneration(12345);
+  h.Publish();
+  CHECK(h.Mirror().windows.front()->Generation() == 12345);
+}
+
+void TestCanonicalGraphPublishesIdenticalBytes() {
+  Harness h;
+  auto publish = [&](PublicationObjectSource source) {
+    ByteSink result;
+    SerializeStructuralNodePublication(*h.application, result, source);
+    return result.bytes;
+  };
+  CHECK(publish(PublicationObjectSource::DomainRegistry) ==
+        publish(PublicationObjectSource::CanonicalGraph));
+  Frame const frame{-45, 30, 640, 480};
+  h.Request(0, frame);
+  h.session->ApplyStructural(publish(PublicationObjectSource::CanonicalGraph));
+  CHECK(h.Presenter(0).requests.size() == 1);
+  CHECK(h.Presenter(0).native_frame == frame);
+  CHECK(h.Presenter(1).requests.empty());
+  CHECK(publish(PublicationObjectSource::DomainRegistry) ==
+        publish(PublicationObjectSource::CanonicalGraph));
+}
+
 void TestRootWindowPublicationStillApplies() {
   Harness h;
   Frame const request{-150, 180, 650, 490};
@@ -306,6 +335,8 @@ int main() {
   apptraverse::ui::EnsureUiControlRegistration();
   using namespace apptraverse::test;
   TestNestedRequestsAndIndependentWindows();
+  TestDefaultPublicationResolvesReboundId();
+  TestCanonicalGraphPublishesIdenticalBytes();
   TestRootWindowPublicationStillApplies();
   TestNativeReportsNeverRequestNativePlacement();
   TestScreenEventRequestsNestedPlacementOnce();

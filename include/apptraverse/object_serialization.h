@@ -195,7 +195,8 @@ ae::Obj& ApplyIncrementalPublication(ByteSource& in, ae::Domain& domain,
 // already-mirrored object may keep SerializeIncrementalNodePublication.
 // Consumes pending desktop-frame requests for every materialized window in the
 // fragment; the envelope carries their ids even for an application-root save.
-void SerializeStructuralNodePublication(Node const& node, ByteSink& out);
+void SerializeStructuralNodePublication(Node const& node, ByteSink& out,
+    PublicationObjectSource source = PublicationObjectSource::DomainRegistry);
 
 // Apply a structural envelope into an already-mirrored GUI Node. Nested
 // LoadRoot materializes new shells for newly referenced ObjIds. Does not
