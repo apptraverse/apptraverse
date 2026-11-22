@@ -348,15 +348,39 @@ private final class CatalogScenario {
             await wait("child exits fullscreen to the same normal frame") {
                 !nativeSecond.styleMask.contains(.fullScreen) && self.frameMatches(nativeSecond.frame, normalChild)
             }
-            nativeSecond.toggleFullScreen(nil)
-            await wait("system fullscreen publishes the same state as the app button") {
+            host.setFullscreen(true, window: child(2)!.id)
+            await wait("the app action can still enter a fullscreen Space") {
                 self.isFullscreen(self.child(2))
             }
-            host.setFullscreen(false, window: child(2)!.id)
-            await wait("app exit action restores a window entered through the system control") {
+            nativeSecond.toggleFullScreen(nil)
+            await wait("native fullscreen exit restores the prior window frame") {
                 self.child(2)?.snapshot?.state.display?.isFullscreen == false
+                    && self.child(2)?.nativeFullscreen == false
                     && !nativeSecond.styleMask.contains(.fullScreen)
                     && self.frameMatches(nativeSecond.frame, normalChild)
+            }
+            guard let zoom = nativeSecond.standardWindowButton(.zoomButton) else {
+                preconditionFailure("The child window requires a native zoom button")
+            }
+            func clickZoom() {
+                let center = zoom.convert(NSPoint(x: zoom.bounds.midX, y: zoom.bounds.midY), to: nil)
+                let now = ProcessInfo.processInfo.systemUptime
+                for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                    NSApp.postEvent(NSEvent.mouseEvent(with: type, location: center,
+                        modifierFlags: [], timestamp: now, windowNumber: nativeSecond.windowNumber,
+                        context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!, atStart: false)
+                }
+            }
+            clickZoom()
+            await wait("the green window button maximizes within the desktop work area") {
+                guard let workArea = nativeSecond.screen?.visibleFrame else { return false }
+                return nativeSecond.isZoomed && nativeSecond.frame.width >= workArea.width - 1
+                    && !nativeSecond.styleMask.contains(.fullScreen)
+                    && self.child(2)?.snapshot?.state.display?.isFullscreen == false
+            }
+            clickZoom()
+            await wait("the green window button restores the prior window frame") {
+                self.frameMatches(nativeSecond.frame, normalChild)
             }
             host.setFullscreen(true, window: main!.id)
             host.setFullscreen(true, window: child(2)!.id)

@@ -25,6 +25,62 @@ No publication or deployment occurred. Workspace commands and precise source
 selection are documented in each product's `telemetry/README.md`; frozen
 artifacts/maps are under the containing workspace's `telemetry-evidence/`.
 
+## SharedNode Chat non-Apple repeat run — 2026-11-21
+
+Repeated the four-port verification on AppTraverse `ac2ecda3` with the pinned
+Æther SDK `ebebdf58`. Windows x64 passed 10 CTests and the native three-window
+fixture on its first attempt, including offline catch-up, rejoin and window
+placement on two monitors. Linux passed nine CTests and GTK/X11 native input,
+resize and cold LOCAL restore. Chrome passed two-peer Unicode exchange,
+reload/rejoin and the push-worker unit test. Android API 34 emulator passed
+Unicode exchange, rotation, font-scale remount and cold LOCAL restore.
+Apple was outside this run.
+
+## iPhone WindowCatalog appearance and LOCAL audit — 2026-11-21
+
+- Canon 5 and the client-local environment contract. A whole-window SwiftUI
+  preference could mask the live iOS appearance while the app theme was
+  forced. The model's override now applies to its content and the settings
+  sheet, and the system appearance observer stays outside the override.
+  Theme and settings commands still flow through the model and publication.
+- Canon 6 and 21. The host clips rendering to the measured native viewport.
+  The shared constraint solver still places the controls. The page heading
+  offers accessibility adjustment when there is another modeled page.
+- The review covered the iPhone presentation, common layout and LOCAL
+  boundaries. There was no change to the app's S0 schema or USER lifecycle.
+  The shared layout, device-state and headless catalog CTests passed. On iPhone 11 Pro, the
+  WindowCatalog fresh Debug and embedded runs passed 28 checkpoints each,
+  including a forced app theme that leaves the system observation intact.
+  The embedded cold run passed six checkpoints, and MinimalApp acceptance
+  passed. Evidence was copied before uninstalling the test bundle.
+
+## SharedNode Chat non-Apple main verification — 2026-11-21
+
+Tested AppTraverse `fb9a7f12` with its pinned Æther SDK `ebebdf58`.
+The next commit, `c76dd611`, changes macOS sources, macOS tests and this log.
+
+- Windows Debug passed 10 CTests with explicit `ctest -C Debug`. The native
+  three-window cloud fixture passed on retry after an initial native control
+  timeout. It covered Unicode, offline catch-up, rejoin and window placement
+  on two monitors.
+- Linux Debug passed nine CTests and the GTK/X11 native fixture for input,
+  resize, idle layout, RAM restart and cold LOCAL restore.
+- Web passed the two-peer Chrome fixture for Unicode exchange, native input,
+  LOCAL save and reload/rejoin. The push-worker unit test also passed.
+- Android Debug on the API 34 emulator passed Unicode exchange, rotation,
+  font-scale remount and the separate cold LOCAL restore test.
+
+Apple was outside this run.
+
+## macOS WindowCatalog title-bar zoom — 2026-11-21
+
+Clicking the native green title-bar button on a windowed catalog scene
+toggles desktop zoom. The catalog's fullscreen action and F11 still enter a
+macOS Space. The native WindowCatalog acceptance dispatched pointer events
+to the green control after a fullscreen round trip and verified that it
+maximizes within the desktop and restores the previous frame. WindowCatalog
+fresh and embedded seed/cold acceptance and MinimalApp acceptance passed.
+
 ## WindowCatalog fullscreen geometry on WSLg Wayland — 2026-11-21
 
 The GTK presenter waits for coherent native allocation during fullscreen
@@ -82,6 +138,19 @@ The user prohibited builds: no configure/build/type-check, launch, simulator or
 runtime test was performed. Compilation, native behavior, cloud/APNs and binary
 linkage are NOT RUN. The bounded thirty-rule source audit and its limitations
 are recorded in [the source review](../validation/chat-swiftui-source-2026-11-21.md).
+
+## Android-inspired SwiftUI WindowCatalog on iPhone — 2026-11-21
+
+WindowCatalog opts into a SwiftUI Material appearance for the title bar,
+raised buttons, borderless rows, and settings choices. It keeps the existing
+settings sheet, model-backed navigation, and shared constraint layout.
+The Material shell uses page swipes and exposes accessible page adjustment
+on its heading. MinimalApp continues to use the default shared host style.
+
+iPhone 11 Pro on iOS 18.5 passed WindowCatalog fresh Debug and embedded seed
+(27 checkpoints each), embedded cold launch (six), and MinimalApp acceptance.
+The runs covered portrait and landscape, and USER/LOCAL persistence.
+Evidence was copied before uninstalling the temporary acceptance bundle.
 
 ## Apple WindowCatalog and MinimalApp main refresh — 2026-11-21
 

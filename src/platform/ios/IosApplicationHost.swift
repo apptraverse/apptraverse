@@ -105,16 +105,70 @@ final class IosWindowSceneModel: ObservableObject, Identifiable {
     }
 }
 
+private struct MaterialAppearanceKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+private extension EnvironmentValues {
+    var materialAppearance: Bool {
+        get { self[MaterialAppearanceKey.self] }
+        set { self[MaterialAppearanceKey.self] = newValue }
+    }
+}
+
+private struct IosMaterialPalette {
+    let dark: Bool
+
+    var surface: Color { Color(white: dark ? 0.15 : 0.98) }
+    var bar: Color { Color(white: dark ? 0.13 : 0.96) }
+    var accent: Color {
+        dark ? Color(red: 0.50, green: 0.80, blue: 0.77)
+             : Color(red: 0, green: 0.45, blue: 0.40)
+    }
+}
+
+private struct IosMaterialButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    func makeBody(configuration: Configuration) -> some View {
+        let dark = scheme == .dark
+        let fill = dark ? Color(white: 0.35) : Color(red: 0.84, green: 0.84, blue: 0.84)
+        let shape = RoundedRectangle(cornerRadius: 3)
+        configuration.label
+            .font(.subheadline.weight(.medium))
+            .padding(.horizontal, 8)
+            .foregroundStyle(enabled ? Color.primary : Color.secondary)
+            .background {
+                shape.fill(fill.opacity(enabled ? (configuration.isPressed ? 0.7 : 1) : 0.35))
+                    .shadow(color: enabled ? .black.opacity(0.22) : .clear,
+                            radius: configuration.isPressed ? 0 : 1, y: 1)
+            }
+            .overlay { if contrast == .increased { shape.strokeBorder(.primary) } }
+            .padding(.vertical, 3)
+    }
+}
+
 private struct IosButtonControl: View {
     @ObservedObject var adapter: IosButtonAdapter
+    @Environment(\.materialAppearance) private var material
 
-    var body: some View {
+    private var button: some View {
         Button(action: adapter.click) {
             Text(adapter.title)
+                .textCase(material ? .uppercase : nil)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, minHeight: 44, maxHeight: .infinity)
         }
-        .buttonStyle(.bordered)
+        .accessibilityLabel(Text(adapter.title))
+    }
+
+    var body: some View {
+        Group {
+            if material { button.buttonStyle(IosMaterialButtonStyle()) }
+            else { button.buttonStyle(.bordered) }
+        }
         .disabled(!adapter.enabled)
         .accessibilityIdentifier("button-\(adapter.id)")
         .layoutValue(key: AppleControlID.self, value: adapter.controlID)
@@ -123,11 +177,13 @@ private struct IosButtonControl: View {
 
 private struct IosListControl: View {
     @ObservedObject var adapter: IosListAdapter
+    @Environment(\.materialAppearance) private var material
 
     var body: some View {
         List(adapter.rows) { row in
             let selected = adapter.selectedIdentity == row.id
             Text(row.text)
+                .font(material ? .body.weight(selected ? .semibold : .regular) : .body)
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .contentShape(Rectangle())
                 .gesture(TapGesture(count: 2).exclusively(before: TapGesture()).onEnded { tap in
@@ -140,11 +196,14 @@ private struct IosListControl: View {
                 .accessibilityAction { adapter.select(row.id) }
                 .accessibilityIdentifier("row-\(row.id)")
                 .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12))
+                .listRowSeparator(material ? .hidden : .automatic)
                 .listRowBackground(selected ? Color.accentColor.opacity(0.17) : Color.clear)
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .overlay(Rectangle().strokeBorder(.secondary, lineWidth: 1).allowsHitTesting(false))
+        .overlay {
+            if !material { Rectangle().strokeBorder(.secondary, lineWidth: 1).allowsHitTesting(false) }
+        }
         .accessibilityIdentifier("list-\(adapter.id)")
         .layoutValue(key: AppleControlID.self, value: adapter.controlID)
     }
@@ -154,6 +213,7 @@ private struct IosWindowView: View {
     @ObservedObject var scene: IosWindowSceneModel
     let viewport: CGSize
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.materialAppearance) private var material
 
     private func controls(_ snapshot: IosWindowSnapshot) -> some View {
         AppleConstraintLayout(definition: snapshot.state.layout, viewport: viewport) {
@@ -172,7 +232,7 @@ private struct IosWindowView: View {
                 .scrollBounceBehavior(.basedOnSize)
             }
             .background(snapshot.state.softenDark && contrast != .increased ?
-                        Color(white: 0.18) : Color.clear)
+                        Color(white: material ? 0.125 : 0.18) : Color.clear)
         }
     }
 }
@@ -225,9 +285,9 @@ struct IosSystemSettings: Equatable {
     let reducedMotion: Bool
     let voiceOver: Bool
 
-    func bridgeSettings(systemDark: Bool) -> ATIosDeviceSettings {
+    func bridgeSettings() -> ATIosDeviceSettings {
         ATIosDeviceSettings(displayScale: displayScale, bodyTextScale: bodyTextScale,
-            dark: systemDark, highContrast: highContrast, reducedMotion: reducedMotion, voiceOver: voiceOver)
+            dark: dark, highContrast: highContrast, reducedMotion: reducedMotion, voiceOver: voiceOver)
     }
 }
 
@@ -244,6 +304,8 @@ private func colorSchemePreference(for state: ATIosWindowState?,
 private struct IosSettingsView: View {
     @ObservedObject var host: IosApplicationHost
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.materialAppearance) private var material
 
     var body: some View {
         if let settings = host.settingsState { content(settings) }
@@ -252,6 +314,7 @@ private struct IosSettingsView: View {
     private func content(_ settings: ATIosSettingsState) -> some View {
         let state = host.mainScene?.snapshot?.state
         let softDark = state?.softenDark == true && contrast != .increased
+        let preferredScheme = colorSchemePreference(for: state, contrast: contrast)
         return NavigationStack {
             Form {
                 ForEach(Array(settings.groups.enumerated()), id: \.offset) { groupIndex, group in
@@ -263,7 +326,11 @@ private struct IosSettingsView: View {
                                 HStack {
                                     Text(item.title)
                                     Spacer()
-                                    if item.isSelected {
+                                    if material {
+                                        Image(systemName: item.isSelected ? "largecircle.fill.circle" : "circle")
+                                            .foregroundStyle(item.isSelected ? Color.accentColor : .secondary)
+                                            .accessibilityHidden(true)
+                                    } else if item.isSelected {
                                         Image(systemName: "checkmark")
                                             .accessibilityHidden(true)
                                     }
@@ -275,8 +342,9 @@ private struct IosSettingsView: View {
                     }
                 }
             }
-            .scrollContentBackground(softDark ? .hidden : .automatic)
-            .background(softDark ? Color(white: 0.18) : Color.clear)
+            .scrollContentBackground(softDark || material ? .hidden : .automatic)
+            .background(softDark ? Color(white: material ? 0.125 : 0.18) :
+                material ? IosMaterialPalette(dark: (preferredScheme ?? scheme) == .dark).surface : .clear)
             .navigationTitle(settings.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -286,7 +354,7 @@ private struct IosSettingsView: View {
                 }
             }
         }
-        .preferredColorScheme(colorSchemePreference(for: state, contrast: contrast))
+        .preferredColorScheme(preferredScheme)
     }
 }
 
@@ -299,8 +367,60 @@ public struct IosApplicationRootView: View {
     @Environment(\.accessibilityReduceMotion) private var reducedMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     @ScaledMetric(relativeTo: .body) private var bodyTextScale = 1.0
+    private let usesMaterialAppearance: Bool
 
-    public init(host: IosApplicationHost) { self.host = host }
+    public init(host: IosApplicationHost, usesMaterialAppearance: Bool = false) {
+        self.host = host
+        self.usesMaterialAppearance = usesMaterialAppearance
+    }
+
+    private var palette: IosMaterialPalette {
+        IosMaterialPalette(dark: (preferredScheme ?? scheme) == .dark)
+    }
+
+    private var canShowSettings: Bool {
+        host.activeToken != nil && host.activeToken == host.mainScene?.id
+    }
+
+    private func settingsButton(_ settings: ATIosSettingsState) -> some View {
+        Button {
+            host.setSettingsPresented(true)
+        } label: {
+            Label(settings.title, systemImage: "gearshape")
+                .labelStyle(.iconOnly)
+                .frame(minWidth: 44, minHeight: 44)
+        }
+        .accessibilityIdentifier("catalog-settings")
+    }
+
+    private var materialBar: some View {
+        HStack(spacing: 12) {
+            let heading = Text(host.activeScene?.title ?? "")
+                .font(.title3.weight(.medium))
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("catalog-page-title")
+            if host.pageTokens.count > 1 {
+                heading.accessibilityAdjustableAction { direction in
+                    switch direction {
+                    case .increment: host.swipe(1)
+                    case .decrement: host.swipe(-1)
+                    @unknown default: break
+                    }
+                }
+            } else { heading }
+            Spacer(minLength: 0)
+            if canShowSettings, let settings = host.settingsState {
+                settingsButton(settings).foregroundStyle(.primary)
+            }
+        }
+        .padding(.horizontal, 16)
+        .frame(minHeight: 56)
+        .background {
+            (contrast == .increased ? palette.surface : palette.bar)
+                .shadow(color: .black.opacity(0.16), radius: 2, y: 1)
+        }
+        .zIndex(1)
+    }
 
     private var preferredScheme: ColorScheme? {
         colorSchemePreference(for: host.activeScene?.snapshot?.state, contrast: contrast)
@@ -331,6 +451,7 @@ public struct IosApplicationRootView: View {
     public var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                if usesMaterialAppearance { materialBar }
                 GeometryReader { geometry in
                     Group {
                         if let scene = host.activeScene {
@@ -342,38 +463,42 @@ public struct IosApplicationRootView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .onChange(of: geometry.size, initial: true) { host.reportViewport(geometry.size) }
                 }
-                if host.pageTokens.count > 1 { IosPagePicker(host: host) }
+                .clipped()
+                if !usesMaterialAppearance && host.pageTokens.count > 1 { IosPagePicker(host: host) }
             }
             .contentShape(Rectangle())
             .simultaneousGesture(DragGesture(minimumDistance: 40, coordinateSpace: .global)
                 .onEnded { navigateSwipe($0.translation) })
             .navigationTitle(host.activeScene?.title ?? "")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar(usesMaterialAppearance ? .hidden : .automatic, for: .navigationBar)
             .toolbar {
-                if let main = host.mainScene, host.activeToken == main.id,
-                   let settings = host.settingsState {
+                if !usesMaterialAppearance, canShowSettings, let settings = host.settingsState {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            host.setSettingsPresented(true)
-                        } label: {
-                            Label(settings.title, systemImage: "gearshape")
-                                .labelStyle(.iconOnly)
-                        }
-                        .accessibilityIdentifier("catalog-settings")
+                        settingsButton(settings)
                     }
                 }
+            }
+            .background(usesMaterialAppearance ? palette.surface : .clear)
+            // Keep the override below the observer of the live iOS appearance.
+            .environment(\.colorScheme, preferredScheme ?? scheme)
+        }
+        .background {
+            if usesMaterialAppearance {
+                IosMaterialPalette(dark: scheme == .dark).bar.ignoresSafeArea(edges: .top)
             }
         }
         .sheet(isPresented: settingsPresentation) {
             IosSettingsView(host: host)
         }
-        .preferredColorScheme(preferredScheme)
+        .environment(\.materialAppearance, usesMaterialAppearance)
+        .tint(usesMaterialAppearance && contrast != .increased ? palette.accent : nil)
         .onChange(of: settings, initial: true) {
-            host.observeSettings(settings, followsSystemAppearance: preferredScheme == nil)
+            host.observeSettings(settings)
         }
         .onChange(of: phase, initial: true) {
             if phase == .active {
-                host.observeSettings(settings, followsSystemAppearance: preferredScheme == nil)
+                host.observeSettings(settings)
                 host.sceneDidBecomeActive()
             } else {
                 host.sceneWillDeactivate()
@@ -401,8 +526,7 @@ public final class IosApplicationHost: NSObject, ObservableObject, ATIosApplicat
     private(set) var applicationActive = false
     private var manualStop = false
     private(set) var latestViewport = CGSize.zero
-    private var latestSettings: ATIosDeviceSettings?
-    private var systemDark = false
+    private(set) var latestSettings: ATIosDeviceSettings?
     private var lastExitStatus: Int?
     private var lastBackgroundSaveStatus: Int?
     private var pendingBackgroundSaves = 0
@@ -423,11 +547,8 @@ public final class IosApplicationHost: NSObject, ObservableObject, ATIosApplicat
 
     deinit { bridge?.requestStop() }
 
-    func observeSettings(_ settings: IosSystemSettings, followsSystemAppearance: Bool) {
-        // A preferred scheme may change the environment of the presentation.
-        // Record the system value only while SwiftUI follows the system.
-        if followsSystemAppearance { systemDark = settings.dark }
-        let value = settings.bridgeSettings(systemDark: systemDark)
+    func observeSettings(_ settings: IosSystemSettings) {
+        let value = settings.bridgeSettings()
         latestSettings = value
         if started && !stopping { bridge.observeDeviceSettings(value) }
     }

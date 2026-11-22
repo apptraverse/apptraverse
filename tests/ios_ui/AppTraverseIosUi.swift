@@ -8,7 +8,11 @@ final class AppTraverseIosUi: XCTestCase {
     }
 
     private func assertPage(_ title: String, in app: XCUIApplication) {
-        XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 20))
+        let heading = app.descendants(matching: .any)["catalog-page-title"].firstMatch
+        let updated = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            app.navigationBars[title].exists || (heading.exists && heading.label == title)
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [updated], timeout: 20), .completed)
     }
 
     private func row(_ label: String, in app: XCUIApplication) -> XCUIElement {
@@ -101,7 +105,7 @@ final class AppTraverseIosUi: XCTestCase {
         add.tap()
         assertPage("Window 1", in: app)
         XCTAssertFalse(settings.exists)
-        app.buttons["mobile-page-0"].tap()
+        app.swipeUp()
         assertPage("Window Catalog", in: app)
         add.tap()
         assertPage("Window 2", in: app)
@@ -132,12 +136,12 @@ final class AppTraverseIosUi: XCTestCase {
         assertPage("Window 1", in: app)
 
         app.buttons["Close"].tap()
-        app.buttons["mobile-page-0"].tap()
+        app.swipeUp()
         assertPage("Window Catalog", in: app)
         XCTAssertTrue(row("Closed", in: app).exists)
         app.buttons["Open"].tap()
         assertPage("Window 1", in: app)
-        app.buttons["mobile-page-0"].tap()
+        app.swipeUp()
         app.buttons["Delete"].tap()
         let deleted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             !firstRow.exists
