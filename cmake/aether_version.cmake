@@ -11,9 +11,20 @@ set(APPTRAVERSE_AETHER_OBJECTS_PATCHES
   "${APPTRAVERSE_AETHER_OBJECTS_SCOPE_PATCH}"
   "${APPTRAVERSE_AETHER_OBJECTS_FACTORY_PATCH}")
 
-set(APPTRAVERSE_AETHER_GIT_TAG "59153adf1fb8baba088b28b50051fb961e8d6eaf")
-set(APPTRAVERSE_AETHER_OBJECTS_GIT_TAG "80fbb4c33bebd660c9bdf0687311cee30de74f39")
+set(APPTRAVERSE_AETHER_GIT_TAG "c6b2c90b3ac224230695a9ebc774ba4c6301828c")
+set(APPTRAVERSE_AETHER_OBJECTS_GIT_TAG "952dcd6a9243db763fd7288a60497e4aac4d2ac6")
 set(APPTRAVERSE_AETHER_MISCPP_GIT_TAG "6839624442621a5b060ae610e91f480278ebaf6e")
-set(APPTRAVERSE_AETHER_NUMERIC_GIT_TAG "9d79bd79188420533bab07c437d617aedfaf6b1a")
-set(APPTRAVERSE_AETHER_TELE_GIT_TAG "main")
+set(APPTRAVERSE_AETHER_NUMERIC_GIT_TAG "d5969e7a50f1fbbf0a195bb8b256ad0c9c15115c")
+set(APPTRAVERSE_AETHER_TELE_GIT_TAG "d7b05610e03750e017b8d227d468dd4950449af1")
 set(APPTRAVERSE_GCEM_GIT_TAG "f182c6f3d6e0742eb9eef4fff506a3928d4c5107")
+
+# The explicitly selected owned Objects source is prepared once for the workspace.
+if(CPM_aether-objects_SOURCE)
+  if(NOT EXISTS "${CPM_aether-objects_SOURCE}/src/aether-objects/obj/domain_buffer.h")
+    message(FATAL_ERROR "Prepare the owned local Objects native graph extension before configuring")
+  endif()
+  set(APPTRAVERSE_AETHER_OBJECTS_PATCHES "")
+endif()
+
+# The published Objects revision already contains the tested native graph extension.
+set(APPTRAVERSE_AETHER_OBJECTS_PATCHES "")

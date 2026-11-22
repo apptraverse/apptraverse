@@ -36,6 +36,9 @@ if(NOT USER_CONFIG OR USER_CONFIG STREQUAL "")
       CACHE PATH "Path to user provided configuration header file" FORCE)
 endif()
 
+# Keep object logs in their independent telemetry namespace.
+set(AE_OBJECTS_RAW_TELE ON CACHE BOOL "Independent object telemetry")
+
 # Fetch dependncies
 # For using CPM.cmake projects with external package managers, such as conan or vcpkg,
 # setting the variable CPM_USE_LOCAL_PACKAGES will make CPM.cmake try to add a package through

@@ -1,4 +1,5 @@
 #include "apptraverse/object_serialization.h"
+#include "apptraverse/telemetry.h"
 
 #include <algorithm>
 #include <atomic>
@@ -1080,6 +1081,8 @@ void LoadPersistentModelSnapshot(ByteSource& in, ae::Domain& domain,
 
 void SavePersistentModelSnapshotToStorage(ae::Obj& root,
                                           ae::IDomainStorage& storage) {
+  APPTRAVERSE_TELE_INFO(PersistentSnapshotSaved,
+                        "Saving persistent application snapshot");
   ByteSink bytes;
   SerializePersistentModelSnapshot(root, bytes);
   ByteSource in;

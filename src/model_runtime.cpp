@@ -1,4 +1,5 @@
 #include "apptraverse/model_runtime.h"
+#include "apptraverse/telemetry.h"
 
 #include <algorithm>
 
@@ -174,6 +175,7 @@ void ModelRuntime::Post(Work work) {
 }
 
 void ModelRuntime::ThreadMain() {
+  APPTRAVERSE_TELE_INFO(ModelRuntimeStarted, "Model runtime started");
   auto next_update =
       std::chrono::steady_clock::now() + kDefaultModelUpdatePeriod;
   while (!stop_.load()) {
@@ -190,6 +192,7 @@ void ModelRuntime::ThreadMain() {
     });
   }
   DrainWork();
+  APPTRAVERSE_TELE_INFO(ModelRuntimeStopped, "Model runtime stopped");
 }
 
 void ModelRuntime::PumpOnce(std::chrono::steady_clock::time_point now) {
@@ -210,6 +213,7 @@ void ModelRuntime::DrainWork() {
       work = std::move(work_.front());
       work_.pop();
     }
+    APPTRAVERSE_TELE_DEBUG(ModelWorkExecuted, "Executing queued model work");
     work();
   }
 }
@@ -232,6 +236,8 @@ void ModelRuntime::PublishChanged() {
     }
     std::vector<Node*> changed(it->second.begin(), it->second.end());
     if (ui_mirror_.Publish(it->first, changed)) {
+      APPTRAVERSE_TELE_DEBUG(ModelPublication, "Published root={} changed={}",
+                             it->first, changed.size());
       it = pending_by_root_.erase(it);
     } else {
       ++it;
