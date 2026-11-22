@@ -1,3 +1,21 @@
+## SharedNode Chat non-Apple main verification — 2026-11-21
+
+Tested AppTraverse `fb9a7f12` with its pinned Æther SDK `ebebdf58`.
+The next commit, `c76dd611`, changes macOS sources, macOS tests and this log.
+
+- Windows Debug passed 10 CTests with explicit `ctest -C Debug`. The native
+  three-window cloud fixture passed on retry after an initial native control
+  timeout. It covered Unicode, offline catch-up, rejoin and window placement
+  on two monitors.
+- Linux Debug passed nine CTests and the GTK/X11 native fixture for input,
+  resize, idle layout, RAM restart and cold LOCAL restore.
+- Web passed the two-peer Chrome fixture for Unicode exchange, native input,
+  LOCAL save and reload/rejoin. The push-worker unit test also passed.
+- Android Debug on the API 34 emulator passed Unicode exchange, rotation,
+  font-scale remount and the separate cold LOCAL restore test.
+
+Apple was outside this run.
+
 ## macOS WindowCatalog title-bar zoom — 2026-11-21
 
 Clicking the native green title-bar button on a windowed catalog scene
