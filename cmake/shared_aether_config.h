@@ -2,18 +2,13 @@
 #define APPTRAVERSE_SHARED_AETHER_CONFIG_H_
 #include "aether/config_consts.h"
 
-// Cloud-compatible crypto and TCP cloud transport. Windows also enables
-// SDK direct UDP routes; other platform configurations keep their transport.
-// Identity loading is selected by AE_FILTRATION in CMake.
+// Cloud-compatible crypto and ordinary SDK TCP transport. No benchmark proxy
+// or observer hooks. Identity loading is selected by AE_FILTRATION in CMake.
 #define AE_CRYPTO_ASYNC AE_HYDRO_CRYPTO_PK
 #define AE_CRYPTO_SYNC AE_HYDRO_CRYPTO_SK
 #define AE_SIGNATURE AE_HYDRO_SIGNATURE
 #define AE_KDF AE_HYDRO_KDF
-#if defined(_WIN32)
-#  define AE_SUPPORT_UDP 1
-#else
-#  define AE_SUPPORT_UDP 0
-#endif
+#define AE_SUPPORT_UDP 0
 #define AE_SUPPORT_TCP 1
 #define AE_SUPPORT_WEBSOCKET 0
 #define AE_SUPPORT_HTTP 0

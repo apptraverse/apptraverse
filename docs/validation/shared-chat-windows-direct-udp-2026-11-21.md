@@ -1,5 +1,8 @@
 # Windows SharedNode Chat: direct UDP
 
+Historical experiment: direct UDP was disabled in the subsequent cloud-only
+build. The measurements below describe the earlier UDP-enabled version.
+
 Windows SharedNode Chat now enables the Æther SDK UDP peer transport while
 retaining the cloud TCP transport. After client selection, the connection
 configures the SDK peer with the same app ID used for registration. The SDK
