@@ -1,3 +1,19 @@
+## Apple chat physical-device run — 2026-11-21
+
+The fixed snapshot of main `d751d361` with SDK `ba4b26f8` builds and runs the
+production SwiftUI chat on macOS and a real USB-connected iPhone 11 Pro/iOS18.5.
+Physical arm64 signing, installation and launch PASS. A read-only phone screenshot
+shows Mac/iPhone participants and Online | Connected. Both apps remain running;
+no third chat participant, UI input or test message was introduced.
+
+Actual Swift typechecks PASS; the isolated existing UI-model test PASSes and
+SharedSync/RAM CTests PASS 2/2. Message-delivery/keyboard, APNs, cold restore and
+full accessibility/OS matrices are NOT RUN. Mac visual inspection is unavailable.
+The newer telemetry main that arrived during the build is not represented by
+these binaries: only independent Apple build fixes are selected for integration,
+without downgrading its coordinated dependencies. The tested snapshot is retained
+on its feature branch. [Versioned evidence and limits](../validation/chat-apple-device-2026-11-21.md).
+
 ## SharedNode Chat non-Apple repeat run — 2026-11-21
 
 Repeated the four-port verification on AppTraverse `ac2ecda3` with the pinned

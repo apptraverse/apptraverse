@@ -13,7 +13,9 @@ target_link_libraries(apptraverse_chat_ios_bridge PRIVATE apptraverse_shared_cha
   apptraverse_ui_ios_bridge "-framework Foundation")
 add_library(apptraverse_chat_ios_swift STATIC ../apple/ChatPush.swift ../apple/ChatPresenter.swift ChatMain.swift)
 set_target_properties(apptraverse_chat_ios_swift PROPERTIES Swift_MODULE_NAME ChatIos)
-target_include_directories(apptraverse_chat_ios_swift PRIVATE "${PROJECT_SOURCE_DIR}/include")
+target_include_directories(apptraverse_chat_ios_swift PRIVATE
+  "${PROJECT_SOURCE_DIR}/include"
+  "${PROJECT_SOURCE_DIR}/include/apptraverse/platform/ios")
 target_compile_options(apptraverse_chat_ios_swift PRIVATE
   "SHELL:-import-objc-header ${CMAKE_CURRENT_SOURCE_DIR}/../apple/ChatBridge.h")
 add_executable(shared_node_chat MACOSX_BUNDLE ../macos/link.mm)
