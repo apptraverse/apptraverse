@@ -114,3 +114,13 @@ slice relative to `b182adb9`; it does not certify the newer dependency graph.
 | 28 | Integration introduces no new network mechanism. |
 | 29 | Built snapshot, source-only integration and unexecuted scopes are separated. |
 | 30 | Archive the full tested snapshot, publish only independent fixes and preserve newer coordinated pins/configuration/patches. |
+
+## Final lifecycle observation
+
+After the connection screenshot, the Mac log recorded an accepted local Send at
+20:26. At the final process recheck the host had exited; its LOCAL file had been
+saved at 20:26:28 (807 bytes), with no fatal log or new chat crash report. The
+phone process was still running at the final CoreDevice check. No agent input or
+test message caused this later Send; it does not establish recipient delivery.
+The phone was not restarted, preserving its live RAM session. The source/evidence
+record describes the verified launch and connection, not indefinite host uptime.
