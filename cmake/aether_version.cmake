@@ -21,7 +21,19 @@ endforeach()
 
 # Current telemetry-capable Objects base plus the complete native graph extension.
 set(APPTRAVERSE_AETHER_OBJECTS_GIT_TAG
-  "fa4cd4d0f0bb1b79b03e58eb723651091deb20e9")
+  "952dcd6a9243db763fd7288a60497e4aac4d2ac6")
 set(APPTRAVERSE_AETHER_MISCPP_GIT_TAG "6839624442621a5b060ae610e91f480278ebaf6e")
-set(APPTRAVERSE_AETHER_NUMERIC_GIT_TAG "897de0e4dd2bf923756014a80759a4369d6e03f0")
-set(APPTRAVERSE_AETHER_TELE_GIT_TAG "dfd34187bbc996bb709d4d2ff1eeaa4df4999213")
+set(APPTRAVERSE_AETHER_NUMERIC_GIT_TAG "d5969e7a50f1fbbf0a195bb8b256ad0c9c15115c")
+set(APPTRAVERSE_AETHER_TELE_GIT_TAG "d7b05610e03750e017b8d227d468dd4950449af1")
+
+# Local sources are caller-owned. Require the AppTraverse graph extension and
+# never let FetchContent apply the same patch chain to a shared working tree.
+if(CPM_aether-objects_SOURCE)
+  if(NOT EXISTS "${CPM_aether-objects_SOURCE}/src/aether-objects/obj/domain_buffer.h")
+    message(FATAL_ERROR "Local Objects source must include AppTraverse's native graph patch chain; prepare it once before configuration")
+  endif()
+  set(APPTRAVERSE_AETHER_OBJECTS_PATCHES "")
+endif()
+
+# The published Objects revision already contains the tested native graph extension.
+set(APPTRAVERSE_AETHER_OBJECTS_PATCHES "")

@@ -1,3 +1,30 @@
+## Product telemetry integration — 2026-11-21
+
+Added the shared `apptraverse` raw telemetry namespace and optional SDK binding,
+owner persistence/delivery helpers and supported no-network capture helpers.
+Model objects retain no transport handles. Events cover actual model work and
+publication changes; the optional SDK integration stays outside the generic
+model implementation.
+
+The Windows AeroAdmin Chat build uses this checkout (`fb9a7f1` plus local
+telemetry changes). `AeroAdminChat` and its telemetry scenario linked with
+VS2022 v143 x64 Debug; the three selected chat CTests passed (3/3, 6.73 seconds).
+Actual native SDK artifacts decoded successfully before and after the frozen
+profile rebuild (2,529 logs in each), with equal semantic event and metric
+counts. Two separate processes sharing a filesystem SDK profile retained the
+first immutable batch and appended a delta; product metric counts advanced
+from 41 to 82. No network client was selected by these capture scenarios.
+
+AppTraverse App requires its historical persistence API and therefore uses a
+separate owned compatibility worktree at its declared `bab6312c` revision.
+That product's source manifest records this distinction. Its native Host/Admin
+targets linked and 16 selected CTests passed; this does not validate current
+WindowCatalog or unrelated AppTraverse ports. Product live networking, manual
+GUI acceptance, other platform execution and Windows 7 were not run here.
+No publication or deployment occurred. Workspace commands and precise source
+selection are documented in each product's `telemetry/README.md`; frozen
+artifacts/maps are under the containing workspace's `telemetry-evidence/`.
+
 ## WindowCatalog fullscreen geometry on WSLg Wayland — 2026-11-21
 
 The GTK presenter waits for coherent native allocation during fullscreen

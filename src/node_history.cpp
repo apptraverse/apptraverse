@@ -1,4 +1,5 @@
 #include "apptraverse/node.h"
+#include "apptraverse/telemetry.h"
 
 #include "aether-objects/obj/registry.h"
 #include "apptraverse/event.h"
@@ -223,9 +224,10 @@ void Node::CaptureBaseStateInto(
     obj_id = owner_id;
     base = saved_base;
     journal = std::move(saved_journal);
-    std::fprintf(stderr, "Historical capture failed at save (owner=%lu base=%lu)\n",
-                 static_cast<unsigned long>(owner_id.id()),
-                 static_cast<unsigned long>(saved_base.id().id()));
+    APPTRAVERSE_TELE_ERROR(HistoricalCaptureFailed,
+                           "Historical capture failed at save owner={} base={}",
+                           owner_id.id(), saved_base.id().id());
+    AppTraverseTeleSink::Instance().DrainAll();
     std::abort();
   }
 
@@ -237,9 +239,11 @@ void Node::CaptureBaseStateInto(
     obj_id = owner_id;
     base = saved_base;
     journal = std::move(saved_journal);
-    std::fprintf(stderr, "Historical capture failed at remap (owner=%lu base=%lu)\n",
-                 static_cast<unsigned long>(owner_id.id()),
-                 static_cast<unsigned long>(saved_base.id().id()));
+    APPTRAVERSE_TELE_ERROR(
+        HistoricalCaptureFailed,
+        "Historical capture failed at remap owner={} base={}", owner_id.id(),
+        saved_base.id().id());
+    AppTraverseTeleSink::Instance().DrainAll();
     std::abort();
   }
   ae::Ptr<ae::Obj> const base_live = domain->Find(saved_base.id());
@@ -249,9 +253,11 @@ void Node::CaptureBaseStateInto(
     obj_id = owner_id;
     base = saved_base;
     journal = std::move(saved_journal);
-    std::fprintf(stderr, "Historical capture failed at hydrate (owner=%lu base=%lu)\n",
-                 static_cast<unsigned long>(owner_id.id()),
-                 static_cast<unsigned long>(saved_base.id().id()));
+    APPTRAVERSE_TELE_ERROR(
+        HistoricalCaptureFailed,
+        "Historical capture failed at hydrate owner={} base={}", owner_id.id(),
+        saved_base.id().id());
+    AppTraverseTeleSink::Instance().DrainAll();
     std::abort();
   }
 

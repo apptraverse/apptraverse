@@ -1,6 +1,5 @@
 #include "apptraverse/directory_domain_storage.h"
-
-
+#include "apptraverse/telemetry.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -1078,27 +1077,13 @@ InstrumentedDomainStorageStats InstrumentedDomainStorage::SnapshotStats() const 
 
 
 void LogInstrumentedDomainStorageStats(InstrumentedDomainStorageStats const& stats) {
-
-  std::cout << "InstrumentedDomainStorage store_calls=" << stats.store_calls
-
-            << " load_calls=" << stats.load_calls << " store_bytes_accepted="
-
-            << stats.store_bytes_accepted << " load_bytes=" << stats.load_bytes
-
-            << " store_obj_ids=" << stats.store_obj_ids.size()
-
-            << " store_new_layers=" << stats.store_new_layers
-
-            << " store_overwrite_layers=" << stats.store_overwrite_layers
-
-            << " store_skipped_unchanged_layers="
-
-            << stats.store_skipped_unchanged_layers
-
-            << " store_disk_bytes_written=" << stats.store_disk_bytes_written
-
-            << " store_failed_commits=" << stats.store_failed_commits << '\n';
-
+  APPTRAVERSE_TELE_INFO(DomainStorageStats,
+                        "Domain storage stores={} loads={} accepted_bytes={} "
+                        "loaded_bytes={} disk_bytes={} failed_commits={}",
+                        stats.store_calls, stats.load_calls,
+                        stats.store_bytes_accepted, stats.load_bytes,
+                        stats.store_disk_bytes_written,
+                        stats.store_failed_commits);
 }
 
 

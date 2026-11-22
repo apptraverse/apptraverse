@@ -1,5 +1,5 @@
 #include "apptraverse/application_model_runtime.h"
-
+#include "apptraverse/telemetry.h"
 
 #include <condition_variable>
 #include <optional>
@@ -61,6 +61,8 @@ void ApplicationModelRuntime::Run(
     ae::Domain& domain, Node& application_root,
     ApplicationPublishedCallback on_published,
     BeforeIncrementalPublicationCallback before_incremental) {
+  APPTRAVERSE_TELE_INFO(ModelRuntimeStarted,
+                        "Application model runtime started");
   PendingDirtyNodes pending_dirty;
   {
     // Compaction can release objects retained only by old journal records.
@@ -118,6 +120,8 @@ void ApplicationModelRuntime::Run(
     }
 
     if (work) {
+      APPTRAVERSE_TELE_DEBUG(ModelWorkExecuted,
+                             "Executing application model command");
       (*work)(domain);
     }
 
@@ -145,11 +149,15 @@ void ApplicationModelRuntime::Run(
         channel_.PublishProducer();
       }
       cv_.notify_all();
+      APPTRAVERSE_TELE_DEBUG(ModelPublication,
+                             "Published changed application graph");
       on_published(ApplicationPublicationKind::Incremental);
     }
   }
 
   pending_dirty.ClearAllSubscribedNotifiers(domain);
+  APPTRAVERSE_TELE_INFO(ModelRuntimeStopped,
+                        "Application model runtime stopped");
 }
 
 std::vector<std::uint8_t> ApplicationModelRuntime::TakePublishedCopy(

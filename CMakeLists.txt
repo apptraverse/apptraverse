@@ -95,20 +95,14 @@ CPMAddPackage(
     "AE_BUILD_TESTS OFF"
 )
 
-# The same exception/STL policy is required on the object/serialization
-# dependency TUs as on their consumers. No parent CMake cache is rewritten.
-foreach(_dependency aether::objects aether::miscpp)
-  get_target_property(_real_target ${_dependency} ALIASED_TARGET)
-  if(NOT _real_target)
-    set(_real_target ${_dependency})
-  endif()
-  get_target_property(_type ${_real_target} TYPE)
-  if(_type STREQUAL "INTERFACE_LIBRARY")
-    target_link_libraries(${_real_target} INTERFACE apptraverse_compile_policy)
-  else()
-    target_link_libraries(${_real_target} PUBLIC apptraverse_compile_policy)
-  endif()
-endforeach()
+# Compile the object implementation with the portable model policy without
+# exporting that policy back into independent SDK targets. Header-only miscpp
+# inherits the policy from AppTraverse consumers that actually compile it.
+get_target_property(_objects_target aether::objects ALIASED_TARGET)
+if(NOT _objects_target)
+  set(_objects_target aether::objects)
+endif()
+target_link_libraries(${_objects_target} PRIVATE apptraverse_compile_policy)
 
 option(APPTRAVERSE_BUILD_EXAMPLES
   "Build the window catalog and minimal application" ON)

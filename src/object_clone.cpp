@@ -1,5 +1,5 @@
 #include "apptraverse/object_clone.h"
-
+#include "apptraverse/telemetry.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -511,12 +511,12 @@ bool HydrateLiveObjectFromLayerScratch(
     ae::Domain& target, ae::Obj& object, ae::ObjId storage_id,
     ae::RamDomainStorage const& layered_scratch,
     std::set<ae::ObjId> const& live_reference_ids) {
-  auto fail = [](char const* stage, ae::ObjId id,
-                 std::uint32_t class_id = 0, int error = 0) {
-    std::fprintf(stderr,
-                 "Historical hydration failed at %s (object=%lu class=%lu error=%d)\n",
-                 stage, static_cast<unsigned long>(id.id()),
-                 static_cast<unsigned long>(class_id), error);
+  auto fail = [](char const* stage, ae::ObjId id, std::uint32_t class_id = 0,
+                 int error = 0) {
+    APPTRAVERSE_TELE_ERROR(
+        HistoricalHydrationFailed,
+        "Historical hydration failed stage={} object={} class={} error={}",
+        stage, id.id(), class_id, error);
     return false;
   };
   ae::Ptr<ae::Obj> const root = target.Find(object.obj_id);
