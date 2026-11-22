@@ -66,15 +66,15 @@
  #include "aether/client_messages/p2p_message_stream.h"
  
  #include <algorithm>
-@@ -176,7 +177,7 @@
+@@ -183,7 +184,7 @@
    assert(!destination_.empty());
    if (!send_policy_.max_packet_bytes ||
        send_policy_.max_packet_bytes > AE_SOCKET_SEND_BUFFER_BYTES - 256) {
 -    throw std::invalid_argument("Invalid stream packet budget");
 +    FailWithoutExceptions("Invalid stream packet budget");
    }
-   send_writable_sub_ = client->send_queue().writable_event().Subscribe([this] {
-     if (!buffer_write_.is_buffer_on()) {
+ #if AE_SUPPORT_RAW_BALANCER
+   if (binding_.resource &&
 --- a/aether/client_messages/p2p_message_stream_manager.cpp
 +++ b/aether/client_messages/p2p_message_stream_manager.cpp
 @@ -14,6 +14,7 @@
@@ -140,7 +140,7 @@
  #include "aether/client.h"
  #if AE_SUPPORT_ADAPTIVE_DATAGRAM
  #  include "aether/client_messages/p2p_adaptive_datagram_stream.h"
-@@ -12,27 +12,27 @@
+@@ -12,30 +12,30 @@
  void Validate(std::vector<StreamDefinition> const& nodes, Uid inherited,
                std::set<std::uint32_t>& ids, unsigned depth = 0) {
    if (depth > 16) {
@@ -155,11 +155,15 @@
 +      FailWithoutExceptions("Invalid or duplicate stream definition");
      }
  #if !AE_SUPPORT_ADAPTIVE_DATAGRAM
-     if (node.delivery == StreamDelivery::kAdaptiveDatagram) {
+     if (node.delivery == StreamDelivery::kAdaptiveDatagram || node.adaptive) {
 -      throw std::invalid_argument("Adaptive datagram support is disabled");
 +      FailWithoutExceptions("Adaptive datagram support is disabled");
      }
  #endif
+     if (node.adaptive && !node.adaptive->ToConfig().Validate()) {
+-      throw std::invalid_argument("Invalid stream adaptation policy");
++      FailWithoutExceptions("Invalid stream adaptation policy");
+     }
      if (node.storage) {
 -      throw std::logic_error("Offline storage providers are not implemented");
 +      FailWithoutExceptions("Offline storage providers are not implemented");
