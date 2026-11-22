@@ -1,7 +1,7 @@
 # Keep the optional SDK out of ordinary model/UI builds. Shared object and
 # serialization dependencies have already been added by the root project.
 set(APPTRAVERSE_AETHER_CLIENT_GIT_TAG
-  "c6b2c90b3ac224230695a9ebc774ba4c6301828c")
+  "4163a08ebf8a841bbb4f1f21319143e792b1399a")
 set(_apptraverse_hierarchy_default ON)
 if(APPTRAVERSE_BUILD_SHARED_NODE_CHAT)
   set(_apptraverse_hierarchy_default OFF)
