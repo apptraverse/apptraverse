@@ -23,6 +23,8 @@ struct MacNativeWindowAttachment: NSViewRepresentable {
         private var moveStart: NSRect?
         private var resizeStart: NSRect?
         private var mouseUpMonitor: Any?
+        private var zoomMonitor: Any?
+        private weak var pressedZoomButton: NSButton?
 
         init(sceneID: UUID, host: MacApplicationHost) {
             self.sceneID = sceneID
@@ -39,10 +41,16 @@ struct MacNativeWindowAttachment: NSViewRepresentable {
             observers.forEach(NotificationCenter.default.removeObserver)
             observers.removeAll()
             stopTrackingMove()
+            stopTrackingZoom()
             resizeStart = nil
             attachedWindow = window
             guard let window else { return }
             window.tabbingMode = .disallowed
+            zoomMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) {
+                [weak self] event in
+                guard let self else { return event }
+                return self.routeZoomClick(event)
+            }
             let id = sceneID
             observe(NSWindow.willCloseNotification, window) { $0.nativeWindowClosed(id, $1) }
             observe(NSWindow.didBecomeKeyNotification, window) { $0.nativeWindowFocused(id, $1) }
@@ -94,6 +102,39 @@ struct MacNativeWindowAttachment: NSViewRepresentable {
             }
         }
 
+        private func routeZoomClick(_ event: NSEvent) -> NSEvent? {
+            guard let window = attachedWindow, event.window === window else { return event }
+            if event.type == .leftMouseUp {
+                guard let button = pressedZoomButton else { return event }
+                pressedZoomButton = nil
+                button.highlight(false)
+                if !window.styleMask.contains(.fullScreen),
+                   button.bounds.contains(button.convert(event.locationInWindow, from: nil)) {
+                    window.zoom(button)
+                }
+                return nil
+            }
+            guard host?.window(for: sceneID)?.snapshot?.state.display != nil,
+                  !window.styleMask.contains(.fullScreen),
+                  let button = window.standardWindowButton(.zoomButton),
+                  button.isEnabled, !button.isHiddenOrHasHiddenAncestor,
+                  button.bounds.contains(button.convert(event.locationInWindow, from: nil)) else {
+                return event
+            }
+            // AppKit reserves the native control's normal click for Space entry.
+            // Route this click to the desktop zoom command before that dispatch.
+            pressedZoomButton = button
+            button.highlight(true)
+            return nil
+        }
+
+        private func stopTrackingZoom() {
+            if let zoomMonitor { NSEvent.removeMonitor(zoomMonitor) }
+            zoomMonitor = nil
+            pressedZoomButton?.highlight(false)
+            pressedZoomButton = nil
+        }
+
         private func trackMove(from frame: NSRect) {
             guard moveStart == nil else { return }
             moveStart = frame
@@ -131,6 +172,7 @@ struct MacNativeWindowAttachment: NSViewRepresentable {
 
         deinit {
             stopTrackingMove()
+            stopTrackingZoom()
             observers.forEach(NotificationCenter.default.removeObserver)
         }
     }

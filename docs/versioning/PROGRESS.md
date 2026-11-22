@@ -1,3 +1,12 @@
+## macOS WindowCatalog title-bar zoom — 2026-11-21
+
+Clicking the native green title-bar button on a windowed catalog scene
+toggles desktop zoom. The catalog's fullscreen action and F11 still enter a
+macOS Space. The native WindowCatalog acceptance dispatched pointer events
+to the green control after a fullscreen round trip and verified that it
+maximizes within the desktop and restores the previous frame. WindowCatalog
+fresh and embedded seed/cold acceptance and MinimalApp acceptance passed.
+
 ## WindowCatalog fullscreen geometry on WSLg Wayland — 2026-11-21
 
 The GTK presenter waits for coherent native allocation during fullscreen
