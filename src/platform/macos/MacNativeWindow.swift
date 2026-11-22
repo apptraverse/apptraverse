@@ -239,3 +239,36 @@ final class MacNativeWindows {
         }
     }
 }
+
+// A SwiftUI scene may have no model window yet (for example a launch form).
+// macOS 13 exposes closing that scene only through its native window boundary.
+public final class MacSceneWindowActions: ObservableObject {
+    private weak var window: NSWindow?
+    private var closeRequested = false
+    public init() {}
+    public func close() {
+        closeRequested = true
+        guard let window else { return }
+        DispatchQueue.main.async { [weak self, weak window] in
+            guard let self, let window, self.window === window, self.closeRequested else { return }
+            window.close()
+        }
+    }
+    fileprivate func attach(_ window: NSWindow?) {
+        self.window = window
+        if closeRequested {close()}
+    }
+}
+public struct MacSceneWindowAttachment: NSViewRepresentable {
+    private let actions: MacSceneWindowActions
+    public init(actions: MacSceneWindowActions) {self.actions=actions}
+    public func makeNSView(context: Context) -> NSView {Probe(actions:actions)}
+    public func updateNSView(_ view: NSView, context: Context) {}
+    private final class Probe: NSView {
+        let actions: MacSceneWindowActions
+        init(actions: MacSceneWindowActions) {self.actions=actions;super.init(frame:.zero)}
+        required init?(coder: NSCoder) {fatalError("Scene attachments are not decoded")}
+        override func hitTest(_ point: NSPoint) -> NSView? {nil}
+        override func viewDidMoveToWindow() {super.viewDidMoveToWindow();actions.attach(window)}
+    }
+}

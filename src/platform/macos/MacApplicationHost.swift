@@ -83,10 +83,18 @@ final class MacListAdapter: ObservableObject, Identifiable {
     func disconnect() { commandSink = nil }
 }
 
+struct MacCustomContent: Identifiable {
+    let id: UInt64
+    let controlID: UInt32
+    let overlayControlID: UInt32
+    let view: AnyView
+}
+
 struct MacWindowSnapshot {
     let state: ATMacWindowState
     let buttons: [MacButtonAdapter]
     let lists: [MacListAdapter]
+    let custom: [MacCustomContent]
 }
 
 final class MacWindowAdapter: ObservableObject, Identifiable {
@@ -95,6 +103,7 @@ final class MacWindowAdapter: ObservableObject, Identifiable {
     var windowState: ATMacWindowState
     var pendingButtons: [MacButtonAdapter] = []
     var pendingLists: [MacListAdapter] = []
+    var pendingCustom: [UInt64: MacCustomContent] = [:]
     @Published private(set) var snapshot: MacWindowSnapshot?
     private(set) var clientSize: CGSize?
     var nativeFullscreen = false
@@ -115,7 +124,7 @@ final class MacWindowAdapter: ObservableObject, Identifiable {
     func observeViewport(_ size: CGSize) { clientSize = size }
 
     func publish() {
-        snapshot = MacWindowSnapshot(state: windowState, buttons: pendingButtons, lists: pendingLists)
+        snapshot = MacWindowSnapshot(state: windowState, buttons: pendingButtons, lists: pendingLists, custom: pendingCustom.values.sorted { $0.controlID < $1.controlID })
     }
 }
 
@@ -249,6 +258,11 @@ private struct MacWindowContent: View {
                             AppleConstraintLayout(definition: snapshot.state.layout, viewport: geometry.size) {
                                 ForEach(snapshot.buttons) { MacButtonControl(adapter: $0) }
                                 ForEach(snapshot.lists) { MacListControl(adapter: $0, windowMenu: windowMenu) }
+                                ForEach(snapshot.custom.filter { $0.overlayControlID == 0 }) { item in
+                                    item.view.overlay(alignment: .bottom) {
+                                        ForEach(snapshot.custom.filter { $0.overlayControlID == item.controlID }) { $0.view }
+                                    }.layoutValue(key: AppleControlID.self, value: item.controlID)
+                                }
                             }
                         }
                     }
@@ -363,6 +377,13 @@ public struct MacApplicationScenes: Scene {
     }
 }
 
+/// Embed a single-window model session in an application's own SwiftUI scene.
+public struct MacApplicationRootView: View {
+    private let host: MacApplicationHost
+    public init(host: MacApplicationHost) { self.host = host }
+    public var body: some View { MacWindowScene(host: host, sceneID: host.primarySceneID) }
+}
+
 public final class MacApplicationHost: NSObject, ObservableObject, ATMacApplicationBridgeDelegate {
     private let bridgeFactory: (ATMacApplicationBridgeDelegate) -> ATMacApplicationBridge
     // Stable primary scene. Child mount IDs are per-session capabilities so
@@ -383,6 +404,20 @@ public final class MacApplicationHost: NSObject, ObservableObject, ATMacApplicat
     private var didSchedulePresentations = false
     private var terminating = false
     var onFinished: (Int32) -> Void = { exit($0) }
+    public var sessionDidFinish: ((Int32) -> Void)?
+    public var willStopSession: (() -> Void)?
+
+    public func setCustomContent(token: UInt64, parent: UInt64, order: UInt32,
+                                 view: AnyView, overlayControl: UInt32 = 0) {
+        windows[parent]!.pendingCustom[token] = MacCustomContent(
+            id: token, controlID: order, overlayControlID: overlayControl, view: view)
+    }
+    public func removeCustomContent(token: UInt64, parent: UInt64) {
+        windows[parent]!.pendingCustom.removeValue(forKey: token)
+    }
+    public func activateWindows() {
+        for adapter in windows.values { present(adapter.sceneID, activate: true) }
+    }
 
     public init(bridgeFactory: @escaping
         (ATMacApplicationBridgeDelegate) -> ATMacApplicationBridge) {
@@ -413,6 +448,11 @@ public final class MacApplicationHost: NSObject, ObservableObject, ATMacApplicat
     }
 
     func nativeWindowAttached(_ id: UUID, _ native: MacNativeWindowHandle) {
+        // A restored duplicate scene cannot claim an already bound capability.
+        if let existing = nativeWindows[id], existing !== native {
+            DispatchQueue.main.async {native.close()}
+            return
+        }
         nativeWindows[id] = native
         openingScenes.remove(id)
         if id != primarySceneID && window(for: id) == nil {
@@ -467,7 +507,7 @@ public final class MacApplicationHost: NSObject, ObservableObject, ATMacApplicat
     func nativeWindowClosed(_ id: UUID, _ native: MacNativeWindowHandle) {
         guard nativeWindows[id] === native else { return }
         if !terminating, let adapter = window(for: id), let bridge {
-            if bridge.requestCloseWindow(adapter.id) { terminating = true }
+            if bridge.requestCloseWindow(adapter.id) { terminating = true; willStopSession?() }
         } else if id == primarySceneID {
             requestStop()
         }
@@ -519,9 +559,13 @@ public final class MacApplicationHost: NSObject, ObservableObject, ATMacApplicat
     }
 
     public func requestStop() {
-        guard !terminating, let bridge else { return }
+        guard !terminating else { return }
         terminating = true
-        bridge.requestStop()
+        willStopSession?()
+        // An embedding application can close a session before its scene mounts.
+        // Run its ordinary model teardown and persistence even in that state.
+        if bridge == nil {bridge = bridgeFactory(self);bridge!.start()}
+        bridge!.requestStop()
     }
 
     func executeMenu(group: Int, item: Int) {
@@ -663,11 +707,12 @@ public final class MacApplicationHost: NSObject, ObservableObject, ATMacApplicat
     }
 
     public func bridgeModelDidFinish(_ bridge: ATMacApplicationBridge) {
+        if !terminating {willStopSession?()}
         terminating = true
         let status = Int32(bridge.finishTeardown())
         self.bridge = nil
         openScene = nil
         boundScenes.removeAll()
-        onFinished(status)
+        if let finish = sessionDidFinish { finish(status) } else { onFinished(status) }
     }
 }
