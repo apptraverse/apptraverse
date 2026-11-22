@@ -43,7 +43,28 @@ artifacts/maps are under the containing workspace's `telemetry-evidence/`.
 
 ## SharedNode Chat sender latency and GTK responsiveness — 2026-11-21
 
-The before/after measurements used the dependency pins from `d751d361`.
+In a later Release comparison, one physical Samsung Galaxy A01 (ARMv7 native
+MinSizeRel) sent to one Windows x64 Release host in the same room with the same
+SDK identities. Each run delivered all nine messages. Touch release to updated
+Windows Messages control fell from 526 to 302 ms by median. Touch release to
+native pre-draw on the Samsung fell from 1,127 to 950 ms by median.
+
+The send command reached the transport queue in 20 ms after touch dispatch,
+down from 262 ms. The chat UI applies the draft event on the model thread and
+folds the journal after the local transport result, batching edits and the
+completion of overlapping submissions. The median Æther write-to-receive
+interval stayed at 109 ms, with approximately ±10 ms clock uncertainty.
+The remaining Samsung latency included 237 ms waiting for the UI model,
+476 ms from the model update to the start of structural application, and
+181 ms applying the structural publication. The next native pre-draw
+followed in 2 ms.
+
+In a fresh two-member room with instrumentation removed from both Release
+applications, all nine sends arrived. The first took 248 ms. The eight
+subsequent sends had a median of 272.5 ms and ranged from 254 to 351 ms.
+Windows UI model and RAM chat regressions passed.
+
+The earlier Debug measurements used the dependency pins from `d751d361`.
 In the five-member room hosted on Windows, the Samsung Galaxy A01 (Android 12,
 32-bit ARM) took 18,256 and 18,431 ms from touch release on Send to the committed
 row appearing in its native Messages control. Android CPU sampling during the

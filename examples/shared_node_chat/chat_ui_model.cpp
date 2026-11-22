@@ -226,6 +226,12 @@ void ChatUi::Send() {
   }
   auto text = editing.draft;
   auto revision = ++next_send_id;
+  // Apply the draft change before submission. Fold the UI events once the
+  // transport reports the result, outside the path to its send queue.
+  if (pending_sends.empty() && HasImmediateEventCompaction()) {
+    compact_after_send_ = true;
+    SetImmediateEventCompaction(false);
+  }
   pending_sends.emplace(revision, text);
   Commit(Make(*this, Action::SendStarted));
   send(std::move(text), revision);
@@ -241,6 +247,10 @@ void ChatUi::CompleteSend(std::uint64_t revision, bool committed) {
   }
   e->first_value = static_cast<int>(pending_sends.size());
   Commit(e);
+  if (compact_after_send_ && pending_sends.empty()) {
+    compact_after_send_ = false;
+    SetImmediateEventCompaction(true);
+  }
 }
 void ChatUi::RecoverInterruptedSend() {
   if (!editing.sending) return;

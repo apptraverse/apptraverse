@@ -118,12 +118,14 @@ int main() {
   app->EditDraft("first");
   app->Send();
   CHECK(sends == 1 && app->editing.sending);
+  CHECK(!app->HasImmediateEventCompaction() && !app->journal.empty());
   CHECK(app->Get(Control::Send).enabled && app->Get(Control::Input).enabled);
   app->Send();
   CHECK(sends == 1);  // A second click cannot enqueue the same draft.
   app->CompleteSend(revision, false);
   CHECK(app->editing.draft == "first");
   CHECK(!app->editing.sending && app->Get(Control::Send).enabled);
+  CHECK(app->HasImmediateEventCompaction() && app->journal.empty());
   CHECK(app->editing.error_label == static_cast<int>(Label::Rejected));
   app->Send();
   app->EditDraft("newer");
@@ -147,8 +149,10 @@ int main() {
   app->EditDraft("next");
   app->CompleteSend(queued[0], true);
   CHECK(app->editing.sending && app->editing.draft == "next");
+  CHECK(!app->HasImmediateEventCompaction());
   app->CompleteSend(queued[1], false);
   CHECK(!app->editing.sending && app->editing.draft == "next\ntwo");
+  CHECK(app->HasImmediateEventCompaction() && app->journal.empty());
   app->EditDraft(std::string(8193, 'x'));
   app->Send();
   CHECK(app->editing.error_label == static_cast<int>(Label::TooLong));

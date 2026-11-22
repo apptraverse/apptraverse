@@ -277,6 +277,7 @@ class ChatUi : public NodeFor<ChatUi, ui::UiDesktopWindow> {
 
  private:
   bool initial_action_submitted_{false};
+  bool compact_after_send_{false};
 };
 enum class Action : unsigned {
   Draft,
