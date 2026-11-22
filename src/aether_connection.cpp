@@ -1,5 +1,7 @@
-#include <cstdarg>
 #include "apptraverse/aether_connection.h"
+#include <cstdarg>
+#include "apptraverse/aether_telemetry.h"
+#include "apptraverse/aether_telemetry_delivery.h"
 
 #include <map>
 
@@ -15,6 +17,12 @@ class AetherConnection {
   ae::Client::ptr client;
   ae::Subscription selection;
   std::unique_ptr<AetherByteLink> link;
+  std::unique_ptr<AetherTelemetryDelivery> telemetry;
+  std::string telemetry_keeper_uid;
+  bool telemetry_owner{true};
+  bool connect_client{false};
+  std::string client_name;
+  std::shared_ptr<std::atomic<bool>> network_requested;
   bool selected{false}, failed{false}, presence_enabled{false};
   NetworkObservation network;
   std::string endpoint;
@@ -24,21 +32,42 @@ class AetherConnection {
     std::int64_t utc{0};
   };
   std::map<std::string, Confirmation> confirmations;
-  explicit AetherConnection(std::filesystem::path path, std::string name)
-      : profile{std::move(path)} {
+  explicit AetherConnection(std::filesystem::path path, std::string name,
+                            std::string recipient, bool owner, bool connect,
+                            std::shared_ptr<std::atomic<bool>> requested)
+      : profile{std::move(path)},
+        telemetry_keeper_uid{std::move(recipient)},
+        telemetry_owner{owner},
+        client_name{std::move(name)},
+        network_requested{requested
+                              ? std::move(requested)
+                              : std::make_shared<std::atomic<bool>>(connect)} {
+    if (!RegisterAppTraverseTelemetry()) {
+      failed = true;
+      return;
+    }
     sdk = ae::AetherApp::Construct(
         ae::AetherAppContext{[this]() -> std::unique_ptr<ae::IDomainStorage> {
           return std::make_unique<DirectoryDomainStorage>(profile);
-        }});
+        }}.TelemetryOwner(telemetry_owner));
     if (!sdk) {
       failed = true;
       return;
     }
+    if (telemetry_owner)
+      telemetry = std::make_unique<AetherTelemetryDelivery>(
+          ae::AeContext{*sdk}, ae::Client::ptr{}, telemetry_keeper_uid);
+    StartSelection();
+  }
+  void StartSelection() {
+    if (connect_client || !network_requested->load()) return;
+    connect_client = true;
+    started = serviced;
     selection =
         sdk->aether()
             ->SelectClient(
                 ae::Uid::FromString("3ac93165-3d37-4970-87a6-fa4ee27744e4"),
-                name)
+                client_name)
             .result_event()
             .Subscribe([this](auto const& result) {
               selected = true;
@@ -47,16 +76,24 @@ class AetherConnection {
             });
   }
   ~AetherConnection() {
+    telemetry.reset();
     link.reset();
     selection.Reset();
     client = {};
     sdk.reset();
   }
   void Service(ConnectionTime time) {
-    if (failed || serviced == time.monotonic_us) return;
+    if (serviced == time.monotonic_us) return;
+    if (failed) {
+      if (telemetry) (void)telemetry->Tick();
+      return;
+    }
     serviced = time.monotonic_us;
     if (!started) started = serviced;
+    StartSelection();
     sdk->Update(ae::Now());
+    if (telemetry) (void)telemetry->Tick();
+    if (!connect_client) return;
     if (sdk->IsExited() || (!selected && serviced - started > 120000000ULL)) {
       failed = true;
       return;
@@ -74,11 +111,16 @@ class AetherConnection {
       options.gate_delivery_on_presence = false;
       link = std::make_unique<AetherByteLink>(*sdk->aether(), client, options);
       endpoint = link->EndpointId();
+      if (telemetry_owner)
+        telemetry = std::make_unique<AetherTelemetryDelivery>(
+            ae::AeContext{*sdk}, client, telemetry_keeper_uid);
     }
     if (link) link->Service(serviced);
+    if (telemetry) (void)telemetry->Tick();
   }
   TransportPhase Phase() const {
     if (failed) return TransportPhase::Failed;
+    if (!connect_client) return TransportPhase::Stopped;
     if (!link) return TransportPhase::Starting;
     return network.network != Reachability::Unavailable &&
                    network.internet != Reachability::Unavailable &&
@@ -210,9 +252,12 @@ class Presence final : public IPresenceSource {
 };
 }  // namespace
 std::shared_ptr<AetherConnection> OpenAetherConnection(
-    std::filesystem::path profile, std::string name) {
-  return std::make_shared<AetherConnection>(std::move(profile),
-                                            std::move(name));
+    std::filesystem::path profile, std::string name,
+    std::string telemetry_keeper_uid, bool telemetry_owner, bool connect_client,
+    std::shared_ptr<std::atomic<bool>> network_requested) {
+  return std::make_shared<AetherConnection>(
+      std::move(profile), std::move(name), std::move(telemetry_keeper_uid),
+      telemetry_owner, connect_client, std::move(network_requested));
 }
 std::unique_ptr<IConnectionTransport> MakeAetherTransport(
     std::shared_ptr<AetherConnection> c) {
@@ -222,9 +267,13 @@ std::unique_ptr<IPresenceSource> MakeAetherPresence(
     std::shared_ptr<AetherConnection> c) {
   return std::make_unique<Presence>(std::move(c));
 }
-ConnectionAdapters MakeAetherConnectionAdapters(std::filesystem::path profile,
-                                                std::string name) {
-  auto c = OpenAetherConnection(std::move(profile), std::move(name));
+ConnectionAdapters MakeAetherConnectionAdapters(
+    std::filesystem::path profile, std::string name,
+    std::string telemetry_keeper_uid, bool telemetry_owner, bool connect_client,
+    std::shared_ptr<std::atomic<bool>> network_requested) {
+  auto c = OpenAetherConnection(
+      std::move(profile), std::move(name), std::move(telemetry_keeper_uid),
+      telemetry_owner, connect_client, std::move(network_requested));
   return {MakeAetherTransport(c), MakeAetherPresence(c)};
 }
 }  // namespace apptraverse
