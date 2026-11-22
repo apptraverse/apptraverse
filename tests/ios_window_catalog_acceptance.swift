@@ -69,6 +69,7 @@ private final class Acceptance {
     var retainedActive: UInt64?
     var firstSavedUser: Data?
     var observedOsDeactivation = false
+    var systemDark = false
     var osObserver: NSObjectProtocol?
     init(root: URL, cold: Bool, osBackground: Bool, host: IosApplicationHost) {
         self.root = root; self.cold = cold; self.osBackground = osBackground; self.host = host
@@ -220,6 +221,8 @@ private final class Acceptance {
         }, check: {
             require(self.list!.rows.isEmpty, "fresh catalog must be empty")
             require(self.userFiles().isEmpty, "fresh profile unexpectedly loaded")
+            self.systemDark = self.window!.traitCollection.userInterfaceStyle == .dark
+            require(self.host.latestSettings?.dark == self.systemDark, "incorrect initial system appearance")
             self.snapshot("initial-main")
         })
         step("landscape reflows the catalog beside its list", action: { self.rotate(.landscapeLeft) }, ready: {
@@ -268,6 +271,15 @@ private final class Acceptance {
         }, ready: { self.host.activeToken == self.child(1)?.id })
         step("SwiftUI pager returns to catalog", action: { self.goMain() }, ready: {
             self.host.activeToken == self.main?.id
+        })
+        step("a forced app theme keeps the system appearance observation intact", action: {
+            self.host.executeMenu(group: 0, item: self.systemDark ? 1 : 2)
+        }, ready: {
+            self.main?.snapshot?.state.theme == (self.systemDark ? 1 : 2)
+        }, check: {
+            require(self.host.latestSettings?.dark == self.systemDark, "app theme contaminated the OS observation")
+            require((self.window!.traitCollection.userInterfaceStyle == .dark) == self.systemDark,
+                    "app theme overrode the scene that supplies OS observations")
         })
         step("theme menu projects Soft Dark to all pages", action: {
             self.host.executeMenu(group: 0, item: 3)

@@ -285,9 +285,9 @@ struct IosSystemSettings: Equatable {
     let reducedMotion: Bool
     let voiceOver: Bool
 
-    func bridgeSettings(systemDark: Bool) -> ATIosDeviceSettings {
+    func bridgeSettings() -> ATIosDeviceSettings {
         ATIosDeviceSettings(displayScale: displayScale, bodyTextScale: bodyTextScale,
-            dark: systemDark, highContrast: highContrast, reducedMotion: reducedMotion, voiceOver: voiceOver)
+            dark: dark, highContrast: highContrast, reducedMotion: reducedMotion, voiceOver: voiceOver)
     }
 }
 
@@ -314,6 +314,7 @@ private struct IosSettingsView: View {
     private func content(_ settings: ATIosSettingsState) -> some View {
         let state = host.mainScene?.snapshot?.state
         let softDark = state?.softenDark == true && contrast != .increased
+        let preferredScheme = colorSchemePreference(for: state, contrast: contrast)
         return NavigationStack {
             Form {
                 ForEach(Array(settings.groups.enumerated()), id: \.offset) { groupIndex, group in
@@ -343,7 +344,7 @@ private struct IosSettingsView: View {
             }
             .scrollContentBackground(softDark || material ? .hidden : .automatic)
             .background(softDark ? Color(white: material ? 0.125 : 0.18) :
-                material ? IosMaterialPalette(dark: scheme == .dark).surface : .clear)
+                material ? IosMaterialPalette(dark: (preferredScheme ?? scheme) == .dark).surface : .clear)
             .navigationTitle(settings.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -353,7 +354,7 @@ private struct IosSettingsView: View {
                 }
             }
         }
-        .preferredColorScheme(colorSchemePreference(for: state, contrast: contrast))
+        .preferredColorScheme(preferredScheme)
     }
 }
 
@@ -394,19 +395,19 @@ public struct IosApplicationRootView: View {
 
     private var materialBar: some View {
         HStack(spacing: 12) {
-            Text(host.activeScene?.title ?? "")
+            let heading = Text(host.activeScene?.title ?? "")
                 .font(.title3.weight(.medium))
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("catalog-page-title")
-                .accessibilityAdjustableAction { direction in
-                    if host.pageTokens.count > 1 {
-                        switch direction {
-                        case .increment: host.swipe(1)
-                        case .decrement: host.swipe(-1)
-                        @unknown default: break
-                        }
+            if host.pageTokens.count > 1 {
+                heading.accessibilityAdjustableAction { direction in
+                    switch direction {
+                    case .increment: host.swipe(1)
+                    case .decrement: host.swipe(-1)
+                    @unknown default: break
                     }
                 }
+            } else { heading }
             Spacer(minLength: 0)
             if canShowSettings, let settings = host.settingsState {
                 settingsButton(settings).foregroundStyle(.primary)
@@ -416,7 +417,6 @@ public struct IosApplicationRootView: View {
         .frame(minHeight: 56)
         .background {
             (contrast == .increased ? palette.surface : palette.bar)
-                .ignoresSafeArea(edges: .top)
                 .shadow(color: .black.opacity(0.16), radius: 2, y: 1)
         }
         .zIndex(1)
@@ -463,6 +463,7 @@ public struct IosApplicationRootView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .onChange(of: geometry.size, initial: true) { host.reportViewport(geometry.size) }
                 }
+                .clipped()
                 if !usesMaterialAppearance && host.pageTokens.count > 1 { IosPagePicker(host: host) }
             }
             .contentShape(Rectangle())
@@ -479,19 +480,25 @@ public struct IosApplicationRootView: View {
                 }
             }
             .background(usesMaterialAppearance ? palette.surface : .clear)
+            // Keep the override below the observer of the live iOS appearance.
+            .environment(\.colorScheme, preferredScheme ?? scheme)
+        }
+        .background {
+            if usesMaterialAppearance {
+                IosMaterialPalette(dark: scheme == .dark).bar.ignoresSafeArea(edges: .top)
+            }
         }
         .sheet(isPresented: settingsPresentation) {
             IosSettingsView(host: host)
         }
         .environment(\.materialAppearance, usesMaterialAppearance)
         .tint(usesMaterialAppearance && contrast != .increased ? palette.accent : nil)
-        .preferredColorScheme(preferredScheme)
         .onChange(of: settings, initial: true) {
-            host.observeSettings(settings, followsSystemAppearance: preferredScheme == nil)
+            host.observeSettings(settings)
         }
         .onChange(of: phase, initial: true) {
             if phase == .active {
-                host.observeSettings(settings, followsSystemAppearance: preferredScheme == nil)
+                host.observeSettings(settings)
                 host.sceneDidBecomeActive()
             } else {
                 host.sceneWillDeactivate()
@@ -519,8 +526,7 @@ public final class IosApplicationHost: NSObject, ObservableObject, ATIosApplicat
     private(set) var applicationActive = false
     private var manualStop = false
     private(set) var latestViewport = CGSize.zero
-    private var latestSettings: ATIosDeviceSettings?
-    private var systemDark = false
+    private(set) var latestSettings: ATIosDeviceSettings?
     private var lastExitStatus: Int?
     private var lastBackgroundSaveStatus: Int?
     private var pendingBackgroundSaves = 0
@@ -541,11 +547,8 @@ public final class IosApplicationHost: NSObject, ObservableObject, ATIosApplicat
 
     deinit { bridge?.requestStop() }
 
-    func observeSettings(_ settings: IosSystemSettings, followsSystemAppearance: Bool) {
-        // A preferred scheme may change the environment of the presentation.
-        // Record the system value only while SwiftUI follows the system.
-        if followsSystemAppearance { systemDark = settings.dark }
-        let value = settings.bridgeSettings(systemDark: systemDark)
+    func observeSettings(_ settings: IosSystemSettings) {
+        let value = settings.bridgeSettings()
         latestSettings = value
         if started && !stopping { bridge.observeDeviceSettings(value) }
     }

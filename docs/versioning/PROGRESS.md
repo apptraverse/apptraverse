@@ -1,3 +1,21 @@
+## iPhone WindowCatalog appearance and LOCAL audit — 2026-11-21
+
+- Canon 5 and the client-local environment contract. A whole-window SwiftUI
+  preference could mask the live iOS appearance while the app theme was
+  forced. The model's override now applies to its content and the settings
+  sheet, and the system appearance observer stays outside the override.
+  Theme and settings commands still flow through the model and publication.
+- Canon 6 and 21. The host clips rendering to the measured native viewport.
+  The shared constraint solver still places the controls. The page heading
+  offers accessibility adjustment when there is another modeled page.
+- The review covered the iPhone presentation, common layout and LOCAL
+  boundaries. There was no change to the app's S0 schema or USER lifecycle.
+  The shared layout, device-state and headless catalog CTests passed. On iPhone 11 Pro, the
+  WindowCatalog fresh Debug and embedded runs passed 28 checkpoints each,
+  including a forced app theme that leaves the system observation intact.
+  The embedded cold run passed six checkpoints, and MinimalApp acceptance
+  passed. Evidence was copied before uninstalling the test bundle.
+
 ## SharedNode Chat non-Apple main verification — 2026-11-21
 
 Tested AppTraverse `fb9a7f12` with its pinned Æther SDK `ebebdf58`.
