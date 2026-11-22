@@ -1,0 +1,390 @@
+--- a/aether/client.cpp
++++ b/aether/client.cpp
+@@ -14,6 +14,7 @@
+  * limitations under the License.
+  */
+ 
++#include "aether/fail_without_exceptions.h"
+ #include "aether/client.h"
+ #include "aether/client_messages/priority_send_queue.h"
+ 
+@@ -222,7 +223,7 @@ void Client::SetConfig(std::string client_id, Uid parent_uid, Uid uid,
+                        Uid ephemeral_uid, Key master_key, Cloud::ptr cloud,
+                        PeerIdentity peer_identity) {
+   if (peer_identity.certified && peer_identity.certificate.uid != uid) {
+-    throw std::invalid_argument("Peer identity belongs to another UID");
++    FailWithoutExceptions("Peer identity belongs to another UID");
+   }
+   client_id_ = std::move(client_id);
+   parent_uid_ = parent_uid;
+--- a/aether/client_messages/p2p_message_stream.cpp
++++ b/aether/client_messages/p2p_message_stream.cpp
+@@ -14,6 +14,7 @@
+  * limitations under the License.
+  */
+ 
++#include "aether/fail_without_exceptions.h"
+ #include "aether/client_messages/p2p_message_stream.h"
+ 
+ #include <algorithm>
+@@ -183,12 +184,12 @@ P2pStream::P2pStream(AeContext const& ae_context, Ptr<Client> const& client,
+   assert(!destination_.empty());
+   if (!send_policy_.max_packet_bytes ||
+       send_policy_.max_packet_bytes > AE_SOCKET_SEND_BUFFER_BYTES - 256) {
+-    throw std::invalid_argument("Invalid stream packet budget");
++    FailWithoutExceptions("Invalid stream packet budget");
+   }
+ #if AE_SUPPORT_RAW_BALANCER
+   if (binding_.resource &&
+       (!handle_ || send_policy_.max_packet_bytes <= kRawHeaderBytes)) {
+-    throw std::invalid_argument(
++    FailWithoutExceptions(
+         "Balanced Raw needs a return port and frame budget");
+   }
+   auto& queue = binding_.resource ? *binding_.resource : client->send_queue();
+@@ -246,15 +247,19 @@ P2pStream::P2pStream(AeContext const& ae_context, Ptr<Client> const& client,
+ #endif
+ #if AE_SUPPORT_RAW_BALANCER
+   if (binding_.resource) {
++#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+     try {
++#endif
+       raw_flow_ = binding_.resource->OpenRawFlow(this, send_policy_.priority,
+                                                  binding_.weight);
++#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+     } catch (...) {
+       client->message_stream_manager().ReleasePeerRoute(
+           destination_, route_policy_.keep_backup_channels,
+           route_policy_.hole_punching);
+       throw;
+     }
++#endif
+   }
+ #endif
+ }
+--- a/aether/client_messages/p2p_message_stream_manager.cpp
++++ b/aether/client_messages/p2p_message_stream_manager.cpp
+@@ -14,6 +14,7 @@
+  * limitations under the License.
+  */
+ 
++#include "aether/fail_without_exceptions.h"
+ #include "aether/client_messages/p2p_message_stream_manager.h"
+ 
+ #include <cassert>
+@@ -57,7 +58,7 @@ P2pPortHandle P2pMessageStreamManager::CreatePort(Uid const& destination,
+                                                   PeerService service) {
+   auto [port, is_new] = GetOrCreatePort(destination, stream, service);
+   if (port->service() != service) {
+-    throw std::invalid_argument("Stream ID is bound to another service");
++    FailWithoutExceptions("Stream ID is bound to another service");
+   }
+   return P2pPortHandle{std::move(port)};
+ }
+--- a/aether/client_messages/priority_send_queue.cpp
++++ b/aether/client_messages/priority_send_queue.cpp
+@@ -1,5 +1,7 @@
+ // Copyright 2026 Aethernet Inc. Licensed under the Apache License, Version 2.0.
+ #include "aether/client_messages/priority_send_queue.h"
++
++#include "aether/fail_without_exceptions.h"
+ #include <algorithm>
+ #include <chrono>
+ #include <cstring>
+@@ -314,11 +316,11 @@ unsigned PrioritySendQueue::OpenRawFlow(void const* owner,
+                                         SendPriority priority,
+                                         unsigned weight) {
+   if (!impl_->raw || impl_->stopped) {
+-    throw std::logic_error("Raw flow requires an explicit resource");
++    FailWithoutExceptions("Raw flow requires an explicit resource");
+   }
+   if (!owner || std::find(impl_->owners.begin(), impl_->owners.end(), owner) !=
+                     impl_->owners.end()) {
+-    throw std::invalid_argument("Raw resource needs a unique flow owner");
++    FailWithoutExceptions("Raw resource needs a unique flow owner");
+   }
+   auto flow = impl_->raw->Open(priority, weight);
+   impl_->owners[flow] = owner;
+@@ -358,7 +360,7 @@ WriteAction* PrioritySendQueue::EnqueueRaw(unsigned flow, void const* owner,
+ }
+ RawReceipt PrioritySendQueue::NextRawReceipt() const {
+   if (!impl_->raw) {
+-    throw std::logic_error("Receipt requires a Raw resource");
++    FailWithoutExceptions("Receipt requires a Raw resource");
+   }
+   return {impl_->epoch, impl_->raw->next_sequence()};
+ }
+--- a/aether/client_messages/raw_resource.cpp
++++ b/aether/client_messages/raw_resource.cpp
+@@ -2,6 +2,8 @@
+ #include "aether/config.h"
+ #if AE_SUPPORT_RAW_BALANCER
+ #include "aether/client_messages/raw_resource.h"
++
++#include "aether/fail_without_exceptions.h"
+ #include <algorithm>
+ #include <cassert>
+ #include <cmath>
+@@ -52,12 +54,12 @@ RawResource::RawResource(RawResourceConfig config)
+       !config.flight_packets || !config.min_rate || config.min_rate > rate_ ||
+       rate_ > config.max_rate || !config.target_extra_rtt_us ||
+       !config.receipt_timeout_us || !config.queue_lifetime_us) {
+-    throw std::invalid_argument("Invalid Raw resource bounds");
++    FailWithoutExceptions("Invalid Raw resource bounds");
+   }
+ }
+ unsigned RawResource::Open(SendPriority priority, unsigned weight) {
+   if (weight == 0 || weight > 16) {
+-    throw std::invalid_argument("Invalid Raw flow weight");
++    FailWithoutExceptions("Invalid Raw flow weight");
+   }
+   unsigned rank = static_cast<unsigned>(priority);
+   unsigned share = rank < 64 ? 8u : rank < 128 ? 4u : rank < 255 ? 2u : 1u;
+@@ -67,7 +69,7 @@ unsigned RawResource::Open(SendPriority priority, unsigned weight) {
+       return i;
+     }
+   }
+-  throw std::length_error("Raw resource flow slots exhausted");
++  FailWithoutExceptions("Raw resource flow slots exhausted");
+ }
+ void RawResource::Close(unsigned flow) {
+   flows_.at(flow) = {};
+--- /dev/null
++++ b/aether/fail_without_exceptions.h
+@@ -0,0 +1,17 @@
++#ifndef AETHER_FAIL_WITHOUT_EXCEPTIONS_H_
++#define AETHER_FAIL_WITHOUT_EXCEPTIONS_H_
++
++#include <cstdio>
++#include <cstdlib>
++
++namespace ae {
++
++[[noreturn]] inline void FailWithoutExceptions(char const* message) {
++  std::fputs(message, stderr);
++  std::fputc('\n', stderr);
++  std::abort();
++}
++
++}  // namespace ae
++
++#endif  // AETHER_FAIL_WITHOUT_EXCEPTIONS_H_
+--- a/aether/peer/peer_delivery.cpp
++++ b/aether/peer/peer_delivery.cpp
+@@ -1,4 +1,5 @@
+ // Copyright 2026 Aethernet Inc. Licensed under the Apache License, Version 2.0.
++#include "aether/fail_without_exceptions.h"
+ #include "aether/peer/peer_delivery.h"
+ #include <random>
+ #include <stdexcept>
+@@ -14,13 +15,13 @@ Uid NewPeerDeliveryEpoch() {
+ #if AE_CRYPTO_SYNC == AE_CHACHA20_POLY1305
+   static bool const initialized = sodium_init() >= 0;
+   if (!initialized) {
+-    throw std::runtime_error("Delivery RNG initialization failed");
++    FailWithoutExceptions("Delivery RNG initialization failed");
+   }
+   randombytes_buf(epoch.value.data(), epoch.value.size());
+ #elif AE_CRYPTO_SYNC == AE_HYDRO_CRYPTO_SK
+   static bool const initialized = hydro_init() == 0;
+   if (!initialized) {
+-    throw std::runtime_error("Delivery RNG initialization failed");
++    FailWithoutExceptions("Delivery RNG initialization failed");
+   }
+   hydro_random_buf(epoch.value.data(), epoch.value.size());
+ #else
+--- a/aether/peer/peer_delivery.h
++++ b/aether/peer/peer_delivery.h
+@@ -46,7 +46,7 @@ class PeerDeliveryWindow {
+         window.bits = {};
+       } else {
+         for (std::size_t bit = 256; bit-- > 0;) {
+-          bool value = bit >= gap && Test(window, bit - gap);
++          bool value = bit >= gap && Test(window, bit - static_cast<std::size_t>(gap));
+           Set(window, bit, value);
+         }
+       }
+--- a/aether/safe_stream/details/circular_buffer.h
++++ b/aether/safe_stream/details/circular_buffer.h
+@@ -20,7 +20,7 @@
+ #include <algorithm>
+ #include <cstddef>
+ #include <span>
+-#include <stdexcept>
++#include "aether/fail_without_exceptions.h"
+ #include <vector>
+ 
+ #include "aether-miscpp/types/result.h"
+@@ -58,7 +58,7 @@ class CircularBuffer {
+   /**
+    * \brief Push new data and return its range
+    */
+-  constexpr Result<index_range_type, CircularBufferError> Push(
++  Result<index_range_type, CircularBufferError> Push(
+       std::span<value_type const> data) noexcept {
+     return Insert(end_, data);
+   }
+@@ -68,7 +68,7 @@ class CircularBuffer {
+    * \param pos - the position to insert at must be after begin_
+    * \param data - the data to insert
+    */
+-  constexpr Result<index_range_type, CircularBufferError> Insert(
++  Result<index_range_type, CircularBufferError> Insert(
+       index_type pos, std::span<value_type const> data) noexcept {
+     auto const offset = Distance(begin_, pos);
+     if (offset >= buffer_.size() || data.size() > buffer_.size() - 1 - offset) {
+@@ -93,7 +93,7 @@ class CircularBuffer {
+    * \brief Read the data with size from start
+    * \param start - the position to read from must be in range begin_..end_
+    */
+-  constexpr Result<DSpan, CircularBufferError> Read(
++  Result<DSpan, CircularBufferError> Read(
+       index_type start, std::size_t size) const noexcept {
+     if ((begin_ == end_) || Distance(start, end_) == 0) {
+       return Error{CircularBufferError::kEmptyBuffer};
+@@ -156,7 +156,7 @@ class CircularBuffer {
+  private:
+   static std::size_t CheckedCapacity(std::size_t capacity) {
+     if (capacity < 3 || capacity > kSafeStreamIndexPeriod / 2) {
+-      throw std::invalid_argument("Invalid SafeStream buffer capacity");
++      FailWithoutExceptions("Invalid SafeStream buffer capacity");
+     }
+     return capacity;
+   }
+--- a/aether/safe_stream/safe_stream.cpp
++++ b/aether/safe_stream/safe_stream.cpp
+@@ -16,20 +16,20 @@
+ 
+ #include "aether/safe_stream/safe_stream.h"
+ 
+-#include <stdexcept>
++#include "aether/fail_without_exceptions.h"
+ 
+ namespace ae {
+ 
+ std::size_t SafeStreamConfig::CheckedBufferCapacity() const {
+   if (window_size == 0 || window_size >= buffer_capacity / 2) {
+-    throw std::invalid_argument(
++    FailWithoutExceptions(
+         "SafeStream window must be smaller than half the buffer");
+   }
+   if (window_size > kSafeStreamMaxWindow) {
+-    throw std::invalid_argument("SafeStream window exceeds the wire limit");
++    FailWithoutExceptions("SafeStream window exceeds the wire limit");
+   }
+   if (max_packet_size >= buffer_capacity) {
+-    throw std::invalid_argument("SafeStream packet must fit in the buffer");
++    FailWithoutExceptions("SafeStream packet must fit in the buffer");
+   }
+   return buffer_capacity;
+ }
+--- a/aether/streams/stream_hierarchy.cpp
++++ b/aether/streams/stream_hierarchy.cpp
+@@ -1,7 +1,7 @@
+ // Copyright 2026 Aethernet Inc. Licensed under the Apache License, Version 2.0.
+ #include "aether/streams/stream_hierarchy.h"
+ #include <set>
+-#include <stdexcept>
++#include "aether/fail_without_exceptions.h"
+ #include "aether/client.h"
+ #if AE_SUPPORT_ADAPTIVE_DATAGRAM
+ #  include "aether/client_messages/p2p_adaptive_datagram_stream.h"
+@@ -12,30 +12,30 @@ namespace stream_hierarchy_internal {
+ void Validate(std::vector<StreamDefinition> const& nodes, Uid inherited,
+               std::set<std::uint32_t>& ids, unsigned depth = 0) {
+   if (depth > 16) {
+-    throw std::invalid_argument("Stream hierarchy is too deep");
++    FailWithoutExceptions("Stream hierarchy is too deep");
+   }
+   for (auto const& node : nodes) {
+     auto uid = node.destination.empty() ? inherited : node.destination;
+     if (uid.empty() || node.id == 0 || !ids.insert(node.id).second ||
+         ids.size() > 64 || node.delivery > StreamDelivery::kAdaptiveDatagram) {
+-      throw std::invalid_argument("Invalid or duplicate stream definition");
++      FailWithoutExceptions("Invalid or duplicate stream definition");
+     }
+ #if !AE_SUPPORT_ADAPTIVE_DATAGRAM
+     if (node.delivery == StreamDelivery::kAdaptiveDatagram || node.adaptive) {
+-      throw std::invalid_argument("Adaptive datagram support is disabled");
++      FailWithoutExceptions("Adaptive datagram support is disabled");
+     }
+ #endif
+     if (node.adaptive && !node.adaptive->ToConfig().Validate()) {
+-      throw std::invalid_argument("Invalid stream adaptation policy");
++      FailWithoutExceptions("Invalid stream adaptation policy");
+     }
+     if (node.storage) {
+-      throw std::logic_error("Offline storage providers are not implemented");
++      FailWithoutExceptions("Offline storage providers are not implemented");
+     }
+     if (node.routing && !(node.routing->lan && AE_SUPPORT_LAN) &&
+         !(node.routing->direct_ip && AE_SUPPORT_DIRECT_IP) &&
+         !(node.routing->hole_punching && AE_SUPPORT_HOLE_PUNCH) &&
+         !node.routing->cloud) {
+-      throw std::invalid_argument("Stream has no enabled route");
++      FailWithoutExceptions("Stream has no enabled route");
+     }
+     Validate(node.children, uid, ids, depth + 1);
+   }
+--- a/aether/tele_statistics.cpp
++++ b/aether/tele_statistics.cpp
+@@ -421,9 +421,8 @@ bool TeleStatisticsBackend::CompactAcknowledged(TelemetryOutbox& outbox) {
+       }
+     }
+     auto checkpoint = compacted.size();
+-    compacted.insert(compacted.end(),
+-                     space.blocks.begin() + static_cast<std::size_t>(cursor),
+-                     space.blocks.end());
++    auto const tail = std::span{space.blocks}.subspan(static_cast<std::size_t>(cursor));
++    compacted.insert(compacted.end(), tail.begin(), tail.end());
+     space.blocks.swap(compacted);
+     cursors[name] = checkpoint;
+   }
+--- a/aether/tele_statistics.h
++++ b/aether/tele_statistics.h
+@@ -55,9 +55,7 @@ class TeleStatistics : public Obj {
+   template <typename Dnv>
+   void Save(CurrentVersion, Dnv& dnv) const {
+     TelemetryPersistentState snapshot{TelemetryCompatibilityId(),
+-                                      backend_->Snapshot(), outbox_};
+-    snapshot.source = GetTelemetryProductInfo();
+-    snapshot.epochs = epochs_;
++        backend_->Snapshot(), outbox_, false, GetTelemetryProductInfo(), epochs_};
+     dnv(base_, snapshot);
+   }
+ 
+--- a/aether/telemetry_delivery.cpp
++++ b/aether/telemetry_delivery.cpp
+@@ -243,8 +243,8 @@ std::optional<std::vector<std::uint8_t>> TelemetryDeliveryPump::Request(
+   frame.total = current.artifact.size();
+   auto count = std::min(current.artifact.size() - offset_, maximum - 96);
+   while (count) {
+-    frame.bytes.assign(current.artifact.begin() + offset_,
+-                       current.artifact.begin() + offset_ + count);
++    auto const chunk = std::span{current.artifact}.subspan(offset_, count);
++    frame.bytes.assign(chunk.begin(), chunk.end());
+     auto bytes = EncodeTelemetryDeliveryFrame(frame);
+     if (bytes.size() <= maximum) {
+       writing_ = true;
+--- a/aether/telemetry_keeper.cpp
++++ b/aether/telemetry_keeper.cpp
+@@ -7,6 +7,7 @@
+ #include <stdexcept>
+ #include <system_error>
+ #include "aether/client_messages/p2p_message_stream.h"
++#include "aether/fail_without_exceptions.h"
+ #if defined(_WIN32)
+ #  ifndef NOMINMAX
+ #    define NOMINMAX
+@@ -295,7 +296,11 @@ TelemetryKeeperSession::TelemetryKeeperSession(AeContext const& context,
+                                                Ptr<Client> const& client,
+                                                TelemetryKeeperStore& store) {
+   if (!client) {
++#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+     throw std::invalid_argument("Telemetry keeper requires a loaded client");
++#else
++    FailWithoutExceptions("Telemetry keeper requires a loaded client");
++#endif
+   }
+   impl_ = std::make_shared<Impl>(context, client, store);
+   impl_->Start();

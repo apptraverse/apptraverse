@@ -66,7 +66,7 @@ function(apptraverse_add_shared_aether)
 
   # Build from an owned SDK copy. Keep both the CPM checkout and an optional
   # caller checkout pristine, and preserve the pinned wire format.
-  set(sdk_patch "${APPTRAVERSE_CMAKE_DIR}/patches/aether-client-no-exceptions-wasm32-v1.patch")
+  set(sdk_patch "${APPTRAVERSE_CMAKE_DIR}/patches/aether-client-no-exceptions-wasm32-v2.patch")
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${sdk_patch}")
   file(SHA256 "${sdk_patch}" patch_hash)
   string(SUBSTRING "${patch_hash}" 0 12 patch_id)
