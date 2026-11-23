@@ -12,6 +12,17 @@ namespace update_lab {
 inline constexpr ae::ObjId kUserId{0x7b100001}, kLocalId{0x7b100002},
     kViewId{0x7b100003}, kDownloadId{0x7b100004}, kPrefabId{0x7b100010},
     kSupplyId{0x7b100011};
+class LocalizedString : public ae::Obj {
+  APPTRAVERSE_NAMED_OBJECT("update_lab::LocalizedString", LocalizedString, ae::Obj, 0)
+ protected:
+  LocalizedString() = default;
+ public:
+  explicit LocalizedString(ae::ObjProp p) : Obj{p} {}
+  std::string value;
+  AE_OBJECT_REFLECT(AE_MMBR(value))
+  template<class D> void Load(ae::Version<0>, D& d) { d(base_, value); }
+  template<class D> void Save(ae::Version<0>, D& d) const { d(base_, value); }
+};
 class LocalizationState : public ae::Obj {
   APPTRAVERSE_NAMED_OBJECT("update_lab::LocalizationState", LocalizationState, ae::Obj, 0)
  protected:
@@ -19,15 +30,11 @@ class LocalizationState : public ae::Obj {
  public:
   explicit LocalizationState(ae::ObjProp p) : Obj{p} {}
   std::string locale;
-  std::vector<std::string> text;
-  AE_OBJECT_REFLECT(AE_MMBR(locale), AE_MMBR(text))
-  template<class D> void Load(ae::Version<0>, D& d) { d(base_, locale, text); }
-  template<class D> void Save(ae::Version<0>, D& d) const { d(base_, locale, text); }
-};
-struct LanguageDelivery {
-  ae::ObjId root;
-  Bytes native_image, demo_padding;
-  AE_REFLECT_MEMBERS(root, native_image, demo_padding)
+  std::vector<LocalizedString::ptr> strings;
+  Bytes fixture_data;
+  AE_OBJECT_REFLECT(AE_MMBR(locale), AE_MMBR(strings), AE_MMBR(fixture_data))
+  template<class D> void Load(ae::Version<0>, D& d) { d(base_, locale, strings, fixture_data); }
+  template<class D> void Save(ae::Version<0>, D& d) const { d(base_, locale, strings, fixture_data); }
 };
 class TextObject : public ae::Obj {
   APPTRAVERSE_NAMED_OBJECT("update_lab::TextObject", TextObject, ae::Obj, UPDATE_LAB_SCHEMA)
@@ -158,6 +165,12 @@ class DownloadChanged : public apptraverse::EventFor<DownloadNode, DownloadChang
   template<class D> void Load(ae::Version<0>, D& d) { d(base_, next); }
   template<class D> void Save(ae::Version<0>, D& d) const { d(base_, next); }
 };
+struct DistributionView {
+  std::vector<unsigned> releases;
+  std::string offer;
+  std::map<std::string, unsigned> installed;
+  AE_REFLECT_MEMBERS(releases, offer, installed)
+};
 struct ViewData {
   std::vector<std::string> text, languages, clones;
   std::vector<std::uint32_t> clone_ids;
@@ -166,8 +179,9 @@ struct ViewData {
   int x, y, width, height;
   unsigned rate;
   bool ready, restarting, commands_done;
+  DistributionView distribution;
   AE_REFLECT_MEMBERS(text, languages, clones, clone_ids, language, note, device, detail,
-      release, executable, x, y, width, height, rate, ready, restarting, commands_done)
+      release, executable, x, y, width, height, rate, ready, restarting, commands_done, distribution)
 };
 struct Command {
   std::string action, text;
@@ -193,7 +207,12 @@ void RegisterModel();
 ae::RamDomainStorage BuildSupply(unsigned); // Publisher only; not linked into consumers.
 ae::RamDomainStorage BuildCompleteSupply(unsigned);
 LanguagePack BuildLanguage(unsigned, std::string const&);
-Bytes BuildLanguageDelivery(unsigned, std::string const&);
-bool DecodeLanguageDelivery(Bytes const&, LanguagePack&);
+struct DistilledRelease {
+  Release definition;
+  ae::RamDomainStorage embedded;
+  std::map<std::string, ae::RamDomainStorage> downloads;
+};
+DistilledRelease DistillRelease(unsigned);
+bool ReadLanguage(ae::RamDomainStorage&, Resource const&, LanguagePack&);
 TextObject::ptr ClonePrefab(ae::Domain&);
 }

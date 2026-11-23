@@ -24,6 +24,27 @@ int main() {
   Require(!overlapping.Receive({123,static_cast<std::uint32_t>(encoded.size()),256,Bytes{encoded.begin()+256,encoded.begin()+768}}),"overlapping retransmission remains partial");
   auto recovered=overlapping.Receive({123,static_cast<std::uint32_t>(encoded.size()),700,Bytes{encoded.begin()+700,encoded.end()}});
   Require(recovered&&recovered->payload==frame.payload,"overlapping retransmission with changed fragment sizes");
+  {
+    Catalog catalog{2, 5, {}, {}, {{"test", {4, 5}}, {"older", {4}}}};
+    catalog.releases = {{4, 1, "supply/4", {{"ru", "language/4/ru", 22, 4}}},
+                        {5, 3, "supply/5", {{"ru", "", 22, 5}}}};
+    catalog.components = {{DeltaId(4, 5), 100, ""}, {ExeId("test", 3), 5000, ""}, {"supply/5", 300, ""}};
+    ResolveRequest query{"test", 4, 1, {kLatest, "ru", false}, {{"ru", 4}}, {{DeltaId(4, 5), 64}}};
+    UpdatePlan plan{};
+    Require(Resolve(catalog, query, plan).empty() && plan.bytes == 5100 && plan.remaining == 5036
+            && plan.executable == 3 && plan.resources.empty() && plan.image.resources.empty(),
+            "future release, partial byte credit, installed locale now embedded");
+    query.current = kLatest; query.executable = 3;
+    Require(Resolve(catalog, query, plan).empty() && plan.bytes == 300 && plan.supply.steps == std::vector<std::string>{"supply/5"},
+            "clean install resolves one full state");
+    query.current = 4; query.platform = "older"; query.executable = 1;
+    Require(Resolve(catalog, query, plan).empty() && plan.intent.release == 4 && plan.bytes == 0,
+            "latest is scoped to the platform");
+    query.platform = "test";
+    catalog.components.erase(catalog.components.begin());
+    Require(Resolve(catalog, query, plan).find(DeltaId(4,5)) != std::string::npos && plan.intent.release == 4,
+            "missing adjacent edge fails without a full fallback or partial result");
+  }
   auto r0=BuildCompleteSupply(0);auto r1=BuildCompleteSupply(1);auto r2=BuildCompleteSupply(2);auto r3=BuildCompleteSupply(3);
   {
     StatePackage package;auto bytes=FullState(r0,0);
@@ -34,14 +55,14 @@ int main() {
     Require(result==0&&header.checksumFlag==0&&header.frameContentSize==package.raw_size,"magicless frame without checksum");
   }
   {
-    ae::Domain original{r0},changed{r1},added{r2};
-    auto en0=apptraverse::LoadApplication<LocalizationState>(original,ae::ObjId{0x7b200001});
-    auto en1=apptraverse::LoadApplication<LocalizationState>(changed,ae::ObjId{0x7b200001});
-    auto de=apptraverse::LoadApplication<LocalizationState>(added,ae::ObjId{0x7b200003});
-    Require(en0->text[Greeting]!=en1->text[Greeting],"complete native image includes revised localization");
-    Require(de->locale=="de"&&de->text.size()==TextCount,"complete native image includes newly added localization");
-    LanguagePack delivered;
-    Require(DecodeLanguageDelivery(BuildLanguageDelivery(2,"de"),delivered)&&delivered.text==de->text,"async language component carries the native localization graph");
+    auto d0 = DistillRelease(0), d1 = DistillRelease(1), d2 = DistillRelease(2);
+    LanguagePack original, changed, german;
+    auto en = FindLanguage(d0.definition, "en");
+    auto de = FindLanguage(d2.definition, "de");
+    Require(en && de && ReadLanguage(d0.embedded, *en, original) && ReadLanguage(d1.embedded, *en, changed)
+            && original.text[Greeting] != changed.text[Greeting], "embedded translation changed");
+    Require(!d2.embedded.state.contains(ae::ObjId{de->root}) &&
+            ReadLanguage(d2.downloads.at("de"), *de, german), "optional root and its strings belong to one download");
   }
   ae::RamDomainStorage state;unsigned version=0;
   Require(ApplyStatePackage(FullState(r0,0),state,version),"full load");

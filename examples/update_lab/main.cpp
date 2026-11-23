@@ -71,6 +71,7 @@ int main(int argc, char** argv) {
     else if (a == "--device") options.device = next();
     else if (a == "--rename-first") options.rename = next();
     else if (a == "--badge-first") options.badge = next();
+    else if (a == "--latest") options.latest = true;
     else if (a == "--release") options.release = std::stoi(next());
     else if (a == "--rate") options.rate = std::stoi(next());
     else if (a == "--add-clone") ++options.add_clones;

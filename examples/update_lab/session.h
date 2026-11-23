@@ -7,6 +7,7 @@ namespace update_lab {
 struct Options {
   fs::path profile, install, store, health_file, export_file, import_file, snapshot_file;
   std::string provider, health_token, language, note, device, rename, badge;
+  bool latest{false};
   int release{-1}, rate{-1};
   unsigned add_clones{0}, hold_ms{0}, auto_close_ms{0};
   bool headless{false}, broken{false}, no_action{false}, suppress_health{false}, native_smoke{false};
@@ -19,7 +20,8 @@ class Session {
  private:
   void Submit(Command);
   void Initial();
-  void Request(Intent);
+  void Request(Intent, bool prepared = false);
+  void Discover();
   void Complete(TransferResult);
   bool Report(DownloadSnapshot);
   void Project();
@@ -39,7 +41,10 @@ class Session {
   LabView::ptr view_;
   LanguagePack language_;
   bool content_ready_{false}, imported_{false}, restart_{false}, initial_done_{false};
-  unsigned active_release_{0};
+  InstalledImage installed_;
+  std::vector<unsigned> available_;
+  std::string offer_;
+  bool discovering_{false};
   std::unique_ptr<TransferWorker> worker_;
 };
 void AcknowledgeHealth(Options const&, LabView const&);

@@ -1,4 +1,6 @@
 #include "model.h"
+#include "apptraverse/directory_domain_storage.h"
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -11,6 +13,37 @@ void Emit(std::ostream& out, char const* name, Bytes const& b) {
   for (auto v : b) out << static_cast<unsigned>(v) << ',';
   out << "};\n";
 }
+void Layers(fs::path const& dir, ae::RamDomainStorage const& state) {
+  apptraverse::DirectoryDomainStorage disk{dir};
+  for (auto const& [id, classes] : state.state) {
+    auto object = dir / std::to_string(id.id());
+    fs::create_directories(object);
+    if (!classes) {
+      if (!AtomicWrite(object / ".removed", {})) Fail("cannot write tombstone");
+      continue;
+    }
+    for (auto const& [cls, versions] : *classes) {
+      fs::create_directories(object / std::to_string(cls));
+      for (auto const& [v, bytes] : versions)
+        if (!AtomicWrite(apptraverse::DirectoryDomainStorageLayerPath(dir, {id, cls, v}), bytes))
+          Fail("cannot write layer");
+    }
+  }
+  for (auto const& [id, scope] : state.object_scopes)
+    if (!disk.CommitObjectScope(id, scope, true)) Fail("cannot write object scope");
+}
+void DeltaLayers(fs::path const& dir, Bytes const& bytes) {
+  StatePackage package; StateDelta delta; Bytes raw;
+  ae::RamDomainStorage changed;
+  if (!UnpackRaw(bytes, package, raw) || !Decode(raw, delta) ||
+      !apptraverse::DeserializeUserStorage(changed, delta.scope_metadata)) Fail("delta unpack failed");
+  changed.state = std::move(delta.changed);
+  Layers(dir, changed);
+  // Scope replacement and removals also describe transitions with no changed layer.
+  delta.changed.clear();
+  Write(dir / "operations.bin", Encode(delta));
+}
+
 }
 int main(int argc, char** argv) {
   RegisterModel();
@@ -20,8 +53,9 @@ int main(int argc, char** argv) {
     std::error_code ec; fs::create_directories(fs::path{argv[2]}.parent_path(), ec);
     std::ofstream out{argv[2]};
     out << "#pragma once\nnamespace update_lab {\n";
-    Emit(out, "kSeedSupply", FullState(BuildSupply(0), 0));
-    Emit(out, "kSeedLanguage", BuildLanguageDelivery(0, "en"));
+    auto seed = DistillRelease(0);
+    Emit(out, "kSeedSupply", FullState(seed.embedded, 0));
+    Emit(out, "kSeedRelease", Encode(seed.definition));
     out << "}\n";
     return out ? 0 : 1;
   }
@@ -77,37 +111,98 @@ int main(int argc, char** argv) {
   fs::path store = options.at("--out");
   FileLock lock{store / "publisher.lock"};
   if (!lock.acquired()) Fail("publisher already running");
-  Catalog catalog{1, 1, {}, {}};
-  auto add = [&](std::string id, Bytes bytes) {
-    Write(store / "components" / FileId(id), bytes);
-    catalog.components.push_back({std::move(id), bytes.size()});
+  Catalog catalog{2, 0, {}, {}};
+  Catalog published{};
+  if (fs::exists(store / "catalog.bin")) {
+    if (!ReadCatalog(Read(store / "catalog.bin"), published)) Fail("incompatible store; choose a new output directory");
+    catalog.components = published.components;
+    catalog.platforms = published.platforms;
+  }
+  auto immutable = [&](fs::path const& path, Bytes const& bytes) {
+    if (!fs::exists(path)) { Write(path, bytes); return; }
+    if (Read(path) != bytes) Fail("published artifact differs: " + path.string() + "; use a new release or store");
   };
-  std::vector<ae::RamDomainStorage> images(4);
-  for (unsigned n = 0; n < 4; ++n) {
-    auto core = BuildSupply(n);
-    auto image = BuildCompleteSupply(n);
-    images[n].state = image.state; images[n].object_scopes = image.object_scopes;
-    auto full = FullState(image, n);
-    Write(store / "images" / ("R" + std::to_string(n) + ".full.ats"), full);
-    Bytes raw; apptraverse::SerializeUserStorage(image, raw);
-    Write(store / "images" / ("R" + std::to_string(n) + ".native.bin"), raw);
-    std::string supply = "supply/" + std::to_string(n);
-    add(supply, FullState(core, n));
-    auto langs = n < 2 ? std::vector<std::string>{"en", "ru"} : std::vector<std::string>{"en", "ru", "de"};
-    catalog.releases.push_back({n, n == 3 ? 1U : 0U, supply, langs});
-    for (auto const& l : langs) add(LanguageId(n, l), BuildLanguageDelivery(n, l));
-    if (n) {
-      auto delta = DeltaState(images[n-1], images[n], n-1, n);
-      Write(store / "images" / ("R" + std::to_string(n-1) + "-R" + std::to_string(n) + ".delta.ats"), delta);
-      auto previous_core = BuildSupply(n-1);
-      add("delta/" + std::to_string(n-1) + "/" + std::to_string(n), DeltaState(previous_core, core, n-1, n));
+  auto record = [&](std::string const& id, fs::path const& path, Bytes const& bytes) {
+    immutable(store / path, bytes);
+    if (!FindComponent(catalog, id)) catalog.components.push_back({id, bytes.size(), path.generic_string()});
+  };
+  unsigned through = options.contains("--through") ? std::stoul(options.at("--through")) : 3;
+  if (through > 3) Fail("fixture supplies R0 through R3");
+  if (!published.releases.empty() && through < published.generation) Fail("cannot remove published releases");
+  std::vector<DistilledRelease> releases;
+  for (unsigned n = 0; n <= through; ++n) {
+    auto dir = fs::path{"images"} / ("R" + std::to_string(n));
+    auto current = DistillRelease(n);
+    auto& r = current.definition;
+    auto previous = releases.empty() ? nullptr : &releases.back();
+    record(r.supply, dir / "full.ats", FullState(current.embedded, n));
+    Layers(store / dir / "full", current.embedded);
+    for (auto& lang : r.languages) {
+      if (lang.full.empty()) continue;
+      auto const& graph = current.downloads.at(lang.locale);
+      auto old = previous ? FindLanguage(previous->definition, lang.locale) : nullptr;
+      if (old && !old->full.empty()) {
+        auto const& before = previous->downloads.at(lang.locale);
+        if (before.state == graph.state && before.object_scopes == graph.object_scopes) {
+          lang.revision = old->revision; lang.full = old->full;
+        }
+      }
+      record(lang.full, dir / "downloads" / (lang.locale + ".ats"), FullState(graph, lang.revision));
+    }
+    for (auto platform : {"windows-x64", "linux-x64"}) {
+      auto key = "--" + std::string{platform} + "-e" + std::to_string(r.executable);
+      if (!options.contains(key)) continue;
+      auto& supported = catalog.platforms[platform];
+      if (std::find(supported.begin(), supported.end(), n) == supported.end()) supported.push_back(n);
+      auto exe = Read(options.at(key));
+      auto elf = std::string{platform} == "linux-x64";
+      auto path = store / dir / platform / (elf ? "update_lab" : "update_lab.exe");
+      immutable(path, exe);
+#ifndef _WIN32
+      if (elf) fs::permissions(path, fs::perms::owner_exec, fs::perm_options::add);
+#endif
+      record(ExeId(platform, r.executable), dir / platform / "update.ats", PackageRaw(exe, 2, r.executable, r.executable));
+      auto launcher = options.find("--" + std::string{platform} + "-launcher");
+      if (launcher != options.end()) {
+        auto entry = path.parent_path() / (elf ? "update_lab_launcher" : "update_lab_launcher.exe");
+        immutable(entry, Read(launcher->second));
+#ifndef _WIN32
+        if (elf) fs::permissions(entry, fs::perms::owner_exec, fs::perm_options::add);
+#endif
+      }
+      // Accept matching producer artifacts, including telemetry decoder dictionaries and symbols.
+      for (auto suffix : {"-telemetry", "-symbols"}) {
+        if (!options.contains(key + suffix)) continue;
+        fs::path source = options.at(key + suffix);
+        auto dest = store / dir / platform / "telemetry";
+        fs::create_directories(dest);
+        fs::copy(source, dest / source.filename(), fs::copy_options::recursive | fs::copy_options::overwrite_existing);
+      }
+    }
+    immutable(store / dir / "release.bin", Encode(r));
+    catalog.releases.push_back(r);
+    releases.push_back(std::move(current));
+  }
+  for (auto const& src : releases) for (auto const& dst : releases) {
+    auto from = src.definition.id, to = dst.definition.id;
+    if (from + 1 != to && to + 1 != from) continue;
+    auto dir = fs::path{"images"} / ("R" + std::to_string(to)) / "deltas" / ("from-R" + std::to_string(from));
+    auto base = DeltaState(src.embedded, dst.embedded, from, to);
+    record(DeltaId(from, to), dir / "state.ats", base);
+    DeltaLayers(store / dir / "state", base);
+    for (auto const& lang : dst.definition.languages) {
+      auto old = FindLanguage(src.definition, lang.locale);
+      if (!old || old->full.empty() || lang.full.empty() || lang.revision == old->revision) continue;
+      auto delta = DeltaState(src.downloads.at(lang.locale), dst.downloads.at(lang.locale), old->revision, lang.revision);
+      record(DeltaId(old->revision, lang.revision, lang.locale), dir / "downloads" / (lang.locale + ".ats"), delta);
     }
   }
-  for (auto platform : {"windows-x64", "linux-x64"}) for (unsigned e = 0; e < 3; ++e) {
-    std::string key = "--" + std::string{platform} + "-e" + std::to_string(e);
-    if (options.contains(key)) add("executable/" + std::string{platform} + "/" + std::to_string(e),
-        PackageRaw(Read(options[key]), 2, e, e));
+  for (auto platform : {"windows-x64", "linux-x64"}) {
+    auto key = "--" + std::string{platform} + "-e2";
+    if (options.contains(key)) record(ExeId(platform, 2), fs::path{"fixtures"} / platform / "broken.ats",
+                                    PackageRaw(Read(options.at(key)), 2, 2, 2));
   }
+  catalog.generation = through;
   Write(store / "catalog.bin", Encode(catalog));
-  std::cout << "{\"releases\":4,\"components\":" << catalog.components.size() << "}\n";
+  std::cout << "Published " << releases.size() << " releases, " << catalog.components.size() << " components\n";
 }

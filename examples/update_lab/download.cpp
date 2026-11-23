@@ -1,5 +1,6 @@
 #include "download.h"
 #include "network.h"
+#include "install.h"
 #include <algorithm>
 #include <chrono>
 #include <fstream>
@@ -61,7 +62,14 @@ void TransferWorker::Transfer(TransferRequest request) {
   auto state = request.snapshot;
   auto canceled = [&] { return stop_.load() || wanted_.load() != state.epoch; };
   auto report = [&] { return !canceled() && report_(state); };
-  auto error = [&](std::string message) { if (!canceled()) { state.phase = "error"; state.message = std::move(message); report(); } };
+  auto error = [&](std::string message) {
+    if (canceled()) return;
+    if (request.preview) {
+      ready_({state.epoch, state.intent, {}, {}, 0, true, std::move(message)});
+    } else {
+      state.phase = "error"; state.message = std::move(message); report();
+    }
+  };
   std::unique_ptr<AetherPeer> peer;
   std::unique_ptr<Frame> incoming;
   std::uint64_t expected_request = 0;
@@ -69,7 +77,7 @@ void TransferWorker::Transfer(TransferRequest request) {
     request_frame.request = static_cast<std::uint64_t>(std::chrono::system_clock::now().time_since_epoch().count());
     expected_request = request_frame.request;
     incoming.reset();
-    if (!local_source_.empty()) { response = Serve(local_source_, request_frame); return response.kind != 5; }
+    if (!local_source_.empty()) { response = Serve(local_source_, request_frame); return response.kind != ServiceError; }
     if (!peer) {
       if (provider_.empty()) return false;
       peer = std::make_unique<AetherPeer>(profile_ / "local" / "download-identity", "update-lab-downloader");
@@ -85,7 +93,7 @@ void TransferWorker::Transfer(TransferRequest request) {
       if (incoming) {
         auto frame = std::move(incoming);
         if (frame->request == request_frame.request) {
-          response = std::move(*frame); return response.kind != 5;
+          response = std::move(*frame); return response.kind != ServiceError;
         }
       }
       if (!peer->Endpoint().empty() && Clock::now() >= resend) {
@@ -96,54 +104,67 @@ void TransferWorker::Transfer(TransferRequest request) {
     }
     return false;
   };
-  Catalog catalog;
-  Frame response;
-  state.phase = "catalog"; state.message = "";
-  if (!report()) return;
-  // Cached catalog allows the candidate executable to boot without a second network round trip.
-  Bytes catalog_bytes;
-  if (!(ReadFile(profile_ / "local" / "catalog.bin", catalog_bytes) && ReadCatalog(catalog_bytes, catalog))) {
-    if (!fetch({1, 1, "", 0, {}}, response) || !ReadCatalog(response.payload, catalog)) {
-      error("Component catalog unavailable" + (peer ? peer->Diagnostics() : "")); return;
-    }
-    catalog_bytes = response.payload;
-    if (!AtomicWrite(profile_ / "local" / "catalog.bin", catalog_bytes)) { error("Catalog save failed"); return; }
-  }
-  auto release = FindRelease(catalog, state.intent.release);
-  if (!release) { error("Unknown release"); return; }
-  if (std::find(release->languages.begin(), release->languages.end(), state.intent.language) == release->languages.end()) {
-    error("Language is unavailable in this release"); return;
-  }
-  auto cache = profile_ / "local" / "components";
+  Frame response{};
+  auto cache = Cache(profile_);
   std::error_code ec; fs::create_directories(cache, ec);
   if (ec) { error("Cache directory creation failed"); return; }
-  std::vector<std::string> ids{release->supply, LanguageId(release->id, state.intent.language)};
-  bool use_delta = false;
-  std::string delta_id = "delta/" + std::to_string(request.current_release) + "/" + std::to_string(release->id);
-  auto delta = FindComponent(catalog, delta_id);
-  auto full = FindComponent(catalog, release->supply);
-  auto base_path = cache / FileId("supply/" + std::to_string(request.current_release));
-  if (!fs::exists(cache / FileId(release->supply)) && delta && full && fs::exists(base_path)) {
-    ids[0] = delta_id; use_delta = true;
+
+  UpdatePlan plan{};
+  auto prepared_path = profile_ / "local" / "prepared-plan.bin";
+  Bytes prepared;
+  if (request.prepared) {
+    if (!ReadFile(prepared_path, prepared) || !Decode(prepared, plan)) { error("Prepared update unavailable"); return; }
+  } else {
+    ResolveRequest query{Platform(), request.installed.release.id, request.current_executable,
+                         state.intent, request.installed.resources, {}};
+    for (auto& f : state.files) {
+      auto path = cache / FileId(f.id);
+      auto partial = path; partial += ".part";
+      if (fs::exists(path)) f.received = f.size;
+      else if (!fs::exists(partial)) f.received = 0;
+      query.received[f.id] = f.received;
+    }
+    // Reconstructed full resources can also satisfy a later first-install plan.
+    fs::recursive_directory_iterator entry{cache, ec}, end;
+    for (; !ec && entry != end; entry.increment(ec)) {
+      if (entry->path().extension() != ".component") continue;
+      auto id = entry->path().lexically_relative(cache).replace_extension().generic_string();
+      query.received[id] = entry->file_size(ec);
+    }
+    if (ec) { error("Cannot read component cache"); return; }
+    if (!request.preview) { state.phase = "catalog"; state.message.clear(); if (!report()) return; }
+    bool ok = fetch({1, ResolveUpdate, "resolve-update", 0, Encode(query)}, response)
+        && response.kind == UpdateResolved && Decode(response.payload, plan);
+    std::string message;
+    if (!ok) message = response.kind == ServiceError && !response.payload.empty()
+        ? std::string(response.payload.begin(), response.payload.end())
+        : "Update service unavailable" + (peer ? peer->Diagnostics() : "");
+    if (request.preview) {
+      if (!canceled()) ready_({state.epoch, state.intent, std::move(plan), {}, 0, true, message});
+      return;
+    }
+    if (!ok) { error(message); return; }
+    state.intent = plan.intent; // Pin latest to a concrete release before the first chunk.
   }
-  unsigned executable = state.intent.broken ? 2 : release->executable;
-  if (executable != request.current_executable) ids.push_back(ExecutableId(executable));
-  state.requested = ids;
+
+  state.requested.clear();
   state.phase = "progress";
   std::uint64_t resumed = 0;
-  for (auto const& id : ids) {
-    auto c = FindComponent(catalog, id);
-    if (!c) { error("Component missing for this platform: " + id); return; }
-    auto it = std::find_if(state.files.begin(), state.files.end(), [&](auto const& f) { return f.id == id; });
-    if (it == state.files.end()) { state.files.push_back({id, c->size, 0}); it = std::prev(state.files.end()); }
-    if (fs::exists(cache / FileId(id))) it->received = c->size;
+  for (auto const& c : plan.files) {
+    state.requested.push_back(c.id);
+    auto it = std::find_if(state.files.begin(), state.files.end(), [&](auto const& f) { return f.id == c.id; });
+    if (it == state.files.end()) { state.files.push_back({c.id, c.size, 0}); it = std::prev(state.files.end()); }
+    if (it->size != c.size) { it->size = c.size; it->received = 0; }
+    if (fs::exists(cache / FileId(c.id))) it->received = c.size;
     resumed += it->received;
   }
   if (!report()) return;
-  for (auto const& id : ids) {
+  for (auto const& id : state.requested) {
     auto& file = *std::find_if(state.files.begin(), state.files.end(), [&](auto const& f) { return f.id == id; });
     auto final = cache / FileId(id);
     if (fs::exists(final)) continue;
+    fs::create_directories(final.parent_path(), ec);
+    if (ec) { error("Cannot create component directory"); return; }
     auto partial = final; partial += ".part";
     // File data is flushed BEFORE the progress Event. A crash may leave an uncommitted tail.
     if (fs::exists(partial)) fs::resize_file(partial, file.received, ec);
@@ -151,7 +172,7 @@ void TransferWorker::Transfer(TransferRequest request) {
     if (ec) { error("Cannot truncate uncommitted tail"); return; }
     while (file.received < file.size && !canceled()) {
       auto started = Clock::now();
-      if (!fetch({1, 2, id, file.received / kChunkSize, {}}, response)) { error("Component download failed: " + id + (peer ? peer->Diagnostics() : "")); return; }
+      if (!fetch({1, RequestChunk, id, file.received / kChunkSize, {}}, response)) { error("Component download failed: " + id + (peer ? peer->Diagnostics() : "")); return; }
       if (!AppendDurable(partial, response.payload)) { error("Partial component write failed"); return; }
       file.received += response.payload.size();
       if (!report()) return;
@@ -165,21 +186,28 @@ void TransferWorker::Transfer(TransferRequest request) {
     if (ec) { error("Component completion rename failed"); return; }
   }
   if (canceled()) return;
-  TransferResult result{state.epoch, state.intent, catalog, {}, {}, {}, executable, resumed, use_delta};
-  Bytes supply;
-  if (!ReadFile(cache / FileId(ids[0]), supply) || !ReadFile(cache / FileId(ids[1]), result.language)) {
-    error("Downloaded state cannot be read"); return;
+  auto materialize = [&](Chain const& chain) {
+    if (chain.steps.empty() || chain.steps.front() == chain.target)
+      return fs::is_regular_file(cache / FileId(chain.target));
+    ae::RamDomainStorage storage;
+    unsigned version = 0; Bytes bytes;
+    auto apply = [&](std::string const& id) {
+      return ReadFile(cache / FileId(id), bytes) && ApplyStatePackage(bytes, storage, version);
+    };
+    if (!apply(chain.base)) return false;
+    for (auto const& step : chain.steps) if (!apply(step)) return false;
+    return version == chain.revision && AtomicWrite(cache / FileId(chain.target), FullState(storage, version));
+  };
+  if (!materialize(plan.supply)) { error("Cannot apply base image chain"); return; }
+  for (auto const& chain : plan.resources)
+    if (!materialize(chain)) { error("Cannot apply resource chain: " + chain.target); return; }
+  Bytes exe;
+  if (plan.executable != request.current_executable && !ReadFile(cache / FileId(plan.executable_id), exe)) {
+    error("Executable cannot be read"); return;
   }
-  if (use_delta) {
-    Bytes base; ae::RamDomainStorage storage; unsigned version = request.current_release;
-    if (!ReadFile(base_path, base) || !ApplyStatePackage(base, storage, version) ||
-        !ApplyStatePackage(supply, storage, version)) { error("Delta source version does not match"); return; }
-    result.supply = FullState(storage, release->id);
-    if (!AtomicWrite(cache / FileId(release->supply), result.supply)) { error("Reconstructed state save failed"); return; }
-  } else result.supply = std::move(supply);
-  if (ids.size() == 3 && !ReadFile(cache / FileId(ids[2]), result.executable)) { error("Executable cannot be read"); return; }
+  if (!AtomicWrite(prepared_path, Encode(plan))) { error("Cannot save prepared plan"); return; }
+  TransferResult result{state.epoch, plan.intent, std::move(plan), std::move(exe), resumed, false, {}};
   state.phase = "ready";
-  state.message = "resumed=" + std::to_string(resumed) + (use_delta ? "; delta" : "; full");
   if (report()) ready_(std::move(result));
 }
 }

@@ -60,7 +60,6 @@ class Window {
     greeting = Control(WC_STATICW, 0, 0); language_label = Control(WC_STATICW, 0, 0); release_label = Control(WC_STATICW, 0, 0);
     languages = Control(WC_LISTBOXW, LBS_NOTIFY | WS_VSCROLL | WS_TABSTOP, LanguageList);
     releases = Control(WC_LISTBOXW, LBS_NOTIFY | WS_TABSTOP, ReleaseList);
-    for (auto text : {L"R0 — initial", L"R1 — translation", L"R2 — new language", L"R3 — S1 prefab / E1"}) SendMessageW(releases, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text));
     note_label = Control(WC_STATICW, 0, 0); note = Control(WC_EDITW, ES_AUTOHSCROLL | WS_TABSTOP, NoteEdit);
     save = Control(WC_BUTTONW, BS_PUSHBUTTON | WS_TABSTOP, SaveNote);
     clones = Control(WC_LISTBOXW, WS_VSCROLL, 0); add = Control(WC_BUTTONW, BS_PUSHBUTTON | WS_TABSTOP, Add);
@@ -97,7 +96,12 @@ class Window {
       SendMessageW(languages, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(name.c_str()));
       if (code == d.language) SendMessageW(languages, LB_SETCURSEL, n, 0);
     }
-    SendMessageW(releases, LB_SETCURSEL, d.release, 0);
+    SendMessageW(releases, LB_RESETCONTENT, 0, 0);
+    for (std::size_t n = 0; n < d.distribution.releases.size(); ++n) {
+      auto title = L"R" + std::to_wstring(d.distribution.releases[n]);
+      SendMessageW(releases, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(title.c_str()));
+      if (d.distribution.releases[n] == d.release) SendMessageW(releases, LB_SETCURSEL, n, 0);
+    }
     SendMessageW(clones, LB_RESETCONTENT, 0, 0);
     for (auto const& c : d.clones) { auto text = Wide(d.text[Clone] + " " + c); SendMessageW(clones, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text.c_str())); }
     std::uint64_t done = 0, total = 0;
@@ -105,7 +109,7 @@ class Window {
     for (auto const& f : download.files) if (std::find(download.requested.begin(), download.requested.end(), f.id) != download.requested.end()) { done += f.received; total += f.size; }
     SendMessageW(progress, PBM_SETRANGE32, 0, 1000); SendMessageW(progress, PBM_SETPOS, total ? done * 1000 / total : 0, 0);
     std::string label = download.phase == "error" ? d.text[Failure] : download.phase == "activated" || download.phase == "idle" ? d.text[Ready] : d.text[Downloading];
-    Text(status, label + " · " + std::to_string(done) + " / " + std::to_string(total) + " B · " + d.device + "\n" + d.detail);
+    Text(status, label + " · " + std::to_string(done) + " / " + std::to_string(total) + " B · " + d.device + "\n" + d.detail + "  " + d.distribution.offer);
     rendering = false;
     AcknowledgeHealth(options, view);
     if (!options.snapshot_file.empty()) { auto json = InspectJson(view); if (!AtomicWrite(options.snapshot_file, Bytes{json.begin(), json.end()})) Fail("snapshot write failed"); }
@@ -138,7 +142,7 @@ class Window {
       auto n = SendMessageW(languages, LB_GETCURSEL, 0, 0);
       if (n >= 0 && static_cast<std::size_t>(n) < d.languages.size()) Send({"language", d.languages[n], 0, 0, 0, 0});
       for (std::size_t i=0;i<d.languages.size();++i) if(d.languages[i]==d.language) SendMessageW(languages,LB_SETCURSEL,i,0);
-    } else if (id == ReleaseList && event == LBN_SELCHANGE) Send({"release", "", static_cast<int>(SendMessageW(releases, LB_GETCURSEL, 0, 0)), 0, 0, 0});
+    } else if (id == ReleaseList && event == LBN_SELCHANGE) Send({"release", "", static_cast<int>(d.distribution.releases.at(SendMessageW(releases, LB_GETCURSEL, 0, 0))), 0, 0, 0});
     else if (id == SaveNote) { int n = GetWindowTextLengthW(note); std::wstring value(n + 1, 0); GetWindowTextW(note, value.data(), n + 1); value.resize(n); Send({"note", Utf8(value), 0, 0, 0, 0}); }
     else if (id == Add) Send({"clone", "", 0, 0, 0, 0});
     else if (id == SlowControl) Send({"rate", "", SendMessageW(slow, BM_GETCHECK, 0, 0) == BST_CHECKED ? 65536 : 0, 0, 0, 0});

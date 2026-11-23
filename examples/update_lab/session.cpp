@@ -30,18 +30,23 @@ Session::Session(Options options, apptraverse::ApplicationModelRuntime& runtime)
   scene_domain_.set_parent_domain(&transfer_domain_);
   unsigned version = 0;
   if (!ApplyStatePackage(Bytes{std::begin(kSeedSupply), std::end(kSeedSupply)}, backing_, version)) Fail("embedded supply load failed");
-  if (!DecodeLanguageDelivery(Bytes{std::begin(kSeedLanguage), std::end(kSeedLanguage)}, language_)) Fail("embedded language load failed");
-  auto cache = options_.profile / "local" / "components";
-  if (!fs::exists(cache / FileId("supply/0")) &&
-      !AtomicWrite(cache / FileId("supply/0"), Bytes{std::begin(kSeedSupply), std::end(kSeedSupply)})) Fail("seed cache write failed");
-  if (!fs::exists(cache / FileId(LanguageId(0, "en"))) &&
-      !AtomicWrite(cache / FileId(LanguageId(0, "en")), Bytes{std::begin(kSeedLanguage), std::end(kSeedLanguage)})) Fail("seed language cache write failed");
+  Release seed;
+  if (!Decode(Bytes{std::begin(kSeedRelease), std::end(kSeedRelease)}, seed) ||
+      !ReadLanguage(backing_, *FindLanguage(seed, "en"), language_)) Fail("embedded language load failed");
+  auto cache = Cache(options_.profile);
+  if (!fs::exists(cache / FileId(seed.supply)) &&
+      !AtomicWrite(cache / FileId(seed.supply), Bytes{std::begin(kSeedSupply), std::end(kSeedSupply)})) Fail("seed cache write failed");
+  if (!ReadInstalled(options_.profile, installed_)) {
+    installed_ = {seed, {}};
+    if (!WriteInstalled(options_.profile, installed_)) Fail("cannot initialize installed image");
+  }
+  available_ = {installed_.release.id};
   if (!apptraverse::LoadUserStorageFile(user_store_, options_.profile) ||
       !apptraverse::LoadUserStorageFile(local_store_, options_.profile / "local") ||
       !apptraverse::LoadUserStorageFile(transfer_store_, options_.profile / "local" / "transfer")) Fail("profile read failed");
   if (user_store_.state.empty()) {
     user_ = UserState::ptr::Create(ae::CreateWith{domain_}.with_id(kUserId));
-    user_->language = "en"; user_->note = ""; user_->release = 0; user_->clones = {};
+    user_->language = "en"; user_->note = ""; user_->release = installed_.release.id; user_->clones = {};
     auto clone = ClonePrefab(domain_); clone->name = "A"; user_->clones.push_back(clone);
     clone = ClonePrefab(domain_); clone->name = "B"; user_->clones.push_back(clone);
     apptraverse::InitializeRuntimeNode(*user_);
@@ -69,6 +74,21 @@ Session::Session(Options options, apptraverse::ApplicationModelRuntime& runtime)
   view_->submit = [this](Command c) { Submit(std::move(c)); };
   view_->data = {{}, {}, {}, {}, "", "", "", "", 0, UPDATE_LAB_EXECUTABLE, 0, 0, 820, 720, 0, false, false, false};
   // This root is a runtime projection, not a persisted history owner.
+  // A crash can separate the two native file replacements. Finish the durable
+  // decision before the first publication, including an offline trial boot.
+  auto const& transfer = download_->state;
+  if (transfer.phase == "ready" || transfer.phase == "staged") {
+    Bytes bytes;
+    UpdatePlan prepared{};
+    if (ReadFile(options_.profile / "local" / "prepared-plan.bin", bytes) &&
+        Decode(bytes, prepared) && prepared.executable == UPDATE_LAB_EXECUTABLE &&
+        prepared.intent.release == transfer.intent.release && prepared.intent.language == transfer.intent.language) {
+      TransferResult recovered{transfer.epoch, prepared.intent, std::move(prepared), {}, 0, false, {}};
+      recovered.resumed_bytes = recovered.plan.bytes;
+      Complete(std::move(recovered));
+      return;
+    }
+  }
   LoadContent(); Project();
 }
 Session::~Session() = default;
@@ -79,20 +99,28 @@ void Session::Save(bool save_user) {
   SaveDownload();
 }
 void Session::LoadContent() {
-  auto cache = options_.profile / "local" / "components";
-  Bytes supply, language;
+  auto const& image = installed_.release;
+  content_ready_ = false;
+  if (image.id != user_->release || image.executable != UPDATE_LAB_EXECUTABLE) return;
+  auto resource = FindLanguage(image, user_->language);
+  if (!resource) return;
+  auto cache = Cache(options_.profile);
+  Bytes bytes;
   unsigned version = 0;
-  if (user_->release == 3 && UPDATE_LAB_SCHEMA == 0) { content_ready_ = false; return; }
-  if (!ReadFile(cache / FileId("supply/" + std::to_string(user_->release)), supply) ||
-      !ReadFile(cache / FileId(LanguageId(user_->release, user_->language)), language) ||
-      !DecodeLanguageDelivery(language, language_) ||
-      !ApplyStatePackage(supply, backing_, version)) { content_ready_ = false; return; }
-  active_release_ = version;
+  if (!ReadFile(cache / FileId(image.supply), bytes) || !ApplyStatePackage(bytes, backing_, version) || version != image.id) return;
+  ae::RamDomainStorage downloaded;
+  if (!resource->full.empty()) {
+    unsigned revision = 0;
+    if (!installed_.resources.contains(resource->locale) ||
+        !ReadFile(cache / FileId(resource->full), bytes) || !ApplyStatePackage(bytes, downloaded, revision) ||
+        revision != resource->revision) return;
+  }
+  if (!ReadLanguage(resource->full.empty() ? backing_ : downloaded, *resource, language_)) return;
 #if UPDATE_LAB_SCHEMA
   for (auto const& c : user_->clones) {
     auto clone = c.Load();
     clone->owns_badge = user_store_.Load({c.id(), TextObject::kClassId, 1}).result == ae::DomainLoadResult::kLoaded;
-    if (version == 3) {
+    if (backing_.Load({kPrefabId, TextObject::kClassId, 1}).result == ae::DomainLoadResult::kLoaded) {
       ae::DomainGraph graph{&domain_};
       auto result = graph.LoadVersion(ae::Version<1>{}, *clone, c.id());
       if (result.IsErr()) Fail("S1 origin load failed");
@@ -110,7 +138,8 @@ void Session::Project() {
   data.note = user_->note; data.device = local_->device;
   data.release = user_->release; data.executable = UPDATE_LAB_EXECUTABLE;
   data.x = local_->x; data.y = local_->y; data.width = local_->width; data.height = local_->height;
-  data.rate = local_->bytes_per_second; data.ready = content_ready_; data.restarting = restart_; data.commands_done = initial_done_;
+  data.rate = local_->bytes_per_second; data.ready = content_ready_; data.restarting = restart_; data.commands_done = initial_done_ && !discovering_;
+  data.distribution.releases = available_; data.distribution.offer = offer_; data.distribution.installed = installed_.resources;
   data.clones.clear();
   data.clone_ids.clear();
   for (auto const& c : user_->clones) {
@@ -118,7 +147,7 @@ void Session::Project() {
     auto clone = c.Load();
     std::string value = clone->name;
 #if UPDATE_LAB_SCHEMA
-    if (content_ready_ && active_release_ == 3) value += "  [" + clone->badge + "]";
+    if (content_ready_ && backing_.Load({kPrefabId, TextObject::kClassId, 1}).result == ae::DomainLoadResult::kLoaded) value += "  [" + clone->badge + "]";
 #endif
     data.clones.push_back(value);
   }
@@ -143,30 +172,39 @@ void Session::Initial() {
 #if UPDATE_LAB_SCHEMA
     if (!options_.badge.empty()) user_->Change(4, options_.badge, 0);
 #endif
-    if (options_.release >= 0 || !options_.language.empty() || options_.broken) {
+    if (options_.latest || options_.release >= 0 || !options_.language.empty() || options_.broken) {
       unsigned release = options_.release >= 0 ? static_cast<unsigned>(options_.release) : user_->release;
       std::string language = options_.language.empty() ? user_->language : options_.language;
-      if (release < 2 && language == "de") language = "en";
+      if (options_.latest) release = kLatest;
       Request({release, language, options_.broken});
       requested = true;
     }
   }
   if (!requested && (download_->state.phase == "queued" || download_->state.phase == "catalog" ||
       download_->state.phase == "progress" || download_->state.phase == "ready" || download_->state.phase == "staged" || download_->state.phase == "error")) {
-    Request(download_->state.intent);
+    Request(download_->state.intent, download_->state.phase == "staged" || download_->state.phase == "ready");
   } else if (!requested && !content_ready_) Request({user_->release, user_->language, false});
+  else if (!requested && !options_.no_action && (!options_.store.empty() || !options_.provider.empty())) Discover();
   if (!options_.export_file.empty() && content_ready_ &&
       (download_->state.phase == "idle" || download_->state.phase == "activated" || download_->state.phase == "rolled-back")) {
     Save(); if (!AtomicWrite(options_.export_file, FullState(user_store_, user_->release))) Fail("export failed");
   }
   Project();
 }
-void Session::Request(Intent intent) {
-  if (intent.release > 3) { auto state = download_->state; state.phase = "error"; state.message = "Unknown release"; download_->Change(state); Project(); return; }
+void Session::Discover() {
+  discovering_ = true;
+  auto state = download_->state;
+  state.intent = {kLatest, user_->language, false};
+  worker_->Begin({state, installed_, UPDATE_LAB_EXECUTABLE, 0, true, false});
+}
+void Session::Request(Intent intent, bool prepared) {
+  discovering_ = false;
+  offer_.clear();
   auto state = download_->state; ++state.epoch; state.intent = std::move(intent);
-  state.phase = "queued"; state.message.clear(); state.requested.clear();
+  if (!prepared) state.phase = "queued";
+  state.message.clear(); state.requested.clear();
   download_->Change(state); SaveDownload();
-  worker_->Begin({state, active_release_, UPDATE_LAB_EXECUTABLE, local_->bytes_per_second});
+  worker_->Begin({state, installed_, UPDATE_LAB_EXECUTABLE, local_->bytes_per_second, false, prepared});
   Project();
 }
 bool Session::Report(DownloadSnapshot state) {
@@ -179,32 +217,43 @@ bool Session::Report(DownloadSnapshot state) {
 }
 void Session::Complete(TransferResult result) {
   if (result.epoch != download_->state.epoch) return;
-  if (result.executable_version != UPDATE_LAB_EXECUTABLE) {
+  if (result.preview) {
+    discovering_ = false;
+    if (result.error.empty()) {
+      available_ = result.plan.available;
+      offer_ = "R" + std::to_string(result.plan.intent.release) + " / E" + std::to_string(result.plan.executable)
+        + (result.plan.executable_id.empty() ? " · " : " · EXE · ") + std::to_string(result.plan.remaining) + " B";
+    } else offer_ = result.error;
+    Project(); return;
+  }
+  available_ = result.plan.available;
+  if (result.plan.executable != UPDATE_LAB_EXECUTABLE) {
     Save();
-    if (options_.install.empty() || !StageExecutable(options_.install, options_.profile, result.executable, result.executable_version)) {
+    if (options_.install.empty() || !StageExecutable(options_.install, options_.profile, result.executable, result.plan.executable)) {
       auto state = download_->state; state.phase = "error"; state.message = "Start with update_lab_launcher to install an executable";
       download_->Change(state); SaveDownload(); Project(); return;
     }
     auto state = download_->state; state.phase = "staged";
     download_->Change(state); SaveDownload(); restart_ = true; Project(); return;
   }
-  ae::RamDomainStorage candidate; unsigned version = active_release_;
-  LanguagePack language;
-  if (!ApplyStatePackage(result.supply, candidate, version) ||
-      !DecodeLanguageDelivery(result.language, language) || !ValidPack(language, result.intent.language)) Fail("canonical package load failed");
-  // No externally visible publication occurs between these operations.
-  backing_.state = std::move(candidate.state); backing_.object_scopes = std::move(candidate.object_scopes);
+  // The persisted ready intent and prepared plan replay an interrupted activation.
+  installed_ = result.plan.image;
+  if (!WriteInstalled(options_.profile, installed_)) Fail("installed inventory save failed");
   user_->Change(0, result.intent.language, result.intent.release);
   LoadContent();
-  Save(); // USER contains the release and locale together, atomically replaced.
+  if (!content_ready_) Fail("prepared image activation failed");
+  Save();
   auto state = download_->state; state.phase = "activated";
-  state.message = "resumed=" + std::to_string(result.resumed_bytes) + (result.used_delta ? "; delta" : "; full");
+  state.message = "resumed=" + std::to_string(result.resumed_bytes) + (result.plan.supply.steps.empty() ? "; current" : result.plan.supply.base.empty() ? "; full" : "; delta");
   download_->Change(state); SaveDownload(); Project();
   if (!options_.export_file.empty() && !AtomicWrite(options_.export_file, FullState(user_store_, user_->release))) Fail("export failed");
 }
 void Session::Import(fs::path const& path) {
   Bytes bytes; ae::RamDomainStorage imported; unsigned version = 0;
   if (!ReadFile(path, bytes) || !ApplyStatePackage(bytes, imported, version) || !imported.state.contains(kUserId)) Fail("USER import failed");
+  auto state = download_->state;
+  ++state.epoch; state.phase = "idle"; state.message.clear(); state.requested.clear();
+  download_->Change(state);
   Save(false); SaveNative(imported, options_.profile);
   imported_ = true; restart_ = true; Project();
 }
@@ -213,7 +262,7 @@ void Session::Submit(Command command) {
   if (command.action == "language") Request({user_->release, command.text, false});
   else if (command.action == "release") {
     unsigned release = static_cast<unsigned>(command.a);
-    Request({release, release < 2 && user_->language == "de" ? "en" : user_->language, false});
+    Request({release, user_->language, false});
   } else if (command.action == "broken") Request({user_->release, user_->language, true});
   else if (command.action == "note") user_->Change(1, command.text);
   else if (command.action == "clone") AddClone();
@@ -244,12 +293,24 @@ std::string InspectJson(LabView const& view) {
   auto const& d = view.data; auto const& state = view.download->state;
   std::string result = "{\"release\":" + std::to_string(d.release) + ",\"executable\":" + std::to_string(d.executable) +
       ",\"language\":" + Quote(d.language) + ",\"note\":" + Quote(d.note) + ",\"device\":" + Quote(d.device) +
-      ",\"rate\":" + std::to_string(d.rate) + ",\"greeting\":" + Quote(d.text[Greeting]) +
+      ",\"rate\":" + std::to_string(d.rate) + ",\"greeting\":" + Quote(d.text[Greeting]) + ",\"offer\":" + Quote(d.distribution.offer) +
       ",\"ready\":" + (d.ready ? "true" : "false") + ",\"phase\":" + Quote(state.phase) + ",\"message\":" + Quote(state.message) + ",\"clones\":[";
   for (std::size_t i = 0; i < d.clones.size(); ++i) { if (i) result += ','; result += Quote(d.clones[i]); }
   result += "],\"clone_ids\":[";
   for (std::size_t i = 0; i < d.clone_ids.size(); ++i) { if(i) result += ','; result += std::to_string(d.clone_ids[i]); }
-  result += "],\"files\":[";
+  result += "],\"requested\":[";
+  for (std::size_t i = 0; i < state.requested.size(); ++i) {
+    if (i) result += ',';
+    result += Quote(state.requested[i]);
+  }
+  result += "],\"installed\":{";
+  bool first = true;
+  for (auto const& [locale, rev] : d.distribution.installed) {
+    if (!first) result += ',';
+    result += Quote(locale) + ":" + std::to_string(rev);
+    first = false;
+  }
+  result += "},\"files\":[";
   for (std::size_t i = 0; i < state.files.size(); ++i) {
     if (i) result += ',';
     auto const& f = state.files[i];

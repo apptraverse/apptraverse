@@ -1,6 +1,14 @@
 #include "install.h"
 #include "state_package.h"
 namespace update_lab {
+fs::path Cache(fs::path const& profile) { return profile / "local" / "packages"; }
+bool ReadInstalled(fs::path const& profile, InstalledImage& installed) {
+  Bytes bytes;
+  return ReadFile(profile / "local" / "installed.bin", bytes) && Decode(bytes, installed);
+}
+bool WriteInstalled(fs::path const& profile, InstalledImage const& installed) {
+  return AtomicWrite(profile / "local" / "installed.bin", Encode(installed));
+}
 bool LoadInstallation(fs::path const& p, Installation& i) {
   Bytes b; return ReadFile(p / "installation.bin", b) && Decode(b, i);
 }
@@ -8,13 +16,13 @@ bool SaveInstallation(fs::path const& p, Installation const& i) {
   return AtomicWrite(p / "installation.bin", Encode(i));
 }
 bool SnapshotProfile(fs::path const& install, fs::path const& profile) {
-  for (auto const& relative : {fs::path{"user.bin"}, fs::path{"local/user.bin"}}) {
+  for (auto const& relative : {fs::path{"user.bin"}, fs::path{"local/user.bin"}, fs::path{"local/installed.bin"}}) {
     if (!CopyAtomic(profile / relative, install / "rollback" / relative)) return false;
   }
   return true;
 }
 bool RestoreProfile(fs::path const& install, fs::path const& profile) {
-  for (auto const& relative : {fs::path{"user.bin"}, fs::path{"local/user.bin"}})
+  for (auto const& relative : {fs::path{"user.bin"}, fs::path{"local/user.bin"}, fs::path{"local/installed.bin"}})
     if (!CopyAtomic(install / "rollback" / relative, profile / relative)) return false;
   return AtomicWrite(profile / "local" / "rolled-back", Bytes{'1'});
 }

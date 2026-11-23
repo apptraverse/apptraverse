@@ -6,6 +6,9 @@ struct Installation {
   unsigned active_version, candidate_version;
   AE_REFLECT_MEMBERS(phase, active, previous, candidate, active_version, candidate_version)
 };
+fs::path Cache(fs::path const& profile);
+bool ReadInstalled(fs::path const&, InstalledImage&);
+bool WriteInstalled(fs::path const&, InstalledImage const&);
 bool LoadInstallation(fs::path const&, Installation&);
 bool SaveInstallation(fs::path const&, Installation const&);
 bool SnapshotProfile(fs::path const& installation, fs::path const& profile);

@@ -60,7 +60,7 @@ struct Child {
 };
 }
 int main(int argc, char** argv) {
-  fs::path install, profile, seed;
+  fs::path install, profile, seed, image;
   unsigned timeout_ms = 30000;
   std::vector<std::string> forwarded;
   bool suppress_health = false;
@@ -68,6 +68,7 @@ int main(int argc, char** argv) {
     std::string arg = argv[n];
     if (arg == "--install" && n + 1 < argc) install = fs::absolute(argv[++n]);
     else if (arg == "--profile" && n + 1 < argc) profile = fs::absolute(argv[++n]);
+    else if (arg == "--image" && n + 1 < argc) image = fs::absolute(argv[++n]);
     else if (arg == "--seed" && n + 1 < argc) seed = fs::absolute(argv[++n]);
     else if (arg == "--health-timeout-ms" && n + 1 < argc) timeout_ms = static_cast<unsigned>(std::stoul(argv[++n]));
     else if (arg == "--suppress-candidate-health") suppress_health = true;
@@ -82,14 +83,32 @@ int main(int argc, char** argv) {
   }
   Installation state;
   if (!LoadInstallation(install, state)) {
-    if (seed.empty()) Fail("first launch requires --seed <E0 executable>");
-    auto path = install / "slots" / "E0" / BinaryName();
+    unsigned version = 0;
+    if (image.empty() && seed.empty()) {
+      auto adjacent = fs::absolute(argv[0]).parent_path().parent_path();
+      if (fs::is_regular_file(adjacent / "release.bin")) image = adjacent;
+    }
+    if (!image.empty()) {
+      Bytes bytes;
+      InstalledImage installed;
+      if (fs::exists(profile / "user.bin"))
+        Fail("--image requires a fresh profile for a new installation");
+      if (!ReadFile(image / "release.bin", bytes) || !Decode(bytes, installed.release)) Fail("missing image description");
+      seed = image / Platform() / BinaryName();
+      version = installed.release.executable;
+      if (!fs::is_regular_file(seed) || !CopyAtomic(image / "full.ats", Cache(profile) / FileId(installed.release.supply)))
+        Fail("incomplete installation image");
+      if (!WriteInstalled(profile, installed)) Fail("cannot install image state");
+    }
+    if (seed.empty()) Fail("first launch requires --image or --seed");
+    auto slot = "E" + std::to_string(version);
+    auto path = install / "slots" / slot / BinaryName();
     if (!CopyAtomic(seed, path)) Fail("seed installation failed");
 #ifndef _WIN32
     std::error_code ec; fs::permissions(path, fs::perms::owner_exec, fs::perm_options::add, ec);
     if (ec) Fail("seed chmod failed");
 #endif
-    state = {"stable", "E0", "", "", 0, 0};
+    state = {"stable", slot, "", "", version, 0};
     if (!SaveInstallation(install, state)) Fail("installation write failed");
   }
   bool rolled_back = false, no_action = false;
@@ -122,7 +141,7 @@ int main(int argc, char** argv) {
     auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds{timeout_ms};
     bool healthy = false, exited = false;
     int code = 0;
-    while (true) {
+    auto confirm = [&] {
       Bytes ack;
       if (!healthy && ReadFile(health, ack) && std::string{ack.begin(), ack.end()} == token) {
         healthy = true;
@@ -133,7 +152,10 @@ int main(int argc, char** argv) {
           std::cerr << "UPDATE_HEALTHY " << state.active << '\n';
         }
       }
-      if (child.Poll(code)) { exited = true; break; }
+    };
+    while (true) {
+      confirm();
+      if (child.Poll(code)) { confirm(); exited = true; break; }
       if (trial && !healthy && std::chrono::steady_clock::now() >= deadline) { child.Kill(); code = 87; break; }
       std::this_thread::sleep_for(std::chrono::milliseconds{20});
     }

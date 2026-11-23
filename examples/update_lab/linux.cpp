@@ -37,13 +37,20 @@ struct Window {
     for (auto const& l : d.languages) { auto row=gtk_label_new(l=="en"?"English":l=="ru"?"Русский":"Deutsch"); gtk_container_add(GTK_CONTAINER(languages),row); }
     gtk_widget_show_all(languages);
     for (std::size_t n=0;n<d.languages.size();++n) if(d.languages[n]==d.language) gtk_list_box_select_row(GTK_LIST_BOX(languages),gtk_list_box_get_row_at_index(GTK_LIST_BOX(languages),n));
-    gtk_list_box_select_row(GTK_LIST_BOX(releases),gtk_list_box_get_row_at_index(GTK_LIST_BOX(releases),d.release));
+    Clear(releases);
+    for (std::size_t n = 0; n < d.distribution.releases.size(); ++n) {
+      auto title = "R" + std::to_string(d.distribution.releases[n]);
+      gtk_container_add(GTK_CONTAINER(releases),gtk_label_new(title.c_str()));
+      if (d.distribution.releases[n] == d.release)
+        gtk_list_box_select_row(GTK_LIST_BOX(releases),gtk_list_box_get_row_at_index(GTK_LIST_BOX(releases),n));
+    }
+    gtk_widget_show_all(releases);
     Clear(clones); for(auto const& c:d.clones) { auto text=d.text[Clone]+" "+c; gtk_container_add(GTK_CONTAINER(clones),gtk_label_new(text.c_str())); } gtk_widget_show_all(clones);
     auto const& download=view.download->state; std::uint64_t done=0,total=0;
     for(auto const& f:download.files) if(std::find(download.requested.begin(),download.requested.end(),f.id)!=download.requested.end()) { done+=f.received;total+=f.size; }
     gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress),total?double(done)/total:0);
     std::string text=download.phase=="error"?d.text[Failure]:download.phase=="activated"||download.phase=="idle"?d.text[Ready]:d.text[Downloading];
-    text += " · "+std::to_string(done)+" / "+std::to_string(total)+" B · "+d.device+"\n"+d.detail;
+    text += " · "+std::to_string(done)+" / "+std::to_string(total)+" B · "+d.device+"\n"+d.detail+"  "+d.distribution.offer;
     gtk_label_set_text(GTK_LABEL(status),text.c_str());
     rendering=false; AcknowledgeHealth(options,view);
     if(!options.snapshot_file.empty()) { auto json=InspectJson(view);if(!AtomicWrite(options.snapshot_file,Bytes{json.begin(),json.end()}))Fail("snapshot write failed"); }
@@ -79,7 +86,6 @@ struct Window {
     auto columns=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,20);put(columns);
     auto column=[&](GtkWidget*& label,GtkWidget*& list) { auto box=gtk_box_new(GTK_ORIENTATION_VERTICAL,8);gtk_box_pack_start(GTK_BOX(columns),box,TRUE,TRUE,0);label=gtk_label_new("");gtk_box_pack_start(GTK_BOX(box),label,FALSE,FALSE,0);list=gtk_list_box_new();gtk_box_pack_start(GTK_BOX(box),list,TRUE,TRUE,0); };
     column(language_label,languages);column(release_label,releases);
-    for(auto text:{"R0 — initial","R1 — translation","R2 — new language","R3 — S1 prefab / E1"})gtk_container_add(GTK_CONTAINER(releases),gtk_label_new(text));
     note_label=gtk_label_new("");put(note_label);
     auto row=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,10);put(row);note=gtk_entry_new();save=gtk_button_new();gtk_box_pack_start(GTK_BOX(row),note,TRUE,TRUE,0);gtk_box_pack_start(GTK_BOX(row),save,FALSE,FALSE,0);
     clones=gtk_list_box_new();auto scroller=gtk_scrolled_window_new(nullptr,nullptr);gtk_container_add(GTK_CONTAINER(scroller),clones);put(scroller,true);
@@ -95,7 +101,7 @@ struct Window {
         gtk_list_box_select_row(GTK_LIST_BOX(self.languages),gtk_list_box_get_row_at_index(GTK_LIST_BOX(self.languages),i));
       self.rendering=false;
     }),this);
-    g_signal_connect(releases,"row-selected",G_CALLBACK(+[](GtkListBox*,GtkListBoxRow* row,gpointer p){auto& self=*static_cast<Window*>(p);if(!self.rendering&&row&&self.ui)self.Send({"release","",gtk_list_box_row_get_index(row),0,0,0});}),this);
+    g_signal_connect(releases,"row-selected",G_CALLBACK(+[](GtkListBox*,GtkListBoxRow* row,gpointer p){auto& self=*static_cast<Window*>(p);if(!self.rendering&&row&&self.ui)self.Send({"release","",static_cast<int>(static_cast<LabView&>(self.ui->root()).data.distribution.releases.at(gtk_list_box_row_get_index(row))),0,0,0});}),this);
     g_signal_connect(save,"clicked",G_CALLBACK(+[](GtkButton*,gpointer p){auto& s=*static_cast<Window*>(p);s.Send({"note",gtk_entry_get_text(GTK_ENTRY(s.note)),0,0,0,0});}),this);
     g_signal_connect(add,"clicked",G_CALLBACK(+[](GtkButton*,gpointer p){static_cast<Window*>(p)->Send({"clone","",0,0,0,0});}),this);
     g_signal_connect(slow,"toggled",G_CALLBACK(+[](GtkToggleButton* b,gpointer p){auto& s=*static_cast<Window*>(p);if(!s.rendering)s.Send({"rate","",gtk_toggle_button_get_active(b)?65536:0,0,0,0});}),this);

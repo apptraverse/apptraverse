@@ -4,6 +4,8 @@ param(
     [string]$ObjectsSource = "",
     [string]$TelemetrySource = "",
     [string]$LinuxBinaries = "",
+    [ValidateRange(0, 3)][int]$Through = 3,
+    [string]$Store = "artifacts/update-lab/device-releases",
     [string]$Cache = "C:/cpm"
 )
 $ErrorActionPreference = "Stop"
@@ -27,12 +29,28 @@ try {
     & "$BuildDirectory/examples/update_lab/Debug/update_lab_state_test.exe"
     if ($LASTEXITCODE) { throw "State tests failed" }
     $binaries = (Resolve-Path "$BuildDirectory/examples/update_lab/Debug").Path
-    $publish = @('publish', '--out', 'artifacts/update-lab/store',
-        '--windows-x64-e0', "$binaries/update_lab_e0.exe", '--windows-x64-e1', "$binaries/update_lab_e1.exe", '--windows-x64-e2', "$binaries/update_lab_e2.exe")
+    $publish = @('publish', '--out', $Store, '--through', $Through,
+        '--windows-x64-launcher', "$binaries/update_lab_launcher.exe", '--windows-x64-e0', "$binaries/update_lab_e0.exe", '--windows-x64-e1', "$binaries/update_lab_e1.exe", '--windows-x64-e2', "$binaries/update_lab_e2.exe")
+    $generated = Join-Path $BuildDirectory "_deps/aether-client-cpp-build/generated/aether-catalog"
+    $catalog = Join-Path $BuildDirectory "update-lab-package/aether-catalog"
+    if (Test-Path -LiteralPath "$generated/build.json") {
+        New-Item -ItemType Directory -Path $catalog -Force | Out-Null
+        Copy-Item -LiteralPath "$generated/build.json" -Destination $catalog -Force
+        Copy-Item -LiteralPath "$generated/catalogs" -Destination $catalog -Recurse -Force
+    }
+    foreach ($revision in 0..1) {
+        if (Test-Path -LiteralPath "$generated/build.json") { $publish += @("--windows-x64-e$revision-telemetry", $catalog) }
+        $publish += @("--windows-x64-e$revision-symbols", "$binaries/update_lab_e$revision.pdb")
+    }
     if ($LinuxBinaries) {
         $linuxPayload = (Resolve-Path -LiteralPath $LinuxBinaries).ProviderPath
+        $publish += @("--linux-x64-launcher", (Join-Path $linuxPayload "update_lab_launcher"))
         foreach ($revision in 0..2) {
             $publish += @("--linux-x64-e$revision", (Join-Path $linuxPayload "update_lab_e$revision"))
+            $catalog = Join-Path $linuxPayload "aether-catalog"
+            if (Test-Path -LiteralPath "$catalog/build.json") { $publish += @("--linux-x64-e$revision-telemetry", $catalog) }
+            $symbols = Join-Path $linuxPayload "update_lab_e$revision.debug"
+            if (Test-Path -LiteralPath $symbols) { $publish += @("--linux-x64-e$revision-symbols", $symbols) }
         }
     }
     & "$binaries/update_lab_pack.exe" @publish

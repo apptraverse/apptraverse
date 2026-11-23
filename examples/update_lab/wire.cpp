@@ -104,7 +104,7 @@ bool CopyAtomic(fs::path const& source, fs::path const& dest) {
   return ReadFile(source, bytes) && AtomicWrite(dest, bytes);
 }
 bool ReadCatalog(Bytes const& bytes, Catalog& catalog) {
-  return Decode(bytes, catalog) && catalog.format == 1;
+  return Decode(bytes, catalog) && catalog.format == 2;
 }
 Component const* FindComponent(Catalog const& catalog, std::string const& id) {
   for (auto const& c : catalog.components) if (c.id == id) return &c;
@@ -136,10 +136,9 @@ std::string LanguageId(unsigned r, std::string const& l) {
   return "language/" + std::to_string(r) + "/" + l;
 }
 std::string ExecutableId(unsigned e) {
-  return "executable/" + Platform() + "/" + std::to_string(e);
+  return ExeId(Platform(), e);
 }
 std::string FileId(std::string id) {
-  std::replace(id.begin(), id.end(), '/', '_');
   return id + ".component";
 }
 FileLock::FileLock(fs::path const& path) {

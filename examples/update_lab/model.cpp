@@ -4,6 +4,7 @@
 namespace update_lab {
 APPTRAVERSE_REGISTER(TextObject);
 APPTRAVERSE_REGISTER(LocalizationState);
+APPTRAVERSE_REGISTER(LocalizedString);
 APPTRAVERSE_REGISTER(SupplyDefinition);
 APPTRAVERSE_REGISTER(UserState);
 APPTRAVERSE_REGISTER(UserChanged);
@@ -13,15 +14,14 @@ APPTRAVERSE_REGISTER(DownloadNode);
 APPTRAVERSE_REGISTER(DownloadChanged);
 APPTRAVERSE_REGISTER(LabView);
 void RegisterModel() { apptraverse::EnsureCoreObjectRegistration(); apptraverse::EnsureClientLocalStateRegistration(); }
-bool DecodeLanguageDelivery(Bytes const& bytes, LanguagePack& language) {
-  StatePackage package; Bytes raw; LanguageDelivery delivery;
-  if (!UnpackRaw(bytes, package, raw) || !Decode(raw, delivery)) return false;
-  ae::RamDomainStorage storage; unsigned version = 0;
-  if (!ApplyStatePackage(delivery.native_image, storage, version)) return false;
+bool ReadLanguage(ae::RamDomainStorage& storage, Resource const& resource, LanguagePack& language) {
+  ae::ObjId root{resource.root};
+  if (!storage.state.contains(root)) return false;
   ae::Domain domain{storage};
-  auto state = apptraverse::LoadApplication<LocalizationState>(domain, delivery.root);
-  language = {state->locale, state->text, {}};
-  return true;
+  auto state = apptraverse::LoadApplication<LocalizationState>(domain, root);
+  language = {state->locale, {}, {}};
+  for (auto const& entry : state->strings) language.text.push_back(entry.Load()->value);
+  return ValidPack(language, resource.locale);
 }
 void UserState::Apply(UserChanged const& e) {
   if (e.action == 0) { language = e.text; release = e.value; }

@@ -17,19 +17,27 @@ inline constexpr std::uint64_t kMaxBlobSize = 256 * 1024 * 1024;
 struct Component {
   std::string id;
   std::uint64_t size;
-  AE_REFLECT_MEMBERS(id, size)
+  std::string path; // Relative to the published store.
+  AE_REFLECT_MEMBERS(id, size, path)
+};
+inline constexpr unsigned kLatest = UINT32_MAX;
+struct Resource {
+  std::string locale, full; // An empty component ID places this root in the base image.
+  unsigned root, revision;
+  AE_REFLECT_MEMBERS(locale, full, root, revision)
 };
 struct Release {
   std::uint32_t id, executable;
   std::string supply;
-  std::vector<std::string> languages;
+  std::vector<Resource> languages;
   AE_REFLECT_MEMBERS(id, executable, supply, languages)
 };
 struct Catalog {
   std::uint32_t format, generation;
   std::vector<Release> releases;
   std::vector<Component> components;
-  AE_REFLECT_MEMBERS(format, generation, releases, components)
+  std::map<std::string, std::vector<unsigned>> platforms;
+  AE_REFLECT_MEMBERS(format, generation, releases, components, platforms)
 };
 struct LanguagePack {
   std::string locale;
@@ -48,8 +56,47 @@ struct Intent {
   bool broken;
   AE_REFLECT_MEMBERS(release, language, broken)
 };
+struct InstalledImage {
+  Release release;
+  std::map<std::string, unsigned> resources; // Includes inactive installed locales.
+  AE_REFLECT_MEMBERS(release, resources)
+};
+struct ResolveRequest {
+  std::string platform;
+  unsigned current, executable;
+  Intent target;
+  std::map<std::string, unsigned> installed;
+  std::map<std::string, std::uint64_t> received;
+  AE_REFLECT_MEMBERS(platform, current, executable, target, installed, received)
+};
+struct Chain {
+  std::string base, target;
+  unsigned revision;
+  std::vector<std::string> steps;
+  AE_REFLECT_MEMBERS(base, target, revision, steps)
+};
+struct UpdatePlan {
+  std::vector<unsigned> available;
+  InstalledImage image;
+  Intent intent;
+  Chain supply;
+  std::vector<Chain> resources;
+  unsigned executable;
+  std::string executable_id;
+  std::vector<Component> files;
+  std::uint64_t bytes{}, remaining{};
+  AE_REFLECT_MEMBERS(available, image, intent, supply, resources, executable,
+                     executable_id, files, bytes, remaining)
+};
+std::string Resolve(Catalog const&, ResolveRequest const&, UpdatePlan&);
+Resource const* FindLanguage(Release const&, std::string const&);
+std::string DeltaId(unsigned from, unsigned to, std::string const& locale = {});
+std::string ExeId(std::string const& platform, unsigned version);
+enum FrameKind : std::uint32_t {
+  RequestChunk = 2, Chunk = 4, ServiceError = 5, ResolveUpdate = 6, UpdateResolved = 7
+};
 struct Frame {
-  std::uint32_t protocol, kind; // 1/catalog request, 2/chunk request, 3/4 replies, 5/error
+  std::uint32_t protocol, kind;
   std::string id;
   std::uint64_t chunk;
   Bytes payload;

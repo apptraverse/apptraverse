@@ -7,16 +7,18 @@
 namespace update_lab {
 struct TransferRequest {
   DownloadSnapshot snapshot;
-  unsigned current_release, current_executable, bytes_per_second;
+  InstalledImage installed;
+  unsigned current_executable, bytes_per_second;
+  bool preview, prepared;
 };
 struct TransferResult {
   std::uint64_t epoch;
   Intent intent;
-  Catalog catalog;
-  Bytes supply, language, executable;
-  unsigned executable_version;
-  std::uint64_t resumed_bytes;
-  bool used_delta;
+  UpdatePlan plan;
+  Bytes executable;
+  std::uint64_t resumed_bytes{};
+  bool preview{};
+  std::string error;
 };
 class TransferWorker {
  public:

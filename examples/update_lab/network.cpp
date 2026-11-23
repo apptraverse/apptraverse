@@ -139,23 +139,27 @@ std::string AetherPeer::Diagnostics() const {
   return result;
 }
 Frame Serve(fs::path const& store, Frame const& request) {
-  Frame reply{1, 5, request.id, request.chunk, {}};
+  Frame reply{1, ServiceError, request.id, request.chunk, {}};
   reply.request = request.request;
-  if (request.kind == 1) {
-    if (ReadFile(store / "catalog.bin", reply.payload)) reply.kind = 3;
-    return reply;
-  }
-  if (request.kind != 2) return reply;
   Catalog catalog; Bytes bytes;
   if (!ReadFile(store / "catalog.bin", bytes) || !ReadCatalog(bytes, catalog)) return reply;
+  if (request.kind == ResolveUpdate) {
+    ResolveRequest query; UpdatePlan plan;
+    if (!Decode(request.payload, query)) return reply;
+    auto error = Resolve(catalog, query, plan);
+    if (!error.empty()) { reply.payload.assign(error.begin(), error.end()); return reply; }
+    reply.kind = UpdateResolved; reply.payload = Encode(plan);
+    return reply;
+  }
+  if (request.kind != RequestChunk) return reply;
   auto const* component = FindComponent(catalog, request.id);
-  if (!component || request.chunk * kChunkSize >= component->size) return reply;
-  std::ifstream file{store / "components" / FileId(component->id), std::ios::binary};
+  if (!component || !component->size || request.chunk > (component->size - 1) / kChunkSize) return reply;
+  std::ifstream file{store / component->path, std::ios::binary};
   auto size = std::min(kChunkSize, component->size - request.chunk * kChunkSize);
   reply.payload.resize(static_cast<std::size_t>(size));
   file.seekg(static_cast<std::streamoff>(request.chunk * kChunkSize));
   file.read(reinterpret_cast<char*>(reply.payload.data()), static_cast<std::streamsize>(size));
-  if (file) reply.kind = 4;
+  if (file) reply.kind = Chunk;
   return reply;
 }
 }

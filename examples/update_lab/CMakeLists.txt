@@ -1,7 +1,7 @@
 CPMAddPackage(NAME zstd GITHUB_REPOSITORY facebook/zstd GIT_TAG v1.5.7
   SOURCE_SUBDIR build/cmake OPTIONS "ZSTD_BUILD_PROGRAMS OFF" "ZSTD_BUILD_SHARED OFF"
   "ZSTD_BUILD_TESTS OFF" "ZSTD_MULTITHREAD_SUPPORT OFF" "ZSTD_BUILD_STATIC ON")
-add_library(update_lab_wire STATIC wire.cpp state_package.cpp install.cpp)
+add_library(update_lab_wire STATIC wire.cpp resolve.cpp state_package.cpp install.cpp)
 target_link_libraries(update_lab_wire PUBLIC apptraverse libzstd_static)
 if(MSVC)
   target_compile_options(apptraverse PRIVATE /MP8)

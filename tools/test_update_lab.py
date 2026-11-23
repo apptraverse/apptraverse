@@ -81,6 +81,73 @@ def main():
         checks.append(name)
         print("PASS", name, flush=True)
 
+    # Offline installation uses the binary and full state of the selected release.
+    for revision in range(4):
+        image = args.store.resolve() / "images" / f"R{revision}"
+        device = run / f"clean-R{revision}"
+        shot = run / f"clean-R{revision}.json"
+        command = [image / "windows-x64" / "update_lab_launcher.exe", "--profile", device, "--install", run / f"slots-R{revision}",
+                   "--headless", "--snapshot-file", shot]
+        subprocess.run(command, check=True, capture_output=True, timeout=30)
+        fresh = json.loads(shot.read_text(encoding="utf-8"))
+        check(f"offline image boots directly at R{revision}", fresh["release"] == revision and fresh["ready"]
+              and fresh["executable"] == int(revision == 3) and fresh["files"] == [] and fresh["installed"] == {})
+
+    # Republish only the new releases of the same store while this R0 remains installed.
+    live = run / "distribution"
+    def publish(through):
+        binaries = args.windows_bin.resolve()
+        command = [binaries / "update_lab_pack.exe", "publish", "--out", live, "--through", str(through)]
+        for i in range(3):
+            command.extend([f"--windows-x64-e{i}", binaries / f"update_lab_e{i}.exe"])
+        subprocess.run(command, check=True, capture_output=True, timeout=90)
+
+    probe = run / "discovery-profile"
+    publish(1)
+    win.launch(probe, "--store", live, "--language", "ru")
+    win.launch(probe, "--store", live, "--language", "en")
+    early = win.launch(probe, "--store", live)
+    check("startup discovers published R1 with E0 and keeps inactive Russian", early["release"] == 0
+          and early["offer"].startswith("R1 / E0") and early["installed"] == {"ru": 0})
+    publish(3)
+    later = win.launch(probe, "--store", live)
+    expected = ["delta/0/1", "delta/1/2", "delta/2/3", "delta/0/1/ru", "delta/1/3/ru", "executable/windows-x64/1"]
+    paths = ["R1/deltas/from-R0/state.ats", "R2/deltas/from-R1/state.ats", "R3/deltas/from-R2/state.ats",
+             "R1/deltas/from-R0/downloads/ru.ats", "R3/deltas/from-R2/downloads/ru.ats", "R3/windows-x64/update.ats"]
+    amount = sum((live / "images" / name).stat().st_size for name in paths)
+    check("new publication announces EXE and exact remaining bytes", later["release"] == 0
+          and later["offer"] == f"R3 / E1 · EXE · {amount} B")
+    updated = win.launch(probe, "--store", live, "--latest")
+    check("latest traverses every base edge and only changed installed resource edges",
+          updated["release"] == 3 and updated["requested"] == expected and updated["installed"] == {"ru": 3})
+    check("inactive locale is ready without a new download", win.launch(probe, "--language", "ru", "--store", live)["requested"] == [])
+    check("current installation reports zero bytes", win.launch(probe, "--store", live)["offer"] == "R3 / E1 · 0 B")
+
+    # Stop at the real protocol boundary between staging and the launcher's trial.
+    trial_profile = run / "offline-trial"
+    win.launch(trial_profile, "--note", "offline trial", "--language", "ru")
+    journal = trial_profile.parent / (trial_profile.name + "-installation")
+    stage = win.command("update_lab_e0", ["--headless", "--profile", trial_profile, "--install", journal,
+                                         "--store", args.store.resolve(), "--latest"])
+    assert subprocess.run(stage, capture_output=True, timeout=90).returncode == 42
+    transfer_file = trial_profile / "local" / "transfer" / "user.bin"
+    original_user = (trial_profile / "user.bin").read_bytes()
+    staged_intent = transfer_file.read_bytes()
+    candidate = win.command("update_lab_e1", ["--headless", "--no-action", "--profile", trial_profile, "--install", journal])
+    def first_publication():
+        result = subprocess.run(candidate, capture_output=True, check=True, encoding="utf-8", timeout=30)
+        return json.loads(next(line for line in result.stdout.splitlines() if line.startswith("{")))
+    first = first_publication()
+    check("offline candidate activates before its first UI publication", first["release"] == 3 and first["language"] == "ru"
+          and first["ready"] and first["installed"] == {"ru": 3})
+    # Recreate a power cut after installed.bin replacement and before USER replacement.
+    (trial_profile / "user.bin").write_bytes(original_user)
+    transfer_file.write_bytes(staged_intent)
+    recovered_trial = first_publication()
+    check("interrupted activation replays before first publication", recovered_trial["ready"]
+          and recovered_trial["release"] == 3 and recovered_trial["language"] == "ru"
+          and recovered_trial["note"] == "offline trial" and recovered_trial["clone_ids"] == first["clone_ids"])
+
     state = win.launch(profile, "--device", "windows-device", "--note", "portable user note", "--rename-first", "custom A", "--add-clone", "--rate", "123456")
     check("initial S0 and portable edits", state["release"] == 0 and state["clones"] == ["custom A", "B", "3"])
     initial_ids = state["clone_ids"]
@@ -183,6 +250,14 @@ def main():
     if args.linux_bin:
         linux = Host(args.linux_bin, run, args.store.resolve(), linux=True)
         linux_profile = run / "linux-profile"
+        linux_image = args.store.resolve() / "images" / "R3"
+        linux_fresh = run / "linux-image.json"
+        direct = linux.command("update_lab_launcher", ["--image", linux_image, "--profile", run / "linux-image-profile",
+            "--install", run / "linux-image-install", "--headless", "--snapshot-file", linux_fresh])
+        subprocess.run(direct, check=True, capture_output=True, timeout=30)
+        clean = json.loads(linux_fresh.read_text(encoding="utf-8"))
+        check("offline Linux image installs directly at R3/E1", clean["release"] == 3 and clean["executable"] == 1
+              and clean["ready"] and not clean["files"])
         state = linux.launch(linux_profile, "--device", "linux-device", "--rate", "777777")
         check("independent Linux LOCAL initialized", state["device"] == "linux-device")
         state = linux.launch(linux_profile, "--import", exported, timeout=240)
