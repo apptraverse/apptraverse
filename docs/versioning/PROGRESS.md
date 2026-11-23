@@ -4696,3 +4696,17 @@ and [Surface validation](../validation/surface-generic-ui-2026-11-17.md).
 The aggregate static PE check of all seven rebuilt legacy GUI binaries passed
 subsystem 6.01 with zero known post-Win7 direct imports in the audited list;
 this does not substitute for actual Windows 7 execution.
+
+## 2026-11-22 — macOS SwiftUI custom session embedding
+
+Added generic custom-control/root-view embedding and session lifecycle hooks for
+SwiftUI scenes, duplicate native-window capability rejection, and the macOS 13
+native-window close boundary. Swift no longer receives C++ no-RTTI/exception flags;
+the actual representative C++ command remains identical.
+
+Downstream MinSizeRel build, first/cold real-app launch with ordinary Quit and
+normal exit 0, and model/registry CTest 2/2 passed. Four native UI tests built, but
+automation initialization requires system authentication, so zero UI methods ran.
+UI typing/clicks, multiple-window interaction and launcher close are not marked
+PASS. Independent example and other backend runtime matrices were NOT RUN.
+See [the exact scope](../validation/macos-swiftui-custom-session-2026-11-22.md).
