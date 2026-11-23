@@ -1,0 +1,829 @@
+diff --git a/aether/peer/peer_identity.cpp b/aether/peer/peer_identity.cpp
+index a53d3858..98cdb0b2 100644
+--- a/aether/peer/peer_identity.cpp
++++ b/aether/peer/peer_identity.cpp
+@@ -29,7 +29,8 @@ void Client::ConfigurePeer(PeerSettings settings) {
+ #  if AE_SUPPORT_HOLE_PUNCH
+   if (settings.rendezvous &&
+       (settings.rendezvous->uid == uid_ || settings.rendezvous->uid.empty() ||
+-       !ValidRendezvousEndpoint(settings.rendezvous->endpoint) ||
++       (!settings.rendezvous->DiscoverEndpoint() &&
++        !ValidRendezvousEndpoint(settings.rendezvous->endpoint)) ||
+        (!settings.rendezvous->standard && !settings.rendezvous->dual_socket))) {
+     FailWithoutExceptions("Invalid rendezvous configuration");
+   }
+diff --git a/aether/peer/peer_transport.cpp b/aether/peer/peer_transport.cpp
+index 01842f71..40e2abdc 100644
+--- a/aether/peer/peer_transport.cpp
++++ b/aether/peer/peer_transport.cpp
+@@ -115,7 +115,8 @@ struct PeerTransport::Impl : std::enable_shared_from_this<PeerTransport::Impl> {
+ #  if AE_SUPPORT_HOLE_PUNCH
+     if (settings.rendezvous &&
+         (settings.rendezvous->uid.empty() ||
+-         !ValidRendezvousEndpoint(settings.rendezvous->endpoint) ||
++         (!settings.rendezvous->DiscoverEndpoint() &&
++          !ValidRendezvousEndpoint(settings.rendezvous->endpoint)) ||
+          (!settings.rendezvous->standard &&
+           !settings.rendezvous->dual_socket))) {
+       FailWithoutExceptions("Invalid rendezvous configuration");
+@@ -152,8 +153,10 @@ struct PeerTransport::Impl : std::enable_shared_from_this<PeerTransport::Impl> {
+       connectivity.RemovePeerRxWindow(path->schedule_id);
+     }
+   }
+-  bool AddSocket(Address const& address, std::uint16_t port, PunchLane lane) {
+-    auto socket = std::make_unique<PeerUdp>(address, port, false, true);
++  bool AddSocket(PeerUdp::Interface const& adapter, std::uint16_t port,
++                 PunchLane lane) {
++    auto socket = std::make_unique<PeerUdp>(
++        adapter.address, port, false, true, adapter.index);
+     if (!socket->valid() || socket->port() == 0) {
+       return false;
+     }
+@@ -173,15 +176,15 @@ struct PeerTransport::Impl : std::enable_shared_from_this<PeerTransport::Impl> {
+     }
+     return true;
+   }
+-  bool AddInterface(Address const& address) {
+-    if (!AddSocket(address, settings.listen_port, PunchLane::kStandard)) {
++  bool AddInterface(PeerUdp::Interface const& adapter) {
++    if (!AddSocket(adapter, settings.listen_port, PunchLane::kStandard)) {
+       return false;
+     }
+ 
+ #  if AE_SUPPORT_HOLE_PUNCH
+     if (settings.rendezvous && settings.rendezvous->dual_socket) {
+-      AddSocket(address, 0, PunchLane::kFirst);
+-      AddSocket(address, 0, PunchLane::kSecond);
++      AddSocket(adapter, 0, PunchLane::kFirst);
++      AddSocket(adapter, 0, PunchLane::kSecond);
+     }
+ #  endif
+     return true;
+@@ -391,13 +394,15 @@ struct PeerTransport::Impl : std::enable_shared_from_this<PeerTransport::Impl> {
+     // unanswered attempts must not monopolize the handshake budget. Preserve
+     // authenticated sessions and give each new attempt two seconds to finish.
+     auto oldest = paths.end();
++    auto const* best_punch = Best(peer, false, false, true);
+     for (auto it = paths.begin(); it != paths.end(); ++it) {
+       auto const& path = **it;
+-      if (path.route == PeerRoute::kHolePunch && path.punch_peer != peer &&
+-          (!path.session->ready() ||
+-           !path.view.receive_presence.IsOnline(
+-               Now(), connectivity.offline_detection_timeout())) &&
+-          Clock::now() - path.created > std::chrono::seconds{2} &&
++      if (path.route == PeerRoute::kHolePunch && path.punch_started &&
++          (path.punch_peer == peer
++               ? &path != best_punch &&
++                     Clock::now() - path.created > std::chrono::seconds{5}
++               : !Connected(path) &&
++                     Clock::now() - path.created > std::chrono::seconds{2}) &&
+           (oldest == paths.end() || path.created < (*oldest)->created)) {
+         oldest = it;
+       }
+@@ -505,9 +510,10 @@ struct PeerTransport::Impl : std::enable_shared_from_this<PeerTransport::Impl> {
+     auto const& available = *interfaces;
+     bool changed = false;
+     for (std::size_t index = 0; index < sockets.size(); ++index) {
+-      if (!sockets[index] ||
+-          std::find(available.begin(), available.end(),
+-                    sockets[index]->local()) != available.end()) {
++      auto const& socket = sockets[index];
++      if (!socket ||
++          std::find(available.begin(), available.end(), PeerUdp::Interface{
++              socket->local(), socket->interface_index()}) != available.end()) {
+         continue;
+       }
+       std::erase_if(paths, [&](auto const& path) {
+@@ -520,14 +526,15 @@ struct PeerTransport::Impl : std::enable_shared_from_this<PeerTransport::Impl> {
+       sockets[index].reset();
+       changed = true;
+     }
+-    for (auto const& address : available) {
++    for (auto const& adapter : available) {
+       if (std::any_of(sockets.begin(), sockets.end(), [&](auto const& socket) {
+-            return socket && socket->local() == address;
++            return socket && socket->local() == adapter.address &&
++                   socket->interface_index() == adapter.index;
+           })) {
+         continue;
+       }
+       // An address may disappear before bind. Retry it on the next scan.
+-      changed |= AddInterface(address);
++      changed |= AddInterface(adapter);
+     }
+ #  if AE_SUPPORT_LAN
+     if (settings.discovery && (changed || !discovery)) {
+@@ -1148,12 +1155,13 @@ bool PeerTransport::PreparePunch(PunchPlan const& plan) {
+ bool PeerTransport::BeginPunch(PunchPlan const& plan) {
+   return impl_->BeginPunch(plan);
+ }
+-bool PeerTransport::NeedsHolePunch(Uid const& uid) const {
++bool PeerTransport::NeedsHolePunch(Uid const& uid, bool full_sweep) const {
+ #  if AE_SUPPORT_HOLE_PUNCH
+ 
+   if (!impl_->identity.certified) {
+     return false;
+   }
++  if (full_sweep) return true;
+   auto policy = impl_->keep_backups.find(uid);
+   return !impl_->Best(uid, false, false, true) &&
+          (policy == impl_->keep_backups.end() || policy->second ||
+@@ -1161,6 +1169,7 @@ bool PeerTransport::NeedsHolePunch(Uid const& uid) const {
+ 
+ #  else
+   static_cast<void>(uid);
++  static_cast<void>(full_sweep);
+   return false;
+ #  endif
+ }
+diff --git a/aether/peer/peer_transport.h b/aether/peer/peer_transport.h
+index 649812b1..8dcc0065 100644
+--- a/aether/peer/peer_transport.h
++++ b/aether/peer/peer_transport.h
+@@ -50,7 +50,7 @@ class PeerTransport {
+   rendezvous_datagram_event() const;
+   bool PreparePunch(PunchPlan const& plan);
+   bool BeginPunch(PunchPlan const& plan);
+-  bool NeedsHolePunch(Uid const& peer) const;
++  bool NeedsHolePunch(Uid const& peer, bool full_sweep = false) const;
+   OnlineType OnlineTypes(Uid const* peer = nullptr) const noexcept;
+   PeerPresenceState PresenceState(Uid peer) const noexcept;
+   RxTimingConf RxTiming(Uid peer) const;
+diff --git a/aether/peer/peer_types.h b/aether/peer/peer_types.h
+index 6f791fcb..e65b33a8 100644
+--- a/aether/peer/peer_types.h
++++ b/aether/peer/peer_types.h
+@@ -32,6 +32,9 @@ struct RendezvousSettings {
+   AddressPort endpoint{};
+   bool standard{true};
+   bool dual_socket{true};
++
++  // A zero port requests an endpoint from the service over Æther signaling.
++  bool DiscoverEndpoint() const { return endpoint.port == 0; }
+ };
+ 
+ struct PeerCertificate {
+diff --git a/aether/peer/peer_udp.cpp b/aether/peer/peer_udp.cpp
+index 366e15cc..d8d6a36f 100644
+--- a/aether/peer/peer_udp.cpp
++++ b/aether/peer/peer_udp.cpp
+@@ -75,11 +75,11 @@ struct PeerUdp::Impl {
+     }
+   }
+ };
+-std::optional<std::vector<Address>> PeerUdp::Interfaces() {
++std::optional<std::vector<PeerUdp::Interface>> PeerUdp::Interfaces() {
+   if (!peer_udp_internal::Initialize()) {
+     return std::nullopt;
+   }
+-  std::vector<Address> addresses;
++  std::vector<Interface> addresses;
+ #  ifdef _WIN32
+   ULONG length = 16384;
+   std::vector<std::uint8_t> bytes(length);
+@@ -100,7 +100,8 @@ std::optional<std::vector<Address>> PeerUdp::Interfaces() {
+     for (auto* item = adapter->FirstUnicastAddress; item; item = item->Next) {
+       if (item->Address.lpSockaddr->sa_family == AF_INET) {
+         auto* native = reinterpret_cast<sockaddr_in*>(item->Address.lpSockaddr);
+-        addresses.push_back(peer_udp_internal::FromNative(native->sin_addr));
++        addresses.push_back(
++            {peer_udp_internal::FromNative(native->sin_addr), adapter->IfIndex});
+       }
+     }
+   }
+@@ -113,19 +114,23 @@ std::optional<std::vector<Address>> PeerUdp::Interfaces() {
+     if (item->ifa_addr && item->ifa_addr->sa_family == AF_INET &&
+         (item->ifa_flags & IFF_UP) != 0) {
+       auto* native = reinterpret_cast<sockaddr_in*>(item->ifa_addr);
+-      addresses.push_back(peer_udp_internal::FromNative(native->sin_addr));
++      addresses.push_back(
++          {peer_udp_internal::FromNative(native->sin_addr), if_nametoindex(item->ifa_name)});
+     }
+   }
+   freeifaddrs(interfaces);
+ #  endif
+-  std::sort(addresses.begin(), addresses.end());
++  std::sort(addresses.begin(), addresses.end(), [](auto const& a, auto const& b) {
++    return a.index == b.index ? a.address < b.address : a.index < b.index;
++  });
+   addresses.erase(std::unique(addresses.begin(), addresses.end()),
+                   addresses.end());
+   return addresses;
+ }
+ PeerUdp::PeerUdp(Address local, std::uint16_t port, bool discovery,
+-                 bool no_fragment)
+-    : impl_{std::make_unique<Impl>()}, local_{std::move(local)} {
++                 bool no_fragment, std::uint32_t interface_index)
++    : impl_{std::make_unique<Impl>()}, local_{std::move(local)},
++      interface_index_{interface_index} {
+   if (!Open(port, discovery, no_fragment)) {
+     impl_.reset();
+   }
+@@ -148,6 +153,15 @@ bool PeerUdp::Open(std::uint16_t port, bool discovery, bool no_fragment) {
+     return setsockopt(impl_->socket, level, option,
+                       reinterpret_cast<char const*>(&value), sizeof value) == 0;
+   };
++#  if defined(_WIN32) || defined(IP_UNICAST_IF)
++  if (interface_index_ && !set(IPPROTO_IP, IP_UNICAST_IF, htonl(interface_index_))) {
++    return false;
++  }
++#  elif defined(IP_BOUND_IF)
++  if (interface_index_ && !set(IPPROTO_IP, IP_BOUND_IF, interface_index_)) {
++    return false;
++  }
++#  endif
+   impl_->no_fragment = no_fragment;
+   if (no_fragment) {
+ #  ifdef _WIN32
+@@ -219,7 +233,7 @@ bool PeerUdp::Open(std::uint16_t port, bool discovery, bool no_fragment) {
+     for (auto const& iface : *interfaces) {
+       ip_mreq group{};
+       inet_pton(AF_INET, "239.255.46.1", &group.imr_multiaddr);
+-      group.imr_interface = peer_udp_internal::NativeAddress(iface);
++      group.imr_interface = peer_udp_internal::NativeAddress(iface.address);
+       joined |= set(IPPROTO_IP, IP_ADD_MEMBERSHIP, group);
+     }
+     if (!joined) {
+diff --git a/aether/peer/peer_udp.h b/aether/peer/peer_udp.h
+index 081c6263..8d845133 100644
+--- a/aether/peer/peer_udp.h
++++ b/aether/peer/peer_udp.h
+@@ -14,9 +14,14 @@ struct PeerDatagram {
+ enum class PeerSendResult { kSent, kBlocked, kError, kTooLarge };
+ class PeerUdp {
+  public:
+-  static std::optional<std::vector<Address>> Interfaces();
++  struct Interface {
++    Address address;
++    std::uint32_t index{};
++    bool operator==(Interface const&) const = default;
++  };
++  static std::optional<std::vector<Interface>> Interfaces();
+   PeerUdp(Address local, std::uint16_t port, bool discovery = false,
+-          bool no_fragment = false);
++          bool no_fragment = false, std::uint32_t interface_index = 0);
+   ~PeerUdp();
+   PeerUdp(PeerUdp const&) = delete;
+   PeerUdp& operator=(PeerUdp const&) = delete;
+@@ -27,6 +32,7 @@ class PeerUdp {
+ #  endif
+   std::optional<PeerDatagram> Receive();
+   Address const& local() const { return local_; }
++  std::uint32_t interface_index() const { return interface_index_; }
+   std::uint16_t port() const;
+   bool valid() const { return impl_ != nullptr; }
+ 
+@@ -37,6 +43,7 @@ class PeerUdp {
+   struct Impl;
+   std::unique_ptr<Impl> impl_;
+   Address local_;
++  std::uint32_t interface_index_{};
+ };
+ }  // namespace ae
+ #endif
+diff --git a/aether/peer/rendezvous_broker.cpp b/aether/peer/rendezvous_broker.cpp
+index 3e4d9f84..534ca654 100644
+--- a/aether/peer/rendezvous_broker.cpp
++++ b/aether/peer/rendezvous_broker.cpp
+@@ -34,6 +34,7 @@ struct RendezvousBroker::Impl {
+     Uid uid{};
+     RendezvousEnrollment enrollment;
+     RendezvousGrant grant;
++    bool discovery{};
+     std::unique_ptr<PeerRecordCipher> cipher;
+     AddressPort observed{}, pending{};
+     Uid challenge{};
+@@ -42,23 +43,49 @@ struct RendezvousBroker::Impl {
+     Duration pending_timeout{}, confirmed_timeout{};
+     ReceivePresenceState presence;
+   };
++  using PairKey = std::tuple<AppId, Uid, Uid>;
++  struct Candidate {
++    Uid grant;
++    AddressPort observed;
++    bool operator==(Candidate const& other) const {
++      return grant == other.grant &&
++             rendezvous_broker_internal::Same(observed, other.observed);
++    }
++  };
++  struct Sweep {
++    std::vector<Candidate> first, second;
++    std::size_t next{};
++    Time last_interest{}, last_started{};
++  };
+   struct Request {
+     Uid sender;
+     RendezvousConnect value;
++    bool sweep{}, retry{};
+     Time seen{Clock::now()};
+   };
+   struct Job {
+     PunchPlan a, b;
+     Uid first{}, second{};
+     bool first_ready{}, second_ready{};
+-    Time created{Clock::now()}, sent{};
++    Time created{Clock::now()}, sent{}, go_sent{};
++    std::optional<std::size_t> sweep_end;
+   };
+-  Impl(SignalSender s, DatagramSender d)
+-      : signal{std::move(s)}, datagram{std::move(d)} {}
++  Impl(SignalSender s, DatagramSender d, AddressPort endpoint)
++      : signal{std::move(s)}, datagram{std::move(d)},
++        advertised_endpoint{std::move(endpoint)} {}
+   void Emit(Uid const& uid, RendezvousMethod method, DataBuffer body) {
+     signal(uid, PackRendezvousSignal(method, std::move(body)));
+   }
+-  void Enroll(Uid const& sender, DataBuffer const& body) {
++  void Grant(Uid const& sender, RendezvousGrant const& grant, bool discover) {
++    if (discover) {
++      Emit(sender, RendezvousMethod::kGrantWithEndpoint,
++           PeerEncode(grant, advertised_endpoint));
++    } else {
++      Emit(sender, RendezvousMethod::kGrant, PeerEncode(grant));
++    }
++  }
++  void Enroll(Uid const& sender, DataBuffer const& body, bool discover) {
++    if (discover && !ValidRendezvousEndpoint(advertised_endpoint)) return;
+     RendezvousEnrollment enrollment;
+     if (!PeerDecode(body, enrollment) || enrollment.app.empty() ||
+         enrollment.instance.empty() || enrollment.socket.id.empty() ||
+@@ -76,7 +103,8 @@ struct RendezvousBroker::Impl {
+       if (reg->uid == sender &&
+           reg->enrollment.instance == enrollment.instance &&
+           reg->enrollment.socket.id == enrollment.socket.id) {
+-        Emit(sender, RendezvousMethod::kGrant, PeerEncode(reg->grant));
++        reg->discovery = discover;
++        Grant(sender, reg->grant, discover);
+         return;
+       }
+     }
+@@ -89,6 +117,7 @@ struct RendezvousBroker::Impl {
+     }
+     auto reg = std::make_unique<Registration>();
+     reg->uid = sender;
++    reg->discovery = discover;
+     reg->enrollment = std::move(enrollment);
+     reg->grant.socket = reg->enrollment.socket.id;
+     reg->grant.token = RandomPeerToken();
+@@ -98,7 +127,7 @@ struct RendezvousBroker::Impl {
+                                                      reg->grant.upstream);
+     auto grant = reg->grant;
+     registrations.emplace(grant.token, std::move(reg));
+-    Emit(sender, RendezvousMethod::kGrant, PeerEncode(grant));
++    Grant(sender, grant, discover);
+   }
+   void SendUdp(Registration& reg, AddressPort const& to,
+                RendezvousUdpMethod method, Uid const& challenge,
+@@ -166,93 +195,104 @@ struct RendezvousBroker::Impl {
+         return;
+       }
+     }
+-    Job job;
+-    job.first = request.sender;
+-    job.second = value.peer;
+-    job.a = {value.app,
+-             a.front()->enrollment.instance,
+-             RandomPeerToken(),
+-             value.peer,
+-             {}};
+-    job.b = {value.app,
+-             b.front()->enrollment.instance,
+-             job.a.attempt,
+-             request.sender,
+-             {}};
+-    std::array<std::vector<std::pair<PunchPair, PunchPair>>, 3> candidates;
+-    for (unsigned index = 0; index < 3; ++index) {
+-      auto lane = static_cast<PunchLane>(index);
+-      if ((lane == PunchLane::kStandard && !standard) ||
+-          (lane != PunchLane::kStandard && !dual)) {
+-        continue;
+-      }
+-      unsigned lane_pairs{};
+-      std::vector<Registration*> firsts, seconds;
+-      for (auto* reg : a) {
+-        if (reg->enrollment.socket.lane == lane) {
+-          firsts.push_back(reg);
+-        }
+-      }
+-      for (auto* reg : b) {
+-        if (reg->enrollment.socket.lane == lane) {
+-          seconds.push_back(reg);
+-        }
+-      }
+-      if (firsts.empty() || seconds.empty()) {
+-        continue;
+-      }
+-      std::set<std::pair<Uid, Uid>> paired;
+-      // Cover each interface before spending the budget on additional cross
+-      // combinations from the first interface in the registration map.
+-      for (std::size_t shift = 0; shift < seconds.size() && lane_pairs < 10;
+-           ++shift) {
+-        for (std::size_t i = 0;
+-             i < std::max(firsts.size(), seconds.size()) && lane_pairs < 10;
+-             ++i) {
+-          auto* first = firsts[i % firsts.size()];
+-          auto* second = seconds[(i + shift) % seconds.size()];
+-          if (!paired
+-                   .emplace(first->enrollment.socket.id,
+-                            second->enrollment.socket.id)
+-                   .second) {
+-            continue;
+-          }
+-          auto token = RandomPeerToken();
+-          auto initiator =
+-              (request.sender < value.peer) != (lane == PunchLane::kSecond);
+-          candidates[index].emplace_back(
+-              PunchPair{first->enrollment.socket.id, lane, token,
+-                        second->enrollment.socket.local, second->observed,
+-                        initiator},
+-              PunchPair{second->enrollment.socket.id, lane, token,
+-                        first->enrollment.socket.local, first->observed,
+-                        !initiator});
+-          ++lane_pairs;
++    auto const full = request.sweep && a.front()->discovery && b.front()->discovery;
++    if (request.sender != peers.first) std::swap(a, b);
++    std::size_t cursor = 0;
++    Sweep* sweep = nullptr;
++    if (full) {
++      sweep = &sweeps[key];
++      sweep->last_interest = std::max(sweep->last_interest, request.seen);
++      auto describe = [&](auto const& registrations) {
++        std::vector<Candidate> result;
++        for (auto const* reg : registrations) {
++          auto lane = reg->enrollment.socket.lane;
++          if (lane == PunchLane::kStandard ? standard : dual)
++            result.push_back({reg->grant.token, reg->observed});
+         }
++        return result;
++      };
++      auto first = describe(a);
++      auto second = describe(b);
++      if (sweep->first != first || sweep->second != second) {
++        sweep->first = std::move(first);
++        sweep->second = std::move(second);
++        sweep->next = 0;
+       }
++      cursor = sweep->next;
+     }
+-    // Try every strategy before spending scarce native path slots on additional
+-    // interface combinations of a single lane.
+-    for (std::size_t i = 0; i < 10; ++i) {
+-      for (auto& lane : candidates) {
+-        if (i < lane.size()) {
+-          job.a.pairs.push_back(std::move(lane[i].first));
+-          job.b.pairs.push_back(std::move(lane[i].second));
+-        }
++
++    struct Lane {
++      std::vector<Registration*> first, second;
++      std::size_t size() const { return first.size() * second.size(); }
++    };
++    std::array<Lane, 3> lanes;
++    auto collect = [&](auto const& registrations, auto member) {
++      for (auto* reg : registrations) {
++        auto const lane = reg->enrollment.socket.lane;
++        if (lane == PunchLane::kStandard ? standard : dual)
++          (lanes[static_cast<std::size_t>(lane)].*member).push_back(reg);
+       }
++    };
++    collect(a, &Lane::first);
++    collect(b, &Lane::second);
++    std::size_t total = 0, largest = 0;
++    for (auto const& lane : lanes) {
++      total += lane.size();
++      largest = std::max(largest, lane.size());
+     }
+-    if (!job.a.pairs.empty()) {
+-      jobs.emplace(key, std::move(job));
++    if (cursor >= total) {
++      if (!sweep || !request.retry ||
++          Clock::now() - sweep->last_started < std::chrono::seconds{12}) return;
++      cursor = 0;
+     }
++
++    Job job;
++    job.first = peers.first;
++    job.second = peers.second;
++    job.a = {value.app, a.front()->enrollment.instance,
++             RandomPeerToken(), job.second, {}};
++    job.b = {value.app, b.front()->enrollment.instance,
++             job.a.attempt, job.first, {}};
++    // Batches fit the client path budget. Walk each Cartesian product in
++    // diagonal order, alternating lanes so every strategy starts early.
++    auto const budget = full ? std::size_t{12} : std::size_t{30};
++    std::size_t visited = 0;
++    for (std::size_t i = 0; i < largest && job.a.pairs.size() < budget; ++i) {
++      for (std::size_t index = 0; index < lanes.size(); ++index) {
++        auto const& lane = lanes[index];
++        if (i >= lane.size() || visited++ < cursor) continue;
++        auto const offset = i % lane.first.size();
++        auto const* first = lane.first[offset];
++        auto const* second =
++            lane.second[(i / lane.first.size() + offset) % lane.second.size()];
++        auto const kind = static_cast<PunchLane>(index);
++        auto const token = RandomPeerToken();
++        bool const initiator = kind != PunchLane::kSecond;
++        job.a.pairs.push_back({first->enrollment.socket.id, kind, token,
++                              second->enrollment.socket.local, second->observed,
++                              initiator});
++        job.b.pairs.push_back({second->enrollment.socket.id, kind, token,
++                              first->enrollment.socket.local, first->observed,
++                              !initiator});
++        if (job.a.pairs.size() == budget) break;
++      }
++    }
++    if (job.a.pairs.empty()) return;
++    if (sweep) job.sweep_end = cursor + job.a.pairs.size();
++    jobs.emplace(key, std::move(job));
+   }
+   SignalSender signal;
+   DatagramSender datagram;
++  AddressPort advertised_endpoint;
+   std::map<Uid, std::unique_ptr<Registration>> registrations;
+-  std::map<std::tuple<AppId, Uid, Uid>, Request> requests;
+-  std::map<std::tuple<AppId, Uid, Uid>, Job> jobs;
++  std::map<PairKey, Request> requests;
++  std::map<PairKey, Job> jobs;
++  std::map<PairKey, Sweep> sweeps;
+ };
+-RendezvousBroker::RendezvousBroker(SignalSender signal, DatagramSender datagram)
+-    : impl_{std::make_unique<Impl>(std::move(signal), std::move(datagram))} {}
++RendezvousBroker::RendezvousBroker(SignalSender signal, DatagramSender datagram,
++                                   AddressPort advertised_endpoint)
++    : impl_{std::make_unique<Impl>(std::move(signal), std::move(datagram),
++                                   std::move(advertised_endpoint))} {}
+ RendezvousBroker::~RendezvousBroker() = default;
+ void RendezvousBroker::ReceiveSignal(Uid const& sender,
+                                      DataBuffer const& wire) {
+@@ -263,11 +303,17 @@ void RendezvousBroker::ReceiveSignal(Uid const& sender,
+   if (!message) {
+     return;
+   }
+-  if (message->method == RendezvousMethod::kEnroll) {
+-    impl_->Enroll(sender, message->body);
+-  } else if (message->method == RendezvousMethod::kConnect) {
++  if (message->method == RendezvousMethod::kEnroll ||
++      message->method == RendezvousMethod::kEnrollWithEndpoint) {
++    impl_->Enroll(sender, message->body,
++                  message->method == RendezvousMethod::kEnrollWithEndpoint);
++  } else if (message->method == RendezvousMethod::kConnect ||
++             message->method == RendezvousMethod::kConnectSweep) {
+     RendezvousConnect request;
+-    if (!PeerDecode(message->body, request) || request.peer.empty() ||
++    bool const sweep = message->method == RendezvousMethod::kConnectSweep;
++    bool retry = false;
++    if (!(sweep ? PeerDecode(message->body, request, retry)
++                : PeerDecode(message->body, request)) || request.peer.empty() ||
+         request.peer == sender || request.instance.empty() ||
+         request.app.empty() || (!request.standard && !request.dual_socket)) {
+       return;
+@@ -276,7 +322,7 @@ void RendezvousBroker::ReceiveSignal(Uid const& sender,
+     if (impl_->requests.size() >= 128 && !impl_->requests.contains(key)) {
+       return;
+     }
+-    impl_->requests[key] = {sender, request};
++    impl_->requests[key] = {sender, request, sweep, retry};
+   } else if (message->method == RendezvousMethod::kReady) {
+     Uid attempt;
+     if (!PeerDecode(message->body, attempt)) {
+@@ -356,7 +402,14 @@ void RendezvousBroker::Update() {
+     return now - item.second.seen > std::chrono::seconds{10};
+   });
+   std::erase_if(impl_->jobs, [&](auto const& item) {
+-    return now - item.second.created > std::chrono::seconds{9};
++    auto const& job = item.second;
++    if (job.sweep_end && job.go_sent != Impl::Time{})
++      return now - job.go_sent > std::chrono::milliseconds{5500};
++    return now - job.created > std::chrono::seconds{9};
++  });
++  std::erase_if(impl_->sweeps, [&](auto const& item) {
++    return !impl_->jobs.contains(item.first) &&
++           now - item.second.last_interest > std::chrono::seconds{10};
+   });
+   for (auto const& [key, request] : impl_->requests) {
+     impl_->TryPair(request);
+@@ -367,6 +420,12 @@ void RendezvousBroker::Update() {
+     }
+     job.sent = now;
+     if (job.first_ready && job.second_ready) {
++      if (job.sweep_end && job.go_sent == Impl::Time{}) {
++        job.go_sent = now;
++        auto& sweep = impl_->sweeps.at(key);
++        sweep.next = *job.sweep_end;
++        sweep.last_started = now;
++      }
+       auto go = PeerEncode(job.a.attempt, std::uint32_t{200});
+       impl_->Emit(job.first, RendezvousMethod::kGo, go);
+       impl_->Emit(job.second, RendezvousMethod::kGo, go);
+diff --git a/aether/peer/rendezvous_broker.h b/aether/peer/rendezvous_broker.h
+index 27055c47..973183f9 100644
+--- a/aether/peer/rendezvous_broker.h
++++ b/aether/peer/rendezvous_broker.h
+@@ -13,7 +13,8 @@ class RendezvousBroker {
+  public:
+   using SignalSender = std::function<void(Uid const&, DataBuffer)>;
+   using DatagramSender = std::function<void(AddressPort const&, DataBuffer)>;
+-  RendezvousBroker(SignalSender signal, DatagramSender datagram);
++  RendezvousBroker(SignalSender signal, DatagramSender datagram,
++                   AddressPort advertised_endpoint = {});
+   ~RendezvousBroker();
+   RendezvousBroker(RendezvousBroker const&) = delete;
+   RendezvousBroker& operator=(RendezvousBroker const&) = delete;
+diff --git a/aether/peer/rendezvous_client.cpp b/aether/peer/rendezvous_client.cpp
+index 12def74b..693f5e57 100644
+--- a/aether/peer/rendezvous_client.cpp
++++ b/aether/peer/rendezvous_client.cpp
+@@ -12,6 +12,7 @@ struct RendezvousClient::Impl : std::enable_shared_from_this<Impl> {
+   struct Registration {
+     Uid token{};
+     std::unique_ptr<PeerRecordCipher> cipher;
++    AddressPort endpoint{};
+     Time enrolled{}, sent{};
+     bool observed{};
+     RxTimingConf timing;
+@@ -76,7 +77,7 @@ struct RendezvousClient::Impl : std::enable_shared_from_this<Impl> {
+         method, challenge, registration.timing, registration.offline_timeout));
+     if (cipher) {
+       transport.SendRendezvous(
+-          socket, settings.rendezvous->endpoint,
++          socket, registration.endpoint,
+           PackRendezvousDatagram(registration.token, std::move(*cipher)));
+     }
+   }
+@@ -85,9 +86,14 @@ struct RendezvousClient::Impl : std::enable_shared_from_this<Impl> {
+     if (!message) {
+       return;
+     }
+-    if (message->method == RendezvousMethod::kGrant) {
++    bool const extended = message->method == RendezvousMethod::kGrantWithEndpoint;
++    if (extended || message->method == RendezvousMethod::kGrant) {
+       RendezvousGrant grant;
+-      if (!PeerDecode(message->body, grant) || grant.token.empty()) {
++      auto endpoint = settings.rendezvous->endpoint;
++      if (extended != settings.rendezvous->DiscoverEndpoint() ||
++          !(extended ? PeerDecode(message->body, grant, endpoint)
++                     : PeerDecode(message->body, grant)) ||
++          grant.token.empty() || !ValidRendezvousEndpoint(endpoint)) {
+         return;
+       }
+       auto found = registrations.find(grant.socket);
+@@ -96,6 +102,7 @@ struct RendezvousClient::Impl : std::enable_shared_from_this<Impl> {
+       }
+       auto& registration = found->second;
+       registration.token = grant.token;
++      registration.endpoint = endpoint;
+       registration.cipher =
+           std::make_unique<PeerRecordCipher>(grant.upstream, grant.downstream);
+       registration.observed = false;
+@@ -136,16 +143,16 @@ struct RendezvousClient::Impl : std::enable_shared_from_this<Impl> {
+     }
+   }
+   void OnDatagram(Uid const& socket, PeerDatagram const& datagram) {
+-    auto const& remote = settings.rendezvous->endpoint;
+-    if (datagram.source.address != remote.address ||
+-        datagram.source.port != remote.port) {
+-      return;
+-    }
+     auto found = registrations.find(socket);
+     if (found == registrations.end() || !found->second.cipher) {
+       return;
+     }
+     auto& registration = found->second;
++    auto const& remote = registration.endpoint;
++    if (datagram.source.address != remote.address ||
++        datagram.source.port != remote.port) {
++      return;
++    }
+     Uid token, challenge;
+     DataBuffer cipher;
+     if (!ParseRendezvousDatagram(datagram.data, token, cipher) ||
+@@ -202,7 +209,10 @@ struct RendezvousClient::Impl : std::enable_shared_from_this<Impl> {
+       if ((!registration.observed || timing.interval > Duration{}) &&
+           now - registration.enrolled > enrollment_interval) {
+         registration.enrolled = now;
+-        Signal(RendezvousMethod::kEnroll,
++        auto const method = settings.rendezvous->DiscoverEndpoint()
++                                ? RendezvousMethod::kEnrollWithEndpoint
++                                : RendezvousMethod::kEnroll;
++        Signal(method,
+                PeerEncode(RendezvousEnrollment{
+                    settings.app_id, instance, kDefaultCryptoLibProfile, socket,
+                    settings.rendezvous->standard,
+@@ -220,14 +230,20 @@ struct RendezvousClient::Impl : std::enable_shared_from_this<Impl> {
+         Udp(socket.id, registration, RendezvousUdpMethod::kRegister);
+       }
+     }
++    bool const full_sweep = settings.rendezvous->DiscoverEndpoint();
+     for (auto& [peer, sent] : peers) {
+       if (now - sent > std::chrono::seconds{3} &&
+-          transport.NeedsHolePunch(peer)) {
++          transport.NeedsHolePunch(peer, full_sweep)) {
+         sent = now;
+-        Signal(RendezvousMethod::kConnect,
+-               PeerEncode(RendezvousConnect{settings.app_id, instance, peer,
+-                                            settings.rendezvous->standard,
+-                                            settings.rendezvous->dual_socket}));
++        RendezvousConnect request{settings.app_id, instance, peer,
++                                  settings.rendezvous->standard,
++                                  settings.rendezvous->dual_socket};
++        if (full_sweep) {
++          Signal(RendezvousMethod::kConnectSweep,
++                 PeerEncode(request, transport.NeedsHolePunch(peer)));
++        } else {
++          Signal(RendezvousMethod::kConnect, PeerEncode(request));
++        }
+         if (stopped) {
+           return;
+         }
+@@ -238,7 +254,7 @@ struct RendezvousClient::Impl : std::enable_shared_from_this<Impl> {
+     });
+     for (auto& [attempt, offer] : offers) {
+       if (!offer.started && now - offer.ack > std::chrono::milliseconds{400} &&
+-          transport.NeedsHolePunch(offer.plan.peer) &&
++          transport.NeedsHolePunch(offer.plan.peer, full_sweep) &&
+           transport.PreparePunch(offer.plan)) {
+         offer.ack = now;
+         Signal(RendezvousMethod::kReady, PeerEncode(attempt));
+diff --git a/aether/peer/rendezvous_protocol.cpp b/aether/peer/rendezvous_protocol.cpp
+index 87b93e05..61e21def 100644
+--- a/aether/peer/rendezvous_protocol.cpp
++++ b/aether/peer/rendezvous_protocol.cpp
+@@ -20,8 +20,9 @@ std::optional<RendezvousSignal> ParseRendezvousSignal(DataBuffer const& wire) {
+   std::uint32_t magic{};
+   RendezvousSignal signal;
+   if (wire.size() > 16000 || !PeerDecode(wire, method, magic, signal.body) ||
+-      magic != rendezvous_protocol_internal::kSignalMagic || method < 3 ||
+-      method > 8) {
++      magic != rendezvous_protocol_internal::kSignalMagic ||
++      method < static_cast<MessageId>(RendezvousMethod::kEnroll) ||
++      method > static_cast<MessageId>(RendezvousMethod::kConnectSweep)) {
+     return {};
+   }
+   signal.method = static_cast<RendezvousMethod>(method);
+diff --git a/aether/peer/rendezvous_protocol.h b/aether/peer/rendezvous_protocol.h
+index 37f47a18..a19f32f8 100644
+--- a/aether/peer/rendezvous_protocol.h
++++ b/aether/peer/rendezvous_protocol.h
+@@ -58,7 +58,11 @@ enum class RendezvousMethod : MessageId {
+   kConnect,
+   kOffer,
+   kReady,
+-  kGo
++  kGo,
++  // An extended grant carries the UDP endpoint after the ordinary grant.
++  kEnrollWithEndpoint,
++  kGrantWithEndpoint,
++  kConnectSweep
+ };
+ enum class RendezvousUdpMethod : std::uint8_t {
+   kRegister = 3,
+diff --git a/aether/peer/rendezvous_service.cpp b/aether/peer/rendezvous_service.cpp
+index cd6ab100..3bcca738 100644
+--- a/aether/peer/rendezvous_service.cpp
++++ b/aether/peer/rendezvous_service.cpp
+@@ -13,7 +13,8 @@ struct RendezvousService::Impl : std::enable_shared_from_this<Impl> {
+     Subscription received;
+     Clock::time_point used{Clock::now()};
+   };
+-  Impl(AeContext c, Ptr<Client> const& cl, Address address, std::uint16_t port)
++  Impl(AeContext c, Ptr<Client> const& cl, Address address, std::uint16_t port,
++       Address public_address)
+       : context{c},
+         client{cl},
+         socket{std::move(address), port},
+@@ -22,7 +23,7 @@ struct RendezvousService::Impl : std::enable_shared_from_this<Impl> {
+                },
+                [this](AddressPort const& to, DataBuffer wire) {
+                  socket.Send(to, wire);
+-               }} {}
++               }, {std::move(public_address), socket.port()}} {}
+   void Start() {
+     std::weak_ptr<Impl> weak = shared_from_this();
+     incoming = client->message_stream_manager().new_port_event().Subscribe(
+@@ -106,9 +107,10 @@ struct RendezvousService::Impl : std::enable_shared_from_this<Impl> {
+ };
+ RendezvousService::RendezvousService(AeContext context,
+                                      Ptr<Client> const& client,
+-                                     Address bind_address, std::uint16_t port)
++                                     Address bind_address, std::uint16_t port,
++                                     Address public_address)
+     : impl_{std::make_shared<Impl>(context, client, std::move(bind_address),
+-                                   port)} {
++                                   port, std::move(public_address))} {
+   impl_->Start();
+ }
+ RendezvousService::~RendezvousService() { impl_->Stop(); }
+diff --git a/aether/peer/rendezvous_service.h b/aether/peer/rendezvous_service.h
+index def84ebb..1789090b 100644
+--- a/aether/peer/rendezvous_service.h
++++ b/aether/peer/rendezvous_service.h
+@@ -12,7 +12,8 @@ class Client;
+ class RendezvousService {
+  public:
+   RendezvousService(AeContext context, Ptr<Client> const& client,
+-                    Address bind_address, std::uint16_t port);
++                    Address bind_address, std::uint16_t port,
++                    Address public_address = {});
+   ~RendezvousService();
+   RendezvousService(RendezvousService const&) = delete;
+   RendezvousService& operator=(RendezvousService const&) = delete;

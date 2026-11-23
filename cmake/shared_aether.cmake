@@ -74,14 +74,16 @@ function(apptraverse_add_shared_aether)
   else()
   _apptraverse_verify_sdk("${sdk_checkout}")
 
-  # Build from an owned SDK copy. Keep both the CPM checkout and an optional
-  # caller checkout pristine, and preserve the pinned wire format.
+  # Build from an owned SDK copy. Keep the CPM and caller checkouts pristine.
   set(sdk_patch "${APPTRAVERSE_CMAKE_DIR}/patches/aether-client-no-exceptions-wasm32-v2.patch")
   set(peer_patch "${APPTRAVERSE_CMAKE_DIR}/patches/aether-client-peer-no-exceptions.patch")
-  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${sdk_patch}" "${peer_patch}")
+  set(rendezvous_patch "${APPTRAVERSE_CMAKE_DIR}/patches/aether-client-rendezvous-discovery.patch")
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${sdk_patch}" "${peer_patch}" "${rendezvous_patch}")
   file(SHA256 "${sdk_patch}" patch_hash)
   file(SHA256 "${peer_patch}" peer_patch_hash)
-  string(SHA256 patch_hash "${patch_hash}${peer_patch_hash}")
+  file(SHA256 "${rendezvous_patch}" rendezvous_patch_hash)
+  string(SHA256 patch_hash "${patch_hash}${peer_patch_hash}${rendezvous_patch_hash}")
   string(SUBSTRING "${patch_hash}" 0 12 patch_id)
   string(SUBSTRING "${APPTRAVERSE_AETHER_CLIENT_GIT_TAG}" 0 12 sdk_id)
   set(sdk_source "${CMAKE_CURRENT_BINARY_DIR}/_deps/ae-${sdk_id}-${patch_id}")
@@ -97,6 +99,8 @@ function(apptraverse_add_shared_aether)
     # worktree. Match context across that line-ending difference.
     execute_process(COMMAND git -C "${sdk_source}" apply --ignore-whitespace --whitespace=nowarn
       "${sdk_patch}" "${peer_patch}" COMMAND_ERROR_IS_FATAL ANY)
+    execute_process(COMMAND git -C "${sdk_source}" apply --ignore-whitespace --whitespace=nowarn
+      "${rendezvous_patch}" COMMAND_ERROR_IS_FATAL ANY)
     file(TOUCH "${sdk_source}/apptraverse-patched")
   endif()
   endif()

@@ -1,5 +1,4 @@
 #include "apptraverse/aether_connection.h"
-#include <charconv>
 #include <cstdlib>
 #include <cstdarg>
 #include "apptraverse/aether_telemetry.h"
@@ -20,12 +19,17 @@ namespace apptraverse {
 namespace {
 #if AE_SUPPORT_P2P && AE_SUPPORT_HOLE_PUNCH
 std::optional<ae::RendezvousSettings> ReadRendezvous(ae::Uid const& self) {
-  auto const* setting = std::getenv("APPTRAVERSE_AETHER_RENDEZVOUS");
-  constexpr std::string_view test_service =
-      "4bb28061-35e4-47dc-bfd7-1bbfae68b22b@34.69.190.161:46001";
+  constexpr std::string_view test_service = "4bb28061-35e4-47dc-bfd7-1bbfae68b22b";
+  auto const* setting = std::getenv("APPTRAVERSE_AETHER_RENDEZVOUS_UID");
   std::string_view value = setting ? std::string_view{setting} : test_service;
+  if (!setting) {
+    if (auto const* legacy = std::getenv("APPTRAVERSE_AETHER_RENDEZVOUS")) {
+      value = std::string_view{legacy};
+      value = value.substr(0, value.find('@'));
+    }
+  }
   constexpr std::size_t uid_size = 36;
-  if (value.size() <= uid_size || value[uid_size] != '@') return {};
+  if (value.size() != uid_size) return {};
   for (std::size_t i = 0; i < uid_size; ++i) {
     auto const c = value[i];
     bool const dash = i == 8 || i == 13 || i == 18 || i == 23;
@@ -33,28 +37,9 @@ std::optional<ae::RendezvousSettings> ReadRendezvous(ae::Uid const& self) {
              : !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
                  (c >= 'A' && c <= 'F'))) return {};
   }
-  auto const uid = ae::Uid::FromString(ae::UidString{value.substr(0, uid_size)});
+  auto const uid = ae::Uid::FromString(ae::UidString{value});
   if (uid.empty() || uid == self) return {};
-  value.remove_prefix(uid_size + 1);
-  ae::IpV4Addr ip{};
-  for (std::size_t i = 0; i < 4; ++i) {
-    auto const separator = value.find(i == 3 ? ':' : '.');
-    if (separator == std::string_view::npos || separator == 0) return {};
-    unsigned octet{};
-    auto const parsed =
-        std::from_chars(value.data(), value.data() + separator, octet);
-    if (parsed.ec != std::errc{} || parsed.ptr != value.data() + separator ||
-        octet > 255) return {};
-    ip.ipv4_value[i] = static_cast<std::uint8_t>(octet);
-    value.remove_prefix(separator + 1);
-  }
-  if (value.empty() || ip.ipv4_value[0] == 0 || ip.ipv4_value[0] >= 224) return {};
-  unsigned port{};
-  auto const parsed = std::from_chars(value.data(), value.data() + value.size(), port);
-  if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() ||
-      port == 0 || port > 65535) return {};
-  return ae::RendezvousSettings{
-      uid, {ae::Address{ip}, static_cast<std::uint16_t>(port)}};
+  return ae::RendezvousSettings{uid};
 }
 #endif
 }  // namespace
