@@ -34,7 +34,9 @@ bool RegisterAetherTelemetrySink(std::string catalog) {
                                    [] { return Sink::Instance().DrainAll(); });
 }
 inline bool RegisterAppTraverseTelemetry() {
-#ifdef AE_PRODUCT_TELEMETRY_CATALOG
+#if defined(APPTRAVERSE_TELEMETRY_DISABLED)
+  return true;
+#elif defined(AE_PRODUCT_TELEMETRY_CATALOG)
   return RegisterAetherTelemetrySink<AppTraverseTeleSink>(std::string{
       ae::telemetry_catalog::CatalogId(AppTraverseTeleSink::kName)});
 #else

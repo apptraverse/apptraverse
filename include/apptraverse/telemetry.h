@@ -19,6 +19,12 @@ using AppTraverseTeleSink =
     ae::tele::RawTeleSink<AppTraverseTeleIdentity, AppTraverseTeleConfig, 4096,
                           1024>;
 }  // namespace apptraverse
+#ifdef APPTRAVERSE_TELEMETRY_DISABLED
+#define APPTRAVERSE_TELE_DEBUG(...) ((void)0)
+#define APPTRAVERSE_TELE_INFO(...) ((void)0)
+#define APPTRAVERSE_TELE_WARNING(...) ((void)0)
+#define APPTRAVERSE_TELE_ERROR(...) ((void)0)
+#else
 #define APPTRAVERSE_TELE_DEBUG(TAG, ...) \
   AE_TELE_DEBUG_TO(::apptraverse::AppTraverseTeleSink, TAG, __VA_ARGS__)
 #define APPTRAVERSE_TELE_INFO(TAG, ...) \
@@ -27,6 +33,7 @@ using AppTraverseTeleSink =
   AE_TELE_WARNING_TO(::apptraverse::AppTraverseTeleSink, TAG, __VA_ARGS__)
 #define APPTRAVERSE_TELE_ERROR(TAG, ...) \
   AE_TELE_ERROR_TO(::apptraverse::AppTraverseTeleSink, TAG, __VA_ARGS__)
+#endif
 AE_TELE_MODULE(kAppTraverseTelemetry, 41, 0, 65535);
 AE_TAG(ModelRuntimeStarted, kAppTraverseTelemetry)
 AE_TAG(ModelRuntimeStopped, kAppTraverseTelemetry)

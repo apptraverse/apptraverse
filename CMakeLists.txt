@@ -12,6 +12,12 @@ project(AppTraverse
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+get_filename_component(_aether_config_name "${APPTRAVERSE_AETHER_USER_CONFIG}" NAME)
+if(WIN32 AND MSVC AND CMAKE_SIZEOF_VOID_P EQUAL 4 AND
+   _aether_config_name STREQUAL "shared_aether_ipv4_cloud_config.h")
+  set(APPTRAVERSE_MINIMUM_WINDOWS_X86 ON)
+  set(APPTRAVERSE_ENABLE_TELEMETRY OFF)
+endif()
 include(cmake/apptraverse_minimum_size.cmake)
 
 # Emscripten pthreads require atomics/bulk-memory on every TU that ends up in
@@ -82,8 +88,12 @@ CPMAddPackage(
     "AE_TELE_INSTALL OFF"
     "AE_TELE_BUILD_TESTS OFF"
 )
-set(AE_OBJECTS_RAW_TELE ON CACHE BOOL
-    "Route object-system telemetry through its independent raw space")
+option(APPTRAVERSE_ENABLE_TELEMETRY "Compile AppTraverse and object-system telemetry" ON)
+if(NOT APPTRAVERSE_ENABLE_TELEMETRY)
+  add_compile_definitions(APPTRAVERSE_TELEMETRY_DISABLED=1)
+endif()
+set(AE_OBJECTS_RAW_TELE ${APPTRAVERSE_ENABLE_TELEMETRY} CACHE BOOL
+    "Route object-system telemetry through its independent raw space" FORCE)
 CPMAddPackage(
   NAME aether-objects
   GITHUB_REPOSITORY aethernetio/aether-objects
