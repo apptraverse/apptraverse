@@ -1,5 +1,8 @@
 # Windows SharedNode Chat: Æther cloud-only build
 
+Historical baseline: the subsequent MinSizeRel module study re-enabled native
+peer UDP and WSS. This file records the earlier cloud-only configuration.
+
 Direct UDP peer transport was disabled. The chat uses the Æther SDK cloud TCP
 transport, with no peer transport configuration in `AetherConnection`.
 

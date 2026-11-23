@@ -9,6 +9,13 @@ endif()
 option(APPTRAVERSE_AETHER_STREAM_HIERARCHY
   "Enable the Æther SDK stream hierarchy and SharedNode stream attachment"
   ${_apptraverse_hierarchy_default})
+set(_apptraverse_native_websocket_default OFF)
+if(WIN32 AND APPTRAVERSE_BUILD_SHARED_NODE_CHAT)
+  set(_apptraverse_native_websocket_default ON)
+endif()
+option(APPTRAVERSE_AETHER_NATIVE_WEBSOCKET
+  "Build the native Æther WebSocket/WSS backend"
+  ${_apptraverse_native_websocket_default})
 set(APPTRAVERSE_AETHER_CLIENT_SOURCE "" CACHE PATH "Optional clean SDK checkout at the pinned upstream revision")
 option(APPTRAVERSE_AETHER_USE_WORKSPACE_SOURCE "Build directly from an explicitly selected SDK working tree" OFF)
 if(EMSCRIPTEN)
@@ -33,6 +40,8 @@ endfunction()
 function(apptraverse_add_shared_aether)
   set(USER_CONFIG "${APPTRAVERSE_AETHER_USER_CONFIG}")
   set(AE_ENABLE_STREAM_HIERARCHY "${APPTRAVERSE_AETHER_STREAM_HIERARCHY}")
+  set(AE_NATIVE_WEBSOCKET ${APPTRAVERSE_AETHER_NATIVE_WEBSOCKET}
+      CACHE BOOL "Native Æther WebSocket/WSS backend" FORCE)
   if(NOT APPTRAVERSE_AETHER_STREAM_HIERARCHY)
     set(AE_SUPPORT_ADAPTIVE_DATAGRAM OFF)
   endif()
@@ -94,7 +103,12 @@ function(apptraverse_add_shared_aether)
   if(NOT EXISTS "${sdk_source}/aether/telemetry_namespaces.h")
     message(FATAL_ERROR "Shared transport telemetry requires the coordinated SDK sources. Select APPTRAVERSE_AETHER_CLIENT_SOURCE and APPTRAVERSE_AETHER_USE_WORKSPACE_SOURCE=ON; publish coordinated dependency commits before consuming updated remote pins.")
   endif()
-  if(NOT APPTRAVERSE_AETHER_USE_WORKSPACE_SOURCE)
+  if(WIN32)
+    target_compile_definitions(aether PRIVATE
+      WINVER=0x0601 _WIN32_WINNT=0x0601 _STL_WIN32_WINNT=0x0601)
+    target_compile_options(aether PRIVATE
+      /EHsc /utf-8 /Zc:preprocessor /Zc:__cplusplus /Zc:externConstexpr /bigobj)
+  elseif(NOT APPTRAVERSE_AETHER_USE_WORKSPACE_SOURCE)
     target_link_libraries(aether PRIVATE apptraverse_compile_policy)
   endif()
   if(APPTRAVERSE_AETHER_FAULT_PROXY)
