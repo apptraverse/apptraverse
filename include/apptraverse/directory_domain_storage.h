@@ -24,7 +24,12 @@ struct DirectoryDomainStorageStoreStats {
 
 class DirectoryDomainStorage final : public ae::IDomainStorage {
  public:
-  explicit DirectoryDomainStorage(std::filesystem::path root);
+  struct ObjectBudget {
+    ae::ObjId object;
+    std::size_t bytes;
+  };
+  explicit DirectoryDomainStorage(std::filesystem::path root,
+                                  std::optional<ObjectBudget> budget = {});
   ~DirectoryDomainStorage() override;
 
   std::unique_ptr<ae::IDomainStorageWriter> Store(
@@ -55,9 +60,12 @@ class DirectoryDomainStorage final : public ae::IDomainStorage {
 
   void RecordLayerBytesAccepted(std::size_t bytes);
   void RecordLayerCommit(LayerCommitOutcome outcome, std::size_t disk_bytes);
+  bool FitsObjectBudget(ae::ObjId object, std::filesystem::path const& path,
+                        std::size_t bytes) const;
 
  private:
   std::filesystem::path root_;
+  std::optional<ObjectBudget> budget_;
   DirectoryDomainStorageStoreStats save_session_stats_{};
   bool save_session_active_{false};
   bool save_session_had_failure_{false};

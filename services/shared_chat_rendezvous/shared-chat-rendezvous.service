@@ -1,0 +1,18 @@
+[Unit]
+Description=SharedNode Chat Æther rendezvous
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/opt/shared-chat-rendezvous/runtime/ld-linux-x86-64.so.2 --library-path /opt/shared-chat-rendezvous/runtime /opt/shared-chat-rendezvous/shared_chat_rendezvous /var/lib/shared-chat-rendezvous 46001
+DynamicUser=yes
+StateDirectory=shared-chat-rendezvous
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

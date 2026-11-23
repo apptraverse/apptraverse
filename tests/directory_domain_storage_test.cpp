@@ -96,6 +96,32 @@ std::vector<std::uint8_t> ReadLayerBytes(std::filesystem::path const& root,
   return bytes;
 }
 
+void TestObjectBudget() {
+  auto const root = std::filesystem::temp_directory_path() /
+                    "apptraverse_directory_object_budget_test";
+  std::filesystem::remove_all(root);
+  ae::ObjId const object{kProbeNodeId};
+  DirectoryDomainStorage storage{root, DirectoryDomainStorage::ObjectBudget{object, 64}};
+  ae::DomainQuery const first{object, 100u, 0};
+  ae::DomainQuery const second{object, 101u, 0};
+  ae::DomainQuery const other{ae::ObjId{kProbeNodeId + 1}, 100u, 0};
+  auto write = [&](ae::DomainQuery const& query, std::size_t bytes) {
+    auto writer = storage.Store(query);
+    WriteRawLayer(*writer, std::vector<std::uint8_t>(bytes, 42));
+  };
+  write(first, 24);
+  write(second, 32);
+  CHECK(std::filesystem::file_size(DirectoryDomainStorageLayerPath(root, first)) == 28);
+  CHECK(std::filesystem::file_size(DirectoryDomainStorageLayerPath(root, second)) == 36);
+  write(first, 25);
+  CHECK(storage.TakeLastLayerCommitOutcome() ==
+        DirectoryDomainStorage::LayerCommitOutcome::kFailed);
+  CHECK(std::filesystem::file_size(DirectoryDomainStorageLayerPath(root, first)) == 28);
+  write(other, 80);
+  CHECK(std::filesystem::file_size(DirectoryDomainStorageLayerPath(root, other)) == 84);
+  std::filesystem::remove_all(root);
+}
+
 void TestDirectoryDomainStorageRoundtrip() {
   auto root = std::filesystem::temp_directory_path() /
               "apptraverse_directory_domain_storage_test";
@@ -336,6 +362,7 @@ void TestNonDirectoryObjectPathFailsSave() {
 }  // namespace apptraverse::test
 
 int main() {
+  apptraverse::test::TestObjectBudget();
   apptraverse::EnsureObjectRegistration();
   apptraverse::test::TestDirectoryDomainStorageRoundtrip();
   apptraverse::test::TestLegacyEmptyBaseLayer();

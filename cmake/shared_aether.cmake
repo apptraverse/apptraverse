@@ -26,6 +26,7 @@ endif()
 set(APPTRAVERSE_AETHER_USER_CONFIG "${_apptraverse_shared_aether_default_config}"
     CACHE FILEPATH "Aether transport configuration for this build")
 option(APPTRAVERSE_AETHER_FAULT_PROXY "Enable process-scoped socket fault hooks for explicit acceptance tests" OFF)
+option(APPTRAVERSE_BUILD_AETHER_RENDEZVOUS "Build the standalone chat rendezvous service" OFF)
 function(_apptraverse_verify_sdk source)
   execute_process(COMMAND git -C "${source}" rev-parse HEAD
     OUTPUT_VARIABLE sdk_sha OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
@@ -136,6 +137,10 @@ function(apptraverse_add_shared_aether)
   endif()
   add_library(apptraverse_shared_aether STATIC EXCLUDE_FROM_ALL
     src/aether_link.cpp src/aether_connection.cpp)
+  if(APPTRAVERSE_BUILD_AETHER_RENDEZVOUS)
+    add_executable(shared_chat_rendezvous "${CMAKE_CURRENT_SOURCE_DIR}/tools/shared_chat_rendezvous.cpp")
+    target_link_libraries(shared_chat_rendezvous PRIVATE aether apptraverse)
+  endif()
   target_link_libraries(apptraverse_shared_aether PUBLIC
     apptraverse_shared_node aether)
   set_property(TARGET apptraverse_shared_aether PROPERTY APPTRAVERSE_SDK_SOURCE_DIR

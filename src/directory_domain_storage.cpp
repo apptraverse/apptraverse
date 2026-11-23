@@ -258,6 +258,12 @@ class CompareOnCloseDirectoryStorageWriter final : public ae::IDomainStorageWrit
       owner_->RecordLayerCommit(DirectoryDomainStorage::LayerCommitOutcome::kFailed, 0);
       return;
     }
+    if (owner_ != nullptr &&
+        !owner_->FitsObjectBudget(query_.id, path_, buffer_.size())) {
+      failed_ = true;
+      owner_->RecordLayerCommit(DirectoryDomainStorage::LayerCommitOutcome::kFailed, 0);
+      return;
+    }
 
     LayerFileRead const existing_read = ReadExistingLayerFile(path_);
 
@@ -551,9 +557,10 @@ bool DirectoryDomainStorageLayerFileExists(std::filesystem::path const& root,
 
 
 
-DirectoryDomainStorage::DirectoryDomainStorage(std::filesystem::path root)
+DirectoryDomainStorage::DirectoryDomainStorage(std::filesystem::path root,
+                                               std::optional<ObjectBudget> budget)
 
-    : root_{std::move(root)} {
+    : root_{std::move(root)}, budget_{budget} {
 
   std::filesystem::create_directories(root_);
 
@@ -562,6 +569,28 @@ DirectoryDomainStorage::DirectoryDomainStorage(std::filesystem::path root)
 
 
 DirectoryDomainStorage::~DirectoryDomainStorage() = default;
+
+bool DirectoryDomainStorage::FitsObjectBudget(
+    ae::ObjId object, std::filesystem::path const& path, std::size_t bytes) const {
+  if (!budget_ || object != budget_->object) return true;
+  if (bytes > budget_->bytes) return false;
+  auto remaining = budget_->bytes - bytes;
+  auto const directory = root_ / std::to_string(object.id());
+  std::error_code error;
+  if (!std::filesystem::exists(directory, error)) return !error;
+  auto entry = std::filesystem::recursive_directory_iterator(directory, error);
+  auto const end = std::filesystem::recursive_directory_iterator{};
+  for (; !error && entry != end; entry.increment(error)) {
+    if (entry->path() == path) continue;
+    auto const status = entry->symlink_status(error);
+    if (error || std::filesystem::is_symlink(status)) return false;
+    if (!std::filesystem::is_regular_file(status)) continue;
+    auto const size = entry->file_size(error);
+    if (error || size > remaining) return false;
+    remaining -= static_cast<std::size_t>(size);
+  }
+  return !error;
+}
 
 std::optional<ae::ObjectScope> DirectoryDomainStorage::ReadObjectScope(
     ae::ObjId const& id) const {
@@ -602,6 +631,7 @@ bool DirectoryDomainStorage::CommitObjectScope(ae::ObjId id, ae::ObjectScope sco
   }
   bytes.push_back(scope.is_constant ? 1 : 0);
   if (old.status == LayerFileReadStatus::kOk && old.bytes == bytes) return true;
+  if (!FitsObjectBudget(id, path, bytes.size())) return false;
   if (!ReplaceLayerFile(path, bytes)) return false;
   if (save_session_active_) {
     ++save_session_stats_.scope_metadata_written;

@@ -567,3 +567,17 @@ index 342a4e73..12def74b 100644
      }
    }
    void Start() {
+diff --git a/aether/tele_statistics_backend.h b/aether/tele_statistics_backend.h
+--- a/aether/tele_statistics_backend.h
++++ b/aether/tele_statistics_backend.h
+@@ -60,6 +60,10 @@ class TeleStatisticsBackend final
+   explicit TeleStatisticsBackend(bool console = AE_TELE_LOG_CONSOLE,
++#ifdef AE_TELE_STATISTICS_RAW_CAPACITY
++                                 std::size_t capacity = AE_TELE_STATISTICS_RAW_CAPACITY,
++#else
+                                  std::size_t capacity = 8 * 1024 * 1024,
++#endif
+                                  std::string catalog = {});
+ 
+   static void const* StaticTypeToken() noexcept { return &type_token_; }
+   void const* TypeToken() const noexcept override { return StaticTypeToken(); }

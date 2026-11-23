@@ -1,4 +1,6 @@
 #include "apptraverse/aether_connection.h"
+#include <charconv>
+#include <cstdlib>
 #include <cstdarg>
 #include "apptraverse/aether_telemetry.h"
 #include "apptraverse/aether_telemetry_delivery.h"
@@ -8,12 +10,55 @@
 #include "aether/ae_actions/select_client.h"
 #include "aether/aether_app.h"
 #include "aether/config.h"
+#include "aether/global_ids.h"
 #if AE_SUPPORT_P2P
 #  include "aether/peer/peer_types.h"
 #endif
 #include "apptraverse/aether_link.h"
 #include "apptraverse/directory_domain_storage.h"
 namespace apptraverse {
+namespace {
+#if AE_SUPPORT_P2P && AE_SUPPORT_HOLE_PUNCH
+std::optional<ae::RendezvousSettings> ReadRendezvous(ae::Uid const& self) {
+  auto const* setting = std::getenv("APPTRAVERSE_AETHER_RENDEZVOUS");
+  constexpr std::string_view test_service =
+      "4bb28061-35e4-47dc-bfd7-1bbfae68b22b@34.69.190.161:46001";
+  std::string_view value = setting ? std::string_view{setting} : test_service;
+  constexpr std::size_t uid_size = 36;
+  if (value.size() <= uid_size || value[uid_size] != '@') return {};
+  for (std::size_t i = 0; i < uid_size; ++i) {
+    auto const c = value[i];
+    bool const dash = i == 8 || i == 13 || i == 18 || i == 23;
+    if (dash ? c != '-'
+             : !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+                 (c >= 'A' && c <= 'F'))) return {};
+  }
+  auto const uid = ae::Uid::FromString(ae::UidString{value.substr(0, uid_size)});
+  if (uid.empty() || uid == self) return {};
+  value.remove_prefix(uid_size + 1);
+  ae::IpV4Addr ip{};
+  for (std::size_t i = 0; i < 4; ++i) {
+    auto const separator = value.find(i == 3 ? ':' : '.');
+    if (separator == std::string_view::npos || separator == 0) return {};
+    unsigned octet{};
+    auto const parsed =
+        std::from_chars(value.data(), value.data() + separator, octet);
+    if (parsed.ec != std::errc{} || parsed.ptr != value.data() + separator ||
+        octet > 255) return {};
+    ip.ipv4_value[i] = static_cast<std::uint8_t>(octet);
+    value.remove_prefix(separator + 1);
+  }
+  if (value.empty() || ip.ipv4_value[0] == 0 || ip.ipv4_value[0] >= 224) return {};
+  unsigned port{};
+  auto const parsed = std::from_chars(value.data(), value.data() + value.size(), port);
+  if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() ||
+      port == 0 || port > 65535) return {};
+  return ae::RendezvousSettings{
+      uid, {ae::Address{ip}, static_cast<std::uint16_t>(port)}};
+}
+#endif
+}  // namespace
+
 class AetherConnection {
  public:
   std::filesystem::path profile;
@@ -40,19 +85,33 @@ class AetherConnection {
                             std::string recipient, bool owner, bool connect,
                             std::shared_ptr<std::atomic<bool>> requested)
       : profile{std::move(path)},
-        telemetry_keeper_uid{std::move(recipient)},
+        telemetry_keeper_uid{
+#if APPTRAVERSE_AETHER_TELEMETRY_UPLOAD
+            std::move(recipient)
+#endif
+        },
         telemetry_owner{owner},
         client_name{std::move(name)},
         network_requested{requested
                               ? std::move(requested)
                               : std::make_shared<std::atomic<bool>>(connect)} {
+#if !APPTRAVERSE_AETHER_TELEMETRY_UPLOAD
+    (void)recipient;
+#endif
     if (!RegisterAppTraverseTelemetry()) {
       failed = true;
       return;
     }
     sdk = ae::AetherApp::Construct(
         ae::AetherAppContext{[this]() -> std::unique_ptr<ae::IDomainStorage> {
+#ifdef APPTRAVERSE_AETHER_TELEMETRY_DISK_BYTES
+          return std::make_unique<DirectoryDomainStorage>(
+              profile, DirectoryDomainStorage::ObjectBudget{
+                           ae::GlobalId::kTeleStatistics,
+                           APPTRAVERSE_AETHER_TELEMETRY_DISK_BYTES});
+#else
           return std::make_unique<DirectoryDomainStorage>(profile);
+#endif
         }}.TelemetryOwner(telemetry_owner));
     if (!sdk) {
       failed = true;
@@ -107,6 +166,9 @@ class AetherConnection {
       ae::PeerSettings peer_settings;
       peer_settings.app_id =
           ae::Uid::FromString("3ac93165-3d37-4970-87a6-fa4ee27744e4");
+#if AE_SUPPORT_HOLE_PUNCH
+      peer_settings.rendezvous = ReadRendezvous(client->uid());
+#endif
       client->ConfigurePeer(std::move(peer_settings));
 #endif
       client->connectivity_policy()
