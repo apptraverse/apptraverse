@@ -107,7 +107,7 @@ function(apptraverse_add_shared_aether)
     target_compile_definitions(aether PRIVATE
       WINVER=0x0601 _WIN32_WINNT=0x0601 _STL_WIN32_WINNT=0x0601)
     target_compile_options(aether PRIVATE
-      /EHsc /utf-8 /Zc:preprocessor /Zc:__cplusplus /Zc:externConstexpr /bigobj)
+      /GR- /EHsc /utf-8 /Zc:preprocessor /Zc:__cplusplus /Zc:externConstexpr /bigobj)
   elseif(NOT APPTRAVERSE_AETHER_USE_WORKSPACE_SOURCE)
     target_link_libraries(aether PRIVATE apptraverse_compile_policy)
   endif()
