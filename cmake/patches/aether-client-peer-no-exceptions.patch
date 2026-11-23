@@ -1,0 +1,569 @@
+diff --git a/aether/peer/peer_crypto.cpp b/aether/peer/peer_crypto.cpp
+index 190bab02..41bc35f3 100644
+--- a/aether/peer/peer_crypto.cpp
++++ b/aether/peer/peer_crypto.cpp
+@@ -4,7 +4,7 @@
+ #  include <algorithm>
+ #  include <cstring>
+ #  include <limits>
+-#  include <stdexcept>
++#  include "aether/fail_without_exceptions.h"
+ #  include "aether/peer/peer_serialization.h"
+ #  if AE_SIGNATURE == AE_ED25519 && AE_CRYPTO_SYNC == AE_CHACHA20_POLY1305
+ #    include <sodium.h>
+@@ -23,7 +23,7 @@ void Initialize() {
+   static bool const initialized = hydro_init() == 0;
+ #  endif
+   if (!initialized) {
+-    throw std::runtime_error("Crypto initialization failed");
++    FailWithoutExceptions("Crypto initialization failed");
+   }
+ }
+ void Erase(void* data, std::size_t size) {
+@@ -71,19 +71,19 @@ Sign SignPeerBytes(Key const& private_key,
+   peer_crypto_internal::Initialize();
+ #  if AE_SIGNATURE == AE_ED25519
+   if (private_key.Index() != CryptoKeyType::kSodiumSignPrivate) {
+-    throw std::invalid_argument("Wrong peer signing key");
++    FailWithoutExceptions("Wrong peer signing key");
+   }
+   SignSodium signature;
+   crypto_sign_detached(signature.signature.data(), nullptr, bytes.data(),
+                        bytes.size(), private_key.Data());
+ #  else
+   if (private_key.Index() != CryptoKeyType::kHydrogenSignPrivate) {
+-    throw std::invalid_argument("Wrong peer signing key");
++    FailWithoutExceptions("Wrong peer signing key");
+   }
+   SignHydrogen signature;
+   if (hydro_sign_create(signature.signature.data(), bytes.data(), bytes.size(),
+                         HYDRO_CONTEXT, private_key.Data()) != 0) {
+-    throw std::runtime_error("Peer signing failed");
++    FailWithoutExceptions("Peer signing failed");
+   }
+ #  endif
+   return Sign{signature};
+@@ -132,7 +132,7 @@ DataBuffer PeerHash(std::span<std::uint8_t const> bytes) {
+ #  else
+   if (hydro_hash_hash(hash.data(), hash.size(), bytes.data(), bytes.size(),
+                       "aepeer01", nullptr) != 0) {
+-    throw std::runtime_error("Peer transcript hash failed");
++    FailWithoutExceptions("Peer transcript hash failed");
+   }
+ #  endif
+   return hash;
+diff --git a/aether/peer/peer_identity.cpp b/aether/peer/peer_identity.cpp
+index 268bee59..a53d3858 100644
+--- a/aether/peer/peer_identity.cpp
++++ b/aether/peer/peer_identity.cpp
+@@ -3,7 +3,7 @@
+ #if AE_SUPPORT_P2P
+ #  include <algorithm>
+ #  include <cstring>
+-#  include <stdexcept>
++#  include "aether/fail_without_exceptions.h"
+ #  include "aether/aether.h"
+ #  include "aether/client_messages/p2p_message_stream.h"
+ #  include "aether/cloud_connections/cloud_request.h"
+@@ -16,12 +16,12 @@ namespace ae {
+ void Client::ConfigurePeer(PeerSettings settings) {
+   if (settings.app_id.empty() || settings.services.size() > 32 ||
+       settings.direct_peers.size() > 32 || settings.discovery_port == 0) {
+-    throw std::invalid_argument("Invalid peer configuration");
++    FailWithoutExceptions("Invalid peer configuration");
+   }
+   for (auto const& peer : settings.direct_peers) {
+     if (peer.uid.empty() || peer.endpoint.port == 0 ||
+         peer.endpoint.address.Index() != AddrVersion::kIpV4) {
+-      throw std::invalid_argument(
++      FailWithoutExceptions(
+           "Direct peer requires a UID and an IPv4 endpoint");
+     }
+   }
+@@ -31,18 +31,18 @@ void Client::ConfigurePeer(PeerSettings settings) {
+       (settings.rendezvous->uid == uid_ || settings.rendezvous->uid.empty() ||
+        !ValidRendezvousEndpoint(settings.rendezvous->endpoint) ||
+        (!settings.rendezvous->standard && !settings.rendezvous->dual_socket))) {
+-    throw std::invalid_argument("Invalid rendezvous configuration");
++    FailWithoutExceptions("Invalid rendezvous configuration");
+   }
+ #  endif
+ 
+ #  if !AE_SUPPORT_DIRECT_IP
+   if (!settings.direct_peers.empty()) {
+-    throw std::invalid_argument("Direct IP is disabled in this build");
++    FailWithoutExceptions("Direct IP is disabled in this build");
+   }
+ #  endif
+ #  if !AE_SUPPORT_HOLE_PUNCH
+   if (settings.rendezvous) {
+-    throw std::invalid_argument("Hole punching is disabled in this build");
++    FailWithoutExceptions("Hole punching is disabled in this build");
+   }
+ #  endif
+   peer_identity_task_.Reset();
+diff --git a/aether/peer/peer_transport.cpp b/aether/peer/peer_transport.cpp
+index 76f9dbb1..01842f71 100644
+--- a/aether/peer/peer_transport.cpp
++++ b/aether/peer/peer_transport.cpp
+@@ -7,7 +7,7 @@
+ #  include <limits>
+ #  include <map>
+ #  include <span>
+-#  include <stdexcept>
++#  include "aether/fail_without_exceptions.h"
+ #  include <string>
+ #  include <tuple>
+ #  include "aether/ae_actions/ping.h"
+@@ -99,16 +99,16 @@ struct PeerTransport::Impl : std::enable_shared_from_this<PeerTransport::Impl> {
+         rendezvous_datagrams{context} {
+     if (settings.app_id.empty() || settings.services.size() > 32 ||
+         settings.direct_peers.size() > 32 || settings.discovery_port == 0) {
+-      throw std::invalid_argument("Invalid peer configuration");
++      FailWithoutExceptions("Invalid peer configuration");
+     }
+ #  if !AE_SUPPORT_DIRECT_IP
+     if (!settings.direct_peers.empty()) {
+-      throw std::invalid_argument("Direct IP is disabled in this build");
++      FailWithoutExceptions("Direct IP is disabled in this build");
+     }
+ #  endif
+ #  if !AE_SUPPORT_HOLE_PUNCH
+     if (settings.rendezvous) {
+-      throw std::invalid_argument("Hole punching is disabled in this build");
++      FailWithoutExceptions("Hole punching is disabled in this build");
+     }
+ #  endif
+ 
+@@ -118,14 +118,14 @@ struct PeerTransport::Impl : std::enable_shared_from_this<PeerTransport::Impl> {
+          !ValidRendezvousEndpoint(settings.rendezvous->endpoint) ||
+          (!settings.rendezvous->standard &&
+           !settings.rendezvous->dual_socket))) {
+-      throw std::invalid_argument("Invalid rendezvous configuration");
++      FailWithoutExceptions("Invalid rendezvous configuration");
+     }
+ #  endif
+ 
+     for (auto const& peer : settings.direct_peers) {
+       if (peer.uid.empty() || peer.endpoint.port == 0 ||
+           peer.endpoint.address.Index() != AddrVersion::kIpV4) {
+-        throw std::invalid_argument(
++        FailWithoutExceptions(
+             "Direct peer requires a UID and an IPv4 endpoint");
+       }
+     }
+@@ -134,27 +134,16 @@ struct PeerTransport::Impl : std::enable_shared_from_this<PeerTransport::Impl> {
+       if (!VerifyPeerCertificate(identity.certificate, root) ||
+           !VerifyPeerBytes(identity.certificate.public_key,
+                            SignPeerBytes(identity.private_key, probe), probe)) {
+-        throw std::invalid_argument("Invalid local peer identity");
++        FailWithoutExceptions("Invalid local peer identity");
+       }
+     }
+-    for (auto const& address : PeerUdp::Interfaces()) {
+-      AddInterface(address);
+-    }
+-    if (sockets.empty()) {
+-      throw std::runtime_error("No native peer interfaces");
+-    }
+-#  if AE_SUPPORT_LAN
+-    if (settings.discovery) {
+-      discovery = std::make_unique<PeerUdp>(Address{IpV4Addr {
+-                                              {0, 0, 0, 0}
+-                                            }},
+-                                            settings.discovery_port, true);
+-    }
+-#  else
++#  if !AE_SUPPORT_LAN
+     if (settings.discovery) {
+-      throw std::invalid_argument("LAN is disabled in this build");
++      FailWithoutExceptions("LAN is disabled in this build");
+     }
+ #  endif
++    RefreshInterfaces();
++
+   }
+   ~Impl() {
+     tick.Reset();
+@@ -163,13 +152,16 @@ struct PeerTransport::Impl : std::enable_shared_from_this<PeerTransport::Impl> {
+       connectivity.RemovePeerRxWindow(path->schedule_id);
+     }
+   }
+-  void AddSocket(Address const& address, std::uint16_t port, PunchLane lane) {
++  bool AddSocket(Address const& address, std::uint16_t port, PunchLane lane) {
+     auto socket = std::make_unique<PeerUdp>(address, port, false, true);
++    if (!socket->valid() || socket->port() == 0) {
++      return false;
++    }
+     auto free = std::find(sockets.begin(), sockets.end(), nullptr);
+     auto index = static_cast<std::size_t>(free - sockets.begin());
+     if (free == sockets.end()) {
+       if (sockets.size() >= 64) {
+-        return;
++        return false;
+       }
+       sockets.emplace_back(std::move(socket));
+       socket_ids.push_back(RandomPeerToken());
+@@ -179,9 +171,12 @@ struct PeerTransport::Impl : std::enable_shared_from_this<PeerTransport::Impl> {
+       socket_ids[index] = RandomPeerToken();
+       socket_lanes[index] = lane;
+     }
++    return true;
+   }
+-  void AddInterface(Address const& address) {
+-    AddSocket(address, settings.listen_port, PunchLane::kStandard);
++  bool AddInterface(Address const& address) {
++    if (!AddSocket(address, settings.listen_port, PunchLane::kStandard)) {
++      return false;
++    }
+ 
+ #  if AE_SUPPORT_HOLE_PUNCH
+     if (settings.rendezvous && settings.rendezvous->dual_socket) {
+@@ -189,6 +184,7 @@ struct PeerTransport::Impl : std::enable_shared_from_this<PeerTransport::Impl> {
+       AddSocket(address, 0, PunchLane::kSecond);
+     }
+ #  endif
++    return true;
+   }
+   void Stop() {
+     stopped = true;
+@@ -502,12 +498,11 @@ struct PeerTransport::Impl : std::enable_shared_from_this<PeerTransport::Impl> {
+                 Now(), connectivity.offline_detection_timeout()));
+   }
+   void RefreshInterfaces() {
+-    std::vector<Address> available;
+-    try {
+-      available = PeerUdp::Interfaces();
+-    } catch (std::runtime_error const&) {
++    auto interfaces = PeerUdp::Interfaces();
++    if (!interfaces) {
+       return;
+     }
++    auto const& available = *interfaces;
+     bool changed = false;
+     for (std::size_t index = 0; index < sockets.size(); ++index) {
+       if (!sockets[index] ||
+@@ -531,24 +526,16 @@ struct PeerTransport::Impl : std::enable_shared_from_this<PeerTransport::Impl> {
+           })) {
+         continue;
+       }
+-      try {
+-        AddInterface(address);
+-        changed = true;
+-      } catch (std::runtime_error const&) {
+-        // An interface can disappear between enumeration and bind. Other
+-        // interfaces and cloud delivery continue; the next scan tries again.
+-      }
++      // An address may disappear before bind. Retry it on the next scan.
++      changed |= AddInterface(address);
+     }
+ #  if AE_SUPPORT_LAN
+     if (settings.discovery && (changed || !discovery)) {
+       discovery.reset();
+-      try {
+-        discovery = std::make_unique<PeerUdp>(Address{IpV4Addr {
+-                                                {0, 0, 0, 0}
+-                                              }},
+-                                              settings.discovery_port, true);
+-      } catch (std::runtime_error const&) {
+-        // Rejoin memberships on the next interface scan.
++      auto socket = std::make_unique<PeerUdp>(
++          Address{IpV4Addr{{0, 0, 0, 0}}}, settings.discovery_port, true);
++      if (socket->valid()) {
++        discovery = std::move(socket);
+       }
+     }
+ #  endif
+@@ -1033,14 +1020,14 @@ void PeerTransport::Connect(DirectPeer const& peer) {
+ 
+   if (peer.uid.empty() || peer.endpoint.port == 0 ||
+       peer.endpoint.address.Index() != AddrVersion::kIpV4) {
+-    throw std::invalid_argument(
++    FailWithoutExceptions(
+         "Direct peer requires a UID and an IPv4 endpoint");
+   }
+   impl_->Connect(peer.endpoint, peer.uid, PeerRoute::kDirectIp);
+ 
+ #  else
+   static_cast<void>(peer);
+-  throw std::logic_error("Direct IP is disabled in this build");
++  FailWithoutExceptions("Direct IP is disabled in this build");
+ #  endif
+ }
+ bool PeerTransport::Send(Uid const& uid, DataBuffer const& data, bool lan,
+diff --git a/aether/peer/peer_udp.cpp b/aether/peer/peer_udp.cpp
+index fa7619ab..366e15cc 100644
+--- a/aether/peer/peer_udp.cpp
++++ b/aether/peer/peer_udp.cpp
+@@ -24,7 +24,6 @@
+ #  endif
+ #  include <algorithm>
+ #  include <cstring>
+-#  include <stdexcept>
+ #  include "aether/peer/peer_udp.h"
+ namespace ae {
+ namespace peer_udp_internal {
+@@ -33,21 +32,19 @@ using Socket = SOCKET;
+ using SocketSize = int;
+ constexpr Socket kInvalid = INVALID_SOCKET;
+ void Close(Socket socket) { closesocket(socket); }
+-void Initialize() {
++bool Initialize() {
+   static auto const initialized = [] {
+     WSADATA data;
+     return WSAStartup(MAKEWORD(2, 2), &data) == 0;
+   }();
+-  if (!initialized) {
+-    throw std::runtime_error("Peer Winsock startup failed");
+-  }
++  return initialized;
+ }
+ #  else
+ using Socket = int;
+ using SocketSize = std::size_t;
+ constexpr Socket kInvalid = -1;
+ void Close(Socket socket) { close(socket); }
+-void Initialize() {}
++bool Initialize() { return true; }
+ #  endif
+ in_addr NativeAddress(Address const& address) {
+   in_addr native{};
+@@ -78,8 +75,10 @@ struct PeerUdp::Impl {
+     }
+   }
+ };
+-std::vector<Address> PeerUdp::Interfaces() {
+-  peer_udp_internal::Initialize();
++std::optional<std::vector<Address>> PeerUdp::Interfaces() {
++  if (!peer_udp_internal::Initialize()) {
++    return std::nullopt;
++  }
+   std::vector<Address> addresses;
+ #  ifdef _WIN32
+   ULONG length = 16384;
+@@ -92,7 +91,7 @@ std::vector<Address> PeerUdp::Interfaces() {
+     status = GetAdaptersAddresses(AF_INET, 0, nullptr, adapters, &length);
+   }
+   if (status != NO_ERROR) {
+-    throw std::runtime_error("Cannot enumerate peer interfaces");
++    return std::nullopt;
+   }
+   for (auto* adapter = adapters; adapter; adapter = adapter->Next) {
+     if (adapter->OperStatus != IfOperStatusUp) {
+@@ -108,7 +107,7 @@ std::vector<Address> PeerUdp::Interfaces() {
+ #  else
+   ifaddrs* interfaces{};
+   if (getifaddrs(&interfaces) != 0) {
+-    throw std::runtime_error("Cannot enumerate peer interfaces");
++    return std::nullopt;
+   }
+   for (auto* item = interfaces; item; item = item->ifa_next) {
+     if (item->ifa_addr && item->ifa_addr->sa_family == AF_INET &&
+@@ -127,19 +126,23 @@ std::vector<Address> PeerUdp::Interfaces() {
+ PeerUdp::PeerUdp(Address local, std::uint16_t port, bool discovery,
+                  bool no_fragment)
+     : impl_{std::make_unique<Impl>()}, local_{std::move(local)} {
++  if (!Open(port, discovery, no_fragment)) {
++    impl_.reset();
++  }
++}
++bool PeerUdp::Open(std::uint16_t port, bool discovery, bool no_fragment) {
+ #  if !AE_SUPPORT_LAN
+   if (discovery) {
+-    throw std::invalid_argument("LAN is disabled in this build");
++    return false;
+   }
+ #  endif
+ 
+-  peer_udp_internal::Initialize();
+-  if (local_.Index() != AddrVersion::kIpV4) {
+-    throw std::invalid_argument("Peer socket requires IPv4");
++  if (!peer_udp_internal::Initialize() || local_.Index() != AddrVersion::kIpV4) {
++    return false;
+   }
+   impl_->socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+   if (impl_->socket == peer_udp_internal::kInvalid) {
+-    throw std::runtime_error("Cannot create peer UDP socket");
++    return false;
+   }
+   auto set = [&](int level, int option, auto const& value) {
+     return setsockopt(impl_->socket, level, option,
+@@ -157,7 +160,7 @@ PeerUdp::PeerUdp(Address local, std::uint16_t port, bool discovery,
+     bool const enabled = false;
+ #  endif
+     if (!enabled) {
+-      throw std::runtime_error("Cannot disable IPv4 fragmentation for peer UDP");
++      return false;
+     }
+   }
+   // Burst arrivals can queue between scheduler polls. Keep the platform
+@@ -178,28 +181,28 @@ PeerUdp::PeerUdp(Address local, std::uint16_t port, bool discovery,
+   int const send_buffer = std::max<int>(AE_SOCKET_SEND_BUFFER_BYTES, 512 * 1024);
+   if (!set(SOL_SOCKET, SO_SNDBUF, send_buffer) &&
+       !set(SOL_SOCKET, SO_SNDBUF, AE_SOCKET_SEND_BUFFER_BYTES)) {
+-    throw std::runtime_error("Cannot set peer send buffer");
++    return false;
+   }
+ #  if AE_SUPPORT_LAN
+   int one = 1;
+   if (discovery && !set(SOL_SOCKET, SO_REUSEADDR, one)) {
+-    throw std::runtime_error("Cannot share discovery socket");
++    return false;
+   }
+ #  endif
+   auto address = peer_udp_internal::ToNative({local_, port});
+   if (bind(impl_->socket, reinterpret_cast<sockaddr*>(&address),
+            sizeof address) != 0) {
+-    throw std::runtime_error("Cannot bind peer UDP socket");
++    return false;
+   }
+ #  ifdef _WIN32
+   u_long nonblocking = 1;
+   if (ioctlsocket(impl_->socket, FIONBIO, &nonblocking) != 0) {
+-    throw std::runtime_error("Cannot make peer socket nonblocking");
++    return false;
+   }
+ #  else
+   int flags = fcntl(impl_->socket, F_GETFL, 0);
+   if (flags < 0 || fcntl(impl_->socket, F_SETFL, flags | O_NONBLOCK) != 0) {
+-    throw std::runtime_error("Cannot make peer socket nonblocking");
++    return false;
+   }
+ #  endif
+ #  if AE_SUPPORT_LAN
+@@ -209,20 +212,25 @@ PeerUdp::PeerUdp(Address local, std::uint16_t port, bool discovery,
+   set(IPPROTO_IP, IP_MULTICAST_LOOP, loop);
+   if (discovery) {
+     bool joined = false;
+-    for (auto const& iface : Interfaces()) {
++    auto interfaces = Interfaces();
++    if (!interfaces) {
++      return false;
++    }
++    for (auto const& iface : *interfaces) {
+       ip_mreq group{};
+       inet_pton(AF_INET, "239.255.46.1", &group.imr_multiaddr);
+       group.imr_interface = peer_udp_internal::NativeAddress(iface);
+       joined |= set(IPPROTO_IP, IP_ADD_MEMBERSHIP, group);
+     }
+     if (!joined) {
+-      throw std::runtime_error("Cannot join LAN discovery group");
++      return false;
+     }
+   } else {
+     auto iface = peer_udp_internal::NativeAddress(local_);
+     set(IPPROTO_IP, IP_MULTICAST_IF, iface);
+   }
+ #  endif
++  return true;
+ }
+ PeerUdp::~PeerUdp() = default;
+ PeerSendResult PeerUdp::ClassifySendFailure(int error) {
+@@ -249,7 +257,7 @@ bool PeerUdp::Send(AddressPort const& remote, DataBuffer const& data) {
+ }
+ PeerSendResult PeerUdp::TrySend(AddressPort const& remote,
+                                 DataBuffer const& data) {
+-  if (remote.address.Index() != AddrVersion::kIpV4 || remote.port == 0) {
++  if (!valid() || remote.address.Index() != AddrVersion::kIpV4 || remote.port == 0) {
+     return PeerSendResult::kError;
+   }
+   constexpr std::size_t kPeerUdpPayloadBudget = 1400;
+@@ -276,6 +284,9 @@ bool PeerUdp::Announce(std::uint16_t port, DataBuffer const& data) {
+ }
+ #  endif
+ std::optional<PeerDatagram> PeerUdp::Receive() {
++  if (!valid()) {
++    return std::nullopt;
++  }
+   std::array<char, 65536> bytes{};
+   sockaddr_in source{};
+ #  ifdef _WIN32
+@@ -298,6 +309,9 @@ std::optional<PeerDatagram> PeerUdp::Receive() {
+   return packet;
+ }
+ std::uint16_t PeerUdp::port() const {
++  if (!valid()) {
++    return 0;
++  }
+   sockaddr_in address{};
+ #  ifdef _WIN32
+   int length = sizeof address;
+@@ -306,7 +320,7 @@ std::uint16_t PeerUdp::port() const {
+ #  endif
+   if (getsockname(impl_->socket, reinterpret_cast<sockaddr*>(&address),
+                   &length) != 0) {
+-    throw std::runtime_error("Cannot query peer UDP port");
++    return 0;
+   }
+   return ntohs(address.sin_port);
+ }
+diff --git a/aether/peer/peer_udp.h b/aether/peer/peer_udp.h
+index e7eeb781..081c6263 100644
+--- a/aether/peer/peer_udp.h
++++ b/aether/peer/peer_udp.h
+@@ -14,7 +14,7 @@ struct PeerDatagram {
+ enum class PeerSendResult { kSent, kBlocked, kError, kTooLarge };
+ class PeerUdp {
+  public:
+-  static std::vector<Address> Interfaces();
++  static std::optional<std::vector<Address>> Interfaces();
+   PeerUdp(Address local, std::uint16_t port, bool discovery = false,
+           bool no_fragment = false);
+   ~PeerUdp();
+@@ -28,10 +28,12 @@ class PeerUdp {
+   std::optional<PeerDatagram> Receive();
+   Address const& local() const { return local_; }
+   std::uint16_t port() const;
++  bool valid() const { return impl_ != nullptr; }
+ 
+  private:
+   friend struct PeerUdpTestHelper;
+   static PeerSendResult ClassifySendFailure(int error);
++  bool Open(std::uint16_t port, bool discovery, bool no_fragment);
+   struct Impl;
+   std::unique_ptr<Impl> impl_;
+   Address local_;
+diff --git a/aether/peer/rendezvous_broker.cpp b/aether/peer/rendezvous_broker.cpp
+index 13dc275e..3e4d9f84 100644
+--- a/aether/peer/rendezvous_broker.cpp
++++ b/aether/peer/rendezvous_broker.cpp
+@@ -6,7 +6,7 @@
+ #  include <chrono>
+ #  include <map>
+ #  include <set>
+-#  include <stdexcept>
++#  include "aether/fail_without_exceptions.h"
+ #  include <tuple>
+ #  include "aether/crypto/key_gen.h"
+ namespace ae {
+@@ -19,7 +19,7 @@ bool Same(AddressPort const& a, AddressPort const& b) {
+ std::array<std::uint8_t, 32> NewKey() {
+   Key key;
+   if (!CryptoSyncKeygen(key)) {
+-    throw std::runtime_error("Rendezvous key generation failed");
++    FailWithoutExceptions("Rendezvous key generation failed");
+   }
+   std::array<std::uint8_t, 32> result{};
+   std::copy_n(key.Data(), result.size(), result.begin());
+diff --git a/aether/peer/rendezvous_client.cpp b/aether/peer/rendezvous_client.cpp
+index 342a4e73..12def74b 100644
+--- a/aether/peer/rendezvous_client.cpp
++++ b/aether/peer/rendezvous_client.cpp
+@@ -4,7 +4,7 @@
+ #  include <algorithm>
+ #  include <chrono>
+ #  include <map>
+-#  include <stdexcept>
++#  include "aether/fail_without_exceptions.h"
+ namespace ae {
+ struct RendezvousClient::Impl : std::enable_shared_from_this<Impl> {
+   using Clock = std::chrono::steady_clock;
+@@ -26,7 +26,7 @@ struct RendezvousClient::Impl : std::enable_shared_from_this<Impl> {
+        ByteIStream& stream)
+       : context{c}, transport{p}, settings{s}, signaling{stream} {
+     if (!settings.rendezvous) {
+-      throw std::invalid_argument("Missing rendezvous settings");
++      FailWithoutExceptions("Missing rendezvous settings");
+     }
+   }
+   void Start() {

@@ -76,8 +76,11 @@ function(apptraverse_add_shared_aether)
   # Build from an owned SDK copy. Keep both the CPM checkout and an optional
   # caller checkout pristine, and preserve the pinned wire format.
   set(sdk_patch "${APPTRAVERSE_CMAKE_DIR}/patches/aether-client-no-exceptions-wasm32-v2.patch")
-  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${sdk_patch}")
+  set(peer_patch "${APPTRAVERSE_CMAKE_DIR}/patches/aether-client-peer-no-exceptions.patch")
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${sdk_patch}" "${peer_patch}")
   file(SHA256 "${sdk_patch}" patch_hash)
+  file(SHA256 "${peer_patch}" peer_patch_hash)
+  string(SHA256 patch_hash "${patch_hash}${peer_patch_hash}")
   string(SUBSTRING "${patch_hash}" 0 12 patch_id)
   string(SUBSTRING "${APPTRAVERSE_AETHER_CLIENT_GIT_TAG}" 0 12 sdk_id)
   set(sdk_source "${CMAKE_CURRENT_BINARY_DIR}/_deps/ae-${sdk_id}-${patch_id}")
@@ -92,7 +95,7 @@ function(apptraverse_add_shared_aether)
     # The patch may be checked out with CRLF when a Linux build shares a Windows
     # worktree. Match context across that line-ending difference.
     execute_process(COMMAND git -C "${sdk_source}" apply --ignore-whitespace --whitespace=nowarn
-      "${sdk_patch}" COMMAND_ERROR_IS_FATAL ANY)
+      "${sdk_patch}" "${peer_patch}" COMMAND_ERROR_IS_FATAL ANY)
     file(TOUCH "${sdk_source}/apptraverse-patched")
   endif()
   endif()
@@ -105,9 +108,21 @@ function(apptraverse_add_shared_aether)
   endif()
   if(WIN32)
     target_compile_definitions(aether PRIVATE
-      WINVER=0x0601 _WIN32_WINNT=0x0601 _STL_WIN32_WINNT=0x0601)
+      WINVER=0x0601 _WIN32_WINNT=0x0601 _STL_WIN32_WINNT=0x0601
+      _HAS_EXCEPTIONS=0)
     target_compile_options(aether PRIVATE
-      /GR- /EHsc /utf-8 /Zc:preprocessor /Zc:__cplusplus /Zc:externConstexpr /bigobj)
+      /GR- /EHs-c- /utf-8 /Zc:preprocessor /Zc:__cplusplus /Zc:externConstexpr /bigobj
+      $<$<CONFIG:MinSizeRel>:/GS->)
+    if(TARGET ixwebsocket)
+      target_compile_definitions(ixwebsocket PRIVATE _HAS_EXCEPTIONS=0)
+      target_compile_options(ixwebsocket PRIVATE /EHs-c-
+        $<$<CONFIG:MinSizeRel>:/GS->)
+    endif()
+    if(TARGET aether-tele)
+      target_compile_definitions(aether-tele PRIVATE _HAS_EXCEPTIONS=0)
+      target_compile_options(aether-tele PRIVATE /EHs-c-
+        $<$<CONFIG:MinSizeRel>:/GS->)
+    endif()
   elseif(NOT APPTRAVERSE_AETHER_USE_WORKSPACE_SOURCE)
     target_link_libraries(aether PRIVATE apptraverse_compile_policy)
   endif()
