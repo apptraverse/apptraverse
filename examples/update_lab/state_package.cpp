@@ -1,4 +1,5 @@
 #include "state_package.h"
+#define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
 namespace update_lab {
 Bytes Compress(Bytes const& bytes, int level) {
@@ -8,6 +9,7 @@ Bytes Compress(Bytes const& bytes, int level) {
   ZSTD_CCtx_setParameter(context, ZSTD_c_compressionLevel, level);
   ZSTD_CCtx_setParameter(context, ZSTD_c_windowLog, 20); // <= 1 MiB history
   ZSTD_CCtx_setParameter(context, ZSTD_c_checksumFlag, 0);
+  ZSTD_CCtx_setParameter(context, ZSTD_c_format, ZSTD_f_zstd1_magicless);
   auto size = ZSTD_compress2(context, out.data(), out.size(), bytes.data(), bytes.size());
   ZSTD_freeCCtx(context);
   if (ZSTD_isError(size)) return {};
@@ -17,15 +19,18 @@ Bytes Compress(Bytes const& bytes, int level) {
 bool Expand(Bytes const& bytes, std::uint64_t size, Bytes& out) {
   if (size > kMaxBlobSize) return false;
   out.resize(static_cast<std::size_t>(size));
-  auto result = ZSTD_decompress(out.data(), out.size(), bytes.data(), bytes.size());
+  auto* context = ZSTD_createDCtx();
+  if (!context) return false;
+  ZSTD_DCtx_setParameter(context, ZSTD_d_format, ZSTD_f_zstd1_magicless);
+  auto result = ZSTD_decompressDCtx(context, out.data(), out.size(), bytes.data(), bytes.size());
+  ZSTD_freeDCtx(context);
   return !ZSTD_isError(result) && result == size;
 }
 Bytes PackageRaw(Bytes const& bytes, unsigned kind, unsigned from, unsigned to) {
-  return Encode(StatePackage{"ATSTATE1", kind, from, to, bytes.size(), Compress(bytes, kind == 2 ? 9 : 19)});
+  return Encode(StatePackage{kind, from, to, bytes.size(), Compress(bytes, kind == 2 ? 9 : 19)});
 }
 bool UnpackRaw(Bytes const& bytes, StatePackage& package, Bytes& out) {
-  return Decode(bytes, package) && package.magic == "ATSTATE1" &&
-      Expand(package.compressed, package.raw_size, out);
+  return Decode(bytes, package) && Expand(package.compressed, package.raw_size, out);
 }
 Bytes FullState(ae::RamDomainStorage const& storage, unsigned version) {
   Bytes bytes;

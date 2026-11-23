@@ -136,6 +136,25 @@ Cached startup кандидата не создаёт SDK-клиент без н
 Канонические полные образы включают локализации. Демонстрационные 384 KiB
 языкового delivery-конверта не входят в native corpus и не улучшают статистику.
 
+## Удаление файловых сигнатур
+
+После уточнения запрета файловых сигнатур удалено поле/значение `ATSTATE1`;
+кодек переключён на Zstd magicless, без стандартного magic и checksum.
+Метаданные пакета занимают 24 B. `state_test` проверяет отсутствие magic-поля,
+magicless frame header, отключённый checksum и прежние full/delta/S1 сценарии.
+Windows/Linux incremental Debug builds и эти state-tests PASS; native controls
+smoke PASS на Windows и GTK/X11. Новая процессная матрица PASS 31/31:
+`artifacts/update-lab/process-no-signature/results.json`. В том числе повторены
+USER round-trip, partial resume, native E0/E1, E2 rollback и interrupted trial.
+Новые полные образы, delta, язык и EXE использовались из `store-no-signature`.
+Прежние профили и исторические свидетельства сохранены; старый экспериментальный
+delivery format не загружается автоматически. Native USER/LOCAL format не менялся.
+
+Дополнительно новый magicless языковой пакет прошёл настоящую cloud-доставку
+через отдельного Æther-поставщика: `cloud-no-signature.json` содержит
+`activated/ru`, размер компонента 393 639 B, исходный English оставался активным
+до `ready`. Логи: `cloud-no-signature.log`, `provider-no-signature/provider.log`.
+
 ## Границы
 
 Физический Linux-компьютер, фактическая Windows 7, Release, Apple/Android/Web,

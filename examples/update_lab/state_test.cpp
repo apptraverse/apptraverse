@@ -2,6 +2,8 @@
 #include "apptraverse/distill.h"
 #include "apptraverse/overlay_domain_storage.h"
 #include <iostream>
+#define ZSTD_STATIC_LINKING_ONLY
+#include <zstd.h>
 using namespace update_lab;
 void Require(bool value, char const* message) { if(!value)Fail(message); }
 int main() {
@@ -23,6 +25,14 @@ int main() {
   auto recovered=overlapping.Receive({123,static_cast<std::uint32_t>(encoded.size()),700,Bytes{encoded.begin()+700,encoded.end()}});
   Require(recovered&&recovered->payload==frame.payload,"overlapping retransmission with changed fragment sizes");
   auto r0=BuildCompleteSupply(0);auto r1=BuildCompleteSupply(1);auto r2=BuildCompleteSupply(2);auto r3=BuildCompleteSupply(3);
+  {
+    StatePackage package;auto bytes=FullState(r0,0);
+    Require(Decode(bytes,package)&&package.kind==0&&package.to==0,"package starts with typed metadata without file signature");
+    Require(bytes.size()==24+package.compressed.size(),"package metadata has no magic string");
+    ZSTD_FrameHeader header{};
+    auto result=ZSTD_getFrameHeader_advanced(&header,package.compressed.data(),package.compressed.size(),ZSTD_f_zstd1_magicless);
+    Require(result==0&&header.checksumFlag==0&&header.frameContentSize==package.raw_size,"magicless frame without checksum");
+  }
   {
     ae::Domain original{r0},changed{r1},added{r2};
     auto en0=apptraverse::LoadApplication<LocalizationState>(original,ae::ObjId{0x7b200001});

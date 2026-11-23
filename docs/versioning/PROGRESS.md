@@ -1,5 +1,10 @@
 ## UpdateLab: Windows/Linux updates and USER transfer — 2026-11-22
 
+Follow-up removes the application file magic and uses checksum-free Zstd magicless
+frames. Updated Windows/Linux Debug builds, state tests, native controls smoke and
+the 31-case process matrix PASS with fresh delivery artifacts/profiles; native
+USER/LOCAL format is unchanged. The older test artifacts remain preserved.
+
 Added the opt-in `examples/update_lab` prototype: one native Win32/GTK window,
 R0–R3 localization changes, native S1 inherited by existing prefab clones,
 portable USER with device LOCAL preserved, persistent DownloadNode progress/

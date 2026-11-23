@@ -23,11 +23,10 @@ struct StateDelta {
   AE_REFLECT_MEMBERS(changed, removed, removed_classes, removed_objects, scope_metadata)
 };
 struct StatePackage {
-  std::string magic;
   std::uint32_t kind, from, to; // full=0, delta=1, language/executable=2
   std::uint64_t raw_size;
   Bytes compressed;
-  AE_REFLECT_MEMBERS(magic, kind, from, to, raw_size, compressed)
+  AE_REFLECT_MEMBERS(kind, from, to, raw_size, compressed)
 };
 Bytes Compress(Bytes const&, int level = 19);
 bool Expand(Bytes const&, std::uint64_t size, Bytes&);
