@@ -20,6 +20,8 @@ struct Component {
   std::string path; // Relative to the published store.
   AE_REFLECT_MEMBERS(id, size, path)
 };
+// Catalog v3 and the v2 delivery protocol carry raw LZMA1 component packages.
+inline constexpr unsigned kCatalogFormat = 3, kDeliveryProtocol = 2;
 inline constexpr unsigned kLatest = UINT32_MAX;
 struct Resource {
   std::string locale, full; // An empty component ID places this root in the base image.

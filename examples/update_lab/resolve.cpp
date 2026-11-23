@@ -45,7 +45,7 @@ std::string Resolve(Catalog const& catalog, ResolveRequest const& q, UpdatePlan&
     auto installed = q.installed.find(language.locale);
     if (installed == q.installed.end() && language.locale != plan.intent.language) continue;
     Chain chain{"", language.full, language.revision, {}};
-    if (installed == q.installed.end()) {
+    if (installed == q.installed.end() || installed->second == kLatest) {
       chain.steps.push_back(language.full);
     } else {
       unsigned revision = installed->second;

@@ -1,33 +1,54 @@
 #include "state_package.h"
-#define ZSTD_STATIC_LINKING_ONLY
-#include <zstd.h>
+#include <cstdlib>
+#include <LzmaDec.h>
+#include <LzmaEnc.h>
+
 namespace update_lab {
-Bytes Compress(Bytes const& bytes, int level) {
-  Bytes out(ZSTD_compressBound(bytes.size()));
-  auto* context = ZSTD_createCCtx();
-  if (!context) return {};
-  ZSTD_CCtx_setParameter(context, ZSTD_c_compressionLevel, level);
-  ZSTD_CCtx_setParameter(context, ZSTD_c_windowLog, 20); // <= 1 MiB history
-  ZSTD_CCtx_setParameter(context, ZSTD_c_checksumFlag, 0);
-  ZSTD_CCtx_setParameter(context, ZSTD_c_format, ZSTD_f_zstd1_magicless);
-  auto size = ZSTD_compress2(context, out.data(), out.size(), bytes.data(), bytes.size());
-  ZSTD_freeCCtx(context);
-  if (ZSTD_isError(size)) return {};
-  out.resize(size);
-  return out;
+namespace {
+void* Allocate(ISzAllocPtr, size_t size) { return std::malloc(size); }
+void Free(ISzAllocPtr, void* memory) { std::free(memory); }
+constexpr ISzAlloc allocator{Allocate, Free};
+
+// The first five bytes are the SDK's decoder properties. The remaining bytes
+// are one raw LZMA1 stream with an end marker and no container or checksum.
+Bytes Compress(Bytes const& input) {
+  if (input.size() > kMaxBlobSize) return {};
+  CLzmaEncProps props;
+  LzmaEncProps_Init(&props);
+  props.level = 9;
+  props.fb = 273;
+  props.numThreads = 1;
+  props.reduceSize = input.size(); // No match can reach beyond the entire input.
+  SizeT capacity = input.size() + input.size() / 3 + 128;
+  Bytes output(LZMA_PROPS_SIZE + capacity);
+  SizeT properties = LZMA_PROPS_SIZE;
+  Byte empty = 0;
+  auto status = LzmaEncode(output.data() + properties, &capacity,
+      input.empty() ? &empty : input.data(), input.size(), &props,
+      output.data(), &properties, 1, nullptr, &allocator, &allocator);
+  if (status != SZ_OK || properties != LZMA_PROPS_SIZE) return {};
+  output.resize(properties + capacity);
+  return output;
 }
-bool Expand(Bytes const& bytes, std::uint64_t size, Bytes& out) {
-  if (size > kMaxBlobSize) return false;
-  out.resize(static_cast<std::size_t>(size));
-  auto* context = ZSTD_createDCtx();
-  if (!context) return false;
-  ZSTD_DCtx_setParameter(context, ZSTD_d_format, ZSTD_f_zstd1_magicless);
-  auto result = ZSTD_decompressDCtx(context, out.data(), out.size(), bytes.data(), bytes.size());
-  ZSTD_freeDCtx(context);
-  return !ZSTD_isError(result) && result == size;
+bool Expand(Bytes const& input, std::uint64_t size, Bytes& out) {
+  if (size > kMaxBlobSize || input.size() <= LZMA_PROPS_SIZE) return false;
+  SizeT consumed = input.size() - LZMA_PROPS_SIZE, produced = static_cast<SizeT>(size);
+  Bytes decoded(produced);
+  Byte empty = 0;
+  ELzmaStatus status;
+  auto result = LzmaDecode(decoded.empty() ? &empty : decoded.data(), &produced,
+      input.data() + LZMA_PROPS_SIZE, &consumed, input.data(), LZMA_PROPS_SIZE,
+      LZMA_FINISH_END, &status, &allocator);
+  if (result != SZ_OK || status != LZMA_STATUS_FINISHED_WITH_MARK ||
+      consumed != input.size() - LZMA_PROPS_SIZE || produced != size) return false;
+  out = std::move(decoded);
+  return true;
+}
 }
 Bytes PackageRaw(Bytes const& bytes, unsigned kind, unsigned from, unsigned to) {
-  return Encode(StatePackage{kind, from, to, bytes.size(), Compress(bytes, kind == 2 ? 9 : 19)});
+  auto compressed = Compress(bytes);
+  if (compressed.empty() || compressed.size() > kMaxBlobSize - 24) return {};
+  return Encode(StatePackage{kind, from, to, bytes.size(), std::move(compressed)});
 }
 bool UnpackRaw(Bytes const& bytes, StatePackage& package, Bytes& out) {
   return Decode(bytes, package) && Expand(package.compressed, package.raw_size, out);

@@ -5,7 +5,7 @@ param(
     [string]$TelemetrySource = "",
     [string]$LinuxBinaries = "",
     [ValidateRange(0, 3)][int]$Through = 3,
-    [string]$Store = "artifacts/update-lab/device-releases",
+    [string]$Store = "artifacts/update-lab/lzma1-releases",
     [string]$Cache = "C:/cpm"
 )
 $ErrorActionPreference = "Stop"
@@ -53,6 +53,6 @@ try {
             if (Test-Path -LiteralPath $symbols) { $publish += @("--linux-x64-e$revision-symbols", $symbols) }
         }
     }
-    & "$binaries/update_lab_pack.exe" @publish
+    & "$binaries/update_lab_provider.exe" @publish
     if ($LASTEXITCODE) { throw "Publish fixtures failed" }
 } finally { Pop-Location }

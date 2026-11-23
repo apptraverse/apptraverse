@@ -104,7 +104,7 @@ bool CopyAtomic(fs::path const& source, fs::path const& dest) {
   return ReadFile(source, bytes) && AtomicWrite(dest, bytes);
 }
 bool ReadCatalog(Bytes const& bytes, Catalog& catalog) {
-  return Decode(bytes, catalog) && catalog.format == 2;
+  return Decode(bytes, catalog) && catalog.format == kCatalogFormat;
 }
 Component const* FindComponent(Catalog const& catalog, std::string const& id) {
   for (auto const& c : catalog.components) if (c.id == id) return &c;

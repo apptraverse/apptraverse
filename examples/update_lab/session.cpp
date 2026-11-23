@@ -11,6 +11,10 @@ void SaveNative(ae::RamDomainStorage const& storage, fs::path const& profile) {
   Bytes bytes;
   if (!apptraverse::SerializeUserStorage(storage, bytes) || !AtomicWrite(profile / "user.bin", bytes)) Fail("native state save failed");
 }
+bool ExportUser(fs::path const& path, ae::RamDomainStorage const& user, unsigned release) {
+  auto package = FullState(user, release);
+  return !package.empty() && AtomicWrite(path, package);
+}
 std::string Quote(std::string const& text) {
   std::string out{"\""};
   for (unsigned char c : text) {
@@ -80,7 +84,7 @@ Session::Session(Options options, apptraverse::ApplicationModelRuntime& runtime)
   if (transfer.phase == "ready" || transfer.phase == "staged") {
     Bytes bytes;
     UpdatePlan prepared{};
-    if (ReadFile(options_.profile / "local" / "prepared-plan.bin", bytes) &&
+    if (ReadFile(cache / "prepared-plan.bin", bytes) &&
         Decode(bytes, prepared) && prepared.executable == UPDATE_LAB_EXECUTABLE &&
         prepared.intent.release == transfer.intent.release && prepared.intent.language == transfer.intent.language) {
       TransferResult recovered{transfer.epoch, prepared.intent, std::move(prepared), {}, 0, false, {}};
@@ -105,14 +109,13 @@ void Session::LoadContent() {
   auto resource = FindLanguage(image, user_->language);
   if (!resource) return;
   auto cache = Cache(options_.profile);
-  Bytes bytes;
   unsigned version = 0;
-  if (!ReadFile(cache / FileId(image.supply), bytes) || !ApplyStatePackage(bytes, backing_, version) || version != image.id) return;
+  if (!LoadCachedState(cache, image.supply, backing_, version) || version != image.id) return;
   ae::RamDomainStorage downloaded;
   if (!resource->full.empty()) {
     unsigned revision = 0;
     if (!installed_.resources.contains(resource->locale) ||
-        !ReadFile(cache / FileId(resource->full), bytes) || !ApplyStatePackage(bytes, downloaded, revision) ||
+        !LoadCachedState(cache, resource->full, downloaded, revision) ||
         revision != resource->revision) return;
   }
   if (!ReadLanguage(resource->full.empty() ? backing_ : downloaded, *resource, language_)) return;
@@ -187,7 +190,7 @@ void Session::Initial() {
   else if (!requested && !options_.no_action && (!options_.store.empty() || !options_.provider.empty())) Discover();
   if (!options_.export_file.empty() && content_ready_ &&
       (download_->state.phase == "idle" || download_->state.phase == "activated" || download_->state.phase == "rolled-back")) {
-    Save(); if (!AtomicWrite(options_.export_file, FullState(user_store_, user_->release))) Fail("export failed");
+    Save(); if (!ExportUser(options_.export_file, user_store_, user_->release)) Fail("export failed");
   }
   Project();
 }
@@ -246,7 +249,7 @@ void Session::Complete(TransferResult result) {
   auto state = download_->state; state.phase = "activated";
   state.message = "resumed=" + std::to_string(result.resumed_bytes) + (result.plan.supply.steps.empty() ? "; current" : result.plan.supply.base.empty() ? "; full" : "; delta");
   download_->Change(state); SaveDownload(); Project();
-  if (!options_.export_file.empty() && !AtomicWrite(options_.export_file, FullState(user_store_, user_->release))) Fail("export failed");
+  if (!options_.export_file.empty() && !ExportUser(options_.export_file, user_store_, user_->release)) Fail("export failed");
 }
 void Session::Import(fs::path const& path) {
   Bytes bytes; ae::RamDomainStorage imported; unsigned version = 0;
@@ -271,7 +274,7 @@ void Session::Submit(Command command) {
     local_->Change(local_->x, local_->y, local_->width, local_->height, static_cast<unsigned>(command.a));
     if (download_->state.phase == "progress" || download_->state.phase == "catalog") Request(download_->state.intent);
   } else if (command.action == "export") {
-    Save(); if (!AtomicWrite(fs::u8path(command.text), FullState(user_store_, user_->release))) Fail("USER export failed");
+    Save(); if (!ExportUser(fs::u8path(command.text), user_store_, user_->release)) Fail("USER export failed");
   } else if (command.action == "import") { Import(fs::u8path(command.text)); return; }
   Project();
 }

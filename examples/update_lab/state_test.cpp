@@ -2,8 +2,6 @@
 #include "apptraverse/distill.h"
 #include "apptraverse/overlay_domain_storage.h"
 #include <iostream>
-#define ZSTD_STATIC_LINKING_ONLY
-#include <zstd.h>
 using namespace update_lab;
 void Require(bool value, char const* message) { if(!value)Fail(message); }
 int main() {
@@ -25,7 +23,7 @@ int main() {
   auto recovered=overlapping.Receive({123,static_cast<std::uint32_t>(encoded.size()),700,Bytes{encoded.begin()+700,encoded.end()}});
   Require(recovered&&recovered->payload==frame.payload,"overlapping retransmission with changed fragment sizes");
   {
-    Catalog catalog{2, 5, {}, {}, {{"test", {4, 5}}, {"older", {4}}}};
+    Catalog catalog{kCatalogFormat, 5, {}, {}, {{"test", {4, 5}}, {"older", {4}}}};
     catalog.releases = {{4, 1, "supply/4", {{"ru", "language/4/ru", 22, 4}}},
                         {5, 3, "supply/5", {{"ru", "", 22, 5}}}};
     catalog.components = {{DeltaId(4, 5), 100, ""}, {ExeId("test", 3), 5000, ""}, {"supply/5", 300, ""}};
@@ -50,9 +48,14 @@ int main() {
     StatePackage package;auto bytes=FullState(r0,0);
     Require(Decode(bytes,package)&&package.kind==0&&package.to==0,"package starts with typed metadata without file signature");
     Require(bytes.size()==24+package.compressed.size(),"package metadata has no magic string");
-    ZSTD_FrameHeader header{};
-    auto result=ZSTD_getFrameHeader_advanced(&header,package.compressed.data(),package.compressed.size(),ZSTD_f_zstd1_magicless);
-    Require(result==0&&header.checksumFlag==0&&header.frameContentSize==package.raw_size,"magicless frame without checksum");
+    Bytes raw;
+    Require(UnpackRaw(bytes, package, raw) && !raw.empty(), "LZMA1 full state decodes");
+    for (Bytes const& sample : {Bytes{}, Bytes{42}, Bytes(8192, 0xff)}) {
+      auto packed = PackageRaw(sample, 2, 0, 0);
+      Require(UnpackRaw(packed, package, raw) && raw == sample, "raw LZMA1 boundary round trip");
+      package.compressed.pop_back();
+      Require(!UnpackRaw(Encode(package), package, raw), "unfinished LZMA1 stream rejected");
+    }
   }
   {
     auto d0 = DistillRelease(0), d1 = DistillRelease(1), d2 = DistillRelease(2);

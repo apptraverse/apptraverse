@@ -139,8 +139,13 @@ std::string AetherPeer::Diagnostics() const {
   return result;
 }
 Frame Serve(fs::path const& store, Frame const& request) {
-  Frame reply{1, ServiceError, request.id, request.chunk, {}};
+  Frame reply{kDeliveryProtocol, ServiceError, request.id, request.chunk, {}};
   reply.request = request.request;
+  if (request.protocol != kDeliveryProtocol) {
+    std::string reason = "Incompatible package format: LZMA1 client required";
+    reply.payload.assign(reason.begin(), reason.end());
+    return reply;
+  }
   Catalog catalog; Bytes bytes;
   if (!ReadFile(store / "catalog.bin", bytes) || !ReadCatalog(bytes, catalog)) return reply;
   if (request.kind == ResolveUpdate) {

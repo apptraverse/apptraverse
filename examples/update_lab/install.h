@@ -1,5 +1,5 @@
 #pragma once
-#include "wire.h"
+#include "state_package.h"
 namespace update_lab {
 struct Installation {
   std::string phase, active, previous, candidate;
@@ -7,6 +7,9 @@ struct Installation {
   AE_REFLECT_MEMBERS(phase, active, previous, candidate, active_version, candidate_version)
 };
 fs::path Cache(fs::path const& profile);
+bool HasCachedComponent(fs::path const& cache, std::string const& id);
+bool LoadCachedState(fs::path const& cache, std::string const& id, ae::RamDomainStorage&, unsigned& revision);
+bool SaveCachedState(fs::path const& cache, std::string const& id, ae::RamDomainStorage const&, unsigned revision);
 bool ReadInstalled(fs::path const&, InstalledImage&);
 bool WriteInstalled(fs::path const&, InstalledImage const&);
 bool LoadInstallation(fs::path const&, Installation&);

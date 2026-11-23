@@ -23,13 +23,11 @@ struct StateDelta {
   AE_REFLECT_MEMBERS(changed, removed, removed_classes, removed_objects, scope_metadata)
 };
 struct StatePackage {
-  std::uint32_t kind, from, to; // full=0, delta=1, language/executable=2
+  std::uint32_t kind, from, to; // full state (including languages)=0, native delta=1, executable=2
   std::uint64_t raw_size;
   Bytes compressed;
   AE_REFLECT_MEMBERS(kind, from, to, raw_size, compressed)
 };
-Bytes Compress(Bytes const&, int level = 19);
-bool Expand(Bytes const&, std::uint64_t size, Bytes&);
 Bytes PackageRaw(Bytes const&, unsigned kind, unsigned from, unsigned to);
 bool UnpackRaw(Bytes const&, StatePackage&, Bytes&);
 Bytes FullState(ae::RamDomainStorage const&, unsigned version);

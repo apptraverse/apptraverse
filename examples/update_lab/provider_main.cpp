@@ -1,10 +1,12 @@
 #include "network.h"
+#include "publish.h"
 #include <csignal>
 #include <iostream>
 #include <thread>
 using namespace update_lab;
 namespace { volatile std::sig_atomic_t stop = 0; void Stop(int) { stop = 1; } }
 int main(int argc, char** argv) {
+  if (argc >= 2 && std::string{argv[1]} == "publish") return PublishStore(argc, argv);
   fs::path store, profile, endpoint_file;
   bool trace = false;
   for (int n = 1; n + 1 < argc; n += 2) {

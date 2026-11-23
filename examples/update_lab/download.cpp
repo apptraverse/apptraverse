@@ -77,7 +77,7 @@ void TransferWorker::Transfer(TransferRequest request) {
     request_frame.request = static_cast<std::uint64_t>(std::chrono::system_clock::now().time_since_epoch().count());
     expected_request = request_frame.request;
     incoming.reset();
-    if (!local_source_.empty()) { response = Serve(local_source_, request_frame); return response.kind != ServiceError; }
+    if (!local_source_.empty()) { response = Serve(local_source_, request_frame); return response.protocol == kDeliveryProtocol && response.kind != ServiceError; }
     if (!peer) {
       if (provider_.empty()) return false;
       peer = std::make_unique<AetherPeer>(profile_ / "local" / "download-identity", "update-lab-downloader");
@@ -93,7 +93,7 @@ void TransferWorker::Transfer(TransferRequest request) {
       if (incoming) {
         auto frame = std::move(incoming);
         if (frame->request == request_frame.request) {
-          response = std::move(*frame); return response.kind != ServiceError;
+          response = std::move(*frame); return response.protocol == kDeliveryProtocol && response.kind != ServiceError;
         }
       }
       if (!peer->Endpoint().empty() && Clock::now() >= resend) {
@@ -110,30 +110,37 @@ void TransferWorker::Transfer(TransferRequest request) {
   if (ec) { error("Cache directory creation failed"); return; }
 
   UpdatePlan plan{};
-  auto prepared_path = profile_ / "local" / "prepared-plan.bin";
+  auto prepared_path = cache / "prepared-plan.bin";
   Bytes prepared;
-  if (request.prepared) {
+  if (request.prepared && fs::is_regular_file(prepared_path)) {
     if (!ReadFile(prepared_path, prepared) || !Decode(prepared, plan)) { error("Prepared update unavailable"); return; }
   } else {
     ResolveRequest query{Platform(), request.installed.release.id, request.current_executable,
                          state.intent, request.installed.resources, {}};
+    // A profile can retain its native inventory across a codec change. Credit
+    // only snapshots and partial files readable by this executable.
+    if (!HasCachedComponent(cache, request.installed.release.supply)) query.current = kLatest;
+    for (auto& [locale, revision] : query.installed) {
+      if (!HasCachedComponent(cache, LanguageId(revision, locale))) revision = kLatest;
+    }
     for (auto& f : state.files) {
       auto path = cache / FileId(f.id);
       auto partial = path; partial += ".part";
-      if (fs::exists(path)) f.received = f.size;
+      if (HasCachedComponent(cache, f.id)) f.received = f.size;
       else if (!fs::exists(partial)) f.received = 0;
       query.received[f.id] = f.received;
     }
     // Reconstructed full resources can also satisfy a later first-install plan.
     fs::recursive_directory_iterator entry{cache, ec}, end;
     for (; !ec && entry != end; entry.increment(ec)) {
-      if (entry->path().extension() != ".component") continue;
+      auto extension = entry->path().extension();
+      if (extension != ".component" && extension != ".native") continue;
       auto id = entry->path().lexically_relative(cache).replace_extension().generic_string();
-      query.received[id] = entry->file_size(ec);
+      query.received[id] = extension == ".native" ? UINT64_MAX : entry->file_size(ec);
     }
     if (ec) { error("Cannot read component cache"); return; }
     if (!request.preview) { state.phase = "catalog"; state.message.clear(); if (!report()) return; }
-    bool ok = fetch({1, ResolveUpdate, "resolve-update", 0, Encode(query)}, response)
+    bool ok = fetch({kDeliveryProtocol, ResolveUpdate, "resolve-update", 0, Encode(query)}, response)
         && response.kind == UpdateResolved && Decode(response.payload, plan);
     std::string message;
     if (!ok) message = response.kind == ServiceError && !response.payload.empty()
@@ -155,14 +162,14 @@ void TransferWorker::Transfer(TransferRequest request) {
     auto it = std::find_if(state.files.begin(), state.files.end(), [&](auto const& f) { return f.id == c.id; });
     if (it == state.files.end()) { state.files.push_back({c.id, c.size, 0}); it = std::prev(state.files.end()); }
     if (it->size != c.size) { it->size = c.size; it->received = 0; }
-    if (fs::exists(cache / FileId(c.id))) it->received = c.size;
+    if (HasCachedComponent(cache, c.id)) it->received = c.size;
     resumed += it->received;
   }
   if (!report()) return;
   for (auto const& id : state.requested) {
     auto& file = *std::find_if(state.files.begin(), state.files.end(), [&](auto const& f) { return f.id == id; });
     auto final = cache / FileId(id);
-    if (fs::exists(final)) continue;
+    if (HasCachedComponent(cache, id)) continue;
     fs::create_directories(final.parent_path(), ec);
     if (ec) { error("Cannot create component directory"); return; }
     auto partial = final; partial += ".part";
@@ -172,7 +179,7 @@ void TransferWorker::Transfer(TransferRequest request) {
     if (ec) { error("Cannot truncate uncommitted tail"); return; }
     while (file.received < file.size && !canceled()) {
       auto started = Clock::now();
-      if (!fetch({1, RequestChunk, id, file.received / kChunkSize, {}}, response)) { error("Component download failed: " + id + (peer ? peer->Diagnostics() : "")); return; }
+      if (!fetch({kDeliveryProtocol, RequestChunk, id, file.received / kChunkSize, {}}, response)) { error("Component download failed: " + id + (peer ? peer->Diagnostics() : "")); return; }
       if (!AppendDurable(partial, response.payload)) { error("Partial component write failed"); return; }
       file.received += response.payload.size();
       if (!report()) return;
@@ -188,15 +195,15 @@ void TransferWorker::Transfer(TransferRequest request) {
   if (canceled()) return;
   auto materialize = [&](Chain const& chain) {
     if (chain.steps.empty() || chain.steps.front() == chain.target)
-      return fs::is_regular_file(cache / FileId(chain.target));
+      return HasCachedComponent(cache, chain.target);
     ae::RamDomainStorage storage;
-    unsigned version = 0; Bytes bytes;
-    auto apply = [&](std::string const& id) {
-      return ReadFile(cache / FileId(id), bytes) && ApplyStatePackage(bytes, storage, version);
-    };
-    if (!apply(chain.base)) return false;
-    for (auto const& step : chain.steps) if (!apply(step)) return false;
-    return version == chain.revision && AtomicWrite(cache / FileId(chain.target), FullState(storage, version));
+    unsigned version = 0;
+    if (!LoadCachedState(cache, chain.base, storage, version)) return false;
+    for (auto const& step : chain.steps) {
+      Bytes delta;
+      if (!ReadFile(cache / FileId(step), delta) || !ApplyStatePackage(delta, storage, version)) return false;
+    }
+    return version == chain.revision && SaveCachedState(cache, chain.target, storage, version);
   };
   if (!materialize(plan.supply)) { error("Cannot apply base image chain"); return; }
   for (auto const& chain : plan.resources)

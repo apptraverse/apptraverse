@@ -1,6 +1,8 @@
 """Process-level UpdateLab acceptance; all artifacts stay in the supplied run directory."""
 import argparse
 import json
+import lzma
+import struct
 import pathlib
 import subprocess
 import time
@@ -81,6 +83,26 @@ def main():
         checks.append(name)
         print("PASS", name, flush=True)
 
+    # Decode the actual publication using a second implementation, including EOF.
+    images = args.store.resolve() / "images"
+    packages = sorted(images.rglob("*.ats"))
+    assert packages
+    for path in packages:
+        blob = path.read_bytes()
+        kind, _, _, size, packed = struct.unpack_from("<IIIQI", blob)
+        assert packed == len(blob) - 24 and packed >= 5, path
+        pb_lp, lc = divmod(blob[24], 9)
+        pb, lp = divmod(pb_lp, 5)
+        dictionary, = struct.unpack_from("<I", blob, 25)
+        decoder = lzma.LZMADecompressor(format=lzma.FORMAT_RAW, filters=[{
+            "id": lzma.FILTER_LZMA1, "dict_size": dictionary, "lc": lc, "lp": lp, "pb": pb}])
+        raw = decoder.decompress(blob[29:])
+        assert decoder.eof and not decoder.unused_data and len(raw) == size, path
+        if kind == 2:
+            exe = "update_lab.exe" if path.parent.name == "windows-x64" else "update_lab"
+            assert raw == (path.parent / exe).read_bytes(), path
+    check(f"{len(packages)} image packages decode as raw LZMA1 and executables match their originals", True)
+
     # Offline installation uses the binary and full state of the selected release.
     for revision in range(4):
         image = args.store.resolve() / "images" / f"R{revision}"
@@ -97,7 +119,7 @@ def main():
     live = run / "distribution"
     def publish(through):
         binaries = args.windows_bin.resolve()
-        command = [binaries / "update_lab_pack.exe", "publish", "--out", live, "--through", str(through)]
+        command = [binaries / "update_lab_provider.exe", "publish", "--out", live, "--through", str(through)]
         for i in range(3):
             command.extend([f"--windows-x64-e{i}", binaries / f"update_lab_e{i}.exe"])
         subprocess.run(command, check=True, capture_output=True, timeout=90)

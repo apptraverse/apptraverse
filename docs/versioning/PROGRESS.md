@@ -1,3 +1,7 @@
+## UpdateLab LZMA1 delivery — 2026-11-23
+
+The provider publishes full images, adjacent state/resource deltas and executable packages with raw LZMA1 at level 9. Windows/Linux Debug state tests, both native UI smoke tests, 44 process checks, four Windows Æther cases and a Linux download from a Windows provider passed. A legacy profile and portable export retained their native data. [Results](../validation/update-lab-lzma1-2026-11-23.md). [Remote publishing protocol options](../update_lab.md#предлагаемый-протокол-удалённой-публикации).
+
 ## UpdateLab versioned distribution — 2026-11-22
 
 Published full R0–R3 Windows/Linux images, native layer trees, adjacent state and optional-resource deltas, platform binaries and SDK decoding assets. Startup resolves the latest compatible supply, executable change and remaining bytes through the component service. Installed inactive resources follow their delta chains. Prepared activation recovers before the first UI publication. Windows/Linux Debug state tests, native Win32/GTK smoke, 43 process checks, four real Windows Æther cases and a Linux download from the Windows provider passed. [Evidence and measured payload sizes](../validation/update-lab-2026-11-22.md#версионная-поставка-и-сервис-разрешения-обновлений).

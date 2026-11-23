@@ -26,7 +26,7 @@ for revision in 0 1 2; do
   strip --strip-debug -o "$build/update-lab-package/update_lab_e$revision" \
     "$build/examples/update_lab/update_lab_e$revision"
 done
-"$build/examples/update_lab/update_lab_pack" publish --out "${UPDATE_LAB_STORE:-$repo/artifacts/update-lab/device-releases-linux}" \
+"$build/examples/update_lab/update_lab_provider" publish --out "${UPDATE_LAB_STORE:-$repo/artifacts/update-lab/lzma1-releases-linux}" \
   --linux-x64-launcher "$build/update-lab-package/update_lab_launcher" \
   --linux-x64-e0 "$build/update-lab-package/update_lab_e0" \
   --linux-x64-e1 "$build/update-lab-package/update_lab_e1" \

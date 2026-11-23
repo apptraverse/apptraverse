@@ -1,7 +1,33 @@
 #include "install.h"
-#include "state_package.h"
 namespace update_lab {
-fs::path Cache(fs::path const& profile) { return profile / "local" / "packages"; }
+fs::path Cache(fs::path const& profile) { return profile / "local" / "packages-lzma1"; }
+namespace {
+struct LocalSnapshot {
+  unsigned revision;
+  Bytes native;
+  AE_REFLECT_MEMBERS(revision, native)
+};
+}
+bool HasCachedComponent(fs::path const& cache, std::string const& id) {
+  return fs::is_regular_file(cache / FileId(id)) || fs::is_regular_file(cache / (id + ".native"));
+}
+bool LoadCachedState(fs::path const& cache, std::string const& id, ae::RamDomainStorage& storage, unsigned& revision) {
+  Bytes bytes;
+  auto path = cache / (id + ".native");
+  if (!fs::is_regular_file(path))
+    return ReadFile(cache / FileId(id), bytes) && ApplyStatePackage(bytes, storage, revision);
+  LocalSnapshot snapshot;
+  if (!ReadFile(path, bytes) || !Decode(std::move(bytes), snapshot) ||
+      !apptraverse::DeserializeUserStorage(storage, snapshot.native)) return false;
+  revision = snapshot.revision;
+  return true;
+}
+bool SaveCachedState(fs::path const& cache, std::string const& id, ae::RamDomainStorage const& storage, unsigned revision) {
+  LocalSnapshot snapshot{revision, {}};
+  if (!apptraverse::SerializeUserStorage(storage, snapshot.native)) return false;
+  auto bytes = Encode(snapshot);
+  return !bytes.empty() && AtomicWrite(cache / (id + ".native"), bytes);
+}
 bool ReadInstalled(fs::path const& profile, InstalledImage& installed) {
   Bytes bytes;
   return ReadFile(profile / "local" / "installed.bin", bytes) && Decode(bytes, installed);

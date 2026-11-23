@@ -1,9 +1,9 @@
 param(
     [string]$BuildDirectory = "build/win-update-lab",
-    [string]$Profile = "artifacts/update-lab/distribution-device-windows",
-    [string]$Installation = "artifacts/update-lab/distribution-installation-windows",
+    [string]$Profile = "artifacts/update-lab/lzma1-device-windows",
+    [string]$Installation = "artifacts/update-lab/lzma1-installation-windows",
     [ValidateRange(0, 3)][int]$InitialRelease = 0,
-    [string]$StoreDirectory = "artifacts/update-lab/device-releases",
+    [string]$StoreDirectory = "artifacts/update-lab/lzma1-releases",
     [switch]$FileSource
 )
 $ErrorActionPreference = "Stop"
