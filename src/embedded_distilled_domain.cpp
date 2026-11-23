@@ -1,6 +1,24 @@
 #include "apptraverse/embedded_distilled_domain.h"
 
+#include <cstdlib>
+
+#include "object_storage_compression.h"
+
 namespace apptraverse {
+
+bool DecodeEmbeddedDistilledLayer(EmbeddedDistilledLayerRecord const& layer,
+                                 ae::ObjectData& bytes) {
+  if (layer.expanded_size == 0) {
+    bytes.clear();
+    if (layer.size != 0) bytes.assign(layer.bytes, layer.bytes + layer.size);
+    return true;
+  }
+  ae::ObjectData decoded(layer.expanded_size);
+  if (!storage_compression::ExpandEmbedded({layer.bytes, layer.size}, decoded))
+    return false;
+  bytes = std::move(decoded);
+  return true;
+}
 
 void InstallEmbeddedDistilledBacking(ae::RamDomainStorage& backing,
                                      EmbeddedDistilledGraph const& graph) {
@@ -19,7 +37,8 @@ void InstallEmbeddedDistilledBacking(ae::RamDomainStorage& backing,
     ae::DomainQuery const query{ae::ObjId{layer.object_id}, layer.class_id,
                                 layer.version};
     ae::ObjectData bytes;
-    bytes.insert(bytes.end(), layer.bytes, layer.bytes + layer.size);
+    // Generated supplies and their consumers share one build configuration.
+    if (!DecodeEmbeddedDistilledLayer(layer, bytes)) std::abort();
     backing.SaveData(query, std::move(bytes));
   }
 }

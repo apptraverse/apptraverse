@@ -1,13 +1,6 @@
-CPMAddPackage(NAME update_lab_7zip GITHUB_REPOSITORY ip7z/7zip
-  GIT_TAG d3296e39e1f1f92c7b41c0c3848e65640428d42d DOWNLOAD_ONLY YES)
-set(lzma_sources "${update_lab_7zip_SOURCE_DIR}/C")
-add_library(update_lab_lzma1 STATIC
-  "${lzma_sources}/LzmaEnc.c" "${lzma_sources}/LzFind.c"
-  "${lzma_sources}/CpuArch.c" "${lzma_sources}/LzmaDec.c")
-target_compile_definitions(update_lab_lzma1 PRIVATE Z7_ST)
-target_include_directories(update_lab_lzma1 PUBLIC "${lzma_sources}")
 add_library(update_lab_wire STATIC wire.cpp resolve.cpp state_package.cpp install.cpp)
-target_link_libraries(update_lab_wire PUBLIC apptraverse PRIVATE update_lab_lzma1)
+target_link_libraries(update_lab_wire PUBLIC apptraverse)
+target_include_directories(update_lab_wire PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../src")
 if(MSVC)
   target_compile_options(apptraverse PRIVATE /MP8)
   target_compile_options(aether PRIVATE /MP8)

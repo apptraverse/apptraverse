@@ -125,6 +125,34 @@ int main() {
   ae::RamDomainStorage user; auto const user_profile = path;
   CHECK(apptraverse::LoadUserStorageFile(user, user_profile));
   CHECK(user.state.at(object)->at(301).at(0) == ae::ObjectData({5,6}));
+  {
+    // Exercise both compressed and literal blocks, with an archive element
+    // spanning several blocks and a short last block.
+    constexpr std::size_t block_size = 16 * 1024;
+    ae::ObjectData data(block_size * 3 + 7, 42);
+    std::uint32_t random = 7;
+    for (std::size_t i = block_size; i < block_size * 2; ++i) {
+      random = random * 1664525u + 1013904223u;
+      data[i] = static_cast<std::uint8_t>(random >> 24);
+    }
+    user.SaveData(q, ae::ObjectData{data});
+    auto const local_profile = path / "local";
+    CHECK(SaveUserStorageFile(user, local_profile));
+    auto const packed = ReadBytes(local_profile / "user.bin");
+    std::vector<std::uint8_t> native;
+    CHECK(apptraverse::SerializeNativeStorage(user, native));
+    CHECK(packed.size() < native.size());
+    CHECK(packed[4] == 0 && packed[5] == 64);
+    ae::RamDomainStorage decoded;
+    CHECK(LoadUserStorageFile(decoded, local_profile));
+    CheckSnapshot(decoded, data);
+    CHECK(DeserializeUserStorage(decoded, native));
+    CheckSnapshot(decoded, data);
+    auto truncated = packed;
+    truncated.pop_back();
+    CHECK(!DeserializeUserStorage(decoded, truncated));
+    CheckSnapshot(decoded, data);
+  }
   std::filesystem::remove_all(path);
   std::cout << "SINGLE_FILE_USER_STORAGE_OK\n";
 }

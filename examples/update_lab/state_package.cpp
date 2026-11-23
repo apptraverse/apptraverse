@@ -1,46 +1,19 @@
 #include "state_package.h"
-#include <cstdlib>
-#include <LzmaDec.h>
-#include <LzmaEnc.h>
+#include "object_storage_compression.h"
 
 namespace update_lab {
 namespace {
-void* Allocate(ISzAllocPtr, size_t size) { return std::malloc(size); }
-void Free(ISzAllocPtr, void* memory) { std::free(memory); }
-constexpr ISzAlloc allocator{Allocate, Free};
-
-// The first five bytes are the SDK's decoder properties. The remaining bytes
-// are one raw LZMA1 stream with an end marker and no container or checksum.
 Bytes Compress(Bytes const& input) {
-  if (input.size() > kMaxBlobSize) return {};
-  CLzmaEncProps props;
-  LzmaEncProps_Init(&props);
-  props.level = 9;
-  props.fb = 273;
-  props.numThreads = 1;
-  props.reduceSize = input.size(); // No match can reach beyond the entire input.
-  SizeT capacity = input.size() + input.size() / 3 + 128;
-  Bytes output(LZMA_PROPS_SIZE + capacity);
-  SizeT properties = LZMA_PROPS_SIZE;
-  Byte empty = 0;
-  auto status = LzmaEncode(output.data() + properties, &capacity,
-      input.empty() ? &empty : input.data(), input.size(), &props,
-      output.data(), &properties, 1, nullptr, &allocator, &allocator);
-  if (status != SZ_OK || properties != LZMA_PROPS_SIZE) return {};
-  output.resize(properties + capacity);
+  Bytes output;
+  if (input.size() > kMaxBlobSize ||
+      !apptraverse::storage_compression::CompressLzma(input, output)) return {};
   return output;
 }
+
 bool Expand(Bytes const& input, std::uint64_t size, Bytes& out) {
-  if (size > kMaxBlobSize || input.size() <= LZMA_PROPS_SIZE) return false;
-  SizeT consumed = input.size() - LZMA_PROPS_SIZE, produced = static_cast<SizeT>(size);
-  Bytes decoded(produced);
-  Byte empty = 0;
-  ELzmaStatus status;
-  auto result = LzmaDecode(decoded.empty() ? &empty : decoded.data(), &produced,
-      input.data() + LZMA_PROPS_SIZE, &consumed, input.data(), LZMA_PROPS_SIZE,
-      LZMA_FINISH_END, &status, &allocator);
-  if (result != SZ_OK || status != LZMA_STATUS_FINISHED_WITH_MARK ||
-      consumed != input.size() - LZMA_PROPS_SIZE || produced != size) return false;
+  if (size > kMaxBlobSize) return false;
+  Bytes decoded(static_cast<std::size_t>(size));
+  if (!apptraverse::storage_compression::ExpandLzma(input, decoded)) return false;
   out = std::move(decoded);
   return true;
 }
@@ -55,7 +28,7 @@ bool UnpackRaw(Bytes const& bytes, StatePackage& package, Bytes& out) {
 }
 Bytes FullState(ae::RamDomainStorage const& storage, unsigned version) {
   Bytes bytes;
-  if (!apptraverse::SerializeUserStorage(storage, bytes)) return {};
+  if (!apptraverse::SerializeNativeStorage(storage, bytes)) return {};
   return PackageRaw(bytes, 0, version, version);
 }
 Bytes DeltaState(ae::RamDomainStorage const& before, ae::RamDomainStorage const& after,
@@ -96,7 +69,7 @@ Bytes DeltaState(ae::RamDomainStorage const& before, ae::RamDomainStorage const&
   }
   ae::RamDomainStorage metadata;
   metadata.object_scopes = after.object_scopes;
-  apptraverse::SerializeUserStorage(metadata, delta.scope_metadata);
+  apptraverse::SerializeNativeStorage(metadata, delta.scope_metadata);
   return PackageRaw(Encode(delta), 1, from, to);
 }
 bool ApplyStatePackage(Bytes const& bytes, ae::RamDomainStorage& storage, unsigned& version) {
@@ -105,13 +78,13 @@ bool ApplyStatePackage(Bytes const& bytes, ae::RamDomainStorage& storage, unsign
   if (!UnpackRaw(bytes, package, raw)) return false;
   ae::RamDomainStorage candidate;
   if (package.kind == 0) {
-    if (!apptraverse::DeserializeUserStorage(candidate, raw)) return false;
+    if (!apptraverse::DeserializeNativeStorage(candidate, raw)) return false;
   } else if (package.kind == 1 && package.from == version) {
     StateDelta delta;
     if (!Decode(raw, delta)) return false;
     candidate.state = storage.state;
     ae::RamDomainStorage metadata;
-    if (!apptraverse::DeserializeUserStorage(metadata, delta.scope_metadata)) return false;
+    if (!apptraverse::DeserializeNativeStorage(metadata, delta.scope_metadata)) return false;
     candidate.object_scopes = metadata.object_scopes;
     for (auto const& [id, classes] : delta.changed) {
       if (!classes) { candidate.state[id] = std::nullopt; continue; }

@@ -121,6 +121,7 @@ option(APPTRAVERSE_BUILD_LEGACY_EXAMPLES
   "Build historical demos (main window, dynamic objects) and their tests" OFF)
 option(APPTRAVERSE_BUILD_LINUX_GUI "Build Linux GTK hosts and native GUI tests" ON)
 add_library(apptraverse STATIC
+  src/object_storage_compression.cpp
   src/connection_state.cpp
   src/connection_hub.cpp
   src/connection_runtime.cpp
@@ -168,6 +169,10 @@ target_include_directories(apptraverse PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/includ
 target_link_libraries(apptraverse PUBLIC
   aether::objects aether::miscpp aether::tele apptraverse_compile_policy)
 target_compile_features(apptraverse PUBLIC cxx_std_20)
+include(cmake/apptraverse_storage_codecs.cmake)
+target_compile_definitions(apptraverse PRIVATE
+  APPTRAVERSE_OBJECT_USER_CONFIG="${USER_CONFIG}")
+target_link_libraries(apptraverse PRIVATE apptraverse_storage_codecs)
 
 # SharedNode is an explicitly linked headless extension. Existing application
 # registrations and native hosts do not acquire replication/runtime objects.

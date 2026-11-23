@@ -18,13 +18,13 @@ bool LoadCachedState(fs::path const& cache, std::string const& id, ae::RamDomain
     return ReadFile(cache / FileId(id), bytes) && ApplyStatePackage(bytes, storage, revision);
   LocalSnapshot snapshot;
   if (!ReadFile(path, bytes) || !Decode(std::move(bytes), snapshot) ||
-      !apptraverse::DeserializeUserStorage(storage, snapshot.native)) return false;
+      !apptraverse::DeserializeNativeStorage(storage, snapshot.native)) return false;
   revision = snapshot.revision;
   return true;
 }
 bool SaveCachedState(fs::path const& cache, std::string const& id, ae::RamDomainStorage const& storage, unsigned revision) {
   LocalSnapshot snapshot{revision, {}};
-  if (!apptraverse::SerializeUserStorage(storage, snapshot.native)) return false;
+  if (!apptraverse::SerializeNativeStorage(storage, snapshot.native)) return false;
   auto bytes = Encode(snapshot);
   return !bytes.empty() && AtomicWrite(cache / (id + ".native"), bytes);
 }

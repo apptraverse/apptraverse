@@ -11,6 +11,12 @@ bool SerializeUserStorage(ae::RamDomainStorage const& storage,
 bool DeserializeUserStorage(ae::RamDomainStorage& storage,
                             std::vector<std::uint8_t> const& bytes);
 
+// Native payload for callers that already wrap the archive in their own format.
+bool SerializeNativeStorage(ae::RamDomainStorage const& storage,
+                            std::vector<std::uint8_t>& bytes);
+bool DeserializeNativeStorage(ae::RamDomainStorage& storage,
+                              std::vector<std::uint8_t> const& bytes);
+
 // The storage itself is always RamDomainStorage. These explicit file operations
 // are called only at startup and the platform's persistence lifecycle boundary.
 bool LoadUserStorageFile(ae::RamDomainStorage& storage,

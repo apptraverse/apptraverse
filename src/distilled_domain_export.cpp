@@ -9,6 +9,7 @@
 #include "apptraverse/directory_domain_storage.h"
 #include "apptraverse/embedded_distilled_domain.h"
 #include "apptraverse/object_serialization.h"
+#include "object_storage_compression.h"
 
 namespace apptraverse {
 namespace {
@@ -32,6 +33,7 @@ bool LayerKeyLess(LayerKey const& a, LayerKey const& b) {
 struct LayerExport {
   LayerKey key;
   ae::ObjectData bytes;
+  std::size_t expanded_size{};
 };
 
 std::vector<LayerExport> CollectSortedLayers(
@@ -163,7 +165,17 @@ bool WriteEmbeddedDistilledSupplyHeader(
     ae::ObjId root_id, std::vector<ae::ObjId> const& supply_constant_ids,
     ae::RamDomainStorage const& storage,
     std::set<ae::ObjId> const& object_filter) {
-  std::vector<LayerExport> const layers = CollectSortedLayers(storage, object_filter);
+  auto layers = CollectSortedLayers(storage, object_filter);
+  ae::ObjectData compressed;
+  for (auto& layer : layers) {
+    if (layer.bytes.empty()) continue;
+    if (!storage_compression::CompressEmbedded(layer.bytes, compressed))
+      return false;
+    if (compressed.size() < layer.bytes.size()) {
+      layer.expanded_size = layer.bytes.size();
+      layer.bytes.swap(compressed);
+    }
+  }
   std::vector<ae::ObjId> sorted_supply = supply_constant_ids;
   std::sort(sorted_supply.begin(), sorted_supply.end(),
             [](ae::ObjId const& a, ae::ObjId const& b) { return a < b; });
@@ -212,7 +224,8 @@ bool WriteEmbeddedDistilledSupplyHeader(
     if (layer.bytes.empty()) {
       out << "&kEmptyLayerByte, 0},\n";
     } else {
-      out << "kLayerBytes" << i << ", sizeof(kLayerBytes" << i << ")},\n";
+      out << "kLayerBytes" << i << ", sizeof(kLayerBytes" << i << "), "
+          << layer.expanded_size << "},\n";
     }
   }
   out << "};\n\n";
@@ -273,6 +286,8 @@ bool WriteEmbeddedDistilledGraphToDirectory(
   }
   for (std::size_t i = 0; i < graph.layer_count; ++i) {
     EmbeddedDistilledLayerRecord const& layer = graph.layers[i];
+    ae::ObjectData bytes;
+    if (!DecodeEmbeddedDistilledLayer(layer, bytes)) return false;
     std::filesystem::path const path =
         root / std::to_string(layer.object_id) /
         std::to_string(layer.class_id) /
@@ -290,9 +305,9 @@ bool WriteEmbeddedDistilledGraphToDirectory(
       if (!out) {
         return false;
       }
-      if (layer.size != 0) {
-        out.write(reinterpret_cast<char const*>(layer.bytes),
-                  static_cast<std::streamsize>(layer.size));
+      if (!bytes.empty()) {
+        out.write(reinterpret_cast<char const*>(bytes.data()),
+                  static_cast<std::streamsize>(bytes.size()));
         if (!out) {
           std::filesystem::remove(tmp_path, ec);
           return false;

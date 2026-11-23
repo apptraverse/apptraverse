@@ -43,7 +43,7 @@ int main(int argc, char** argv) {
     unsigned version = static_cast<unsigned>(std::stoul(argv[4]));
     if (!apptraverse::DeserializeUserStorage(state, ReadInput(argv[2])) ||
         !ApplyStatePackage(ReadInput(argv[3]), state, version)) Fail("delta source version does not match");
-    Bytes b; apptraverse::SerializeUserStorage(state, b); WriteOutput(argv[5], b);
+    Bytes b; apptraverse::SerializeNativeStorage(state, b); WriteOutput(argv[5], b);
     std::cout << "{\"version\":" << version << "}\n";
     return 0;
   }
@@ -67,7 +67,7 @@ int main(int argc, char** argv) {
       object->owns_badge = false;
       object.Save(); keep.push_back(object);
     }
-    Bytes raw; apptraverse::SerializeUserStorage(storage, raw); WriteOutput(argv[2], raw);
+    Bytes raw; apptraverse::SerializeNativeStorage(storage, raw); WriteOutput(argv[2], raw);
     std::cout << "{\"objects\":20000,\"bytes\":" << raw.size() << "}\n";
     return 0;
   }

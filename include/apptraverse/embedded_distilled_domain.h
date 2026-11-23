@@ -16,6 +16,8 @@ struct EmbeddedDistilledLayerRecord {
   std::uint8_t version{};
   std::uint8_t const* bytes{};
   std::size_t size{};
+  // Zero represents an uncompressed layer, including older generated headers.
+  std::size_t expanded_size{};
 };
 
 struct EmbeddedDistilledSupply {
@@ -41,6 +43,9 @@ struct EmbeddedDistilledGraph {
 
 void InstallEmbeddedDistilledBacking(ae::RamDomainStorage& backing,
                                      EmbeddedDistilledGraph const& graph);
+
+bool DecodeEmbeddedDistilledLayer(EmbeddedDistilledLayerRecord const& layer,
+                                 ae::ObjectData& bytes);
 
 std::set<ae::ObjId> EmbeddedSupplyConstantIdSet(
     EmbeddedDistilledGraph const& graph);

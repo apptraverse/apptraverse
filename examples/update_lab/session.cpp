@@ -8,8 +8,7 @@
 namespace update_lab {
 namespace {
 void SaveNative(ae::RamDomainStorage const& storage, fs::path const& profile) {
-  Bytes bytes;
-  if (!apptraverse::SerializeUserStorage(storage, bytes) || !AtomicWrite(profile / "user.bin", bytes)) Fail("native state save failed");
+  if (!apptraverse::SaveUserStorageFile(storage, profile)) Fail("native state save failed");
 }
 bool ExportUser(fs::path const& path, ae::RamDomainStorage const& user, unsigned release) {
   auto package = FullState(user, release);

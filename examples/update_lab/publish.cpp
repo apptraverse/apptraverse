@@ -31,7 +31,7 @@ void DeltaLayers(fs::path const& dir, Bytes const& bytes) {
   StatePackage package; StateDelta delta; Bytes raw;
   ae::RamDomainStorage changed;
   if (!UnpackRaw(bytes, package, raw) || !Decode(raw, delta) ||
-      !apptraverse::DeserializeUserStorage(changed, delta.scope_metadata)) Fail("delta unpack failed");
+      !apptraverse::DeserializeNativeStorage(changed, delta.scope_metadata)) Fail("delta unpack failed");
   changed.state = std::move(delta.changed);
   Layers(dir, changed);
   // Scope replacement and removals also describe transitions with no changed layer.
