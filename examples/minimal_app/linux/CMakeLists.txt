@@ -1,4 +1,4 @@
-include(${CMAKE_SOURCE_DIR}/cmake/apptraverse_embed_distilled_supply.cmake)
+include(${PROJECT_SOURCE_DIR}/cmake/apptraverse_embed_distilled_supply.cmake)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0)

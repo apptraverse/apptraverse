@@ -204,14 +204,10 @@ void AndroidApplicationHost::JoinModelThreadForRelease() {
   if (callbacks_.before_model_thread_join) {
     callbacks_.before_model_thread_join();
   }
-  if (!ui_session_) {
-    runtime_.AbandonUnconsumedPublicationsForTeardown();
-  } else {
-    while (runtime_.IsPublicationBusy()) {
-      ConsumePublication(ApplicationPublicationKind::Incremental);
-    }
-  }
-  runtime_.RequestStop();
+  // The main looper cannot receive publications while it joins this worker.
+  // Atomically close that receiver before joining, including a serialization
+  // already in flight. Accepted model commands still drain before persistence.
+  runtime_.AbandonUnconsumedPublicationsForTeardown();
   JoinModelThreadIfJoinable(model_thread_, model_thread_joinable_);
   model_thread_joinable_ = false;
   {

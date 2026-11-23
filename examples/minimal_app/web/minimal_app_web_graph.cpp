@@ -10,7 +10,6 @@
 namespace apptraverse::example::minimal {
 
 MinimalApplication::ptr BuildWebMinimalApplicationGraph(ae::Domain& domain) {
-  ui::web::EnsureWebUiPresenterRegistration();
   MinimalPresenterFactories factories;
   factories.create_window = [](ae::Domain& d, ae::ObjId presenter_id) {
     return ui::web::WebDesktopWindowPresenter::ptr::Create(

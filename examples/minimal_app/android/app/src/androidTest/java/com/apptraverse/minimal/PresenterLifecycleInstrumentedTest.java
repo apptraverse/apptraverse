@@ -3,6 +3,7 @@ package com.apptraverse.minimal;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
+import android.content.Intent;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
@@ -37,6 +38,7 @@ public final class PresenterLifecycleInstrumentedTest {
   private final List<String> violations = new ArrayList<>();
   private final List<Controls> released = new ArrayList<>();
   private FrameLayout contentRoot;
+  private PresenterLifecycleTestActivity activity;
   private long handle;
 
   private void expect(boolean condition, String what) {
@@ -74,7 +76,8 @@ public final class PresenterLifecycleInstrumentedTest {
   private void expectLive(Controls c, String stage) {
     expectClickSends(c.button, 1, stage + " button");
     for (int i = 0; i < c.rows.size(); ++i) {
-      expectClickSends(c.rows.get(i), 1, stage + " row " + i);
+      // Android row clicks publish selection and activation as separate intents.
+      expectClickSends(c.rows.get(i), 2, stage + " row " + i);
     }
   }
 
@@ -117,10 +120,9 @@ public final class PresenterLifecycleInstrumentedTest {
   }
 
   private void runLifecycleScenario() {
-    contentRoot = new FrameLayout(
-        InstrumentationRegistry.getInstrumentation().getTargetContext());
+    contentRoot = activity.contentRoot();
 
-    handle = PresenterLifecycleFixture.nativeCreate(contentRoot);
+    handle = PresenterLifecycleFixture.nativeCreate(activity, contentRoot);
     Controls current = currentControls("initial", 2);
     expectLive(current, "initial");
 
@@ -143,7 +145,7 @@ public final class PresenterLifecycleInstrumentedTest {
     destroy(current, "session end");
 
     released.clear();
-    handle = PresenterLifecycleFixture.nativeCreate(contentRoot);
+    handle = PresenterLifecycleFixture.nativeCreate(activity, contentRoot);
     current = currentControls("recreate", 2);
     expectLive(current, "recreate");
     destroy(current, "recreate end");
@@ -151,7 +153,21 @@ public final class PresenterLifecycleInstrumentedTest {
 
   @Test
   public void presenterTeardownReleasesListenersAndViews() {
-    InstrumentationRegistry.getInstrumentation().runOnMainSync(this::runLifecycleScenario);
+    android.app.Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
+    Intent intent = new Intent(instrumentation.getTargetContext(), PresenterLifecycleTestActivity.class);
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+    activity = (PresenterLifecycleTestActivity) instrumentation.startActivitySync(intent);
+    try {
+      instrumentation.runOnMainSync(this::runLifecycleScenario);
+    } finally {
+      instrumentation.runOnMainSync(() -> {
+        if (handle != 0) {
+          PresenterLifecycleFixture.nativeDestroy(handle);
+          handle = 0;
+        }
+        activity.finish();
+      });
+    }
     assertTrue("violations:\n" + String.join("\n", violations), violations.isEmpty());
   }
 }

@@ -5,6 +5,7 @@ function(apptraverse_embed_surfaces_release_metadata target config_json)
     message(FATAL_ERROR "apptraverse_embed_surfaces_release_metadata: unknown target ${target}")
   endif()
 
+  # The input belongs to the caller; relative paths keep the caller-root API.
   get_filename_component(_config_abs "${config_json}" ABSOLUTE BASE_DIR "${CMAKE_SOURCE_DIR}")
   if(NOT EXISTS "${_config_abs}")
     message(FATAL_ERROR "release config not found: ${_config_abs}")
@@ -20,10 +21,10 @@ function(apptraverse_embed_surfaces_release_metadata target config_json)
       ${CMAKE_COMMAND}
       "-DCONFIG_JSON=${_config_abs}"
       "-DOUTPUT=${_header}"
-      -P "${CMAKE_SOURCE_DIR}/cmake/generate_surfaces_release_metadata.cmake"
+      -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/generate_surfaces_release_metadata.cmake"
     DEPENDS
       "${_config_abs}"
-      "${CMAKE_SOURCE_DIR}/cmake/generate_surfaces_release_metadata.cmake"
+      "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/generate_surfaces_release_metadata.cmake"
     VERBATIM
     COMMENT "Generate embedded release metadata for ${target}")
 

@@ -1,6 +1,10 @@
 package com.apptraverse.minimal;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.platform.app.InstrumentationRegistry;
+import android.content.Context;
+import android.widget.FrameLayout;
+import java.io.File;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -17,7 +21,16 @@ public final class ModelThreadStartSyncInstrumentedTest {
 
   @Test
   public void startModelThreadUnblocksOnWorkerEntry() {
-    String result = NativeTestRuntime.nativeRunModelThreadStartSyncProbe();
-    assertTrue("probe: " + result, result.startsWith("OK:"));
+    Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
+    File stateDir = new File(context.getCacheDir(), "model-thread-start-" + System.nanoTime());
+    assertTrue("Create isolated probe profile", stateDir.mkdirs());
+    String[] result = new String[1];
+    InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> {
+      FrameLayout root = new FrameLayout(context);
+      result[0] = NativeTestRuntime.nativeRunModelThreadStartSyncProbe(
+          root, stateDir.getAbsolutePath(), new NativeUiBridge());
+      assertTrue("Scheduling probe must not mount native Views", root.getChildCount() == 0);
+    });
+    assertTrue("probe: " + result[0], result[0] != null && result[0].startsWith("OK:"));
   }
 }

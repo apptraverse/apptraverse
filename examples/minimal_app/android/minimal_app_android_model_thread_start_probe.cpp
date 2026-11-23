@@ -7,7 +7,7 @@
 #include <condition_variable>
 #include <filesystem>
 #include <mutex>
-#include <thread>
+#include <utility>
 
 #include "apptraverse/application_model_runtime.h"
 #include "apptraverse/platform/android/android_application_host.h"
@@ -16,240 +16,181 @@
 namespace apptraverse::example::minimal {
 namespace {
 
-std::mutex run_model_mu;
-std::condition_variable run_model_cv;
-bool run_model_entered = false;
-bool release_run_model = false;
+// Every field is protected by this instance's mutex. The bounded worker wait
+// lets a broken Start/Join return a failure instead of stranding the UI owner.
+class ModelGate {
+ public:
+  void EnterAndWait() {
+    std::unique_lock<std::mutex> lock{mu_};
+    entered_ = true;
+    cv_.notify_all();
+    if (!cv_.wait_for(lock, std::chrono::seconds{5}, [&] { return released_; }))
+      timed_out_ = true;
+    exited_ = true;
+    cv_.notify_all();
+  }
+  bool WaitEntered() { return WaitFor(entered_); }
+  bool WaitExited() { return WaitFor(exited_); }
+  void Release() {
+    std::lock_guard<std::mutex> lock{mu_};
+    released_ = true;
+    cv_.notify_all();
+  }
+  bool TimedOut() {
+    std::lock_guard<std::mutex> lock{mu_};
+    return timed_out_;
+  }
 
-std::string RunStartUnblockedProbe() {
-  apptraverse::ApplicationModelRuntime runtime;
-  apptraverse::ui::android::AndroidPresentationHost presentation_host{};
-  presentation_host.content_root = reinterpret_cast<jobject>(1);
+ private:
+  bool WaitFor(bool const& flag) {
+    std::unique_lock<std::mutex> lock{mu_};
+    return cv_.wait_for(lock, std::chrono::seconds{5}, [&] { return flag; });
+  }
+  std::mutex mu_;
+  std::condition_variable cv_;
+  bool entered_{false}, released_{false}, exited_{false}, timed_out_{false};
+};
 
-  apptraverse::android::AndroidApplicationHostCallbacks callbacks;
-  callbacks.run_model = [](apptraverse::ApplicationPublishedCallback) -> int {
-    {
-      std::lock_guard<std::mutex> lock{run_model_mu};
-      run_model_entered = true;
-    }
-    run_model_cv.notify_all();
-    std::unique_lock<std::mutex> lock{run_model_mu};
-    run_model_cv.wait(lock, [] { return release_run_model; });
+bool BindProbeRoot(JNIEnv* env, jobject root,
+                   ui::android::AndroidPresentationHost& presentation) {
+  // These scheduling probes never mount presenters or require an Activity.
+  // Start still receives a genuine Java View root; the host owns its global
+  // reference and releases it on this same attached UI thread.
+  if (!root || env->GetJavaVM(&presentation.vm) != JNI_OK) return false;
+  presentation.content_root = env->NewGlobalRef(root);
+  return presentation.content_root != nullptr && !env->ExceptionCheck();
+}
+
+std::string RunStartUnblockedProbe(JNIEnv* env, jobject root) {
+  ApplicationModelRuntime runtime;
+  ui::android::AndroidPresentationHost presentation;
+  if (!BindProbeRoot(env, root, presentation)) return "FAIL:root_reference";
+  ModelGate gate;
+  android::AndroidApplicationHostCallbacks callbacks;
+  callbacks.run_model = [&](ApplicationPublishedCallback) {
+    gate.EnterAndWait();
     return 0;
   };
-
-  apptraverse::android::AndroidUiBridge bridge;
-  apptraverse::android::AndroidApplicationHost host(
-      runtime, presentation_host, std::move(bridge), std::move(callbacks));
-
-  run_model_entered = false;
-  release_run_model = false;
-
-  std::atomic<bool> start_returned{false};
-  std::thread starter{[&host, &start_returned] {
-    host.StartModelThread();
-    start_returned.store(true, std::memory_order_release);
-  }};
-
-  starter.join();
-  if (!start_returned.load(std::memory_order_acquire)) {
-    release_run_model = true;
-    run_model_cv.notify_all();
-    host.JoinModelThreadForRelease();
-    return "FAIL:start_never_returned";
-  }
-
-  {
-    std::unique_lock<std::mutex> lock{run_model_mu};
-    bool const entered = run_model_cv.wait_for(
-        lock, std::chrono::seconds(5), [] { return run_model_entered; });
-    if (!entered) {
-      release_run_model = true;
-      run_model_cv.notify_all();
-      host.JoinModelThreadForRelease();
-      return "FAIL:worker_never_entered";
-    }
-  }
-
-  release_run_model = true;
-  run_model_cv.notify_all();
+  android::AndroidApplicationHost host{
+      runtime, presentation, {}, std::move(callbacks)};
+  host.StartModelThread();
+  bool const entered = gate.WaitEntered();
+  gate.Release();
   host.JoinModelThreadForRelease();
+  if (!entered) return "FAIL:worker_never_entered";
+  if (gate.TimedOut()) return "FAIL:start_waited_for_session_exit";
   return "OK:start_unblocked";
 }
 
-std::string RunFastExitJoinProbe() {
-  apptraverse::ApplicationModelRuntime runtime;
-  apptraverse::ui::android::AndroidPresentationHost presentation_host{};
-  presentation_host.content_root = reinterpret_cast<jobject>(1);
-
-  apptraverse::android::AndroidApplicationHostCallbacks callbacks;
-  callbacks.run_model = [](apptraverse::ApplicationPublishedCallback) -> int {
+std::string RunFastExitJoinProbe(JNIEnv* env, jobject root) {
+  ApplicationModelRuntime runtime;
+  ui::android::AndroidPresentationHost presentation;
+  if (!BindProbeRoot(env, root, presentation)) return "FAIL:root_reference";
+  ModelGate gate;
+  gate.Release();
+  android::AndroidApplicationHostCallbacks callbacks;
+  callbacks.run_model = [&](ApplicationPublishedCallback) {
+    gate.EnterAndWait();
     return 0;
   };
-
-  apptraverse::android::AndroidUiBridge bridge;
-  apptraverse::android::AndroidApplicationHost host(
-      runtime, presentation_host, std::move(bridge), std::move(callbacks));
-
+  android::AndroidApplicationHost host{
+      runtime, presentation, {}, std::move(callbacks)};
   host.StartModelThread();
+  bool const exited = gate.WaitExited();
   host.JoinModelThreadForRelease();
-  return "OK:fast_exit_joined";
+  return exited ? "OK:fast_exit_joined" : "FAIL:fast_worker_never_exited";
 }
 
-std::string RunJoinBeforeRunModelGateProbe() {
-  apptraverse::ApplicationModelRuntime runtime;
-  apptraverse::ui::android::AndroidPresentationHost presentation_host{};
-  presentation_host.content_root = reinterpret_cast<jobject>(1);
-
-  apptraverse::android::AndroidApplicationHostCallbacks callbacks;
-  callbacks.run_model = [](apptraverse::ApplicationPublishedCallback) -> int {
-    {
-      std::lock_guard<std::mutex> lock{run_model_mu};
-      run_model_entered = true;
-    }
-    run_model_cv.notify_all();
-    std::unique_lock<std::mutex> lock{run_model_mu};
-    run_model_cv.wait(lock, [] { return release_run_model; });
+std::string RunJoinBeforeRunModelGateProbe(JNIEnv* env, jobject root) {
+  ApplicationModelRuntime runtime;
+  ui::android::AndroidPresentationHost presentation;
+  if (!BindProbeRoot(env, root, presentation)) return "FAIL:root_reference";
+  ModelGate gate;
+  android::AndroidApplicationHostCallbacks callbacks;
+  callbacks.run_model = [&](ApplicationPublishedCallback) {
+    gate.EnterAndWait();
     return 0;
   };
-  callbacks.before_model_thread_join = [] {
-    release_run_model = true;
-    run_model_cv.notify_all();
-  };
-
-  apptraverse::android::AndroidUiBridge bridge;
-  apptraverse::android::AndroidApplicationHost host(
-      runtime, presentation_host, std::move(bridge), std::move(callbacks));
-
-  run_model_entered = false;
-  release_run_model = false;
-
+  callbacks.before_model_thread_join = [&] { gate.Release(); };
+  android::AndroidApplicationHost host{
+      runtime, presentation, {}, std::move(callbacks)};
   host.StartModelThread();
-
-  {
-    std::unique_lock<std::mutex> lock{run_model_mu};
-    bool const entered = run_model_cv.wait_for(
-        lock, std::chrono::seconds(5), [] { return run_model_entered; });
-    if (!entered) {
-      host.JoinModelThreadForRelease();
-      return "FAIL:run_model_gate_never_entered";
-    }
-  }
-
+  bool const entered = gate.WaitEntered();
   host.JoinModelThreadForRelease();
+  if (!entered) return "FAIL:run_model_gate_never_entered";
+  if (gate.TimedOut()) return "FAIL:join_failed_to_release_run_model_gate";
   return "OK:join_released_run_model_gate";
 }
 
-std::string RunConcurrentStartJoinProbe() {
-  apptraverse::ApplicationModelRuntime runtime;
-  apptraverse::ui::android::AndroidPresentationHost presentation_host{};
-  presentation_host.content_root = reinterpret_cast<jobject>(1);
-
-  apptraverse::android::AndroidApplicationHostCallbacks callbacks;
-  callbacks.run_model = [](apptraverse::ApplicationPublishedCallback) -> int {
-    {
-      std::lock_guard<std::mutex> lock{run_model_mu};
-      run_model_entered = true;
-    }
-    run_model_cv.notify_all();
-    std::unique_lock<std::mutex> lock{run_model_mu};
-    run_model_cv.wait(lock, [] { return release_run_model; });
+std::string RunImmediateOwnerTeardownProbe(JNIEnv* env, jobject root) {
+  ApplicationModelRuntime runtime;
+  ui::android::AndroidPresentationHost presentation;
+  if (!BindProbeRoot(env, root, presentation)) return "FAIL:root_reference";
+  ModelGate gate;
+  android::AndroidApplicationHostCallbacks callbacks;
+  callbacks.run_model = [&](ApplicationPublishedCallback) {
+    gate.EnterAndWait();
     return 0;
   };
-  callbacks.before_model_thread_join = [] {
-    release_run_model = true;
-    run_model_cv.notify_all();
-  };
-
-  apptraverse::android::AndroidUiBridge bridge;
-  apptraverse::android::AndroidApplicationHost host(
-      runtime, presentation_host, std::move(bridge), std::move(callbacks));
-
-  run_model_entered = false;
-  release_run_model = false;
-
-  std::mutex done_mu;
-  std::condition_variable done_cv;
-  bool join_finished = false;
-
-  std::thread joiner{[&] {
-    host.JoinModelThreadForRelease();
-    std::lock_guard<std::mutex> lock{done_mu};
-    join_finished = true;
-    done_cv.notify_all();
-  }};
-  std::thread starter{[&] { host.StartModelThread(); }};
-
-  starter.join();
-  {
-    std::unique_lock<std::mutex> lock{done_mu};
-    bool const finished = done_cv.wait_for(
-        lock, std::chrono::seconds(10), [&] { return join_finished; });
-    if (!finished) {
-      release_run_model = true;
-      run_model_cv.notify_all();
-      joiner.join();
-      return "FAIL:concurrent_start_join_timeout";
-    }
-  }
-  joiner.join();
-  return "OK:concurrent_start_join";
-}
-
-std::string RunImmediateJoinLongRunModelProbe() {
-  std::filesystem::path const state_dir =
-      std::filesystem::temp_directory_path() /
-      "minimal_app_immediate_join_long_run_probe";
-  std::error_code ec;
-  std::filesystem::remove_all(state_dir, ec);
-  std::filesystem::create_directories(state_dir, ec);
-
-  ae::RamDomainStorage user_storage;
-  ae::RamDomainStorage local_storage;
-  apptraverse::ApplicationModelRuntime runtime;
-  apptraverse::ui::android::AndroidPresentationHost presentation_host{};
-  presentation_host.content_root = reinterpret_cast<jobject>(1);
-
-  apptraverse::android::AndroidApplicationHostCallbacks callbacks;
-  callbacks.run_model =
-      [&runtime, &user_storage, &local_storage, &state_dir](apptraverse::ApplicationPublishedCallback on_published) {
-        return RunMinimalApplicationModel(user_storage, local_storage, state_dir, runtime,
-                                          std::move(on_published));
-      };
-
-  apptraverse::android::AndroidUiBridge bridge;
-  apptraverse::android::AndroidApplicationHost host(
-      runtime, presentation_host, std::move(bridge), std::move(callbacks));
-
+  callbacks.before_model_thread_join = [&] { gate.Release(); };
+  android::AndroidApplicationHost host{
+      runtime, presentation, {}, std::move(callbacks)};
+  // The UI owner races the worker's entry/exit, rather than racing two callers
+  // against host fields that intentionally belong to one UI thread.
   host.StartModelThread();
   host.JoinModelThreadForRelease();
-  return "OK:immediate_join_stopped_long_run_model";
+  if (gate.TimedOut()) return "FAIL:immediate_teardown_gate_timeout";
+  if (runtime.TryPost([](ae::Domain&) {})) return "FAIL:teardown_accepts_work";
+  return "OK:immediate_owner_teardown";
+}
+
+std::string RunLongModelTeardownProbe(JNIEnv* env, jobject root,
+                                     std::filesystem::path const& state_dir,
+                                     jobject ui_bridge) {
+  ae::RamDomainStorage user_storage, local_storage;
+  ApplicationModelRuntime runtime;
+  ui::android::AndroidPresentationHost presentation;
+  if (!BindProbeRoot(env, root, presentation)) return "FAIL:root_reference";
+  ModelGate gate;
+  std::atomic<int> session_result{-1};
+  android::AndroidApplicationHostCallbacks callbacks;
+  callbacks.run_model = [&](ApplicationPublishedCallback on_published) {
+    gate.EnterAndWait();
+    session_result.store(RunMinimalApplicationModel(
+        user_storage, local_storage, state_dir, runtime, std::move(on_published)));
+    return 0; // Report the actual session result through the probe, after join.
+  };
+  callbacks.before_model_thread_join = [&] { gate.Release(); };
+  android::AndroidApplicationHost host{
+      runtime, presentation, android::MakeAndroidUiBridge(env, ui_bridge),
+      std::move(callbacks)};
+  host.StartModelThread();
+  bool const entered = gate.WaitEntered();
+  host.JoinModelThreadForRelease();
+  if (!entered) return "FAIL:long_model_never_entered";
+  if (gate.TimedOut()) return "FAIL:long_model_gate_timeout";
+  if (session_result.load() != 0) return "FAIL:long_model_persist";
+  std::error_code error;
+  auto const user_bytes = std::filesystem::file_size(state_dir / "user.bin", error);
+  if (error || !user_bytes) return "FAIL:long_model_missing_user";
+  auto const local_bytes = std::filesystem::file_size(state_dir / "local/user.bin", error);
+  if (error || !local_bytes) return "FAIL:long_model_missing_local";
+  return "OK:long_model_joined_and_persisted";
 }
 
 }  // namespace
 
-std::string RunAndroidModelThreadStartSyncProbe() {
-  std::string const unblocked = RunStartUnblockedProbe();
-  if (unblocked.rfind("OK:", 0) != 0) {
-    return unblocked;
+std::string RunAndroidModelThreadStartSyncProbe(
+    JNIEnv* env, jobject content_root, std::filesystem::path const& state_dir,
+    jobject ui_bridge) {
+  for (auto probe : {RunStartUnblockedProbe, RunFastExitJoinProbe,
+                     RunJoinBeforeRunModelGateProbe, RunImmediateOwnerTeardownProbe}) {
+    auto const result = probe(env, content_root);
+    if (result.rfind("OK:", 0) != 0) return result;
   }
-  std::string const fast = RunFastExitJoinProbe();
-  if (fast.rfind("OK:", 0) != 0) {
-    return fast;
-  }
-  std::string const gate_join = RunJoinBeforeRunModelGateProbe();
-  if (gate_join.rfind("OK:", 0) != 0) {
-    return gate_join;
-  }
-  std::string const concurrent = RunConcurrentStartJoinProbe();
-  if (concurrent.rfind("OK:", 0) != 0) {
-    return concurrent;
-  }
-  std::string const immediate = RunImmediateJoinLongRunModelProbe();
-  if (immediate.rfind("OK:", 0) != 0) {
-    return immediate;
-  }
-  return "OK:start_unblocked_fast_exit_gate_join_long_run";
+  auto const result = RunLongModelTeardownProbe(env, content_root, state_dir, ui_bridge);
+  if (result.rfind("OK:", 0) != 0) return result;
+  return "OK:start_unblocked_fast_exit_gate_join_owner_teardown_persist";
 }
 
 }  // namespace apptraverse::example::minimal

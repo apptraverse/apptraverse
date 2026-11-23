@@ -5,7 +5,7 @@ if(NOT CMAKE_CROSSCOMPILING_EMULATOR)
   message(FATAL_ERROR "minimal_app/web supply export requires CMAKE_CROSSCOMPILING_EMULATOR (node)")
 endif()
 
-include(${CMAKE_SOURCE_DIR}/cmake/apptraverse_embed_distilled_supply.cmake)
+include(${PROJECT_SOURCE_DIR}/cmake/apptraverse_embed_distilled_supply.cmake)
 
 set(_minimal_web_embed_graph_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/minimal_app_web_graph.cpp
@@ -24,7 +24,7 @@ target_compile_definitions(apptraverse_export_minimal_distilled_graph_web PRIVAT
 )
 target_include_directories(apptraverse_export_minimal_distilled_graph_web PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
-  ${CMAKE_SOURCE_DIR}/examples/minimal_app/common
+  ${PROJECT_SOURCE_DIR}/examples/minimal_app/common
 )
 target_link_libraries(apptraverse_export_minimal_distilled_graph_web PRIVATE
   minimal_app_common
@@ -66,7 +66,7 @@ add_dependencies(web_minimal_app apptraverse_export_minimal_distilled_graph_web)
 
 target_include_directories(web_minimal_app PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
-  ${CMAKE_SOURCE_DIR}/examples/minimal_app/common
+  ${PROJECT_SOURCE_DIR}/examples/minimal_app/common
 )
 
 target_link_libraries(web_minimal_app PRIVATE
@@ -123,7 +123,7 @@ target_compile_definitions(apptraverse_web_presenter_lifecycle_test PRIVATE
 
 target_include_directories(apptraverse_web_presenter_lifecycle_test PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
-  ${CMAKE_SOURCE_DIR}/examples/minimal_app/common
+  ${PROJECT_SOURCE_DIR}/examples/minimal_app/common
 )
 
 target_link_libraries(apptraverse_web_presenter_lifecycle_test PRIVATE

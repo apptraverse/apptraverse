@@ -85,12 +85,12 @@ public final class WindowCatalogApplication extends Application
   }
 
   @Override
-  public void onMobilePages(long[] windowIds, long activeWindowId) {
+  public void onMobilePages(long[] windowIds, long activeWindowId, boolean menuChanged) {
     mainHandler.post(new Runnable() {
       @Override
       public void run() {
         if (activity != null) {
-          activity.onMobilePages(windowIds, activeWindowId);
+          activity.onMobilePages(windowIds, activeWindowId, menuChanged);
         }
       }
     });

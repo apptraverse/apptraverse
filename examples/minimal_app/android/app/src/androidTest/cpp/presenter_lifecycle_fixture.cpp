@@ -3,6 +3,7 @@
 // PresenterLifecycleInstrumentedTest.
 
 #include <jni.h>
+#include <cstdlib>
 
 #include <memory>
 #include <utility>
@@ -19,10 +20,13 @@
 #include "apptraverse/platform/android/android_ui_list_presenter.h"
 #include "apptraverse/platform/android/android_ui_push_button_presenter.h"
 #include "apptraverse/platform/android/android_ui_registration.h"
+#include "apptraverse/platform/android/android_ui_window_presenter.h"
+#include "apptraverse/noninteractive_crt.h"
 #include "apptraverse/ui/ui_list_container.h"
 #include "apptraverse/ui/ui_presenters.h"
 
 #include "minimal_app_android_graph.h"
+#include "minimal_app_android_registration.h"
 #include "minimal_app_prepare.h"
 #include "minimal_application.h"
 
@@ -31,9 +35,14 @@ namespace {
 
 class PresenterLifecycleFixture {
  public:
-  PresenterLifecycleFixture(JNIEnv* env, jobject content_root) {
-    env->GetJavaVM(&host_.vm);
+  PresenterLifecycleFixture(JNIEnv* env, jobject activity, jobject content_root) {
+    if (env->GetJavaVM(&host_.vm) != JNI_OK) std::abort();
+    host_.activity = env->NewGlobalRef(activity);
     host_.content_root = env->NewGlobalRef(content_root);
+    if (env->ExceptionCheck() || !host_.activity || !host_.content_root) {
+      WriteFatalStderr("fatal: presenter fixture requires owned Activity and content root\n");
+      std::abort();
+    }
     model_root_ = BuildAndroidMinimalApplicationGraph(model_domain_);
     PrepareMinimalApplicationForRun(*model_root_);
     ByteSink initial;
@@ -45,8 +54,10 @@ class PresenterLifecycleFixture {
   ~PresenterLifecycleFixture() {
     session_.reset();
     JNIEnv* env = nullptr;
-    host_.vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+    if (host_.vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK)
+      std::abort();
     env->DeleteGlobalRef(host_.content_root);
+    env->DeleteGlobalRef(host_.activity);
   }
 
   void Remount() { session_->RemountPresentation(); }
@@ -82,8 +93,8 @@ PresenterLifecycleFixture* FromHandle(jlong handle) {
   return reinterpret_cast<PresenterLifecycleFixture*>(handle);
 }
 
-jlong NativeCreate(JNIEnv* env, jclass, jobject content_root) {
-  return reinterpret_cast<jlong>(new PresenterLifecycleFixture(env, content_root));
+jlong NativeCreate(JNIEnv* env, jclass, jobject activity, jobject content_root) {
+  return reinterpret_cast<jlong>(new PresenterLifecycleFixture(env, activity, content_root));
 }
 
 void NativeRemount(JNIEnv*, jclass, jlong handle) { FromHandle(handle)->Remount(); }
@@ -108,7 +119,7 @@ void NativeOnListSelection(JNIEnv*, jclass, jlong native_presenter,
 }
 
 JNINativeMethod const kFixtureMethods[] = {
-    {"nativeCreate", "(Landroid/view/ViewGroup;)J",
+    {"nativeCreate", "(Landroid/app/Activity;Landroid/view/ViewGroup;)J",
      reinterpret_cast<void*>(&NativeCreate)},
     {"nativeRemount", "(J)V", reinterpret_cast<void*>(&NativeRemount)},
     {"nativeRemoveMainListRow", "(JI)V",
@@ -119,11 +130,17 @@ JNINativeMethod const kFixtureMethods[] = {
 
 // The app library registered these for its own presenter copy; Views created
 // by this library's presenters must call back into this library.
+void NativeOnWindowClientSize(JNIEnv*, jclass, jlong native_presenter,
+                              jint width, jint height, jint dpi) {
+  ui::android::NotifyAndroidWindowClientSizeFromJava(native_presenter, width, height, dpi);
+}
 JNINativeMethod const kUiMethods[] = {
     {"nativeOnPushButtonClick", "(J)V",
      reinterpret_cast<void*>(&NativeOnPushButtonClick)},
     {"nativeOnListSelection", "(JI)V",
      reinterpret_cast<void*>(&NativeOnListSelection)},
+    {"nativeOnWindowClientSize", "(JIII)V",
+     reinterpret_cast<void*>(&NativeOnWindowClientSize)},
 };
 
 bool Register(JNIEnv* env, char const* class_name,
@@ -146,10 +163,7 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
   if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
     return JNI_ERR;
   }
-  apptraverse::EnsureObjectRegistration();
-  apptraverse::ui::EnsureUiPresenterRegistration();
-  apptraverse::ui::android::EnsureAndroidUiPresenterRegistration();
-  EnsureMinimalApplicationRegistration();
+  RegisterAndroidMinimalApplicationTypes();
   if (!Register(env, "com/apptraverse/minimal/PresenterLifecycleFixture",
                 kFixtureMethods,
                 static_cast<jint>(sizeof(kFixtureMethods) /

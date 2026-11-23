@@ -10,7 +10,6 @@
 namespace apptraverse::example::minimal {
 
 MinimalApplication::ptr BuildLinuxMinimalApplicationGraph(ae::Domain& domain) {
-  ui::linux::EnsureLinuxUiPresenterRegistration();
   MinimalPresenterFactories factories;
   factories.create_window = [](ae::Domain& build_domain, ae::ObjId presenter_id) {
     return ui::linux::LinuxDesktopWindowPresenter::ptr::Create(

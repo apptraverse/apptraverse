@@ -21,6 +21,7 @@
 #include "minimal_app_controls.h"
 #include "minimal_app_prepare.h"
 #include "minimal_app_web_graph.h"
+#include "minimal_app_web_registration.h"
 #include "minimal_app_window_events.h"
 #include "minimal_application.h"
 
@@ -36,8 +37,6 @@ namespace {
   } while (0)
 
 using example::minimal::BuildWebMinimalApplicationGraph;
-using example::minimal::EnsureMinimalAppControlsRegistration;
-using example::minimal::EnsureMinimalApplicationRegistration;
 using example::minimal::MinimalApplication;
 using example::minimal::MinimalCloseAuxiliaryWindowEvent;
 using example::minimal::MinimalOpenAuxiliaryWindowEvent;
@@ -202,12 +201,6 @@ void RunSingleWindowSessionCycle(std::vector<std::uint8_t> const& initial_bytes,
 }
 
 bool RunWebPresenterLifecycleTest() {
-  EnsureObjectRegistration();
-  EnsureMinimalApplicationRegistration();
-  EnsureMinimalAppControlsRegistration();
-  example::minimal::EnsureMinimalAppWindowEventsRegistration();
-  ui::web::EnsureWebUiPresenterRegistration();
-
   std::vector<std::uint8_t> const initial_bytes = BuildInitialPublicationBytes();
 
   ui::web::WebPresentationHost host;
@@ -297,6 +290,7 @@ bool RunWebPresenterLifecycleTest() {
 }  // namespace apptraverse::test
 
 int main() {
+  apptraverse::example::minimal::RegisterWebMinimalApplicationTypes();
   if (!apptraverse::test::RunWebPresenterLifecycleTest()) {
     return 1;
   }

@@ -21,6 +21,7 @@
 #include "apptraverse/graph_walk.h"
 #include "apptraverse/object_macros.h"
 #include "apptraverse/object_serialization.h"
+#include "apptraverse/publication_serialization_scope.h"
 #include "apptraverse/runtime_node.h"
 #include "apptraverse/ui/ui_list_container.h"
 #include "apptraverse/ui/ui_presenters.h"
@@ -88,12 +89,15 @@ class RuntimeTestRoot : public NodeFor<RuntimeTestRoot> {
 
   template <typename Dnv>
   void Save(ae::Version<0>, Dnv& dnv) const {
+    if (before_save && detail::OmitNodeHistoryForPublication(dnv)) before_save();
     dnv(base_, value, child, lazy_child);
   }
 
   std::int32_t value{0};
   RuntimeTestChild::ptr child;
   RuntimeTestChild::ptr lazy_child;
+  // Test-only runtime synchronization; never part of the persistent graph.
+  std::function<void()> before_save;
 
   void Apply(RuntimeBumpEvent const& event);
 };
@@ -727,6 +731,80 @@ void TestSyncPostRejectsAfterStopWithoutWorker() {
   CHECK(!executed);
 }
 
+void TestReceiverTeardownDuringSerialization(bool initial) {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto root = RuntimeTestRoot::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*root);
+  ApplicationModelRuntime runtime;
+  std::promise<void> serializing;
+  auto serializing_future = serializing.get_future();
+  std::promise<void> release_serialization;
+  auto release_future = release_serialization.get_future();
+  std::promise<void> finished;
+  auto finished_future = finished.get_future();
+  std::atomic<int> publications{0};
+  std::atomic<int> sidecars{0};
+  std::atomic<int> accepted_commands{0};
+  bool blocked = false;
+  auto block_save = [&] {
+    if (blocked) return;
+    blocked = true;
+    serializing.set_value();
+    release_future.wait();
+  };
+  if (initial) root->before_save = block_save;
+  std::thread model{[&] {
+    runtime.Run(domain, *root, [&](ApplicationPublicationKind kind) {
+      ++publications;
+      runtime.TakePublishedCopy();
+      runtime.NotifyPublicationConsumed();
+      if (!initial && kind == ApplicationPublicationKind::Initial) {
+        // Let compaction finish before gating publication serialization.
+        runtime.Post([&](ae::Domain& active_domain) {
+          CommitBump(*root, active_domain, 1);
+          root->before_save = block_save;
+        });
+      }
+    }, [&] { ++sidecars; });
+    finished.set_value();
+  }};
+  CHECK(serializing_future.wait_for(std::chrono::seconds{5}) ==
+        std::future_status::ready);
+  CHECK(runtime.TryPost([&](ae::Domain&) { ++accepted_commands; }));
+  runtime.AbandonUnconsumedPublicationsForTeardown();
+  CHECK(!runtime.TryPost([&](ae::Domain&) { accepted_commands += 100; }));
+  release_serialization.set_value();
+  CHECK(finished_future.wait_for(std::chrono::seconds{5}) ==
+        std::future_status::ready);
+  model.join();
+  CHECK(accepted_commands.load() == 1);
+  CHECK(publications.load() == (initial ? 0 : 1));
+  CHECK(sidecars.load() == 0);
+  CHECK(!runtime.IsPublicationBusy());
+}
+
+void TestReceiverTeardownDropsQueuedSnapshot() {
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto root = RuntimeTestRoot::ptr::Create(ae::CreateWith{domain});
+  InitializeRuntimeNode(*root);
+  ApplicationModelRuntime runtime;
+  std::promise<void> published;
+  auto published_future = published.get_future();
+  std::thread model{[&] {
+    runtime.Run(domain, *root, [&](ApplicationPublicationKind) {
+      published.set_value();
+    });
+  }};
+  CHECK(published_future.wait_for(std::chrono::seconds{5}) ==
+        std::future_status::ready);
+  CHECK(runtime.IsPublicationBusy());
+  runtime.AbandonUnconsumedPublicationsForTeardown();
+  model.join();
+  CHECK(!runtime.IsPublicationBusy());
+}
+
 void TestBeforeIncrementalSidecarAtTake() {
   ae::RamDomainStorage model_storage;
   ae::Domain model_domain{model_storage};
@@ -1325,6 +1403,9 @@ int main() {
   apptraverse::test::TestStopDrainsAcceptedWork();
   apptraverse::test::TestSyncPostCompletesAcceptedWorkDuringStop();
   apptraverse::test::TestSyncPostRejectsAfterStopWithoutWorker();
+  apptraverse::test::TestReceiverTeardownDuringSerialization(true);
+  apptraverse::test::TestReceiverTeardownDuringSerialization(false);
+  apptraverse::test::TestReceiverTeardownDropsQueuedSnapshot();
   apptraverse::test::TestCallbackCanPostAfterPublication();
   apptraverse::test::TestBeforeIncrementalSidecarAtTake();
   apptraverse::test::TestModelSessionLoadRunPersist();

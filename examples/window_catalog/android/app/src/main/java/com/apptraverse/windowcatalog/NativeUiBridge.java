@@ -7,7 +7,7 @@ public final class NativeUiBridge {
   public interface Listener {
     void onPublication(int kind);
 
-    void onMobilePages(long[] windowIds, long activeWindowId);
+    void onMobilePages(long[] windowIds, long activeWindowId, boolean menuChanged);
   }
 
   public void attach(Listener newListener) {
@@ -31,9 +31,9 @@ public final class NativeUiBridge {
     }
   }
 
-  public void onMobilePages(long[] windowIds, long activeWindowId) {
+  public void onMobilePages(long[] windowIds, long activeWindowId, boolean menuChanged) {
     if (listener != null) {
-      listener.onMobilePages(windowIds, activeWindowId);
+      listener.onMobilePages(windowIds, activeWindowId, menuChanged);
     }
   }
 

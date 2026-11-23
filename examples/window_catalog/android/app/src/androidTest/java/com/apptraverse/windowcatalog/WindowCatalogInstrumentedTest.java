@@ -15,6 +15,7 @@ import androidx.test.platform.app.InstrumentationRegistry;
 import androidx.test.uiautomator.By;
 import androidx.test.uiautomator.UiDevice;
 import androidx.test.uiautomator.UiObject2;
+import androidx.test.uiautomator.StaleObjectException;
 import androidx.test.uiautomator.Until;
 import java.io.File;
 import java.io.FileInputStream;
@@ -222,7 +223,21 @@ public final class WindowCatalogInstrumentedTest {
   private void appearanceMenu() {
     try { waitForCatalogInputFocus(); } catch (Exception error) { throw new AssertionError(error); }
     device.waitForIdle();
-    keyEvent(82);
+    long deadline = SystemClock.uptimeMillis() + 30_000;
+    for (;;) {
+      long remaining = deadline - SystemClock.uptimeMillis();
+      assertTrue("Native overflow must settle before the input deadline", remaining > 0);
+      UiObject2 overflow = device.wait(Until.findObject(By.desc("More options")), remaining);
+      assertNotNull("Native overflow control must be available", overflow);
+      try {
+        overflow.click();
+        break;
+      } catch (StaleObjectException replacedBeforeInjection) {
+        // Activity/menu replacement invalidated the node before click injection.
+        // Re-query only this native control, retaining the original deadline.
+      }
+    }
+    device.waitForIdle();
     tap("Theme");
     waitText("From system");
   }
@@ -282,7 +297,17 @@ public final class WindowCatalogInstrumentedTest {
     assertFullscreenMenu(true);
     assertTrue("Fullscreen intent stays RAM-backed until onStop", userFiles().isEmpty());
     home();
+    // Leaving the UI precedes completion of Android's onStop checkpoint.
+    long deadline = SystemClock.uptimeMillis() + 30_000;
+    List<File> savedFiles = userFiles();
+    while ((savedFiles.isEmpty() || savedFiles.get(0).length() == 0
+        || new File(savedFiles.get(0).getParentFile(), "local/user.bin").length() == 0)
+        && SystemClock.uptimeMillis() < deadline) {
+      SystemClock.sleep(25);
+      savedFiles = userFiles();
+    }
     assertEquals(1, userFiles().size());
+    assertTrue("Fullscreen checkpoint must contain USER state", userFiles().get(0).length() > 0);
     assertTrue(new File(stateDir, "local/user.bin").length() > 0);
     killDemoProcessOnly();
     launch();

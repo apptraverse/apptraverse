@@ -8,6 +8,7 @@
 
 #include "minimal_app_desktop_close.h"
 #include "minimal_app_lifecycle.h"
+#include "minimal_app_linux_registration.h"
 #ifdef APPTRAVERSE_MINIMAL_LINUX_TEST_HOOKS
 #include "minimal_app_linux_session_automation.h"
 #endif
@@ -25,6 +26,7 @@ std::filesystem::path DefaultStateDir() {
 
 int main(int argc, char** argv) {
   apptraverse::EnableNoninteractiveCrt();
+  apptraverse::example::minimal::RegisterLinuxMinimalApplicationTypes();
 
   std::filesystem::path state_dir = DefaultStateDir();
 #ifdef APPTRAVERSE_MINIMAL_LINUX_TEST_HOOKS

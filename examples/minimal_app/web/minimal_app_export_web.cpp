@@ -11,6 +11,7 @@
 #include "apptraverse/platform/web/web_ui_window_presenter.h"
 
 #include "minimal_app_web_graph.h"
+#include "minimal_app_web_registration.h"
 #include "minimal_application.h"
 
 namespace {
@@ -28,9 +29,7 @@ int main(int argc, char** argv) {
     return 2;
   }
 
-  apptraverse::EnsureObjectRegistration();
-  apptraverse::ui::web::EnsureWebUiPresenterRegistration();
-  apptraverse::example::minimal::EnsureMinimalApplicationRegistration();
+  apptraverse::example::minimal::RegisterWebMinimalApplicationTypes();
 
   ae::RamDomainStorage export_storage;
   ae::Domain domain{export_storage};

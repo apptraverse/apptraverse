@@ -11,7 +11,6 @@
 namespace apptraverse::example::minimal {
 
 MinimalApplication::ptr BuildAndroidMinimalApplicationGraph(ae::Domain& domain) {
-  ui::android::EnsureAndroidUiPresenterRegistration();
   MinimalPresenterFactories factories;
   factories.create_window = [](ae::Domain& d, ae::ObjId presenter_id) {
     return ui::android::AndroidDesktopWindowPresenter::ptr::Create(

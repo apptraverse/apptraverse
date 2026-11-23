@@ -18,6 +18,7 @@
 #include "apptraverse/ui/ui_presenters.h"
 
 #include "minimal_application.h"
+#include "minimal_app_android_registration.h"
 #if defined(APPTRAVERSE_MINIMAL_TEST_HOOKS)
 #include "minimal_app_android_cold_load_probe.h"
 #include "minimal_app_android_initial_publication_probe.h"
@@ -115,14 +116,17 @@ jstring NativeRunEarlyBackgroundSaveProbe(JNIEnv* env, jclass) {
   return env->NewStringUTF(out.c_str());
 }
 
-jstring NativeRunModelThreadStartSyncProbe(JNIEnv* env, jclass) {
-  std::string const out = RunAndroidModelThreadStartSyncProbe();
+jstring NativeRunModelThreadStartSyncProbe(JNIEnv* env, jclass,
+                                           jobject content_root, jstring state_dir,
+                                           jobject ui_bridge) {
+  std::string const out = RunAndroidModelThreadStartSyncProbe(
+      env, content_root, std::filesystem::path{ui::android::JstringToUtf8(env, state_dir)},
+      ui_bridge);
   return env->NewStringUTF(out.c_str());
 }
 
 jstring NativeRunInitialPublicationLabelProbe(JNIEnv* env, jclass,
                                               jstring profile_dir) {
-  EnsureMinimalApplicationRegistration();
   char const* chars = env->GetStringUTFChars(profile_dir, nullptr);
   auto const dir = std::filesystem::path{chars};
   env->ReleaseStringUTFChars(profile_dir, chars);
@@ -137,8 +141,6 @@ jstring NativeRunInitialPublicationLabelProbe(JNIEnv* env, jclass,
 jstring NativeRunColdReloadProfileStateProbe(
     JNIEnv* env, jclass, jstring profile_dir, jint expected_selection_index,
     jboolean expected_apply_enabled, jstring expected_title) {
-  EnsureObjectRegistration();
-  EnsureMinimalApplicationRegistration();
   char const* dir_chars = env->GetStringUTFChars(profile_dir, nullptr);
   auto const dir = std::filesystem::path{dir_chars};
   env->ReleaseStringUTFChars(profile_dir, dir_chars);
@@ -157,8 +159,6 @@ jstring NativeRunColdReloadProfileStateProbe(
 
 jstring NativeRunColdReloadApplyStateProbe(JNIEnv* env, jclass,
                                            jstring profile_dir) {
-  EnsureObjectRegistration();
-  EnsureMinimalApplicationRegistration();
   char const* chars = env->GetStringUTFChars(profile_dir, nullptr);
   auto const dir = std::filesystem::path{chars};
   env->ReleaseStringUTFChars(profile_dir, chars);
@@ -173,8 +173,6 @@ jstring NativeRunColdReloadApplyStateProbe(JNIEnv* env, jclass,
 
 jstring NativeRunEmbeddedBackingProbe(JNIEnv* env, jclass, jstring profile_dir,
                                       jstring empty_user_dir) {
-  EnsureObjectRegistration();
-  EnsureMinimalApplicationRegistration();
   char const* dir_chars = env->GetStringUTFChars(profile_dir, nullptr);
   auto const dir = std::filesystem::path{dir_chars};
   env->ReleaseStringUTFChars(profile_dir, dir_chars);
@@ -191,7 +189,6 @@ jstring NativeRunEmbeddedBackingProbe(JNIEnv* env, jclass, jstring profile_dir,
 }
 
 jstring NativeRunColdLoadLabelProbe(JNIEnv* env, jclass, jstring profile_dir) {
-  EnsureMinimalApplicationRegistration();
   char const* chars = env->GetStringUTFChars(profile_dir, nullptr);
   auto const dir = std::filesystem::path{chars};
   env->ReleaseStringUTFChars(profile_dir, chars);
@@ -237,7 +234,7 @@ JNINativeMethod const kTestMethods[] = {
      reinterpret_cast<void*>(&NativeRunPendingBackgroundSaveRaceProbe)},
     {"nativeRunEarlyBackgroundSaveProbe", "()Ljava/lang/String;",
      reinterpret_cast<void*>(&NativeRunEarlyBackgroundSaveProbe)},
-    {"nativeRunModelThreadStartSyncProbe", "()Ljava/lang/String;",
+    {"nativeRunModelThreadStartSyncProbe", "(Landroid/widget/FrameLayout;Ljava/lang/String;Lcom/apptraverse/minimal/NativeUiBridge;)Ljava/lang/String;",
      reinterpret_cast<void*>(&NativeRunModelThreadStartSyncProbe)},
     {"nativeRunColdLoadLabelProbe", "(Ljava/lang/String;)Ljava/lang/String;",
      reinterpret_cast<void*>(&NativeRunColdLoadLabelProbe)},
@@ -298,10 +295,7 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
     return JNI_ERR;
   }
 
-  apptraverse::EnsureObjectRegistration();
-  apptraverse::ui::EnsureUiPresenterRegistration();
-  apptraverse::ui::android::EnsureAndroidUiPresenterRegistration();
-  apptraverse::example::minimal::EnsureMinimalApplicationRegistration();
+  apptraverse::example::minimal::RegisterAndroidMinimalApplicationTypes();
 
   using apptraverse::example::minimal::kNativeMethods;
   using apptraverse::example::minimal::kNativeRuntimeClass;

@@ -141,8 +141,7 @@ void WindowCatalogNativeRuntime::PopulateMenu(JNIEnv* env, jobject menu) {
   // no semantic menu until the required authored graph reaches the UI mirror.
   if (!host_ || !host_->ui_session()) return;
   auto& catalog = CatalogRoot(host_->ui_session()->root());
-  auto const& state = static_cast<CatalogUiState const&>(*catalog.persisted.device_state);
-  int const language = catalog.persisted.locale->language_index();
+  auto const projection = BuildAndroidCatalogMenuProjection(catalog);
   auto* menu_class = CheckedJni(env, "menu class", [&] { return env->FindClass("android/view/Menu"); });
   auto* item_class = CheckedJni(env, "menu item class", [&] { return env->FindClass("android/view/MenuItem"); });
   auto add_submenu = CheckedJni(env, "add submenu", [&] { return env->GetMethodID(menu_class, "addSubMenu", "(Ljava/lang/CharSequence;)Landroid/view/SubMenu;"); });
@@ -150,25 +149,18 @@ void WindowCatalogNativeRuntime::PopulateMenu(JNIEnv* env, jobject menu) {
   auto checkable = CheckedJni(env, "checkable menu group", [&] { return env->GetMethodID(menu_class, "setGroupCheckable", "(IZZ)V"); });
   auto checked = CheckedJni(env, "checked menu item", [&] { return env->GetMethodID(item_class, "setChecked", "(Z)Landroid/view/MenuItem;"); });
   auto set_checkable = CheckedJni(env, "checkable menu item", [&] { return env->GetMethodID(item_class, "setCheckable", "(Z)Landroid/view/MenuItem;"); });
-  auto caption = [&](ui::UiLocalizationString const& text) {
-    // Android has no menu mnemonic marker. Preserve escaped literal '&'.
-    std::string result;
-    auto const source = text.Resolve(language);
-    for (std::size_t index = 0; index < source.size(); ++index) {
-      if (source[index] != '&') result += source[index];
-      else if (index + 1 < source.size() && source[index + 1] == '&') { result += '&'; ++index; }
-    }
-    return ui::android::Utf8ToJstring(env, result.c_str());
+  auto caption = [&](std::string const& text) {
+    return ui::android::Utf8ToJstring(env, text.c_str());
   };
   int native_id = 1;
-  for (auto const& group : state.menu->groups) {
-    auto title = caption(*group.label);
+  for (auto const& group : projection.groups) {
+    auto title = caption(group.title);
     auto submenu = CheckedJni(env, "create authored submenu", [&] { return env->CallObjectMethod(menu, add_submenu, title); });
     env->DeleteLocalRef(title);
     for (auto const& item : group.items) {
-      title = caption(*item.label);
+      title = caption(item.title);
       auto native_item = CheckedJni(env, "create authored item", [&] { return env->CallObjectMethod(submenu, add_item, 1, native_id++, 0, title); });
-      auto result = CheckedJni(env, "project published menu check", [&] { return env->CallObjectMethod(native_item, checked, state.MenuItemSelected(item) ? JNI_TRUE : JNI_FALSE); });
+      auto result = CheckedJni(env, "project published menu check", [&] { return env->CallObjectMethod(native_item, checked, item.selected ? JNI_TRUE : JNI_FALSE); });
       env->DeleteLocalRef(result);
       env->DeleteLocalRef(native_item);
       env->DeleteLocalRef(title);
@@ -176,21 +168,20 @@ void WindowCatalogNativeRuntime::PopulateMenu(JNIEnv* env, jobject menu) {
     CheckedJni(env, "project native radio group", [&] { env->CallVoidMethod(submenu, checkable, 1, JNI_TRUE, JNI_TRUE); });
     env->DeleteLocalRef(submenu);
   }
-  auto active_id = catalog.ResolveActiveWindow().id();
+  auto const active_id = projection.active_window_id;
   menu_window_id_ = active_id;
-  menu_fullscreen_intent_ = !state.IsWindowFullscreen(active_id);
-  auto title = caption(*state.DisplayMenu().fullscreen_items[
-      state.IsWindowFullscreen(active_id) ? 1 : 0].label);
+  menu_fullscreen_intent_ = projection.fullscreen_intent;
+  auto title = caption(projection.fullscreen.title);
   auto native_item = CheckedJni(env, "create fullscreen item", [&] {
     return env->CallObjectMethod(menu, add_item, 0, kFullscreenCommand, 0, title);
   });
   env->DeleteLocalRef(native_item); env->DeleteLocalRef(title);
   // Layout is a main-window semantic override, offered in the native touch menu.
-  if (active_id == catalog.persisted.main_window.id()) {
-    auto const& items = state.menu->layout_items;
+  if (active_id == projection.main_window_id) {
+    auto const& items = projection.layout_items;
     for (unsigned index = 0; index < items.size(); ++index) {
       auto const& item = items[index];
-      title = caption(*item.label);
+      title = caption(item.title);
       native_item = CheckedJni(env, "create layout item", [&] {
         return env->CallObjectMethod(menu, add_item, 2, kFirstLayoutCommand + index, 0, title);
       });
@@ -200,7 +191,7 @@ void WindowCatalogNativeRuntime::PopulateMenu(JNIEnv* env, jobject menu) {
       });
       env->DeleteLocalRef(result);
       result = CheckedJni(env, "project published layout check", [&] {
-        return env->CallObjectMethod(native_item, checked, state.MenuItemSelected(item) ? JNI_TRUE : JNI_FALSE);
+        return env->CallObjectMethod(native_item, checked, item.selected ? JNI_TRUE : JNI_FALSE);
       });
       env->DeleteLocalRef(result); env->DeleteLocalRef(native_item); env->DeleteLocalRef(title);
     }
@@ -296,7 +287,11 @@ void WindowCatalogNativeRuntime::PublishMobilePages() {
   }
   CatalogWindow::ptr active = catalog.ResolveActiveWindow();
   std::int64_t const active_id = static_cast<std::int64_t>(active.id().id());
-  ui_bridge_.PostMobilePages(ids, active_id);
+  auto projection = BuildAndroidCatalogMenuProjection(catalog);
+  bool const menu_changed = !published_menu_projection_ ||
+      *published_menu_projection_ != projection;
+  published_menu_projection_ = std::move(projection);
+  ui_bridge_.PostMobilePages(ids, active_id, menu_changed);
 }
 
 }  // namespace apptraverse::example::surfaces

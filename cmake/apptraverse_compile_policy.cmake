@@ -49,6 +49,13 @@ if(MSVC)
 else()
   target_compile_options(apptraverse_compile_policy INTERFACE
     "$<$<COMPILE_LANGUAGE:CXX,OBJCXX>:-fno-rtti;-fno-exceptions>")
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+     CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    # Propagate the shipping runtime contract to parent-project consumers too.
+    # GTK and other native system libraries remain shared dependencies.
+    target_link_options(apptraverse_compile_policy INTERFACE
+      "$<$<AND:$<CONFIG:Release,RelWithDebInfo,MinSizeRel>,$<LINK_LANGUAGE:CXX>>:-static-libstdc++;-static-libgcc>")
+  endif()
   if(EMSCRIPTEN)
     # Emscripten selects libembind's TypeID ABI from link-driver flags. Setting
     # these only on compilation mixes address-based no-RTTI IDs with RTTI IDs,

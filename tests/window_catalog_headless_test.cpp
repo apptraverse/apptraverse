@@ -1808,6 +1808,7 @@ using namespace apptraverse;
 int main() {
   apptraverse::EnsureHeadlessWindowCatalogGraphRegistration();
   apptraverse::EnsureCatalogMenuRegistration();
+  TestAndroidMenuProjectionIgnoresViewportPublications();
   for (bool compact : {false, true}) {
     TestFullscreenModelAndPublication(compact);
     TestFullscreenPortableAdapters(compact);

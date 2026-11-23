@@ -1,3 +1,7 @@
+## Seven-platform Canon review — 2026-11-23
+
+Reviewed the 30 rules across WindowCatalog, the shared runtime, and the corresponding MinimalApp entry points. Fixed publication teardown, Android native menu refresh, MinimalApp registration and Android test bindings, nested CMake paths, and Linux shipping runtime linkage. Windows, Linux, Android, Web, and headless checks executed. The four-platform USER matrix passed and Windows ↔ Android preserved the destination's LOCAL. macOS and iOS were reviewed in source. [Rule-by-rule findings and execution scope](../validation/canon-seven-platforms-2026-11-23.md).
+
 ## UpdateLab Windows lifecycle demo and multi-application service — 2026-11-23
 
 Added a minimal Win32 window with shipped English, an explicitly slowed and resumable Russian download, version selection, and separate data-only and executable update plans. A single persistent Æther service on the test VM serves independent R0–R3 and R0–R1 catalogs. The PowerShell publisher uploads Windows binaries over SSH and invokes the service-side LZMA1 publisher. Windows native and cloud tests covered localization, resume, and executable replacement. The existing Windows/Linux UpdateLab passed all 44 process checks and both native smoke tests. [Executed evidence](../validation/update-lab-lifecycle-2026-11-23.md).

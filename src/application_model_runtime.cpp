@@ -78,13 +78,17 @@ void ApplicationModelRuntime::Run(
 
   auto* buffer = channel_.AcquireProducer();
   SerializeInitialPublication(application_root, buffer->sink);
+  bool initial_published = false;
   {
     std::lock_guard<std::mutex> lock{mu_};
-    channel_.NotePublished();
-    channel_.PublishProducer();
+    if (!publications_abandoned_) {
+      channel_.NotePublished();
+      channel_.PublishProducer();
+      initial_published = true;
+    }
   }
   cv_.notify_all();
-  on_published(ApplicationPublicationKind::Initial);
+  if (initial_published) on_published(ApplicationPublicationKind::Initial);
 
   for (;;) {
     std::optional<ModelWork> work;
@@ -140,19 +144,25 @@ void ApplicationModelRuntime::Run(
       auto* pub = channel_.AcquireProducer();
       SerializeStructuralNodePublication(application_root, pub->sink,
                                          publication_source_);
+      bool published = false;
       {
         std::lock_guard<std::mutex> lock{mu_};
-        if (before_incremental) {
-          before_incremental();
+        if (!publications_abandoned_) {
+          if (before_incremental) {
+            before_incremental();
+          }
+          pending_dirty.Clear();
+          channel_.NotePublished();
+          channel_.PublishProducer();
+          published = true;
         }
-        pending_dirty.Clear();
-        channel_.NotePublished();
-        channel_.PublishProducer();
       }
       cv_.notify_all();
-      APPTRAVERSE_TELE_DEBUG(ModelPublication,
-                             "Published changed application graph");
-      on_published(ApplicationPublicationKind::Incremental);
+      if (published) {
+        APPTRAVERSE_TELE_DEBUG(ModelPublication,
+                               "Published changed application graph");
+        on_published(ApplicationPublicationKind::Incremental);
+      }
     }
   }
 
@@ -194,6 +204,8 @@ bool ApplicationModelRuntime::IsPublicationBusy() const {
 
 void ApplicationModelRuntime::AbandonUnconsumedPublicationsForTeardown() {
   std::lock_guard<std::mutex> lock{mu_};
+  stop_ = true;
+  publications_abandoned_ = true;
   channel_.AbandonUnconsumedSnapshots();
   cv_.notify_all();
 }

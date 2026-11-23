@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <activity android:name=".MainActivity" android:process=":demo" />
+    <!-- Native presenter acceptance owns this Activity in the instrumentation
+         target process. It never creates the product model/runtime. -->
+    <activity android:name=".PresenterLifecycleTestActivity" android:exported="false" />
+  </application>
+</manifest>

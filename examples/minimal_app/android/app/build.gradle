@@ -35,8 +35,7 @@ android {
       cmake {
         arguments "-DANDROID_STL=c++_static",
                   "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
-                  "-DAPPTRAVERSE_MINIMAL_TEST_HOOKS=${testHooks ? 'ON' : 'OFF'}",
-                  "-DCPM_aether-miscpp_SOURCE=C:/cpm-cache/aether-miscpp/108b"
+                  "-DAPPTRAVERSE_MINIMAL_TEST_HOOKS=${testHooks ? 'ON' : 'OFF'}"
         targets "apptraverse_minimal_app"
         if (cmakeInitialCache) arguments "-DAPPTRAVERSE_CMAKE_INITIAL_CACHE=${cmakeInitialCache}"
       }
@@ -48,7 +47,12 @@ android {
       java.srcDirs += ["../../../../src/platform/android/java"]
       if (testHooks) java.srcDirs += ["src/testHooks/java"]
     }
-    debugLoadOnly.manifest.srcFile "src/debug/AndroidManifest.xml"
+    if (testHooks) {
+      debug.manifest.srcFile "src/testHooks/AndroidManifest.xml"
+      debugLoadOnly.manifest.srcFile "src/testHooks/AndroidManifest.xml"
+    } else {
+      debugLoadOnly.manifest.srcFile "src/debug/AndroidManifest.xml"
+    }
   }
 
   externalNativeBuild {

@@ -11,7 +11,7 @@ final class PresenterLifecycleFixture {
 
   private PresenterLifecycleFixture() {}
 
-  static native long nativeCreate(ViewGroup contentRoot);
+  static native long nativeCreate(android.app.Activity activity, ViewGroup contentRoot);
 
   static native void nativeRemount(long handle);
 

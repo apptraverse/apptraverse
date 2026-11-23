@@ -18,7 +18,8 @@ public final class NativeTestRuntime {
 
   static native String nativeRunEarlyBackgroundSaveProbe();
 
-  static native String nativeRunModelThreadStartSyncProbe();
+  static native String nativeRunModelThreadStartSyncProbe(
+      android.widget.FrameLayout contentRoot, String stateDir, NativeUiBridge uiBridge);
 
   static native String nativeRunColdReloadApplyStateProbe(String profileDir);
 

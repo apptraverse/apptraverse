@@ -110,7 +110,7 @@ void WindowCatalogUiBridge::PostPublication(int kind) const {
 
 void WindowCatalogUiBridge::PostMobilePages(
     std::vector<std::int64_t> const& window_ids,
-    std::int64_t active_id) const {
+    std::int64_t active_id, bool menu_changed) const {
   bool attached_here = false;
   JNIEnv* env = AttachedEnv(attached_here);
   if (env == nullptr) { LogError("WindowCatalog JNI attach failed"); std::abort(); }
@@ -120,7 +120,7 @@ void WindowCatalogUiBridge::PostMobilePages(
                             window_ids.data());
   }
   env->CallVoidMethod(object_, on_mobile_pages_, ids,
-                      static_cast<jlong>(active_id));
+                      static_cast<jlong>(active_id), menu_changed ? JNI_TRUE : JNI_FALSE);
   if (ids != nullptr) {
     env->DeleteLocalRef(ids);
   }
@@ -158,7 +158,7 @@ WindowCatalogUiBridge MakeWindowCatalogUiBridge(JNIEnv* env,
   }
   jmethodID on_publication = CheckedJni(env, "GetMethodID", [&] { return env->GetMethodID(local_class, "onPublication", "(I)V"); });
   jmethodID on_mobile_pages =
-      CheckedJni(env, "GetMethodID", [&] { return env->GetMethodID(local_class, "onMobilePages", "([JJ)V"); });
+      CheckedJni(env, "GetMethodID", [&] { return env->GetMethodID(local_class, "onMobilePages", "([JJZ)V"); });
   jmethodID on_background_save_finished = CheckedJni(env, "GetMethodID", [&] { return env->GetMethodID(
       local_class, "onBackgroundSaveFinished", "(I)V"); });
   if (on_publication == nullptr || on_mobile_pages == nullptr ||

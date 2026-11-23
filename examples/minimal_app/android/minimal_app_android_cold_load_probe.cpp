@@ -58,8 +58,6 @@ bool ProbeApplyLabelOnDomain(ae::Domain& domain, AndroidColdLoadLabelProbeResult
 AndroidColdLoadLabelProbeResult RunAndroidColdLoadLabelProbe(
     std::filesystem::path const& profile_dir) {
   AndroidColdLoadLabelProbeResult result;
-  EnsureObjectRegistration();
-  EnsureMinimalApplicationRegistration();
 
   std::error_code ec;
   std::filesystem::remove_all(profile_dir, ec);

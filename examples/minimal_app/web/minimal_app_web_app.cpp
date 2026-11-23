@@ -184,9 +184,6 @@ EMSCRIPTEN_KEEPALIVE void ApptraverseMinimalAppRequestShutdown() {
 }  // extern "C"
 
 void StartWebMinimalApplication() {
-  EnsureObjectRegistration();
-  EnsureMinimalApplicationRegistration();
-  ui::web::EnsureWebUiPresenterRegistration();
   EnsureBrowserEnvironment();
 
   auto const environment = ui::web::ReadWebDeviceEnvironment();

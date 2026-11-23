@@ -27,7 +27,7 @@ class WindowCatalogUiBridge {
 
   void PostPublication(int kind) const;
   void PostMobilePages(std::vector<std::int64_t> const& window_ids,
-                       std::int64_t active_id) const;
+                       std::int64_t active_id, bool menu_changed) const;
   void PostBackgroundSaveFinished(int persist_result) const;
 
  private:

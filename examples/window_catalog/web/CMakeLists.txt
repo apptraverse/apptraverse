@@ -5,11 +5,11 @@ if(NOT CMAKE_CROSSCOMPILING_EMULATOR)
   message(FATAL_ERROR "window_catalog/web requires CMAKE_CROSSCOMPILING_EMULATOR (node)")
 endif()
 
-include(${CMAKE_SOURCE_DIR}/cmake/apptraverse_embed_distilled_supply.cmake)
+include(${PROJECT_SOURCE_DIR}/cmake/apptraverse_embed_distilled_supply.cmake)
 
 add_library(window_catalog_window_catalog_web STATIC window_catalog_graph_web.cpp)
 target_include_directories(window_catalog_window_catalog_web PUBLIC
-  "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_SOURCE_DIR}/examples/window_catalog/common")
+  "${CMAKE_CURRENT_SOURCE_DIR}" "${PROJECT_SOURCE_DIR}/examples/window_catalog/common")
 target_link_libraries(window_catalog_window_catalog_web PUBLIC
   window_catalog_window_catalog_common apptraverse_ui_web)
 
@@ -81,14 +81,14 @@ set_property(TARGET web_window_catalog APPEND PROPERTY LINK_DEPENDS "${CMAKE_CUR
 
 # Same common sources must compile under em++ / -fno-rtti.
 add_executable(web_surfaces_model_compile_check
-  ${CMAKE_SOURCE_DIR}/tests/surfaces_model_test.cpp
-  ${CMAKE_SOURCE_DIR}/examples/window_catalog/common/surfaces_lifecycle.cpp
+  ${PROJECT_SOURCE_DIR}/tests/surfaces_model_test.cpp
+  ${PROJECT_SOURCE_DIR}/examples/window_catalog/common/surfaces_lifecycle.cpp
 )
 target_compile_definitions(web_surfaces_model_compile_check PRIVATE
   APPTRAVERSE_ENABLE_DISTILLATION
 )
 target_include_directories(web_surfaces_model_compile_check PRIVATE
-  ${CMAKE_SOURCE_DIR}/examples/window_catalog/common
+  ${PROJECT_SOURCE_DIR}/examples/window_catalog/common
 )
 target_link_libraries(web_surfaces_model_compile_check PRIVATE
   window_catalog_distill
@@ -140,10 +140,10 @@ foreach(_catalog_web_app web_window_catalog_demo web_window_catalog_demo_load_on
 endforeach()
 
 add_executable(apptraverse_window_catalog_web_embedded_session_test
-  ${CMAKE_SOURCE_DIR}/tests/window_catalog_web_embedded_session_test.cpp
+  ${PROJECT_SOURCE_DIR}/tests/window_catalog_web_embedded_session_test.cpp
   "${_catalog_web_supply}")
 add_executable(apptraverse_window_catalog_web_portable_user_fixture
-  ${CMAKE_SOURCE_DIR}/tests/window_catalog_portable_user_fixture.cpp
+  ${PROJECT_SOURCE_DIR}/tests/window_catalog_portable_user_fixture.cpp
   "${_catalog_web_supply}")
 add_dependencies(apptraverse_window_catalog_web_portable_user_fixture
   apptraverse_window_catalog_web_supply)

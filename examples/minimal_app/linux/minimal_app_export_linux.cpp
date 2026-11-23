@@ -12,6 +12,7 @@
 #include "apptraverse/ui/ui_presenters.h"
 
 #include "minimal_app_graph_linux.h"
+#include "minimal_app_linux_registration.h"
 #include "minimal_application.h"
 
 namespace {
@@ -29,9 +30,7 @@ int main(int argc, char** argv) {
     return 2;
   }
 
-  apptraverse::EnsureObjectRegistration();
-  apptraverse::ui::EnsureUiPresenterRegistration();
-  apptraverse::example::minimal::EnsureMinimalApplicationRegistration();
+  apptraverse::example::minimal::RegisterLinuxMinimalApplicationTypes();
 
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};

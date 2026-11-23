@@ -10,6 +10,7 @@
 #include "apptraverse/model_object_proxy.h"
 #include "apptraverse/overlay_domain_storage.h"
 #include "apptraverse/single_file_user_storage.h"
+#include "../examples/window_catalog/android/native/window_catalog_menu_projection.h"
 
 namespace {
 enum class TestCatalogDisplayHandling { kNone, kDesktop, kPaged, kDesktopWithLoading };
@@ -50,6 +51,52 @@ WindowCatalog::ptr BuildMenuModel(ae::Domain& domain, TestCatalogDisplayHandling
 
 WindowCatalog::ptr BuildMenuModel(ae::Domain& domain, bool display) {
   return BuildMenuModel(domain, display ? TestCatalogDisplayHandling::kDesktopWithLoading : TestCatalogDisplayHandling::kNone);
+}
+
+void TestAndroidMenuProjectionIgnoresViewportPublications() {
+  using example::surfaces::BuildAndroidCatalogMenuProjection;
+  ae::RamDomainStorage storage;
+  ae::Domain domain{storage};
+  auto catalog = BuildMenuModel(domain, TestCatalogDisplayHandling::kPaged);
+  PrepareWindowCatalogForRun(*catalog);
+  auto& state = static_cast<CatalogUiState&>(*catalog->persisted.device_state);
+  auto projection = BuildAndroidCatalogMenuProjection(*catalog);
+  catalog->SubmitMainClientViewportFromUi(1080, 1920, 480);
+  auto environment = state.environment;
+  environment.text_scale_milli = 1250;
+  state.ObserveEnvironment(environment, ui::UiEnvironmentReason::kSystemNotification);
+  CHECK(BuildAndroidCatalogMenuProjection(*catalog) == projection);
+
+  // Preference checks, localized captions and layout commands really change
+  // the native menu; unrelated model generations must leave it open.
+  state.SetAppearance({ui::UiThemeMode::kDark, false});
+  auto changed = BuildAndroidCatalogMenuProjection(*catalog);
+  CHECK(changed != projection);
+  projection = std::move(changed);
+  state.ExecuteMenuCommand(1, 1);
+  changed = BuildAndroidCatalogMenuProjection(*catalog);
+  CHECK(changed != projection);
+  projection = std::move(changed);
+  state.ExecuteLayoutCommand(1);
+  changed = BuildAndroidCatalogMenuProjection(*catalog);
+  CHECK(changed != projection);
+  projection = std::move(changed);
+
+  catalog->AddWindow();
+  PrepareWindowCatalogForRun(*catalog);
+  auto const active = catalog->ResolveActiveWindow().id();
+  CHECK(active != catalog->persisted.main_window.id());
+  changed = BuildAndroidCatalogMenuProjection(*catalog);
+  CHECK(changed != projection);
+  CHECK(changed.layout_items.empty());
+  projection = std::move(changed);
+  state.RequestWindowFullscreenFromUi(active, true);
+  changed = BuildAndroidCatalogMenuProjection(*catalog);
+  CHECK(changed != projection);
+  CHECK(!changed.fullscreen_intent);
+  projection = std::move(changed);
+  catalog->SubmitHolderChildWindowClientSizeFromUi(active.id(), 1920, 1080, 480);
+  CHECK(BuildAndroidCatalogMenuProjection(*catalog) == projection);
 }
 
 void TestFullscreenModelAndPublication(bool compact,

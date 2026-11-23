@@ -3,6 +3,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <optional>
 
 #include <jni.h>
 
@@ -13,6 +14,7 @@
 
 #include "../window_catalog_android_embedded_profile.h"
 #include "window_catalog_ui_bridge.h"
+#include "window_catalog_menu_projection.h"
 
 #include "window_catalog_model.h"
 
@@ -51,6 +53,7 @@ class WindowCatalogNativeRuntime {
   // Native popup lifetime only: its caption and intent refer to the same page.
   ae::ObjId menu_window_id_;
   bool menu_fullscreen_intent_{false};
+  std::optional<AndroidCatalogMenuProjection> published_menu_projection_;
 };
 
 }  // namespace apptraverse::example::surfaces

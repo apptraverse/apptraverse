@@ -67,6 +67,9 @@ class ApplicationModelRuntime {
 
   [[nodiscard]] bool IsPublicationBusy() const;
 
+  // Terminal receiver teardown: stop accepting work, drain accepted commands,
+  // and discard both queued and in-flight snapshots without waiting for UI.
+  // Ordinary RequestStop keeps its consumer/publication completion contract.
   void AbandonUnconsumedPublicationsForTeardown();
 
   [[nodiscard]] std::uint64_t publish_count() const;
@@ -78,6 +81,7 @@ class ApplicationModelRuntime {
   mutable std::mutex mu_;
   std::condition_variable cv_;
   bool stop_{false};
+  bool publications_abandoned_{false};
   std::deque<ModelWork> pending_work_;
 };
 

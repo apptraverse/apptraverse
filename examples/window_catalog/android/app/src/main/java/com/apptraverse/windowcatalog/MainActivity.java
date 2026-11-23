@@ -17,6 +17,7 @@ public final class MainActivity extends Activity
   private long gestureDownTime;
   private boolean trackingGesture;
   private boolean mountedDark, themeRecreationPosted;
+  private boolean menuProjectionBound;
   private boolean presentedFullscreen;
   private android.window.OnBackInvokedCallback fullscreenBackCallback;
 
@@ -73,7 +74,6 @@ public final class MainActivity extends Activity
       }
     }
     applySystemBars();
-    invalidateOptionsMenu();
   }
 
   private void applySystemBars() {
@@ -165,9 +165,15 @@ public final class MainActivity extends Activity
     super.onDestroy();
   }
 
-  public void onMobilePages(long[] windowIds, long activeWindowId) {
+  public void onMobilePages(long[] windowIds, long activeWindowId, boolean menuChanged) {
     loading.setVisibility(View.GONE);
-    invalidateOptionsMenu();
+    // A recreated Activity needs its first menu even when the model projection
+    // matches the previous Activity. Ordinary viewport publications keep the
+    // currently open native menu/submenu intact.
+    if (!menuProjectionBound || menuChanged) {
+      menuProjectionBound = true;
+      invalidateOptionsMenu();
+    }
   }
 
   private WindowCatalogApplication application() {

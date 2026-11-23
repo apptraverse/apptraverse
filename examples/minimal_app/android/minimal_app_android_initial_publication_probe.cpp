@@ -39,10 +39,6 @@ bool OpenerLabelValidOnDomain(ae::Domain& domain) {
 AndroidInitialPublicationLabelProbeResult RunAndroidInitialPublicationLabelProbe(
     std::filesystem::path const& profile_dir) {
   AndroidInitialPublicationLabelProbeResult result;
-  EnsureObjectRegistration();
-  ui::EnsureUiPresenterRegistration();
-  ui::android::EnsureAndroidUiPresenterRegistration();
-  EnsureMinimalApplicationRegistration();
 
   std::error_code ec;
   std::filesystem::remove_all(profile_dir, ec);

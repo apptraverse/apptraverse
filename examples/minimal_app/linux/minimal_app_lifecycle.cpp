@@ -30,11 +30,6 @@ int RunMinimalApplicationModel(
     ApplicationModelRuntime& runtime,
     ApplicationPublishedCallback on_published,
     ui::UiDeviceEnvironment environment) {
-  EnsureObjectRegistration();
-  ui::EnsureUiPresenterRegistration();
-  ui::linux::EnsureLinuxUiPresenterRegistration();
-  EnsureMinimalApplicationRegistration();
-
   ae::RamDomainStorage user, local;
 #ifdef APPTRAVERSE_DEBUG_FRESH_START
   ae::RamDomainStorage backing;

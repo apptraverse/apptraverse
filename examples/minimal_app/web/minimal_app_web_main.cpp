@@ -3,9 +3,11 @@
 #include "apptraverse/noninteractive_crt.h"
 
 #include "minimal_app_web_app.h"
+#include "minimal_app_web_registration.h"
 
 int main() {
   apptraverse::EnableNoninteractiveCrt();
+  apptraverse::example::minimal::RegisterWebMinimalApplicationTypes();
   apptraverse::example::minimal::StartWebMinimalApplication();
   emscripten_exit_with_live_runtime();
 }

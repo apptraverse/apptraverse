@@ -147,9 +147,12 @@ struct Session::Impl {
     int result = RunClientLocalApplicationModelSession(
         user, local, backing, Constants(backing), RootId(), runtime,
         [this](auto) {
-          if (stopping.load())
-            runtime.AbandonUnconsumedPublicationsForTeardown();
-          else
+          if (stopping.load()) {
+            // Stop still admits transport completions until transport.Stop()
+            // returns. Drain this unused UI snapshot without closing that queue.
+            runtime.TakePublishedCopy();
+            runtime.NotifyPublicationConsumed();
+          } else
             changed();
         },
         hooks);

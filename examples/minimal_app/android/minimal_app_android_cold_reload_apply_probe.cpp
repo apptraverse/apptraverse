@@ -22,8 +22,6 @@ void SetDetail(AndroidColdReloadApplyProbeResult& out, char const* text) {
 AndroidColdReloadApplyProbeResult RunAndroidColdReloadApplyStateProbe(
     std::filesystem::path const& profile_dir) {
   AndroidColdReloadApplyProbeResult result;
-  EnsureObjectRegistration();
-  EnsureMinimalApplicationRegistration();
 
   MinimalAppEmbeddedProfile profile{profile_dir};
   ae::Domain domain{profile.overlay};
@@ -78,8 +76,6 @@ AndroidColdReloadApplyProbeResult RunAndroidColdReloadProfileStateProbe(
     std::filesystem::path const& profile_dir, int expected_selection_index,
     bool expected_apply_enabled, char const* expected_title) {
   AndroidColdReloadApplyProbeResult result;
-  EnsureObjectRegistration();
-  EnsureMinimalApplicationRegistration();
 
   MinimalAppEmbeddedProfile profile{profile_dir};
   ae::Domain domain{profile.overlay};
@@ -134,8 +130,6 @@ AndroidColdReloadApplyProbeResult RunAndroidEmbeddedBackingProbe(
     std::filesystem::path const& profile_dir,
     std::filesystem::path const& empty_user_dir) {
   AndroidColdReloadApplyProbeResult result;
-  EnsureObjectRegistration();
-  EnsureMinimalApplicationRegistration();
 
   {
     DirectoryDomainStorage user{profile_dir};
