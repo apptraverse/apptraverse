@@ -1,7 +1,8 @@
 #include "model.h"
 #include "apptraverse/distill.h"
+#include <array>
 namespace update_lab {
-ae::RamDomainStorage BuildSupply(unsigned release) {
+ae::RamDomainStorage BuildSupply(unsigned release, bool lifecycle) {
   ae::RamDomainStorage storage;
   ae::Domain domain{storage};
   auto p = TextObject::ptr::Create(ae::CreateWith{domain}.with_id(kPrefabId));
@@ -12,20 +13,34 @@ ae::RamDomainStorage BuildSupply(unsigned release) {
   p->SetObjectScope({kPrefabId, {}, true});
   auto definition = SupplyDefinition::ptr::Create(ae::CreateWith{domain}.with_id(kSupplyId));
   definition->release = release;
-  definition->languages = release < 2 ? std::vector<std::string>{"en", "ru"}
+  definition->languages = lifecycle || release < 2 ? std::vector<std::string>{"en", "ru"}
                                     : std::vector<std::string>{"en", "ru", "de"};
   definition->SetObjectScope({kSupplyId, {}, true});
   p.Save(); definition.Save();
-  if (release < 3) storage.state[kPrefabId]->at(TextObject::kClassId).erase(1);
+  if (lifecycle || release < 3) storage.state[kPrefabId]->at(TextObject::kClassId).erase(1);
   return storage;
 }
-LanguagePack BuildLanguage(unsigned release, std::string const& language) {
+LanguagePack BuildLanguage(unsigned release, std::string const& language, std::string_view app) {
   LanguagePack p;
   p.locale = language;
   if (language == "en") p.text = {"Update laboratory", release == 0 ? "Hello! Original translation." : "Hello! Revised translation.", "Language", "Version", "Portable note", "Save note", "Add clone", "Clone", "Downloading", "Ready", "Download failed", "Slow connection", "Restarting", "Prefab", "Try broken update", "Export USER", "Import USER"};
   if (language == "ru") p.text = {"Лаборатория обновлений", release == 0 ? "Привет! Исходный перевод." : "Здравствуйте! Обновлённый перевод.", "Язык", "Версия", "Переносимая заметка", "Сохранить заметку", "Добавить клон", "Клон", "Загрузка", "Готово", "Ошибка загрузки", "Медленное соединение", "Перезапуск", "Префаб", "Проверить сбой обновления", "Экспорт USER", "Импорт USER"};
   if (language == "de") p.text = {"Update-Labor", "Hallo! Neu hinzugefügte Sprache.", "Sprache", "Version", "Übertragbare Notiz", "Notiz speichern", "Klon hinzufügen", "Klon", "Herunterladen", "Bereit", "Download fehlgeschlagen", "Langsame Verbindung", "Neustart", "Vorlage", "Fehlerhaftes Update testen", "USER exportieren", "USER importieren"};
   if (language == "ru" && release >= 3) p.text[Ready] = "Готово к работе";
+  if (!app.empty()) {
+    constexpr std::array english_greetings{"Hello! This is the original content.", "Hello! The text has been revised.",
+        "Hello! This is the second content update.", "Hello! This is the latest content."};
+    constexpr std::array russian_greetings{"Привет! Это исходный текст.", "Здравствуйте! Текст обновился.",
+        "Привет! Это второе обновление текста.", "Здравствуйте! Это последняя версия текста."};
+    bool english = language == "en";
+    p.text[Title] = (english ? "App lifecycle · " : "Жизненный цикл · ") + std::string{app};
+    p.text[Greeting] = english ? english_greetings.at(release) : russian_greetings.at(release);
+    auto extra = english ? std::array{"Check for updates", "Update data only (.bin)", "Update with EXE", "Installed",
+        "Available", "Up to date", "Checking for updates…", "Progress"} :
+        std::array{"Проверить обновления", "Обновить только .bin", "Обновить с EXE", "Установлено",
+        "Доступно", "Установлена последняя версия", "Проверка обновлений…", "Прогресс"};
+    p.text.insert(p.text.end(), extra.begin(), extra.end());
+  }
   // Deliberate demo ballast, not part of the compression benchmark corpus.
   p.payload.resize(language == "en" ? 0 : 384 * 1024);
   std::uint32_t value = 0x6539b731;
@@ -39,10 +54,10 @@ ae::ObjId LanguageRoot(std::string const& locale) {
   if (locale == "de") return ae::ObjId{0x7b200003};
   Fail("unknown publisher locale");
 }
-void AddLocalization(ae::RamDomainStorage& storage, unsigned release, std::string const& locale) {
+void AddLocalization(ae::RamDomainStorage& storage, unsigned release, std::string const& locale, std::string_view app) {
   ae::Domain domain{storage};
   auto state = LocalizationState::ptr::Create(ae::CreateWith{domain}.with_id(LanguageRoot(locale)));
-  auto data = BuildLanguage(release, locale);
+  auto data = BuildLanguage(release, locale, app);
   state->locale = locale; state->fixture_data = std::move(data.payload);
   state->SetObjectScope({state.id(), {}, true});
   auto first_string = 0x7b300000U + (state.id().id() & 0xffU) * 256;
@@ -56,15 +71,16 @@ void AddLocalization(ae::RamDomainStorage& storage, unsigned release, std::strin
   state.Save();
 }
 }
-ae::RamDomainStorage BuildCompleteSupply(unsigned release) {
-  auto storage = BuildSupply(release);
-  AddLocalization(storage, release, "en"); AddLocalization(storage, release, "ru");
-  if (release >= 2) AddLocalization(storage, release, "de");
+ae::RamDomainStorage BuildCompleteSupply(unsigned release, std::string_view app) {
+  auto storage = BuildSupply(release, !app.empty());
+  AddLocalization(storage, release, "en", app);
+  AddLocalization(storage, release, "ru", app);
+  if (app.empty() && release >= 2) AddLocalization(storage, release, "de", app);
   return storage;
 }
-DistilledRelease DistillRelease(unsigned release) {
+DistilledRelease DistillRelease(unsigned release, std::string_view app) {
   DistilledRelease result;
-  auto graph = BuildCompleteSupply(release);
+  auto graph = BuildCompleteSupply(release, app);
   ae::Domain domain{graph};
   auto supply = SupplyDefinition::ptr::Declare(ae::CreateWith{domain}.with_id(kSupplyId)).Load();
   result.definition = {release, release >= 3 ? 1U : 0U, "supply/" + std::to_string(release), {}};

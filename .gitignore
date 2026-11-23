@@ -55,6 +55,7 @@ docs/smoke_artifacts/window_catalog_android_accept_20251106/
 .artifacts/
 artifacts/presence-monitor/
 artifacts/update-lab/
+artifacts/update-lifecycle/
 
 # Chat demo release packages (binaries, checksums — never commit)
 dist/

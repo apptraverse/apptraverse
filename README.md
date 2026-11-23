@@ -14,7 +14,8 @@ host implemented; Linux GTK and Android sources present). See
 [UpdateLab](docs/update_lab.md) is the opt-in Windows/Linux update example:
 native localization and S1/prefab changes, resumable component downloads over
 Æther, portable USER, local device settings, executable rollback and compressed
-full images/state deltas.
+full images/state deltas. Its simple Windows lifecycle demo offers data-only
+and executable updates and shares an Æther provider with other app IDs.
 
 ## Requirements
 

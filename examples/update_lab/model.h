@@ -165,11 +165,18 @@ class DownloadChanged : public apptraverse::EventFor<DownloadNode, DownloadChang
   template<class D> void Load(ae::Version<0>, D& d) { d(base_, next); }
   template<class D> void Save(ae::Version<0>, D& d) const { d(base_, next); }
 };
+struct LifecycleOffer {
+  unsigned release{kLatest}, executable{};
+  std::uint64_t data_bytes{}, download_bytes{};
+  bool data_only{}, replace_executable{};
+  AE_REFLECT_MEMBERS(release, executable, data_bytes, download_bytes, data_only, replace_executable)
+};
 struct DistributionView {
   std::vector<unsigned> releases;
   std::string offer;
   std::map<std::string, unsigned> installed;
-  AE_REFLECT_MEMBERS(releases, offer, installed)
+  LifecycleOffer lifecycle;
+  AE_REFLECT_MEMBERS(releases, offer, installed, lifecycle)
 };
 struct ViewData {
   std::vector<std::string> text, languages, clones;
@@ -204,15 +211,15 @@ class LabView : public apptraverse::NodeFor<LabView> {
   void Changed() { NoteMaterializedChange(); }
 };
 void RegisterModel();
-ae::RamDomainStorage BuildSupply(unsigned); // Publisher only; not linked into consumers.
-ae::RamDomainStorage BuildCompleteSupply(unsigned);
-LanguagePack BuildLanguage(unsigned, std::string const&);
+ae::RamDomainStorage BuildSupply(unsigned, bool lifecycle = false); // Publisher only; not linked into consumers.
+ae::RamDomainStorage BuildCompleteSupply(unsigned, std::string_view app = {});
+LanguagePack BuildLanguage(unsigned, std::string const&, std::string_view app = {});
 struct DistilledRelease {
   Release definition;
   ae::RamDomainStorage embedded;
   std::map<std::string, ae::RamDomainStorage> downloads;
 };
-DistilledRelease DistillRelease(unsigned);
+DistilledRelease DistillRelease(unsigned, std::string_view app = {});
 bool ReadLanguage(ae::RamDomainStorage&, Resource const&, LanguagePack&);
 TextObject::ptr ClonePrefab(ae::Domain&);
 }

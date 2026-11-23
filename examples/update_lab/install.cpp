@@ -1,5 +1,17 @@
 #include "install.h"
 namespace update_lab {
+bool BindApplication(fs::path const& directory, std::string const& app) {
+  auto marker = directory / "application-id";
+  Bytes expected{app.begin(), app.end()};
+  if (fs::exists(marker)) {
+    Bytes existing;
+    return ReadFile(marker, existing, 48) && existing == expected;
+  }
+  if (app.empty()) return true;
+  if (fs::exists(directory / "user.bin") || fs::exists(directory / "local/installed.bin") ||
+      fs::exists(directory / "installation.bin")) return false;
+  return AtomicWrite(marker, expected);
+}
 fs::path Cache(fs::path const& profile) { return profile / "local" / "packages-lzma1"; }
 namespace {
 struct LocalSnapshot {
@@ -54,7 +66,8 @@ bool RestoreProfile(fs::path const& install, fs::path const& profile) {
 }
 bool StageExecutable(fs::path const& install, fs::path const& profile, Bytes const& bytes, unsigned version) {
   Installation i; StatePackage package; Bytes executable;
-  if (!LoadInstallation(install, i) || !UnpackRaw(bytes, package, executable)) return false;
+  if (!LoadInstallation(install, i) || !UnpackRaw(bytes, package, executable) ||
+      package.kind != 2 || package.from != version || package.to != version) return false;
   auto slot = "E" + std::to_string(version);
   auto path = install / "slots" / slot / BinaryName();
   if (!AtomicWrite(path, executable)) return false;

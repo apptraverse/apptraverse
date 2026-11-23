@@ -16,7 +16,10 @@ std::string Utf8(std::wstring const& text) {
   int n = WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
   std::string out(n, 0); WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), out.data(), n, nullptr, nullptr); return out;
 }
-enum { LanguageList = 101, ReleaseList, NoteEdit, SaveNote, Add, SlowControl, Bad, ExportUser, ImportUser };
+enum {
+  LanguageList = 101, ReleaseList, NoteEdit, SaveNote, Add, SlowControl, Bad, ExportUser, ImportUser,
+  CheckUpdateButton, DataUpdateButton, ExeUpdateButton
+};
 class Window {
  public:
   Options const& options;
@@ -26,10 +29,12 @@ class Window {
   std::thread model;
   int result{1};
   HWND window{}, greeting{}, language_label{}, release_label{}, note_label{}, note{}, languages{}, releases{}, clones{}, progress{}, status{}, slow{}, save{}, add{}, bad{}, export_button{}, import_button{};
-  HFONT font{};
-  bool initialized{false}, rendering{false}, smoke_started{false};
+  HWND installed{}, offer{}, refresh{}, update_data{}, update_exe{};
+  HFONT font{}, heading_font{};
+  bool initialized{false}, rendering{false}, smoke_started{false}, saw_language_progress{false};
   unsigned dpi{96};
   explicit Window(Options const& value) : options{value} {}
+  bool Lifecycle() const { return !options.app.empty(); }
   int Scale(int value) const { return MulDiv(value, static_cast<int>(dpi), 96); }
   void Send(Command c) { proxy.Invoke(kViewId, &LabView::Submit, std::move(c)); }
   HWND Control(wchar_t const* type, unsigned style, int id) {
@@ -44,6 +49,16 @@ class Window {
     RECT rect; GetClientRect(window, &rect);
     int w = MulDiv(rect.right, 96, static_cast<int>(dpi)), h = MulDiv(rect.bottom, 96, static_cast<int>(dpi));
     auto pos = [&](HWND c, int x, int y, int width, int height) { MoveWindow(c, Scale(x), Scale(y), Scale(std::max(1, width)), Scale(std::max(1, height)), TRUE); };
+    if (Lifecycle()) {
+      pos(greeting, 20, 18, w-40, 46);
+      pos(installed, 20, 67, w-40, 22);
+      pos(language_label, 20, 102, w/2-28, 22); pos(release_label, w/2+8, 102, w/2-28, 22);
+      pos(languages, 20, 128, w/2-28, 75); pos(releases, w/2+8, 128, w/2-28, 75);
+      pos(refresh, 20, 221, 180, 29); pos(offer, 215, 228, w-235, 24);
+      pos(update_data, 20, 262, w/2-28, 33); pos(update_exe, w/2+8, 262, w/2-28, 33);
+      pos(progress, 20, 316, w-40, 16); pos(status, 20, 344, w-40, 44);
+      return;
+    }
     pos(greeting, 20, 16, w-40, 44);
     pos(language_label, 20, 68, 200, 24); pos(release_label, w/2+10, 68, 200, 24);
     pos(languages, 20, 96, w/2-30, 90); pos(releases, w/2+10, 96, w/2-30, 90);
@@ -59,16 +74,73 @@ class Window {
         OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
     greeting = Control(WC_STATICW, 0, 0); language_label = Control(WC_STATICW, 0, 0); release_label = Control(WC_STATICW, 0, 0);
     languages = Control(WC_LISTBOXW, LBS_NOTIFY | WS_VSCROLL | WS_TABSTOP, LanguageList);
-    releases = Control(WC_LISTBOXW, LBS_NOTIFY | WS_TABSTOP, ReleaseList);
+    releases = Control(WC_LISTBOXW, LBS_NOTIFY | WS_TABSTOP | WS_VSCROLL, ReleaseList);
+    progress = Control(PROGRESS_CLASSW, 0, 0); status = Control(WC_STATICW, 0, 0);
+    if (Lifecycle()) {
+      heading_font = CreateFontW(-Scale(22), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+          OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+      if (heading_font) SendMessageW(greeting, WM_SETFONT, reinterpret_cast<WPARAM>(heading_font), TRUE);
+      installed = Control(WC_STATICW, 0, 0);
+      offer = Control(WC_STATICW, 0, 0);
+      refresh = Control(WC_BUTTONW, BS_PUSHBUTTON | WS_TABSTOP, CheckUpdateButton);
+      update_data = Control(WC_BUTTONW, BS_PUSHBUTTON | WS_TABSTOP, DataUpdateButton);
+      update_exe = Control(WC_BUTTONW, BS_PUSHBUTTON | WS_TABSTOP, ExeUpdateButton);
+      Layout();
+      return;
+    }
     note_label = Control(WC_STATICW, 0, 0); note = Control(WC_EDITW, ES_AUTOHSCROLL | WS_TABSTOP, NoteEdit);
     save = Control(WC_BUTTONW, BS_PUSHBUTTON | WS_TABSTOP, SaveNote);
     clones = Control(WC_LISTBOXW, WS_VSCROLL, 0); add = Control(WC_BUTTONW, BS_PUSHBUTTON | WS_TABSTOP, Add);
     slow = Control(WC_BUTTONW, BS_AUTOCHECKBOX | WS_TABSTOP, SlowControl);
-    progress = Control(PROGRESS_CLASSW, 0, 0); status = Control(WC_STATICW, 0, 0);
     bad = Control(WC_BUTTONW, BS_PUSHBUTTON | WS_TABSTOP, Bad);
     export_button = Control(WC_BUTTONW, BS_PUSHBUTTON | WS_TABSTOP, ExportUser);
     import_button = Control(WC_BUTTONW, BS_PUSHBUTTON | WS_TABSTOP, ImportUser);
     Layout();
+  }
+  void RenderLifecycle(ViewData const& d, DownloadSnapshot const& download, std::uint64_t done, std::uint64_t total) {
+    if (d.text.size() != LifecycleTextCount) {
+      Text(status, download.phase == "error" ? download.message : d.text[Downloading]);
+      EnableWindow(languages, FALSE); EnableWindow(releases, FALSE);
+      EnableWindow(refresh, FALSE); EnableWindow(update_data, FALSE); EnableWindow(update_exe, FALSE);
+      return;
+    }
+    auto const& extra = d.distribution.lifecycle;
+    Text(installed, d.text[InstalledVersion] + "  R" + std::to_string(d.release) + " / E" + std::to_string(d.executable));
+    Text(refresh, d.text[Refresh]);
+    auto button = [](std::string const& label, bool available, std::uint64_t bytes) {
+      return available ? label + " · " + std::to_string(bytes) + " B" : label;
+    };
+    Text(update_data, button(d.text[UpdateData], extra.data_only, extra.data_bytes));
+    Text(update_exe, button(d.text[UpdateExecutable], extra.replace_executable, extra.download_bytes));
+    if (extra.release != kLatest) {
+      std::string label = extra.release == d.release && !extra.replace_executable ? d.text[UpToDate] :
+          d.text[NewVersion] + "  R" + std::to_string(extra.release) + " / E" + std::to_string(extra.executable);
+      Text(offer, label);
+    } else {
+      Text(offer, !d.commands_done ? d.text[Checking] : d.distribution.offer);
+    }
+    auto const& phase = download.phase;
+    bool idle = phase == "activated" || phase == "idle" || phase == "rolled-back" || phase == "error";
+    std::string status_text;
+    if (phase == "error") status_text = d.text[Failure] + ": " + download.message;
+    else if (d.restarting) status_text = d.text[Restart];
+    else if (total) {
+      status_text = d.text[Percent] + "  " + std::to_string(done * 100 / total) + "% · " +
+          std::to_string(done) + " / " + std::to_string(total) + " B";
+    } else status_text = idle ? d.text[Ready] : d.text[Downloading];
+    Text(status, status_text);
+    bool interactive = idle && d.commands_done && !d.restarting;
+    EnableWindow(languages, interactive && d.ready);
+    EnableWindow(releases, interactive && d.ready);
+    EnableWindow(refresh, interactive);
+    EnableWindow(update_data, interactive && extra.data_only);
+    EnableWindow(update_exe, interactive && extra.replace_executable);
+    if (options.native_smoke && phase == "progress" && d.language == "en" && done > 0 && done < total) {
+      wchar_t actual[512]{};
+      GetWindowTextW(greeting, actual, 512);
+      saw_language_progress = std::wstring{actual} == Wide(d.text[Greeting]) &&
+          SendMessageW(languages, LB_GETCURSEL, 0, 0) == 0;
+    }
   }
   void Render() {
     auto bytes = runtime.TakePublishedCopyForUiApply();
@@ -85,11 +157,14 @@ class Window {
     }
     Text(window, d.text[Title] + " · E" + std::to_string(d.executable) + " / R" + std::to_string(d.release));
     Text(greeting, d.ready ? d.text[Greeting] : d.text[Downloading]);
-    Text(language_label, d.text[Language]); Text(release_label, d.text[Version]); Text(note_label, d.text[Note]);
-    if (GetFocus() != note) Text(note, d.note);
-    Text(save, d.text[ApplyNote]); Text(add, d.text[AddClone]); Text(slow, d.text[Slow]); Text(bad, d.text[Broken]);
-    Text(export_button, d.text[Export]); Text(import_button, d.text[Import]);
-    SendMessageW(slow, BM_SETCHECK, d.rate ? BST_CHECKED : BST_UNCHECKED, 0);
+    Text(language_label, d.text[Language]); Text(release_label, d.text[Version]);
+    if (!Lifecycle()) {
+      Text(note_label, d.text[Note]);
+      if (GetFocus() != note) Text(note, d.note);
+      Text(save, d.text[ApplyNote]); Text(add, d.text[AddClone]); Text(slow, d.text[Slow]); Text(bad, d.text[Broken]);
+      Text(export_button, d.text[Export]); Text(import_button, d.text[Import]);
+      SendMessageW(slow, BM_SETCHECK, d.rate ? BST_CHECKED : BST_UNCHECKED, 0);
+    }
     SendMessageW(languages, LB_RESETCONTENT, 0, 0);
     for (std::size_t n = 0; n < d.languages.size(); ++n) {
       auto const& code = d.languages[n]; auto name = Wide(code == "en" ? "English" : code == "ru" ? "Русский" : "Deutsch");
@@ -102,14 +177,22 @@ class Window {
       SendMessageW(releases, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(title.c_str()));
       if (d.distribution.releases[n] == d.release) SendMessageW(releases, LB_SETCURSEL, n, 0);
     }
-    SendMessageW(clones, LB_RESETCONTENT, 0, 0);
-    for (auto const& c : d.clones) { auto text = Wide(d.text[Clone] + " " + c); SendMessageW(clones, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text.c_str())); }
+    if (!Lifecycle()) {
+      SendMessageW(clones, LB_RESETCONTENT, 0, 0);
+      for (auto const& c : d.clones) {
+        auto text = Wide(d.text[Clone] + " " + c);
+        SendMessageW(clones, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text.c_str()));
+      }
+    }
     std::uint64_t done = 0, total = 0;
     auto const& download = view.download->state;
     for (auto const& f : download.files) if (std::find(download.requested.begin(), download.requested.end(), f.id) != download.requested.end()) { done += f.received; total += f.size; }
     SendMessageW(progress, PBM_SETRANGE32, 0, 1000); SendMessageW(progress, PBM_SETPOS, total ? done * 1000 / total : 0, 0);
-    std::string label = download.phase == "error" ? d.text[Failure] : download.phase == "activated" || download.phase == "idle" ? d.text[Ready] : d.text[Downloading];
-    Text(status, label + " · " + std::to_string(done) + " / " + std::to_string(total) + " B · " + d.device + "\n" + d.detail + "  " + d.distribution.offer);
+    if (Lifecycle()) RenderLifecycle(d, download, done, total);
+    else {
+      std::string label = download.phase == "error" ? d.text[Failure] : download.phase == "activated" || download.phase == "idle" ? d.text[Ready] : d.text[Downloading];
+      Text(status, label + " · " + std::to_string(done) + " / " + std::to_string(total) + " B · " + d.device + "\n" + d.detail + "  " + d.distribution.offer);
+    }
     rendering = false;
     AcknowledgeHealth(options, view);
     if (!options.snapshot_file.empty()) { auto json = InspectJson(view); if (!AtomicWrite(options.snapshot_file, Bytes{json.begin(), json.end()})) Fail("snapshot write failed"); }
@@ -117,7 +200,7 @@ class Window {
       smoke_started = true; SetTimer(window, 2, 100, nullptr);
     }
     if (options.native_smoke && smoke_started && download.phase == "activated" &&
-        d.language == "ru" && d.clones.size() == 3 && d.rate == 65536) {
+        d.language == "ru" && (Lifecycle() ? saw_language_progress : d.clones.size() == 3 && d.rate == 65536)) {
       wchar_t actual[512]{}; GetWindowTextW(greeting, actual, 512);
       if (std::wstring{actual} != Wide(d.text[Greeting]) || SendMessageW(languages, LB_GETCURSEL, 0, 0) != 1)
         Fail("native language presentation differs from the model publication");
@@ -142,7 +225,16 @@ class Window {
       auto n = SendMessageW(languages, LB_GETCURSEL, 0, 0);
       if (n >= 0 && static_cast<std::size_t>(n) < d.languages.size()) Send({"language", d.languages[n], 0, 0, 0, 0});
       for (std::size_t i=0;i<d.languages.size();++i) if(d.languages[i]==d.language) SendMessageW(languages,LB_SETCURSEL,i,0);
-    } else if (id == ReleaseList && event == LBN_SELCHANGE) Send({"release", "", static_cast<int>(d.distribution.releases.at(SendMessageW(releases, LB_GETCURSEL, 0, 0))), 0, 0, 0});
+    } else if (id == ReleaseList && event == LBN_SELCHANGE) {
+      auto n = SendMessageW(releases, LB_GETCURSEL, 0, 0);
+      if (n >= 0 && static_cast<std::size_t>(n) < d.distribution.releases.size()) {
+        auto release = d.distribution.releases[n];
+        if (release != d.release) Send({"release", "", static_cast<int>(release), 0, 0, 0});
+      }
+    }
+    else if (id == CheckUpdateButton) Send({"refresh", "", 0, 0, 0, 0});
+    else if (id == DataUpdateButton) Send({"update-data", "", 0, 0, 0, 0});
+    else if (id == ExeUpdateButton) Send({"update-executable", "", 0, 0, 0, 0});
     else if (id == SaveNote) { int n = GetWindowTextLengthW(note); std::wstring value(n + 1, 0); GetWindowTextW(note, value.data(), n + 1); value.resize(n); Send({"note", Utf8(value), 0, 0, 0, 0}); }
     else if (id == Add) Send({"clone", "", 0, 0, 0, 0});
     else if (id == SlowControl) Send({"rate", "", SendMessageW(slow, BM_GETCHECK, 0, 0) == BST_CHECKED ? 65536 : 0, 0, 0, 0});
@@ -159,16 +251,16 @@ class Window {
     if (!self) return DefWindowProcW(hwnd, msg, w, l);
     if (msg == WM_CREATE) { self->Create(); return 0; }
     if (msg == WM_SIZE) { self->Layout(); return 0; }
-    if (msg == WM_GETMINMAXINFO) { auto m = reinterpret_cast<MINMAXINFO*>(l); m->ptMinTrackSize = {self->Scale(650), self->Scale(570)}; return 0; }
+    if (msg == WM_GETMINMAXINFO) { auto m = reinterpret_cast<MINMAXINFO*>(l); m->ptMinTrackSize = self->Lifecycle() ? POINT{self->Scale(580), self->Scale(425)} : POINT{self->Scale(650), self->Scale(570)}; return 0; }
     if (msg == WM_APP + 1) { self->Render(); return 0; }
     if (msg == WM_COMMAND) { self->CommandMessage(w); return 0; }
     if (msg == WM_TIMER) {
       KillTimer(hwnd, w);
       if (w == 2) {
-        SendMessageW(self->slow, BM_CLICK, 0, 0);
+        if (!self->Lifecycle()) SendMessageW(self->slow, BM_CLICK, 0, 0);
         SendMessageW(self->languages, LB_SETCURSEL, 1, 0);
         SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(LanguageList, LBN_SELCHANGE), reinterpret_cast<LPARAM>(self->languages));
-        SendMessageW(self->add, BM_CLICK, 0, 0);
+        if (!self->Lifecycle()) SendMessageW(self->add, BM_CLICK, 0, 0);
       } else PostMessageW(hwnd, WM_CLOSE, 0, 0);
       return 0;
     }
@@ -198,6 +290,7 @@ int RunNative(Options const& options) {
     if (!IsDialogMessageW(window, &message)) { TranslateMessage(&message); DispatchMessageW(&message); }
   }
   app.runtime.RequestStop(); app.runtime.AbandonUnconsumedPublicationsForTeardown(); app.model.join();
+  if (app.heading_font) DeleteObject(app.heading_font);
   if (app.font) DeleteObject(app.font);
   return app.result;
 }

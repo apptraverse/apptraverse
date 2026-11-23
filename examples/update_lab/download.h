@@ -19,12 +19,13 @@ struct TransferResult {
   std::uint64_t resumed_bytes{};
   bool preview{};
   std::string error;
+  std::optional<std::uint64_t> data_only_remaining{};
 };
 class TransferWorker {
  public:
   using Report = std::function<bool(DownloadSnapshot)>;
   using Ready = std::function<void(TransferResult)>;
-  TransferWorker(fs::path profile, fs::path local_source, std::string provider, Report, Ready);
+  TransferWorker(fs::path profile, fs::path local_source, std::string provider, std::string app, Report, Ready);
   ~TransferWorker();
   void Begin(TransferRequest);
   void Stop();
@@ -32,7 +33,7 @@ class TransferWorker {
   void Run();
   void Transfer(TransferRequest);
   fs::path profile_, local_source_;
-  std::string provider_;
+  std::string provider_, app_;
   Report report_;
   Ready ready_;
   std::atomic<bool> stop_{false};

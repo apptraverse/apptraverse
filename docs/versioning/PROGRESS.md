@@ -1,3 +1,7 @@
+## UpdateLab Windows lifecycle demo and multi-application service — 2026-11-23
+
+Added a minimal Win32 window with shipped English, an explicitly slowed and resumable Russian download, version selection, and separate data-only and executable update plans. A single persistent Æther service on the test VM serves independent R0–R3 and R0–R1 catalogs. The PowerShell publisher uploads Windows binaries over SSH and invokes the service-side LZMA1 publisher. Windows native and cloud tests covered localization, resume, and executable replacement. The existing Windows/Linux UpdateLab passed all 44 process checks and both native smoke tests. [Executed evidence](../validation/update-lab-lifecycle-2026-11-23.md).
+
 ## UpdateLab LZMA1 delivery — 2026-11-23
 
 The provider publishes full images, adjacent state/resource deltas and executable packages with raw LZMA1 at level 9. Windows/Linux Debug state tests, both native UI smoke tests, 44 process checks, four Windows Æther cases and a Linux download from a Windows provider passed. A legacy profile and portable export retained their native data. [Results](../validation/update-lab-lzma1-2026-11-23.md). [Remote publishing protocol options](../update_lab.md#предлагаемый-протокол-удалённой-публикации).

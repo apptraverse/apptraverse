@@ -61,6 +61,7 @@ struct Child {
 }
 int main(int argc, char** argv) {
   fs::path install, profile, seed, image;
+  std::string app;
   unsigned timeout_ms = 30000;
   std::vector<std::string> forwarded;
   bool suppress_health = false;
@@ -68,6 +69,11 @@ int main(int argc, char** argv) {
     std::string arg = argv[n];
     if (arg == "--install" && n + 1 < argc) install = fs::absolute(argv[++n]);
     else if (arg == "--profile" && n + 1 < argc) profile = fs::absolute(argv[++n]);
+    else if (arg == "--app" && n + 1 < argc) {
+      app = argv[++n];
+      if (!ValidAppId(app)) Fail("invalid application ID");
+      forwarded.insert(forwarded.end(), {"--app", app});
+    }
     else if (arg == "--image" && n + 1 < argc) image = fs::absolute(argv[++n]);
     else if (arg == "--seed" && n + 1 < argc) seed = fs::absolute(argv[++n]);
     else if (arg == "--health-timeout-ms" && n + 1 < argc) timeout_ms = static_cast<unsigned>(std::stoul(argv[++n]));
@@ -80,6 +86,8 @@ int main(int argc, char** argv) {
   {
     FileLock application{profile / "application.lock"};
     if (!application.acquired()) Fail("application is still running; installation state was not changed");
+    if (!BindApplication(install, app) || !BindApplication(profile, app))
+      Fail("installation or profile belongs to another application");
   }
   Installation state;
   if (!LoadInstallation(install, state)) {
@@ -91,6 +99,12 @@ int main(int argc, char** argv) {
     if (!image.empty()) {
       Bytes bytes;
       InstalledImage installed;
+      auto marker = image / "application-id";
+      if (fs::exists(marker)) {
+        Bytes owner;
+        if (!ReadFile(marker, owner, 48) || std::string{owner.begin(), owner.end()} != app)
+          Fail("installation image belongs to another application");
+      } else if (!app.empty()) Fail("named application image has no matching application ID");
       if (fs::exists(profile / "user.bin"))
         Fail("--image requires a fresh profile for a new installation");
       if (!ReadFile(image / "release.bin", bytes) || !Decode(bytes, installed.release)) Fail("missing image description");
@@ -101,6 +115,7 @@ int main(int argc, char** argv) {
       if (!WriteInstalled(profile, installed)) Fail("cannot install image state");
     }
     if (seed.empty()) Fail("first launch requires --image or --seed");
+    if (!app.empty() && image.empty()) Fail("first launch of a named application requires --image");
     auto slot = "E" + std::to_string(version);
     auto path = install / "slots" / slot / BinaryName();
     if (!CopyAtomic(seed, path)) Fail("seed installation failed");

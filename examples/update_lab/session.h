@@ -6,8 +6,8 @@
 namespace update_lab {
 struct Options {
   fs::path profile, install, store, health_file, export_file, import_file, snapshot_file;
-  std::string provider, health_token, language, note, device, rename, badge;
-  bool latest{false};
+  std::string provider, app, health_token, language, note, device, rename, badge;
+  bool latest{false}, data_only{false};
   int release{-1}, rate{-1};
   unsigned add_clones{0}, hold_ms{0}, auto_close_ms{0};
   bool headless{false}, broken{false}, no_action{false}, suppress_health{false}, native_smoke{false};
@@ -44,6 +44,7 @@ class Session {
   InstalledImage installed_;
   std::vector<unsigned> available_;
   std::string offer_;
+  LifecycleOffer lifecycle_offer_;
   bool discovering_{false};
   std::unique_ptr<TransferWorker> worker_;
 };

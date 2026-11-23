@@ -37,8 +37,9 @@ bool AppendDurable(fs::path const& path, Bytes const& bytes) {
   return ok;
 #endif
 }
-TransferWorker::TransferWorker(fs::path profile, fs::path source, std::string provider, Report report, Ready ready)
-    : profile_{std::move(profile)}, local_source_{std::move(source)}, provider_{std::move(provider)},
+TransferWorker::TransferWorker(fs::path profile, fs::path source, std::string provider, std::string app,
+                               Report report, Ready ready)
+    : profile_{std::move(profile)}, local_source_{std::move(source)}, provider_{std::move(provider)}, app_{std::move(app)},
       report_{std::move(report)}, ready_{std::move(ready)}, thread_{[this] { Run(); }} {}
 TransferWorker::~TransferWorker() { Stop(); }
 void TransferWorker::Stop() {
@@ -74,6 +75,8 @@ void TransferWorker::Transfer(TransferRequest request) {
   std::unique_ptr<Frame> incoming;
   std::uint64_t expected_request = 0;
   auto fetch = [&](Frame request_frame, Frame& response) -> bool {
+    if (!app_.empty()) request_frame.id = "apps/" + app_ + "/" + request_frame.id;
+    response = {};
     request_frame.request = static_cast<std::uint64_t>(std::chrono::system_clock::now().time_since_epoch().count());
     expected_request = request_frame.request;
     incoming.reset();
@@ -93,7 +96,9 @@ void TransferWorker::Transfer(TransferRequest request) {
       if (incoming) {
         auto frame = std::move(incoming);
         if (frame->request == request_frame.request) {
-          response = std::move(*frame); return response.protocol == kDeliveryProtocol && response.kind != ServiceError;
+          response = std::move(*frame);
+          return response.protocol == kDeliveryProtocol && response.id == request_frame.id &&
+              response.chunk == request_frame.chunk && response.kind != ServiceError;
         }
       }
       if (!peer->Endpoint().empty() && Clock::now() >= resend) {
@@ -140,14 +145,19 @@ void TransferWorker::Transfer(TransferRequest request) {
     }
     if (ec) { error("Cannot read component cache"); return; }
     if (!request.preview) { state.phase = "catalog"; state.message.clear(); if (!report()) return; }
-    bool ok = fetch({kDeliveryProtocol, ResolveUpdate, "resolve-update", 0, Encode(query)}, response)
-        && response.kind == UpdateResolved && Decode(response.payload, plan);
+    bool preview_offer = request.preview && !app_.empty();
+    auto kind = preview_offer ? PreviewUpdate : ResolveUpdate;
+    UpdateOffer offer;
+    bool ok = fetch({kDeliveryProtocol, kind, "resolve-update", 0, Encode(query)}, response) &&
+        (preview_offer ? response.kind == UpdateOffered && Decode(response.payload, offer)
+                       : response.kind == UpdateResolved && Decode(response.payload, plan));
+    if (ok && preview_offer) plan = std::move(offer.preferred);
     std::string message;
     if (!ok) message = response.kind == ServiceError && !response.payload.empty()
         ? std::string(response.payload.begin(), response.payload.end())
         : "Update service unavailable" + (peer ? peer->Diagnostics() : "");
     if (request.preview) {
-      if (!canceled()) ready_({state.epoch, state.intent, std::move(plan), {}, 0, true, message});
+      if (!canceled()) ready_({state.epoch, state.intent, std::move(plan), {}, 0, true, message, offer.data_only_remaining});
       return;
     }
     if (!ok) { error(message); return; }
@@ -177,16 +187,25 @@ void TransferWorker::Transfer(TransferRequest request) {
     if (fs::exists(partial)) fs::resize_file(partial, file.received, ec);
     else if (file.received) { error("Partial component file is missing"); return; }
     if (ec) { error("Cannot truncate uncommitted tail"); return; }
+    bool simulate_delay = !app_.empty() && id.starts_with("language/");
+    auto rate = app_.empty() || simulate_delay ? request.bytes_per_second : 0;
+    auto wait_for_rate = [&](Clock::time_point start, std::size_t size) {
+      auto until = start + std::chrono::microseconds{size * 1000000 / rate};
+      while (!canceled() && Clock::now() < until) std::this_thread::sleep_for(std::chrono::milliseconds{10});
+    };
     while (file.received < file.size && !canceled()) {
       auto started = Clock::now();
       if (!fetch({kDeliveryProtocol, RequestChunk, id, file.received / kChunkSize, {}}, response)) { error("Component download failed: " + id + (peer ? peer->Diagnostics() : "")); return; }
+      if (response.kind != Chunk || response.payload.size() != std::min(kChunkSize, file.size - file.received)) {
+        error("Invalid component block: " + id);
+        return;
+      }
+      if (simulate_delay && rate) wait_for_rate(Clock::now(), response.payload.size());
+      if (canceled()) return;
       if (!AppendDurable(partial, response.payload)) { error("Partial component write failed"); return; }
       file.received += response.payload.size();
       if (!report()) return;
-      if (request.bytes_per_second) {
-        auto until = started + std::chrono::microseconds{response.payload.size() * 1000000 / request.bytes_per_second};
-        while (!canceled() && Clock::now() < until) std::this_thread::sleep_for(std::chrono::milliseconds{10});
-      }
+      if (!simulate_delay && rate) wait_for_rate(started, response.payload.size());
     }
     if (canceled()) return;
     fs::rename(partial, final, ec);

@@ -46,10 +46,15 @@ int PublishStore(int argc, char** argv) {
   if ((argc - 2) % 2 != 0) Fail("publish options require a value");
   for (int i = 2; i < argc; i += 2) options[argv[i]] = argv[i+1];
   if (!options.contains("--out")) Fail("publish requires --out");
-  fs::path store = options.at("--out");
+  std::string app;
+  if (auto name = options.find("--app"); name != options.end()) {
+    if (!ValidAppId(name->second)) Fail("invalid application ID");
+    app = name->second;
+  }
+  auto store = AppStore(options.at("--out"), app);
   FileLock lock{store / "publisher.lock"};
   if (!lock.acquired()) Fail("publisher already running");
-  Catalog catalog{kCatalogFormat, 0, {}, {}};
+  Catalog catalog{kCatalogFormat, 0, {}, {}, {}, {}};
   Catalog published{};
   if (fs::exists(store / "catalog.bin")) {
     if (!ReadCatalog(ReadInput(store / "catalog.bin"), published)) Fail("incompatible store; choose a new output directory");
@@ -72,7 +77,9 @@ int PublishStore(int argc, char** argv) {
   std::map<std::string, Bytes> encoded_executables;
   for (unsigned n = 0; n <= through; ++n) {
     auto dir = fs::path{"images"} / ("R" + std::to_string(n));
-    auto current = DistillRelease(n);
+    auto current = DistillRelease(n, app);
+    // Named demo releases have one compatible object schema across E0 and E1.
+    if (!app.empty()) catalog.compatible_executables[n] = {0, 1};
     auto& r = current.definition;
     auto previous = releases.empty() ? nullptr : &releases.back();
     record(r.supply, dir / "full.ats", FullState(current.embedded, n));
@@ -123,6 +130,7 @@ int PublishStore(int argc, char** argv) {
       }
     }
     immutable(store / dir / "release.bin", Encode(r));
+    if (!app.empty()) immutable(store / dir / "application-id", Bytes{app.begin(), app.end()});
     catalog.releases.push_back(r);
     releases.push_back(std::move(current));
   }
@@ -147,7 +155,7 @@ int PublishStore(int argc, char** argv) {
   }
   catalog.generation = through;
   WriteOutput(store / "catalog.bin", Encode(catalog));
-  std::cout << "Published " << releases.size() << " releases, " << catalog.components.size() << " components\n";
+  std::cout << "Published " << releases.size() << " releases, " << catalog.components.size() << " components" << (app.empty() ? "" : " for " + app) << "\n";
   return 0;
 }
 }

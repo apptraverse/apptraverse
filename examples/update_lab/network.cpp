@@ -68,7 +68,7 @@ struct AetherPeer::Impl {
     peer.read_subscription = peer.stream->out_data_event().Subscribe([this, &peer](ae::DataBuffer const& chunk) {
       peer.received += chunk.size();
       FramePiece piece;
-      if (!Decode(chunk, piece)) { failed = true; error = "native FramePiece decode"; return; }
+      if (!Decode(chunk, piece)) return;
       auto frame = peer.incoming.Receive(piece);
       if (frame && receiver) receiver(ae::Format("{}", peer.uid), std::move(*frame));
     });
@@ -78,7 +78,13 @@ struct AetherPeer::Impl {
     if (peer.terminal) {
       bool success = *peer.terminal == ae::WriteAction::Status::kSuccess;
       peer.write_subscription.Reset(); peer.terminal.reset(); peer.writing = false;
-      if (!success) { failed = true; error = "SDK write completion"; return; }
+      if (!success) {
+        // A disconnected device must not stop service for other devices.
+        error = "SDK write completion";
+        peer.outgoing.pop_front();
+        peer.offset = 0;
+        return;
+      }
       peer.offset += peer.submitted;
       peer.sent += peer.submitted;
       if (peer.offset == peer.outgoing.front().bytes.size()) { peer.outgoing.pop_front(); peer.offset = 0; }
@@ -97,7 +103,10 @@ struct AetherPeer::Impl {
     auto part = Encode(piece);
     peer.writing = true;
     auto& action = peer.stream->Write(std::move(part));
-    if (action.is_finished()) { failed = true; error = "SDK synchronous write failure"; return; }
+    if (action.is_finished()) {
+      peer.terminal = ae::WriteAction::Status::kFail;
+      return;
+    }
     peer.write_subscription = action.status_event().Subscribe([&peer](ae::WriteAction::Status status) { peer.terminal = status; });
   }
 };
@@ -138,33 +147,58 @@ std::string AetherPeer::Diagnostics() const {
         " buffered=" + std::to_string(peer->incoming.buffered());
   return result;
 }
-Frame Serve(fs::path const& store, Frame const& request) {
-  Frame reply{kDeliveryProtocol, ServiceError, request.id, request.chunk, {}};
-  reply.request = request.request;
-  if (request.protocol != kDeliveryProtocol) {
-    std::string reason = "Incompatible package format: LZMA1 client required";
+Frame Serve(fs::path const& root, Frame const& request) {
+  Frame reply{kDeliveryProtocol, ServiceError, request.id, request.chunk, {}, request.request};
+  auto fail = [&](std::string const& reason) {
     reply.payload.assign(reason.begin(), reason.end());
+    return std::move(reply);
+  };
+  if (request.protocol != kDeliveryProtocol) return fail("Incompatible package format: LZMA1 client required");
+
+  std::string_view id = request.id;
+  std::string_view app;
+  if (id.starts_with("apps/")) {
+    id.remove_prefix(5);
+    auto slash = id.find('/');
+    app = id.substr(0, slash);
+    if (slash == id.npos || !ValidAppId(app)) return fail("Invalid application ID");
+    id.remove_prefix(slash + 1);
+  }
+  auto store = AppStore(root, app);
+  Catalog catalog;
+  Bytes bytes;
+  if (!ReadFile(store / "catalog.bin", bytes) || !ReadCatalog(bytes, catalog))
+    return fail(app.empty() ? "Update catalog unavailable" : "Application has no published releases");
+  if (request.kind == ResolveUpdate || request.kind == PreviewUpdate) {
+    ResolveRequest query;
+    if (id != "resolve-update" || !Decode(request.payload, query)) return fail("Invalid update request");
+    UpdateOffer offer;
+    auto error = Resolve(catalog, query, offer.preferred);
+    if (!error.empty()) return fail(error);
+    if (request.kind == PreviewUpdate) {
+      query.target = offer.preferred.intent;
+      query.target.mode = InstallMode::DataOnly;
+      UpdatePlan data_only;
+      if (Resolve(catalog, query, data_only).empty()) offer.data_only_remaining = data_only.remaining;
+      reply.payload = Encode(offer);
+      reply.kind = UpdateOffered;
+    } else {
+      reply.payload = Encode(offer.preferred);
+      reply.kind = UpdateResolved;
+    }
     return reply;
   }
-  Catalog catalog; Bytes bytes;
-  if (!ReadFile(store / "catalog.bin", bytes) || !ReadCatalog(bytes, catalog)) return reply;
-  if (request.kind == ResolveUpdate) {
-    ResolveRequest query; UpdatePlan plan;
-    if (!Decode(request.payload, query)) return reply;
-    auto error = Resolve(catalog, query, plan);
-    if (!error.empty()) { reply.payload.assign(error.begin(), error.end()); return reply; }
-    reply.kind = UpdateResolved; reply.payload = Encode(plan);
-    return reply;
-  }
-  if (request.kind != RequestChunk) return reply;
-  auto const* component = FindComponent(catalog, request.id);
-  if (!component || !component->size || request.chunk > (component->size - 1) / kChunkSize) return reply;
+  if (request.kind != RequestChunk) return fail("Unknown service request");
+  auto const* component = FindComponent(catalog, std::string{id});
+  if (!component || !component->size || request.chunk > (component->size - 1) / kChunkSize)
+    return fail("Component unavailable");
   std::ifstream file{store / component->path, std::ios::binary};
   auto size = std::min(kChunkSize, component->size - request.chunk * kChunkSize);
   reply.payload.resize(static_cast<std::size_t>(size));
   file.seekg(static_cast<std::streamoff>(request.chunk * kChunkSize));
   file.read(reinterpret_cast<char*>(reply.payload.data()), static_cast<std::streamsize>(size));
-  if (file) reply.kind = Chunk;
+  if (!file) return fail("Component cannot be read");
+  reply.kind = Chunk;
   return reply;
 }
 }

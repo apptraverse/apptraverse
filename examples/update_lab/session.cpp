@@ -37,11 +37,18 @@ Session::Session(Options options, apptraverse::ApplicationModelRuntime& runtime)
   if (!Decode(Bytes{std::begin(kSeedRelease), std::end(kSeedRelease)}, seed) ||
       !ReadLanguage(backing_, *FindLanguage(seed, "en"), language_)) Fail("embedded language load failed");
   auto cache = Cache(options_.profile);
-  if (!fs::exists(cache / FileId(seed.supply)) &&
+  if (options_.app.empty() && !fs::exists(cache / FileId(seed.supply)) &&
       !AtomicWrite(cache / FileId(seed.supply), Bytes{std::begin(kSeedSupply), std::end(kSeedSupply)})) Fail("seed cache write failed");
   if (!ReadInstalled(options_.profile, installed_)) {
+    if (!options_.app.empty()) Fail("Install this application with update_lab_launcher --image first");
     installed_ = {seed, {}};
     if (!WriteInstalled(options_.profile, installed_)) Fail("cannot initialize installed image");
+  }
+  if (!options_.app.empty() &&
+      LoadCachedState(cache, installed_.release.supply, backing_, version) &&
+      version == installed_.release.id) {
+    auto english = FindLanguage(installed_.release, "en");
+    if (!english || !ReadLanguage(backing_, *english, language_)) Fail("application image has no English localization");
   }
   available_ = {installed_.release.id};
   if (!apptraverse::LoadUserStorageFile(user_store_, options_.profile) ||
@@ -57,19 +64,22 @@ Session::Session(Options options, apptraverse::ApplicationModelRuntime& runtime)
   if (local_store_.state.empty()) {
     local_ = DeviceState::ptr::Create(ae::CreateWith{local_domain_}.with_id(kLocalId));
     local_->device = options_.device.empty() ? Platform() : options_.device;
-    local_->x = 160; local_->y = 120; local_->width = 820; local_->height = 720; local_->bytes_per_second = 0;
+    local_->x = 160; local_->y = 120;
+    local_->width = options_.app.empty() ? 820 : 610;
+    local_->height = options_.app.empty() ? 720 : 455;
+    local_->bytes_per_second = options_.app.empty() ? 0 : 64 * 1024;
     apptraverse::InitializeRuntimeNode(*local_);
   } else local_ = apptraverse::LoadApplication<DeviceState>(local_domain_, kLocalId);
   if (transfer_store_.state.empty()) {
     download_ = DownloadNode::ptr::Create(ae::CreateWith{transfer_domain_}.with_id(kDownloadId));
-    download_->state = {0, {0, "en", false}, "idle", "", {}, {}};
+    download_->state = {0, {0, "en"}, "idle", "", {}, {}};
     apptraverse::InitializeRuntimeNode(*download_);
   } else download_ = apptraverse::LoadApplication<DownloadNode>(transfer_domain_, kDownloadId);
   user_->SetImmediateEventCompaction(true); local_->SetImmediateEventCompaction(true); download_->SetImmediateEventCompaction(true);
   if (fs::exists(options_.profile / "local" / "rolled-back")) {
     auto state = download_->state; ++state.epoch; state.phase = "rolled-back";
     state.message = "Executable rollback: previous USER and LOCAL restored";
-    state.intent.broken = false; download_->Change(state); SaveDownload();
+    state.intent.mode = InstallMode::Preferred; download_->Change(state); SaveDownload();
     std::error_code ec; fs::remove(options_.profile / "local" / "rolled-back", ec);
   }
   view_ = LabView::ptr::Create(ae::CreateWith{scene_domain_}.with_id(kViewId));
@@ -85,7 +95,8 @@ Session::Session(Options options, apptraverse::ApplicationModelRuntime& runtime)
     UpdatePlan prepared{};
     if (ReadFile(cache / "prepared-plan.bin", bytes) &&
         Decode(bytes, prepared) && prepared.executable == UPDATE_LAB_EXECUTABLE &&
-        prepared.intent.release == transfer.intent.release && prepared.intent.language == transfer.intent.language) {
+        prepared.intent.release == transfer.intent.release && prepared.intent.language == transfer.intent.language &&
+        prepared.intent.mode == transfer.intent.mode) {
       TransferResult recovered{transfer.epoch, prepared.intent, std::move(prepared), {}, 0, false, {}};
       recovered.resumed_bytes = recovered.plan.bytes;
       Complete(std::move(recovered));
@@ -118,6 +129,7 @@ void Session::LoadContent() {
         revision != resource->revision) return;
   }
   if (!ReadLanguage(resource->full.empty() ? backing_ : downloaded, *resource, language_)) return;
+  if (!options_.app.empty() && language_.text.size() != LifecycleTextCount) return;
 #if UPDATE_LAB_SCHEMA
   for (auto const& c : user_->clones) {
     auto clone = c.Load();
@@ -142,6 +154,7 @@ void Session::Project() {
   data.x = local_->x; data.y = local_->y; data.width = local_->width; data.height = local_->height;
   data.rate = local_->bytes_per_second; data.ready = content_ready_; data.restarting = restart_; data.commands_done = initial_done_ && !discovering_;
   data.distribution.releases = available_; data.distribution.offer = offer_; data.distribution.installed = installed_.resources;
+  data.distribution.lifecycle = lifecycle_offer_;
   data.clones.clear();
   data.clone_ids.clear();
   for (auto const& c : user_->clones) {
@@ -178,15 +191,22 @@ void Session::Initial() {
       unsigned release = options_.release >= 0 ? static_cast<unsigned>(options_.release) : user_->release;
       std::string language = options_.language.empty() ? user_->language : options_.language;
       if (options_.latest) release = kLatest;
-      Request({release, language, options_.broken});
+      bool language_only = !options_.app.empty() && !options_.latest && options_.release < 0 && !options_.broken;
+      auto mode = options_.broken ? InstallMode::BrokenFixture :
+          (options_.data_only || language_only) ? InstallMode::DataOnly : InstallMode::Preferred;
+      Request({release, language, mode});
       requested = true;
     }
   }
   if (!requested && (download_->state.phase == "queued" || download_->state.phase == "catalog" ||
       download_->state.phase == "progress" || download_->state.phase == "ready" || download_->state.phase == "staged" || download_->state.phase == "error")) {
     Request(download_->state.intent, download_->state.phase == "staged" || download_->state.phase == "ready");
-  } else if (!requested && !content_ready_) Request({user_->release, user_->language, false});
-  else if (!requested && !options_.no_action && (!options_.store.empty() || !options_.provider.empty())) Discover();
+  } else if (!requested && !content_ready_) {
+    auto mode = options_.app.empty() ? InstallMode::Preferred : InstallMode::DataOnly;
+    Request({user_->release, user_->language, mode});
+  } else if (!requested && (!options_.no_action || (!options_.headless && !options_.app.empty()))) {
+    Discover();
+  }
   if (!options_.export_file.empty() && content_ready_ &&
       (download_->state.phase == "idle" || download_->state.phase == "activated" || download_->state.phase == "rolled-back")) {
     Save(); if (!ExportUser(options_.export_file, user_store_, user_->release)) Fail("export failed");
@@ -194,14 +214,17 @@ void Session::Initial() {
   Project();
 }
 void Session::Discover() {
+  if (options_.store.empty() && options_.provider.empty()) return;
   discovering_ = true;
+  lifecycle_offer_ = {};
   auto state = download_->state;
-  state.intent = {kLatest, user_->language, false};
+  state.intent = {kLatest, user_->language};
   worker_->Begin({state, installed_, UPDATE_LAB_EXECUTABLE, 0, true, false});
 }
 void Session::Request(Intent intent, bool prepared) {
   discovering_ = false;
   offer_.clear();
+  lifecycle_offer_ = {};
   auto state = download_->state; ++state.epoch; state.intent = std::move(intent);
   if (!prepared) state.phase = "queued";
   state.message.clear(); state.requested.clear();
@@ -225,6 +248,10 @@ void Session::Complete(TransferResult result) {
       available_ = result.plan.available;
       offer_ = "R" + std::to_string(result.plan.intent.release) + " / E" + std::to_string(result.plan.executable)
         + (result.plan.executable_id.empty() ? " · " : " · EXE · ") + std::to_string(result.plan.remaining) + " B";
+      lifecycle_offer_ = {result.plan.intent.release, result.plan.executable,
+          result.data_only_remaining.value_or(0), result.plan.remaining,
+          result.data_only_remaining.has_value() && result.plan.intent.release > user_->release,
+          !result.plan.executable_id.empty()};
     } else offer_ = result.error;
     Project(); return;
   }
@@ -247,7 +274,9 @@ void Session::Complete(TransferResult result) {
   Save();
   auto state = download_->state; state.phase = "activated";
   state.message = "resumed=" + std::to_string(result.resumed_bytes) + (result.plan.supply.steps.empty() ? "; current" : result.plan.supply.base.empty() ? "; full" : "; delta");
-  download_->Change(state); SaveDownload(); Project();
+  download_->Change(state); SaveDownload();
+  if (initial_done_ && !options_.app.empty() && !options_.headless) Discover();
+  Project();
   if (!options_.export_file.empty() && !ExportUser(options_.export_file, user_store_, user_->release)) Fail("export failed");
 }
 void Session::Import(fs::path const& path) {
@@ -261,11 +290,18 @@ void Session::Import(fs::path const& path) {
 }
 void Session::Submit(Command command) {
   if (command.action == "initial") { Initial(); return; }
-  if (command.action == "language") Request({user_->release, command.text, false});
+  if (command.action == "language") {
+    auto mode = options_.app.empty() ? InstallMode::Preferred : InstallMode::DataOnly;
+    Request({user_->release, command.text, mode});
+  } else if (command.action == "refresh") Discover();
+  else if (command.action == "update-data" && lifecycle_offer_.data_only)
+    Request({lifecycle_offer_.release, user_->language, InstallMode::DataOnly});
+  else if (command.action == "update-executable" && lifecycle_offer_.replace_executable)
+    Request({lifecycle_offer_.release, user_->language});
   else if (command.action == "release") {
     unsigned release = static_cast<unsigned>(command.a);
-    Request({release, user_->language, false});
-  } else if (command.action == "broken") Request({user_->release, user_->language, true});
+    Request({release, user_->language});
+  } else if (command.action == "broken") Request({user_->release, user_->language, InstallMode::BrokenFixture});
   else if (command.action == "note") user_->Change(1, command.text);
   else if (command.action == "clone") AddClone();
   else if (command.action == "frame") local_->Change(command.a, command.b, command.c, command.d, local_->bytes_per_second);
@@ -278,7 +314,7 @@ void Session::Submit(Command command) {
   Project();
 }
 int Session::Run(apptraverse::ApplicationPublishedCallback published) {
-  worker_ = std::make_unique<TransferWorker>(options_.profile, options_.store, options_.provider,
+  worker_ = std::make_unique<TransferWorker>(options_.profile, options_.store, options_.provider, options_.app,
       [this](DownloadSnapshot s) { return Report(std::move(s)); },
       [this](TransferResult result) { runtime_.Post([this, result = std::move(result)](ae::Domain&) mutable { Complete(std::move(result)); }); });
   runtime_.Run(scene_domain_, *view_, std::move(published));
@@ -287,7 +323,7 @@ int Session::Run(apptraverse::ApplicationPublishedCallback published) {
 void AcknowledgeHealth(Options const& options, LabView const& view) {
   auto const& phase = view.download->state.phase;
   if (options.suppress_health || options.health_file.empty() || !view.data.ready ||
-      !view.data.commands_done || view.data.restarting ||
+      (!view.data.commands_done && (options.app.empty() || options.headless)) || view.data.restarting ||
       (phase != "idle" && phase != "activated" && phase != "rolled-back")) return;
   if (!fs::exists(options.health_file) && !AtomicWrite(options.health_file, Bytes{options.health_token.begin(), options.health_token.end()})) Fail("health acknowledgement write failed");
 }
@@ -318,6 +354,13 @@ std::string InspectJson(LabView const& view) {
     auto const& f = state.files[i];
     result += "{\"id\":" + Quote(f.id) + ",\"received\":" + std::to_string(f.received) + ",\"size\":" + std::to_string(f.size) + '}';
   }
-  return result + "]}";
+  auto const& offer = d.distribution.lifecycle;
+  result += "],\"update\":{\"release\":" + std::to_string(offer.release) +
+      ",\"executable\":" + std::to_string(offer.executable) +
+      ",\"data_only\":" + (offer.data_only ? "true" : "false") +
+      ",\"replace_executable\":" + (offer.replace_executable ? "true" : "false") +
+      ",\"data_bytes\":" + std::to_string(offer.data_bytes) +
+      ",\"download_bytes\":" + std::to_string(offer.download_bytes) + "}";
+  return result + "}";
 }
 }

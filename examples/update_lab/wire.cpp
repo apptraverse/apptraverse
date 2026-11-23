@@ -13,8 +13,12 @@
 
 namespace update_lab {
 std::optional<Frame> FrameAssembler::Receive(FramePiece const& piece) {
+  constexpr std::size_t max_frame_size = 2 * kChunkSize;
+  if (!piece.size || piece.size > max_frame_size || piece.bytes.empty() ||
+      piece.offset >= piece.size || piece.bytes.size() > piece.size - piece.offset) return {};
   auto& assembly = pending_[piece.request];
   if (assembly.bytes.empty()) { assembly.bytes.resize(piece.size); assembly.seen.resize(piece.size, false); }
+  if (assembly.bytes.size() != piece.size) return {};
   for (std::size_t i = 0; i < piece.bytes.size(); ++i) {
     auto position = piece.offset + i;
     if (assembly.seen[position]) continue;
@@ -24,7 +28,7 @@ std::optional<Frame> FrameAssembler::Receive(FramePiece const& piece) {
     Frame frame;
     bool loaded = Decode(assembly.bytes, frame);
     pending_.erase(piece.request);
-    if (!loaded) Fail("native transport frame decode failed");
+    if (!loaded) return {};
     return frame;
   }
   while (pending_.size() > 64) pending_.erase(pending_.begin());
@@ -103,8 +107,30 @@ bool CopyAtomic(fs::path const& source, fs::path const& dest) {
   Bytes bytes;
   return ReadFile(source, bytes) && AtomicWrite(dest, bytes);
 }
+namespace {
+struct LegacyCatalog {
+  unsigned format, generation;
+  std::vector<Release> releases;
+  std::vector<Component> components;
+  std::map<std::string, std::vector<unsigned>> platforms;
+  AE_REFLECT_MEMBERS(format, generation, releases, components, platforms)
+};
+}
 bool ReadCatalog(Bytes const& bytes, Catalog& catalog) {
-  return Decode(bytes, catalog) && catalog.format == kCatalogFormat;
+  if (Decode(bytes, catalog) && catalog.format == kCatalogFormat) return true;
+  LegacyCatalog old{};
+  if (!Decode(bytes, old) || old.format != 3) return false;
+  catalog = {kCatalogFormat, old.generation, std::move(old.releases),
+             std::move(old.components), std::move(old.platforms), {}};
+  return true;
+}
+bool ValidAppId(std::string_view app) {
+  auto letter = [](char c) { return c >= 'a' && c <= 'z'; };
+  return !app.empty() && app.size() <= 48 && letter(app.front()) &&
+      std::all_of(app.begin(), app.end(), [&](char c) { return letter(c) || (c >= '0' && c <= '9') || c == '-'; });
+}
+fs::path AppStore(fs::path const& root, std::string_view app) {
+  return app.empty() ? root : root / "apps" / ("app-" + std::string{app});
 }
 Component const* FindComponent(Catalog const& catalog, std::string const& id) {
   for (auto const& c : catalog.components) if (c.id == id) return &c;
@@ -115,7 +141,7 @@ Release const* FindRelease(Catalog const& catalog, unsigned id) {
   return nullptr;
 }
 bool ValidPack(LanguagePack const& p, std::string const& language) {
-  return p.locale == language && p.text.size() == TextCount &&
+  return p.locale == language && (p.text.size() == TextCount || p.text.size() == LifecycleTextCount) &&
       std::all_of(p.text.begin(), p.text.end(), [](auto const& s) { return !s.empty(); });
 }
 std::string Platform() {

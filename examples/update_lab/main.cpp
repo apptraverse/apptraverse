@@ -1,4 +1,5 @@
 #include "session.h"
+#include "install.h"
 #include <chrono>
 #include <iostream>
 #include "apptraverse/noninteractive_crt.h"
@@ -61,6 +62,10 @@ int main(int argc, char** argv) {
     else if (a == "--install") options.install = fs::absolute(next());
     else if (a == "--store") options.store = fs::absolute(next());
     else if (a == "--provider") options.provider = next();
+    else if (a == "--app") {
+      options.app = next();
+      if (!ValidAppId(options.app)) Fail("invalid application ID");
+    }
     else if (a == "--health-file") options.health_file = fs::absolute(next());
     else if (a == "--health-token") options.health_token = next();
     else if (a == "--snapshot-file") options.snapshot_file = fs::absolute(next());
@@ -72,6 +77,7 @@ int main(int argc, char** argv) {
     else if (a == "--rename-first") options.rename = next();
     else if (a == "--badge-first") options.badge = next();
     else if (a == "--latest") options.latest = true;
+    else if (a == "--data-only") options.data_only = true;
     else if (a == "--release") options.release = std::stoi(next());
     else if (a == "--rate") options.rate = std::stoi(next());
     else if (a == "--add-clone") ++options.add_clones;
@@ -87,6 +93,8 @@ int main(int argc, char** argv) {
   if (options.profile.empty()) options.profile = fs::absolute("update-lab-profile");
   FileLock lock{options.profile / "application.lock"};
   if (!lock.acquired()) Fail("profile is already open");
+  if (!BindApplication(options.profile, options.app)) Fail("profile belongs to another application");
+  if (options.data_only && options.broken) Fail("data-only update cannot install a broken executable fixture");
   return options.headless ? RunHeadless(options) : RunNative(options);
 #endif
 }

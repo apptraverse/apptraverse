@@ -3,10 +3,19 @@
 #include "apptraverse/overlay_domain_storage.h"
 #include <iostream>
 using namespace update_lab;
+struct LegacyIntent {
+  std::uint32_t release;
+  std::string language;
+  bool broken;
+  AE_REFLECT_MEMBERS(release, language, broken)
+};
 void Require(bool value, char const* message) { if(!value)Fail(message); }
 int main() {
   RegisterModel();
-  Frame frame{1,4,"language/2/de",17,Bytes(10000,42)};frame.request=123;
+  Require(Encode(Intent{4, "ru", InstallMode::Preferred}) == Encode(LegacyIntent{4, "ru", false}) &&
+          Encode(Intent{4, "ru", InstallMode::BrokenFixture}) == Encode(LegacyIntent{4, "ru", true}),
+          "existing persisted DownloadNode intents keep their wire representation");
+  Frame frame{kDeliveryProtocol,Chunk,"language/2/de",17,Bytes(10000,42)};frame.request=123;
   auto encoded=Encode(frame);std::vector<FramePiece> pieces;
   for(std::size_t n=0;n<encoded.size();n+=512)
     pieces.push_back({123,static_cast<std::uint32_t>(encoded.size()),static_cast<std::uint32_t>(n),
@@ -17,21 +26,30 @@ int main() {
     if(it+1!=pieces.rend()) Require(!assembler.Receive(*it),"duplicate piece must not complete a partial frame");
   }
   Require(result && result->payload==frame.payload && result->chunk==17,"unordered native transport pieces reassemble exactly");
+  Require(!assembler.Receive({1, 10, 9, Bytes{1, 2}}) && assembler.buffered() == 0,
+          "out of range block discarded");
   FrameAssembler overlapping;
   Require(!overlapping.Receive({123,static_cast<std::uint32_t>(encoded.size()),0,Bytes{encoded.begin(),encoded.begin()+512}}),"partial transport frame");
   Require(!overlapping.Receive({123,static_cast<std::uint32_t>(encoded.size()),256,Bytes{encoded.begin()+256,encoded.begin()+768}}),"overlapping retransmission remains partial");
   auto recovered=overlapping.Receive({123,static_cast<std::uint32_t>(encoded.size()),700,Bytes{encoded.begin()+700,encoded.end()}});
   Require(recovered&&recovered->payload==frame.payload,"overlapping retransmission with changed fragment sizes");
   {
-    Catalog catalog{kCatalogFormat, 5, {}, {}, {{"test", {4, 5}}, {"older", {4}}}};
+    Catalog catalog{kCatalogFormat, 5, {}, {}, {{"test", {4, 5}}, {"older", {4}}}, {}};
     catalog.releases = {{4, 1, "supply/4", {{"ru", "language/4/ru", 22, 4}}},
                         {5, 3, "supply/5", {{"ru", "", 22, 5}}}};
     catalog.components = {{DeltaId(4, 5), 100, ""}, {ExeId("test", 3), 5000, ""}, {"supply/5", 300, ""}};
-    ResolveRequest query{"test", 4, 1, {kLatest, "ru", false}, {{"ru", 4}}, {{DeltaId(4, 5), 64}}};
+    ResolveRequest query{"test", 4, 1, {kLatest, "ru"}, {{"ru", 4}}, {{DeltaId(4, 5), 64}}};
     UpdatePlan plan{};
     Require(Resolve(catalog, query, plan).empty() && plan.bytes == 5100 && plan.remaining == 5036
             && plan.executable == 3 && plan.resources.empty() && plan.image.resources.empty(),
             "future release, partial byte credit, installed locale now embedded");
+    query.target.mode = InstallMode::DataOnly;
+    Require(!Resolve(catalog, query, plan).empty(), "data-only requires explicit executable compatibility");
+    catalog.compatible_executables[5] = {1};
+    Require(Resolve(catalog, query, plan).empty() && plan.bytes == 100 && plan.remaining == 36 &&
+            plan.executable == 1 && plan.image.release.executable == 1 && plan.executable_id.empty(),
+            "data-only targets the same release, preserving the running executable");
+    query.target.mode = InstallMode::Preferred;
     query.current = kLatest; query.executable = 3;
     Require(Resolve(catalog, query, plan).empty() && plan.bytes == 300 && plan.supply.steps == std::vector<std::string>{"supply/5"},
             "clean install resolves one full state");
@@ -66,6 +84,19 @@ int main() {
             && original.text[Greeting] != changed.text[Greeting], "embedded translation changed");
     Require(!d2.embedded.state.contains(ae::ObjId{de->root}) &&
             ReadLanguage(d2.downloads.at("de"), *de, german), "optional root and its strings belong to one download");
+  }
+  {
+    auto app = DistillRelease(3, "sample-app");
+    auto english = FindLanguage(app.definition, "en"), russian = FindLanguage(app.definition, "ru");
+    LanguagePack pack;
+    Require(app.definition.languages.size() == 2 && english && english->full.empty() &&
+            russian && !russian->full.empty() && app.downloads.size() == 1,
+            "named demo ships only English and downloads Russian");
+    Require(ReadLanguage(app.embedded, *english, pack) && pack.text.size() == LifecycleTextCount &&
+            pack.text[Title].find("sample-app") != std::string::npos &&
+            !app.embedded.state.contains(ae::ObjId{russian->root}) &&
+            !app.embedded.state.at(kPrefabId)->at(TextObject::kClassId).contains(1),
+            "named app localization is namespaced and portable across E0 and E1");
   }
   ae::RamDomainStorage state;unsigned version=0;
   Require(ApplyStatePackage(FullState(r0,0),state,version),"full load");

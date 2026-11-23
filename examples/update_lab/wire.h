@@ -4,6 +4,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 #include "aether-miscpp/reflect/reflect.h"
 #include "aether-miscpp/serialization/binary_archive.h"
@@ -20,8 +21,8 @@ struct Component {
   std::string path; // Relative to the published store.
   AE_REFLECT_MEMBERS(id, size, path)
 };
-// Catalog v3 and the v2 delivery protocol carry raw LZMA1 component packages.
-inline constexpr unsigned kCatalogFormat = 3, kDeliveryProtocol = 2;
+// Catalog v4 declares optional executable compatibility for data-only updates.
+inline constexpr unsigned kCatalogFormat = 4, kDeliveryProtocol = 2;
 inline constexpr unsigned kLatest = UINT32_MAX;
 struct Resource {
   std::string locale, full; // An empty component ID places this root in the base image.
@@ -39,7 +40,8 @@ struct Catalog {
   std::vector<Release> releases;
   std::vector<Component> components;
   std::map<std::string, std::vector<unsigned>> platforms;
-  AE_REFLECT_MEMBERS(format, generation, releases, components, platforms)
+  std::map<unsigned, std::vector<unsigned>> compatible_executables;
+  AE_REFLECT_MEMBERS(format, generation, releases, components, platforms, compatible_executables)
 };
 struct LanguagePack {
   std::string locale;
@@ -52,11 +54,17 @@ enum Text : unsigned {
   Downloading, Ready, Failure, Slow, Restart, S1Label, Broken, Export, Import,
   TextCount
 };
+enum LifecycleText : unsigned {
+  Refresh = TextCount, UpdateData, UpdateExecutable, InstalledVersion, NewVersion,
+  UpToDate, Checking, Percent, LifecycleTextCount
+};
+// Values 0 and 1 preserve the original single-byte broken-fixture flag.
+enum class InstallMode : std::uint8_t { Preferred, BrokenFixture, DataOnly };
 struct Intent {
   std::uint32_t release;
   std::string language;
-  bool broken;
-  AE_REFLECT_MEMBERS(release, language, broken)
+  InstallMode mode{InstallMode::Preferred};
+  AE_REFLECT_MEMBERS(release, language, mode)
 };
 struct InstalledImage {
   Release release;
@@ -90,12 +98,18 @@ struct UpdatePlan {
   AE_REFLECT_MEMBERS(available, image, intent, supply, resources, executable,
                      executable_id, files, bytes, remaining)
 };
+struct UpdateOffer {
+  UpdatePlan preferred;
+  std::optional<std::uint64_t> data_only_remaining;
+  AE_REFLECT_MEMBERS(preferred, data_only_remaining)
+};
 std::string Resolve(Catalog const&, ResolveRequest const&, UpdatePlan&);
 Resource const* FindLanguage(Release const&, std::string const&);
 std::string DeltaId(unsigned from, unsigned to, std::string const& locale = {});
 std::string ExeId(std::string const& platform, unsigned version);
 enum FrameKind : std::uint32_t {
-  RequestChunk = 2, Chunk = 4, ServiceError = 5, ResolveUpdate = 6, UpdateResolved = 7
+  RequestChunk = 2, Chunk = 4, ServiceError = 5, ResolveUpdate = 6, UpdateResolved = 7,
+  PreviewUpdate = 8, UpdateOffered = 9
 };
 struct Frame {
   std::uint32_t protocol, kind;
@@ -138,6 +152,8 @@ bool ReadFile(fs::path const&, Bytes&, std::uint64_t max = kMaxBlobSize);
 bool AtomicWrite(fs::path const&, Bytes const&);
 bool CopyAtomic(fs::path const&, fs::path const&);
 bool ReadCatalog(Bytes const&, Catalog&);
+bool ValidAppId(std::string_view);
+fs::path AppStore(fs::path const& root, std::string_view app);
 Component const* FindComponent(Catalog const&, std::string const&);
 Release const* FindRelease(Catalog const&, unsigned);
 bool ValidPack(LanguagePack const&, std::string const&);

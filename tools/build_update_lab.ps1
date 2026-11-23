@@ -6,7 +6,8 @@ param(
     [string]$LinuxBinaries = "",
     [ValidateRange(0, 3)][int]$Through = 3,
     [string]$Store = "artifacts/update-lab/lzma1-releases",
-    [string]$Cache = "C:/cpm"
+    [string]$Cache = "C:/cpm",
+    [switch]$BuildOnly
 )
 $ErrorActionPreference = "Stop"
 $repo = Split-Path $PSScriptRoot -Parent
@@ -28,6 +29,7 @@ try {
     if ($LASTEXITCODE) { throw "Build failed" }
     & "$BuildDirectory/examples/update_lab/Debug/update_lab_state_test.exe"
     if ($LASTEXITCODE) { throw "State tests failed" }
+    if ($BuildOnly) { return }
     $binaries = (Resolve-Path "$BuildDirectory/examples/update_lab/Debug").Path
     $publish = @('publish', '--out', $Store, '--through', $Through,
         '--windows-x64-launcher', "$binaries/update_lab_launcher.exe", '--windows-x64-e0', "$binaries/update_lab_e0.exe", '--windows-x64-e1', "$binaries/update_lab_e1.exe", '--windows-x64-e2', "$binaries/update_lab_e2.exe")

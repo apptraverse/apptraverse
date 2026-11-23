@@ -1,0 +1,19 @@
+[Unit]
+Description=AppTraverse application lifecycle Æther service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/opt/apptraverse-lifecycle/runtime/ld-linux-x86-64.so.2 --library-path /opt/apptraverse-lifecycle/runtime /opt/apptraverse-lifecycle/update_lab_provider --store /var/lib/apptraverse-lifecycle-store --profile ${STATE_DIRECTORY} --endpoint-file ${STATE_DIRECTORY}/endpoint.txt
+User=apptraverse-lifecycle
+Group=apptraverse-lifecycle
+StateDirectory=apptraverse-lifecycle
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

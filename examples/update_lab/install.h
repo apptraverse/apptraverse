@@ -6,6 +6,7 @@ struct Installation {
   unsigned active_version, candidate_version;
   AE_REFLECT_MEMBERS(phase, active, previous, candidate, active_version, candidate_version)
 };
+bool BindApplication(fs::path const&, std::string const& app);
 fs::path Cache(fs::path const& profile);
 bool HasCachedComponent(fs::path const& cache, std::string const& id);
 bool LoadCachedState(fs::path const& cache, std::string const& id, ae::RamDomainStorage&, unsigned& revision);

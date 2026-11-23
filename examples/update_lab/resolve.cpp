@@ -24,11 +24,25 @@ std::string Resolve(Catalog const& catalog, ResolveRequest const& q, UpdatePlan&
   auto target = FindRelease(catalog, plan.intent.release);
   if (!target || !std::binary_search(plan.available.begin(), plan.available.end(), target->id))
     return "Release unavailable for " + q.platform;
+  switch (q.target.mode) {
+    case InstallMode::Preferred: plan.executable = target->executable; break;
+    case InstallMode::BrokenFixture: plan.executable = 2; break;
+    case InstallMode::DataOnly: {
+      auto compatible = catalog.compatible_executables.find(target->id);
+      if (q.executable != target->executable && (compatible == catalog.compatible_executables.end() ||
+          std::find(compatible->second.begin(), compatible->second.end(), q.executable) == compatible->second.end()))
+        return "This release requires a different executable";
+      plan.executable = q.executable;
+      break;
+    }
+    default: return "Unknown update mode";
+  }
   if (!FindLanguage(*target, plan.intent.language)) {
     if (q.current == target->id) return "Language unavailable";
     plan.intent.language = "en";
   }
   plan.image.release = *target;
+  if (plan.intent.mode == InstallMode::DataOnly) plan.image.release.executable = plan.executable;
   auto current = FindRelease(catalog, q.current);
   if (!current && q.current != kLatest) return "Unknown installed release";
   plan.supply = {current ? current->supply : "", target->supply, target->id, {}};
@@ -66,7 +80,6 @@ std::string Resolve(Catalog const& catalog, ResolveRequest const& q, UpdatePlan&
     plan.resources.push_back(std::move(chain));
   }
 
-  plan.executable = plan.intent.broken ? 2 : target->executable;
   if (plan.executable != q.executable) plan.executable_id = ExeId(q.platform, plan.executable);
   auto ids = plan.supply.steps;
   for (auto const& chain : plan.resources) ids.insert(ids.end(), chain.steps.begin(), chain.steps.end());
