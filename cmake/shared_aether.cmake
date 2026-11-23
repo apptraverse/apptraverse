@@ -112,7 +112,9 @@ function(apptraverse_add_shared_aether)
       _HAS_EXCEPTIONS=0)
     target_compile_options(aether PRIVATE
       /GR- /EHs-c- /utf-8 /Zc:preprocessor /Zc:__cplusplus /Zc:externConstexpr /bigobj
-      $<$<CONFIG:MinSizeRel>:/GS->)
+      $<$<CONFIG:MinSizeRel>:/GS->
+      $<$<AND:$<CONFIG:MinSizeRel>,$<BOOL:${APPTRAVERSE_MINSIZE_INLINE_ANY}>>:/Ob2>
+      $<$<AND:$<CONFIG:MinSizeRel>,$<BOOL:${APPTRAVERSE_MINSIZE_FAST_MATH}>>:/fp:fast>)
     if(TARGET ixwebsocket)
       target_compile_definitions(ixwebsocket PRIVATE _HAS_EXCEPTIONS=0)
       target_compile_options(ixwebsocket PRIVATE /EHs-c-

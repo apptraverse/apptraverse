@@ -24,6 +24,20 @@ if(MSVC)
     # Release/RelWithDebInfo retain their ordinary link policy.
     set(_apptraverse_size_icf "$<IF:$<CONFIG:MinSizeRel>,/OPT:ICF=10,/OPT:ICF=5>")
   endif()
+  set(_apptraverse_chat_x86_size_defaults OFF)
+  if(WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 4 AND APPTRAVERSE_BUILD_SHARED_NODE_CHAT)
+    set(_apptraverse_chat_x86_size_defaults ON)
+  endif()
+  option(APPTRAVERSE_MINSIZE_INLINE_ANY "Use /Ob2 for MinSizeRel"
+    ${_apptraverse_chat_x86_size_defaults})
+  option(APPTRAVERSE_MINSIZE_FAST_MATH "Use /fp:fast for MinSizeRel"
+    ${_apptraverse_chat_x86_size_defaults})
+  if(APPTRAVERSE_MINSIZE_INLINE_ANY)
+    set(_apptraverse_size_inline /Ob2)
+  endif()
+  if(APPTRAVERSE_MINSIZE_FAST_MATH)
+    set(_apptraverse_size_fp /fp:fast)
+  endif()
   target_compile_options(apptraverse_compile_policy INTERFACE
     /GR- /EHs-c- /utf-8 /Zc:preprocessor /Zc:__cplusplus /Zc:externConstexpr /bigobj
     $<$<NOT:$<CONFIG:Debug>>:/Gy;/Gw;/GF>
