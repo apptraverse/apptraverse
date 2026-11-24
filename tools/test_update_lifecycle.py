@@ -31,7 +31,7 @@ KERNEL32.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD,
                                                 ctypes.POINTER(wintypes.DWORD)]
 KERNEL32.CloseHandle.argtypes = [wintypes.HANDLE]
 
-LANGUAGE_LIST, RELEASE_LIST, DATA_BUTTON, EXE_BUTTON = 101, 102, 111, 112
+LANGUAGE_LIST, RELEASE_LIST, REFRESH_BUTTON, DATA_BUTTON, EXE_BUTTON, PAUSE_BUTTON = 101, 102, 110, 111, 112, 113
 WM_COMMAND, WM_CLOSE, BM_CLICK = 0x0111, 0x0010, 0x00F5
 LB_GETCOUNT, LB_SETCURSEL, PBM_GETPOS = 0x018B, 0x0186, 0x0408
 
@@ -82,10 +82,10 @@ def click(hwnd, control_id):
 
 
 class Device:
-    def __init__(self, args, app):
+    def __init__(self, args, app, directory=None):
         self.args = args
         self.app = app
-        self.root = args.run / app
+        self.root = args.run / (directory or app)
         self.root.mkdir()
         self.installation = self.root / "installation"
         self.snapshot = self.root / "snapshot.json"
@@ -156,6 +156,7 @@ def main():
     parser.add_argument("--app", default="lifecycle-demo")
     parser.add_argument("--other-app", default="lifecycle-demo-alt")
     parser.add_argument("--offers-only", type=int, metavar="LATEST")
+    parser.add_argument("--pause-only", action="store_true", help="Exercise native pause and resume without fetching the EXE.")
     args = parser.parse_args()
     args.bin, args.seeds, args.run = args.bin.resolve(), args.seeds.resolve(), args.run.resolve()
     if args.store:
@@ -188,12 +189,32 @@ def main():
         assert bar and 0 < USER32.SendMessageW(bar, PBM_GETPOS, 0, 0) < 1000
         print("PASS actual Windows progress bar advances while English stays active", flush=True)
 
+        for control_id in (LANGUAGE_LIST, RELEASE_LIST, REFRESH_BUTTON, DATA_BUTTON, EXE_BUTTON, PAUSE_BUTTON):
+            assert USER32.IsWindowEnabled(USER32.GetDlgItem(hwnd, control_id)), control_id
+        click(hwnd, REFRESH_BUTTON)
+        click(hwnd, PAUSE_BUTTON)
+        paused, hwnd = device.wait("pause without cancelling refresh", lambda state:
+            state["phase"] == "paused" and state["commands_done"])
+        assert paused["language"] == "en" and paused["requested"] == partial["requested"]
+        assert paused["update"]["release"] == 3
+        frozen = USER32.SendMessageW(bar, PBM_GETPOS, 0, 0)
+        time.sleep(1.3)
+        assert USER32.SendMessageW(bar, PBM_GETPOS, 0, 0) == frozen
+        assert json.loads(read_snapshot(device.snapshot))["files"] == paused["files"]
+
         device.close()
         device.start("native-resumed")
+        reopened, hwnd = device.wait("restart keeps download paused", lambda state:
+            state["phase"] == "paused" and state["commands_done"])
+        assert reopened["files"] == paused["files"] and reopened["language"] == "en"
+        click(hwnd, PAUSE_BUTTON)
+        print("PASS controls remain enabled; refresh, pause and restart preserve partial progress", flush=True)
         russian, hwnd = device.wait("restart resumes and activates Russian", lambda state:
             state["phase"] == "activated" and state["language"] == "ru" and state["update"]["data_only"])
         assert "resumed=0;" not in russian["message"] and russian["greeting"] != before["greeting"], russian
         print("PASS closing and reopening resumes the transfer, then switches to Russian", flush=True)
+        if args.pause_only:
+            return
         click(hwnd, DATA_BUTTON)
         data, hwnd = device.wait("data-only R3 on E0", lambda state:
             state["release"] == 3 and state["executable"] == 0 and state["ready"] and state["update"]["replace_executable"])
@@ -224,10 +245,28 @@ def main():
 
         assert other.preview("independent")["update"]["release"] == 1
         (args.run / "results.json").write_text(json.dumps({
-            "before": before, "partial": partial, "russian": russian, "data": data, "full": full, "back": back,
+            "before": before, "partial": partial, "paused": paused, "russian": russian, "data": data, "full": full, "back": back,
             "combined": combined, "alternate": alternate}, ensure_ascii=False, indent=2), encoding="utf-8")
     finally:
         device.close()
+
+    retarget = Device(args, args.app, "retarget")
+    try:
+        retarget.start("native-retarget")
+        _, hwnd = retarget.wait("initial offer in a new device", lambda state: state["update"]["release"] == 3)
+        choose(hwnd, LANGUAGE_LIST, 1)
+        _, hwnd = retarget.wait("partial transfer before choosing another version", lambda state:
+            state["phase"] == "progress" and
+            any(f["id"] == "language/0/ru" and 0 < f["received"] < f["size"] for f in state["files"]))
+        choose(hwnd, RELEASE_LIST, 1)
+        changed, _ = retarget.wait("version selection starts during the partial transfer", lambda state:
+            state["phase"] == "activated" and state["ready"] and state["release"] == 1)
+        assert changed["language"] == "en"
+        assert "language/0/ru" not in changed["requested"]
+        assert any(f["id"] == "language/0/ru" and f["received"] > 0 for f in changed["files"]), changed
+        print("PASS selecting another version supersedes the pending transfer and keeps downloaded blocks", flush=True)
+    finally:
+        retarget.close()
 
 
 if __name__ == "__main__":

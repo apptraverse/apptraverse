@@ -201,7 +201,7 @@ void Session::Initial() {
   if (!requested && (download_->state.phase == "queued" || download_->state.phase == "catalog" ||
       download_->state.phase == "progress" || download_->state.phase == "ready" || download_->state.phase == "staged" || download_->state.phase == "error")) {
     Request(download_->state.intent, download_->state.phase == "staged" || download_->state.phase == "ready");
-  } else if (!requested && !content_ready_) {
+  } else if (!requested && !content_ready_ && download_->state.phase != "paused") {
     auto mode = options_.app.empty() ? InstallMode::Preferred : InstallMode::DataOnly;
     Request({user_->release, user_->language, mode});
   } else if (!requested && (!options_.no_action || (!options_.headless && !options_.app.empty()))) {
@@ -216,21 +216,34 @@ void Session::Initial() {
 void Session::Discover() {
   if (options_.store.empty() && options_.provider.empty()) return;
   discovering_ = true;
-  lifecycle_offer_ = {};
   auto state = download_->state;
+  state.epoch = ++discovery_epoch_;
   state.intent = {kLatest, user_->language};
-  worker_->Begin({state, installed_, UPDATE_LAB_EXECUTABLE, 0, true, false});
+  catalog_worker_->Begin({state, installed_, UPDATE_LAB_EXECUTABLE, 0, true, false});
 }
 void Session::Request(Intent intent, bool prepared) {
-  discovering_ = false;
-  offer_.clear();
-  lifecycle_offer_ = {};
   auto state = download_->state; ++state.epoch; state.intent = std::move(intent);
   if (!prepared) state.phase = "queued";
   state.message.clear(); state.requested.clear();
   download_->Change(state); SaveDownload();
   worker_->Begin({state, installed_, UPDATE_LAB_EXECUTABLE, local_->bytes_per_second, false, prepared});
   Project();
+}
+void Session::TogglePause() {
+  auto state = download_->state;
+  if (state.phase == "paused") {
+    ++state.epoch;
+    state.phase = "queued";
+    download_->Change(state);
+    SaveDownload();
+    worker_->Begin({state, installed_, UPDATE_LAB_EXECUTABLE, local_->bytes_per_second, false, false});
+    return;
+  }
+  if (state.phase != "queued" && state.phase != "catalog" && state.phase != "progress") return;
+  worker_->Cancel(++state.epoch);
+  state.phase = "paused";
+  download_->Change(state);
+  SaveDownload();
 }
 bool Session::Report(DownloadSnapshot state) {
   bool accepted = false;
@@ -241,8 +254,8 @@ bool Session::Report(DownloadSnapshot state) {
   return accepted;
 }
 void Session::Complete(TransferResult result) {
-  if (result.epoch != download_->state.epoch) return;
   if (result.preview) {
+    if (result.epoch != discovery_epoch_) return;
     discovering_ = false;
     if (result.error.empty()) {
       available_ = result.plan.available;
@@ -252,9 +265,13 @@ void Session::Complete(TransferResult result) {
           result.data_only_remaining.value_or(0), result.plan.remaining,
           result.data_only_remaining.has_value() && result.plan.intent.release > user_->release,
           !result.plan.executable_id.empty()};
-    } else offer_ = result.error;
+    } else {
+      lifecycle_offer_ = {};
+      offer_ = result.error;
+    }
     Project(); return;
   }
+  if (result.epoch != download_->state.epoch) return;
   available_ = result.plan.available;
   if (result.plan.executable != UPDATE_LAB_EXECUTABLE) {
     Save();
@@ -275,7 +292,13 @@ void Session::Complete(TransferResult result) {
   auto state = download_->state; state.phase = "activated";
   state.message = "resumed=" + std::to_string(result.resumed_bytes) + (result.plan.supply.steps.empty() ? "; current" : result.plan.supply.base.empty() ? "; full" : "; delta");
   download_->Change(state); SaveDownload();
+  lifecycle_offer_ = {};
+  offer_.clear();
   if (initial_done_ && !options_.app.empty() && !options_.headless) Discover();
+  else {
+    if (catalog_worker_) catalog_worker_->Cancel(++discovery_epoch_);
+    discovering_ = false;
+  }
   Project();
   if (!options_.export_file.empty() && !ExportUser(options_.export_file, user_store_, user_->release)) Fail("export failed");
 }
@@ -290,7 +313,9 @@ void Session::Import(fs::path const& path) {
 }
 void Session::Submit(Command command) {
   if (command.action == "initial") { Initial(); return; }
-  if (command.action == "language") {
+  if (restart_) return;
+  if (command.action == "pause-download") TogglePause();
+  else if (command.action == "language") {
     auto mode = options_.app.empty() ? InstallMode::Preferred : InstallMode::DataOnly;
     Request({user_->release, command.text, mode});
   } else if (command.action == "refresh") Discover();
@@ -314,17 +339,22 @@ void Session::Submit(Command command) {
   Project();
 }
 int Session::Run(apptraverse::ApplicationPublishedCallback published) {
+  auto complete = [this](TransferResult result) {
+    runtime_.Post([this, result = std::move(result)](ae::Domain&) mutable { Complete(std::move(result)); });
+  };
   worker_ = std::make_unique<TransferWorker>(options_.profile, options_.store, options_.provider, options_.app,
-      [this](DownloadSnapshot s) { return Report(std::move(s)); },
-      [this](TransferResult result) { runtime_.Post([this, result = std::move(result)](ae::Domain&) mutable { Complete(std::move(result)); }); });
+      [this](DownloadSnapshot s) { return Report(std::move(s)); }, complete);
+  catalog_worker_ = std::make_unique<TransferWorker>(options_.profile, options_.store, options_.provider, options_.app,
+      TransferWorker::Report{}, complete, true);
   runtime_.Run(scene_domain_, *view_, std::move(published));
+  catalog_worker_->Stop();
   worker_->Stop(); Save(); return restart_ ? 42 : download_->state.phase == "error" ? 2 : 0;
 }
 void AcknowledgeHealth(Options const& options, LabView const& view) {
   auto const& phase = view.download->state.phase;
   if (options.suppress_health || options.health_file.empty() || !view.data.ready ||
       (!view.data.commands_done && (options.app.empty() || options.headless)) || view.data.restarting ||
-      (phase != "idle" && phase != "activated" && phase != "rolled-back")) return;
+      (phase != "idle" && phase != "activated" && phase != "rolled-back" && phase != "paused")) return;
   if (!fs::exists(options.health_file) && !AtomicWrite(options.health_file, Bytes{options.health_token.begin(), options.health_token.end()})) Fail("health acknowledgement write failed");
 }
 std::string InspectJson(LabView const& view) {
@@ -332,6 +362,7 @@ std::string InspectJson(LabView const& view) {
   std::string result = "{\"release\":" + std::to_string(d.release) + ",\"executable\":" + std::to_string(d.executable) +
       ",\"language\":" + Quote(d.language) + ",\"note\":" + Quote(d.note) + ",\"device\":" + Quote(d.device) +
       ",\"rate\":" + std::to_string(d.rate) + ",\"greeting\":" + Quote(d.text[Greeting]) + ",\"offer\":" + Quote(d.distribution.offer) +
+      ",\"commands_done\":" + (d.commands_done ? "true" : "false") +
       ",\"ready\":" + (d.ready ? "true" : "false") + ",\"phase\":" + Quote(state.phase) + ",\"message\":" + Quote(state.message) + ",\"clones\":[";
   for (std::size_t i = 0; i < d.clones.size(); ++i) { if (i) result += ','; result += Quote(d.clones[i]); }
   result += "],\"clone_ids\":[";

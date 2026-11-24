@@ -25,15 +25,17 @@ class TransferWorker {
  public:
   using Report = std::function<bool(DownloadSnapshot)>;
   using Ready = std::function<void(TransferResult)>;
-  TransferWorker(fs::path profile, fs::path local_source, std::string provider, std::string app, Report, Ready);
+  TransferWorker(fs::path profile, fs::path local_source, std::string provider, std::string app, Report, Ready, bool preview_worker = false);
   ~TransferWorker();
   void Begin(TransferRequest);
+  void Cancel(std::uint64_t next_epoch);
   void Stop();
  private:
   void Run();
   void Transfer(TransferRequest);
   fs::path profile_, local_source_;
   std::string provider_, app_;
+  fs::path identity_;
   Report report_;
   Ready ready_;
   std::atomic<bool> stop_{false};

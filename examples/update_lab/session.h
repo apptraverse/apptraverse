@@ -22,6 +22,7 @@ class Session {
   void Initial();
   void Request(Intent, bool prepared = false);
   void Discover();
+  void TogglePause();
   void Complete(TransferResult);
   bool Report(DownloadSnapshot);
   void Project();
@@ -46,7 +47,8 @@ class Session {
   std::string offer_;
   LifecycleOffer lifecycle_offer_;
   bool discovering_{false};
-  std::unique_ptr<TransferWorker> worker_;
+  std::uint64_t discovery_epoch_{};
+  std::unique_ptr<TransferWorker> worker_, catalog_worker_;
 };
 void AcknowledgeHealth(Options const&, LabView const&);
 std::string InspectJson(LabView const&);

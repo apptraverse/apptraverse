@@ -38,8 +38,9 @@ bool AppendDurable(fs::path const& path, Bytes const& bytes) {
 #endif
 }
 TransferWorker::TransferWorker(fs::path profile, fs::path source, std::string provider, std::string app,
-                               Report report, Ready ready)
+                               Report report, Ready ready, bool preview_worker)
     : profile_{std::move(profile)}, local_source_{std::move(source)}, provider_{std::move(provider)}, app_{std::move(app)},
+      identity_{profile_ / "local" / (preview_worker ? "catalog-identity" : "download-identity")},
       report_{std::move(report)}, ready_{std::move(ready)}, thread_{[this] { Run(); }} {}
 TransferWorker::~TransferWorker() { Stop(); }
 void TransferWorker::Stop() {
@@ -50,6 +51,11 @@ void TransferWorker::Begin(TransferRequest request) {
   wanted_ = request.snapshot.epoch;
   { std::lock_guard lock{mutex_}; pending_ = std::make_unique<TransferRequest>(std::move(request)); }
   condition_.notify_one();
+}
+void TransferWorker::Cancel(std::uint64_t next_epoch) {
+  std::lock_guard lock{mutex_};
+  wanted_ = next_epoch;
+  pending_.reset();
 }
 void TransferWorker::Run() {
   while (!stop_) {
@@ -83,7 +89,7 @@ void TransferWorker::Transfer(TransferRequest request) {
     if (!local_source_.empty()) { response = Serve(local_source_, request_frame); return response.protocol == kDeliveryProtocol && response.kind != ServiceError; }
     if (!peer) {
       if (provider_.empty()) return false;
-      peer = std::make_unique<AetherPeer>(profile_ / "local" / "download-identity", "update-lab-downloader");
+      peer = std::make_unique<AetherPeer>(identity_, request.preview ? "update-lab-catalog" : "update-lab-downloader");
       peer->Receive([&](std::string const& from, Frame frame) {
         if (from == provider_ && frame.request == expected_request) incoming = std::make_unique<Frame>(std::move(frame));
       });

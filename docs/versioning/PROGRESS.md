@@ -1,3 +1,7 @@
+## UpdateLab download pause — 2026-11-23
+
+The Windows lifecycle demo keeps language, version and update controls available while downloading. Catalog checks run independently. The persisted pause survives a restart and resumes at the last committed block. Native Windows and real Æther tests passed against the separately published demo catalog. [Evidence](../validation/update-lab-lifecycle-2026-11-23.md#пауза-и-работа-с-окном-во-время-загрузки).
+
 ## Seven-platform Canon review — 2026-11-23
 
 Reviewed the 30 rules across WindowCatalog, the shared runtime, and the corresponding MinimalApp entry points. Fixed publication teardown, Android native menu refresh, MinimalApp registration and Android test bindings, nested CMake paths, and Linux shipping runtime linkage. Windows, Linux, Android, Web, and headless checks executed. The four-platform USER matrix passed and Windows ↔ Android preserved the destination's LOCAL. macOS and iOS were reviewed in source. [Rule-by-rule findings and execution scope](../validation/canon-seven-platforms-2026-11-23.md).

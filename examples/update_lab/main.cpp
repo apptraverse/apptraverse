@@ -34,7 +34,8 @@ int update_lab::RunHeadless(Options const& options) {
       AcknowledgeHealth(options, view);
       bool complete = view.data.commands_done &&
           (view.download->state.phase == "activated" || view.download->state.phase == "idle" ||
-           view.download->state.phase == "error" || view.download->state.phase == "rolled-back");
+           view.download->state.phase == "error" || view.download->state.phase == "paused" ||
+           view.download->state.phase == "rolled-back");
       if (!stop_requested && (view.data.restarting || (complete && options.hold_ms == 0 && !options.suppress_health))) {
         runtime.RequestStop(); stop_requested = true;
       }

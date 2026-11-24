@@ -18,7 +18,7 @@ std::string Utf8(std::wstring const& text) {
 }
 enum {
   LanguageList = 101, ReleaseList, NoteEdit, SaveNote, Add, SlowControl, Bad, ExportUser, ImportUser,
-  CheckUpdateButton, DataUpdateButton, ExeUpdateButton
+  CheckUpdateButton, DataUpdateButton, ExeUpdateButton, PauseDownloadButton
 };
 class Window {
  public:
@@ -29,7 +29,7 @@ class Window {
   std::thread model;
   int result{1};
   HWND window{}, greeting{}, language_label{}, release_label{}, note_label{}, note{}, languages{}, releases{}, clones{}, progress{}, status{}, slow{}, save{}, add{}, bad{}, export_button{}, import_button{};
-  HWND installed{}, offer{}, refresh{}, update_data{}, update_exe{};
+  HWND installed{}, offer{}, refresh{}, update_data{}, update_exe{}, pause_download{};
   HFONT font{}, heading_font{};
   bool initialized{false}, rendering{false}, smoke_started{false}, saw_language_progress{false};
   unsigned dpi{96};
@@ -56,7 +56,8 @@ class Window {
       pos(languages, 20, 128, w/2-28, 75); pos(releases, w/2+8, 128, w/2-28, 75);
       pos(refresh, 20, 221, 180, 29); pos(offer, 215, 228, w-235, 24);
       pos(update_data, 20, 262, w/2-28, 33); pos(update_exe, w/2+8, 262, w/2-28, 33);
-      pos(progress, 20, 316, w-40, 16); pos(status, 20, 344, w-40, 44);
+      pos(progress, 20, 316, w-193, 16); pos(pause_download, w-158, 310, 138, 29);
+      pos(status, 20, 348, w-40, 40);
       return;
     }
     pos(greeting, 20, 16, w-40, 44);
@@ -85,6 +86,7 @@ class Window {
       refresh = Control(WC_BUTTONW, BS_PUSHBUTTON | WS_TABSTOP, CheckUpdateButton);
       update_data = Control(WC_BUTTONW, BS_PUSHBUTTON | WS_TABSTOP, DataUpdateButton);
       update_exe = Control(WC_BUTTONW, BS_PUSHBUTTON | WS_TABSTOP, ExeUpdateButton);
+      pause_download = Control(WC_BUTTONW, BS_PUSHBUTTON | WS_TABSTOP, PauseDownloadButton);
       Layout();
       return;
     }
@@ -98,8 +100,15 @@ class Window {
     Layout();
   }
   void RenderLifecycle(ViewData const& d, DownloadSnapshot const& download, std::uint64_t done, std::uint64_t total) {
+    auto const& phase = download.phase;
+    bool paused = phase == "paused";
+    bool russian = d.language == "ru";
+    auto paused_text = russian ? "На паузе" : "Paused";
+    Text(pause_download, paused ? (russian ? "Продолжить" : "Resume") : (russian ? "Пауза" : "Pause"));
+    EnableWindow(pause_download, !d.restarting &&
+        (paused || phase == "queued" || phase == "catalog" || phase == "progress"));
     if (d.text.size() != LifecycleTextCount) {
-      Text(status, download.phase == "error" ? download.message : d.text[Downloading]);
+      Text(status, paused ? paused_text : phase == "error" ? download.message : d.text[Downloading]);
       EnableWindow(languages, FALSE); EnableWindow(releases, FALSE);
       EnableWindow(refresh, FALSE); EnableWindow(update_data, FALSE); EnableWindow(update_exe, FALSE);
       return;
@@ -119,17 +128,16 @@ class Window {
     } else {
       Text(offer, !d.commands_done ? d.text[Checking] : d.distribution.offer);
     }
-    auto const& phase = download.phase;
     bool idle = phase == "activated" || phase == "idle" || phase == "rolled-back" || phase == "error";
     std::string status_text;
     if (phase == "error") status_text = d.text[Failure] + ": " + download.message;
     else if (d.restarting) status_text = d.text[Restart];
     else if (total) {
-      status_text = d.text[Percent] + "  " + std::to_string(done * 100 / total) + "% · " +
+      status_text = std::string{paused ? paused_text : d.text[Percent]} + "  " + std::to_string(done * 100 / total) + "% · " +
           std::to_string(done) + " / " + std::to_string(total) + " B";
-    } else status_text = idle ? d.text[Ready] : d.text[Downloading];
+    } else status_text = paused ? paused_text : idle ? d.text[Ready] : d.text[Downloading];
     Text(status, status_text);
-    bool interactive = idle && d.commands_done && !d.restarting;
+    bool interactive = !d.restarting && phase != "ready" && phase != "staged";
     EnableWindow(languages, interactive && d.ready);
     EnableWindow(releases, interactive && d.ready);
     EnableWindow(refresh, interactive);
@@ -232,6 +240,7 @@ class Window {
         if (release != d.release) Send({"release", "", static_cast<int>(release), 0, 0, 0});
       }
     }
+    else if (id == PauseDownloadButton) Send({"pause-download", "", 0, 0, 0, 0});
     else if (id == CheckUpdateButton) Send({"refresh", "", 0, 0, 0, 0});
     else if (id == DataUpdateButton) Send({"update-data", "", 0, 0, 0, 0});
     else if (id == ExeUpdateButton) Send({"update-executable", "", 0, 0, 0, 0});
