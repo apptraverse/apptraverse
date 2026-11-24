@@ -118,6 +118,7 @@ EMSCRIPTEN_KEEPALIVE void SharedStart(const char* who, const char* invited,
             [name, invite, key, is_host, load_only, push] {
               using namespace apptraverse::ui::web;
               EnsureWebUiPresenterRegistration();
+              gui::EnsureUiRegistration();
               auto environment = ReadWebDeviceEnvironment();
               gui::ConfigureUiFactories(
                   {[](ae::Domain& d) {

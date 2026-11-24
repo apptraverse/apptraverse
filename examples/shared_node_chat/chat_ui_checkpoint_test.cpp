@@ -76,6 +76,11 @@ int main(int argc, char** argv) {
     CHECK(!std::filesystem::exists(profile / "user.bin"));
     CHECK(!std::filesystem::exists(profile / "transport" / "user.bin"));
     CHECK(std::filesystem::exists(profile / "local" / "user.bin"));
+    // The native owner may close before applying the next snapshot. The
+    // command already accepted by the model still belongs in the final save.
+    session.Proxy().Invoke(
+        device_id, &ui::UiDeviceState::SetAppearance,
+        ui::UiAppearancePreferences{ui::UiThemeMode::kDark, false});
     session.Stop();
   }
   {
@@ -88,7 +93,7 @@ int main(int argc, char** argv) {
           root->connection.messages.empty());
     CHECK(root->device_state.id() == device_id);
     CHECK(root->device_state->appearance.theme == ui::UiThemeMode::kDark);
-    CHECK(root->device_state->appearance.soften_dark);
+    CHECK(!root->device_state->appearance.soften_dark);
     session.Stop();
   }
   CHECK(!std::filesystem::exists(profile / "user.bin"));

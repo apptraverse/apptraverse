@@ -126,6 +126,7 @@ int main(int argc, char** argv) {
   if (distill_output.empty() && !gtk_init_check(nullptr, nullptr)) return 1;
   using namespace apptraverse::ui::linux;
   EnsureLinuxUiPresenterRegistration();
+  gui::EnsureUiRegistration();
   auto environment = distill_output.empty() ? ReadLinuxDeviceEnvironment()
                                             : apptraverse::ui::UiDeviceEnvironment{};
   gui::ConfigureUiFactories(

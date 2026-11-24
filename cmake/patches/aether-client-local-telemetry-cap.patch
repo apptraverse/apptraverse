@@ -1,0 +1,69 @@
+diff --git a/aether/tele_statistics.cpp b/aether/tele_statistics.cpp
+--- a/aether/tele_statistics.cpp
++++ b/aether/tele_statistics.cpp
+@@ -38,6 +38,13 @@ std::optional<std::string_view> Value(std::string_view json,
+ std::optional<std::string> Text(std::string_view json, std::string_view key);
+ }  // namespace telemetry_capture_internal
+ namespace tele_statistics_internal {
++#if defined(AE_TELE_STATISTICS_RAW_CAPACITY) && \
++    defined(APPTRAVERSE_AETHER_TELEMETRY_UPLOAD) && !APPTRAVERSE_AETHER_TELEMETRY_UPLOAD
++constexpr bool kDropOverflow = true;
++#else
++constexpr bool kDropOverflow = false;
++#endif
++
+ bool ValidRecords(std::span<std::uint8_t const> bytes) {
+   auto const decoded = tele::raw::Decode(bytes);
+   return decoded.status == tele::raw::DecodeStatus::kOk &&
+@@ -198,15 +205,17 @@ bool TeleStatisticsBackend::Append(std::string_view space,
+     auto lock = std::scoped_lock{mutex_};
+     forward = forward_;
+     if (forward == nullptr) {
+-      auto const size = tele_statistics_internal::ByteSize(archive_);
+-      if (size > capacity_ || bytes.size() > capacity_ - size) {
+-        return false;
+-      }
+       // Every writer block includes its own time base. A restart or another
+       // writer's append must not depend on a process-local decoder cache.
+       if (!tele_statistics_internal::ValidRecords(bytes)) {
+         return false;
+       }
++      auto const size = tele_statistics_internal::ByteSize(archive_);
++      if (size > capacity_ || bytes.size() > capacity_ - size) {
++        // Local telemetry has a hard budget and no upload to free space.
++        // Drop the whole block so pending writers can detach at shutdown.
++        return tele_statistics_internal::kDropOverflow;
++      }
+       auto [entry, inserted] = archive_.spaces.try_emplace(std::string{space});
+ #if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+       try {
+@@ -341,18 +350,19 @@ bool TeleStatisticsBackend::MergeEarly(
+   }
+   auto const size = tele_statistics_internal::ByteSize(archive_);
+   auto const added = tele_statistics_internal::ByteSize(early->archive_);
+-  if (size > capacity_ || added > capacity_ - size) {
++  if (size <= capacity_ && added <= capacity_ - size) {
++    auto merged = archive_;
++    for (auto const& [name, source] : early->archive_.spaces) {
++      auto& target = merged.spaces[name];
++      target.blocks.insert(target.blocks.end(), source.blocks.begin(),
++                           source.blocks.end());
++      target.environment = source.environment;
++      target.catalog = source.catalog;
++    }
++    archive_.spaces.swap(merged.spaces);
++  } else if (!tele_statistics_internal::kDropOverflow) {
+     return false;
+   }
+-  auto merged = archive_;
+-  for (auto const& [name, source] : early->archive_.spaces) {
+-    auto& target = merged.spaces[name];
+-    target.blocks.insert(target.blocks.end(), source.blocks.begin(),
+-                         source.blocks.end());
+-    target.environment = source.environment;
+-    target.catalog = source.catalog;
+-  }
+-  archive_.spaces.swap(merged.spaces);
+   early->archive_.spaces.clear();
+   early->forward_ = std::move(self);
+   return true;

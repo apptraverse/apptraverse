@@ -86,6 +86,7 @@ int main(int argc, char** argv) {
   if (argc == 3) transport_profile = argv[2];
   CHECK(gtk_init_check(nullptr, nullptr));
   EnsureLinuxUiPresenterRegistration();
+  gui::EnsureUiRegistration();
   auto env = ReadLinuxDeviceEnvironment();
   gui::ConfigureUiFactories(
       {[](ae::Domain& d) {

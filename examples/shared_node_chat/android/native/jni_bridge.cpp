@@ -63,6 +63,8 @@ Java_com_apptraverse_sharedchat_MainActivity_startNative(
     });
     if (!apptraverse::android::RegisterAndroidUiNativeMethods(env))
       std::abort();
+    EnsureAndroidUiPresenterRegistration();
+    gui::EnsureUiRegistration();
   }
   if (session) {
     auto cls = env->GetObjectClass(host.activity);
@@ -99,7 +101,6 @@ Java_com_apptraverse_sharedchat_MainActivity_startNative(
     host.content_root = env->NewGlobalRef(root);
     env->DeleteLocalRef(root);
     env->DeleteLocalRef(cls);
-    EnsureAndroidUiPresenterRegistration();
     auto environment = CaptureAndroidDeviceEnvironment(env, activity);
     gui::ConfigureUiFactories(
         {[](ae::Domain& d) {

@@ -23,6 +23,8 @@ class Session {
   // Capture native settings on the UI thread before Start; the model applies
   // this session's baseline after loading LOCAL and before first publication.
   void PrepareDeviceEnvironment(ui::UiDeviceEnvironment environment);
+  // Entry points register the chat graph and configure their presenter
+  // factories before starting any session.
   void Start();
   void Stop();
   void Checkpoint(std::function<void(bool)> completion);

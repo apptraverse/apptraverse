@@ -147,13 +147,7 @@ struct Session::Impl {
     int result = RunClientLocalApplicationModelSession(
         user, local, backing, Constants(backing), RootId(), runtime,
         [this](auto) {
-          if (stopping.load()) {
-            // Stop still admits transport completions until transport.Stop()
-            // returns. Drain this unused UI snapshot without closing that queue.
-            runtime.TakePublishedCopy();
-            runtime.NotifyPublicationConsumed();
-          } else
-            changed();
+          if (!stopping.load()) changed();
         },
         hooks);
     if (result != 0) Fail("cannot save chat UI LOCAL\n");
@@ -184,7 +178,6 @@ void Session::Start() {
   if (auto uid = std::getenv("APPTRAVERSE_PUSH_SERVICE_UID"))
     ConfigurePush(uid);
 #endif
-  EnsureUiRegistration();
   impl_->started = true;
   impl_->worker = std::thread{[this] { impl_->Run(); }};
   impl_->transport.Start();
@@ -195,7 +188,8 @@ void Session::Stop() {
   // queue before closing acceptance and draining it for the final LOCAL save.
   impl_->runtime.SyncPost([](ae::Domain&) {});
   impl_->transport.Stop();
-  impl_->runtime.RequestStop();
+  // Close submission and release queued UI snapshots together. The GUI no
+  // longer consumes them, but accepted transport completions still drain.
   impl_->runtime.AbandonUnconsumedPublicationsForTeardown();
   impl_->worker.join();
   impl_->ui.reset();

@@ -195,6 +195,12 @@ if(APPTRAVERSE_BUILD_AETHER_LINK)
   endif()
   include(cmake/shared_aether.cmake)
   apptraverse_add_shared_aether()
+  # A combined USER_CONFIG can include SDK configuration constants. Make
+  # those headers available to the codec reader without a transport dependency.
+  get_target_property(_apptraverse_sdk_source apptraverse_shared_aether
+    APPTRAVERSE_SDK_SOURCE_DIR)
+  set_property(SOURCE src/object_storage_compression.cpp APPEND PROPERTY
+    INCLUDE_DIRECTORIES "${_apptraverse_sdk_source}")
   if(MSVC)
     # The pinned SDK's numeric header triggers C4702 in template
     # instantiations; its /WX turns that compiler diagnostic into a build stop.
